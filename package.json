@@ -1,0 +1,14 @@
+{
+  "name": "ospex-functions-helper",
+  "version": "1.0.0",
+  "description": "Helper scripts for Chainlink Functions",
+  "main": "index.js",
+  "scripts": {
+    "encrypt-secrets": "node scripts/encryptSecretsUrl.js"
+  },
+  "dependencies": {
+    "@chainlink/functions-toolkit": "^0.2.8",
+    "dotenv": "^16.3.1",
+    "ethers": "^5.7.2"
+  }
+} 

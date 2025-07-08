@@ -6,9 +6,30 @@ out/
 !/broadcast
 /broadcast/*/31337/
 /broadcast/**/dry-run/
+/broadcast/
 
 # Docs
-docs/
+!docs/
 
 # Dotenv file
 .env
+.env.*
+
+# Outdated files
+archive/
+
+# Dependencies
+lib/
+
+# Original protocol contracts
+src/zzzreference/
+
+# Cursor IDE files
+.cursorrules
+
+# Reference
+reference/
+
+# Scripts (for creating a new secrets file)
+scripts/
+
