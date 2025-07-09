@@ -23,41 +23,20 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
 
-      - name: Debug - Check what's in lib
+      - name: Fix missing submodules
         run: |
-          echo "Contents of lib folder:"
-          ls -la lib/ || echo "lib folder doesn't exist"
-          echo "Current directory:"
-          pwd
-          echo "Contents of current directory:"
-          ls -la
+          git submodule add --force https://github.com/smartcontractkit/chainlink lib/chainlink
+          git submodule add --force https://github.com/smartcontractkit/foundry-chainlink-toolkit lib/foundry-chainlink-toolkit
+          git submodule add --force https://github.com/OpenZeppelin/openzeppelin-contracts lib/openzeppelin-contracts
+          git submodule update --init --recursive
 
-      - name: Debug - Check .gitmodules
+      - name: Verify dependencies
         run: |
-          echo "Contents of .gitmodules:"
-          cat .gitmodules || echo ".gitmodules doesn't exist"
-
-      - name: Debug - Check foundry.toml
-        run: |
-          echo "Contents of foundry.toml:"
-          cat foundry.toml || echo "foundry.toml doesn't exist"
-
-      - name: Install dependencies
-        run: |
-          forge install
-
-      - name: Debug - Check lib after install
-        run: |
-          echo "Contents of lib after forge install:"
+          echo "Contents of lib after fix:"
           ls -la lib/
-          echo "Check if openzeppelin-contracts exists:"
-          ls -la lib/openzeppelin-contracts/ || echo "openzeppelin-contracts not found"
-
-      - name: Show Forge version
-        run: |
-          forge --version
+          echo "Check openzeppelin-contracts:"
+          ls -la lib/openzeppelin-contracts/contracts/token/ERC20/ || echo "Still missing"
 
       - name: Run Forge build
         run: |
           forge build --via-ir --optimize --sizes
-        id: build
