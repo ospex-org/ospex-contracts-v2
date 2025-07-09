@@ -23,53 +23,31 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
 
-      - name: Fix missing submodules with correct versions
+      - name: Clone exact dependencies directly
         run: |
-          # Remove any existing submodules that might be incomplete
+          # Remove any existing lib directories except forge-std
           rm -rf lib/chainlink lib/foundry-chainlink-toolkit lib/openzeppelin-contracts
           
-          # Add chainlink with your exact version
-          git submodule add --force https://github.com/smartcontractkit/chainlink lib/chainlink
+          # Clone chainlink directly to the exact commit you have locally
+          git clone https://github.com/smartcontractkit/chainlink lib/chainlink
           cd lib/chainlink
-          git checkout v2.20.0
-          cd ../..
-          
-          # Add other dependencies
-          git submodule add --force https://github.com/smartcontractkit/foundry-chainlink-toolkit lib/foundry-chainlink-toolkit  
-          git submodule add --force https://github.com/OpenZeppelin/openzeppelin-contracts lib/openzeppelin-contracts
-          
-          git submodule update --init --recursive
-
-      - name: Fix missing submodules with exact commit hash
-        run: |
-          # Remove any existing submodules that might be incomplete
-          rm -rf lib/chainlink lib/foundry-chainlink-toolkit lib/openzeppelin-contracts
-          
-          # Add chainlink and checkout your exact commit
-          git submodule add --force https://github.com/smartcontractkit/chainlink lib/chainlink
-          cd lib/chainlink
-          # Fetch all tags and branches first
-          git fetch --all --tags
-          # Use your exact commit hash
           git checkout 0f769bbc0e
           cd ../..
           
-          # Add other dependencies
-          git submodule add --force https://github.com/smartcontractkit/foundry-chainlink-toolkit lib/foundry-chainlink-toolkit  
-          git submodule add --force https://github.com/OpenZeppelin/openzeppelin-contracts lib/openzeppelin-contracts
-          
-          git submodule update --init --recursive
+          # Clone other dependencies
+          git clone https://github.com/smartcontractkit/foundry-chainlink-toolkit lib/foundry-chainlink-toolkit
+          git clone https://github.com/OpenZeppelin/openzeppelin-contracts lib/openzeppelin-contracts
 
-      - name: Debug what we actually got
+      - name: Verify dependencies are installed
         run: |
-          echo "Chainlink version:"
-          cd lib/chainlink && git log -1 --oneline && cd ../..
-          echo "Available tags:"
-          cd lib/chainlink && git tag | grep v2.20 && cd ../..
-          echo "Check directory structure:"
-          find lib/chainlink -name "FunctionsClient.sol" -type f || echo "FunctionsClient.sol not found anywhere"
-          echo "Check what's in contracts dir:"
-          ls -la lib/chainlink/contracts/ || echo "contracts dir doesn't exist"
+          echo "Verifying chainlink files exist:"
+          ls -la lib/chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol
+          ls -la lib/chainlink/contracts/src/v0.8/functions/v1_0_0/libraries/FunctionsRequest.sol
+          echo "Dependencies installed successfully!"
+
+      - name: Show Forge version
+        run: |
+          forge --version
 
       - name: Run Forge build
         run: |
