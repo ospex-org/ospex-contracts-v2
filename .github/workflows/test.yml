@@ -40,13 +40,36 @@ jobs:
           
           git submodule update --init --recursive
 
-      - name: Verify chainlink structure
+      - name: Fix missing submodules with exact commit hash
+        run: |
+          # Remove any existing submodules that might be incomplete
+          rm -rf lib/chainlink lib/foundry-chainlink-toolkit lib/openzeppelin-contracts
+          
+          # Add chainlink and checkout your exact commit
+          git submodule add --force https://github.com/smartcontractkit/chainlink lib/chainlink
+          cd lib/chainlink
+          # Fetch all tags and branches first
+          git fetch --all --tags
+          # Use your exact commit hash
+          git checkout 0f769bbc0e
+          cd ../..
+          
+          # Add other dependencies
+          git submodule add --force https://github.com/smartcontractkit/foundry-chainlink-toolkit lib/foundry-chainlink-toolkit  
+          git submodule add --force https://github.com/OpenZeppelin/openzeppelin-contracts lib/openzeppelin-contracts
+          
+          git submodule update --init --recursive
+
+      - name: Debug what we actually got
         run: |
           echo "Chainlink version:"
           cd lib/chainlink && git log -1 --oneline && cd ../..
-          echo "Check if the required files exist:"
-          ls -la lib/chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol
-          ls -la lib/chainlink/contracts/src/v0.8/functions/v1_0_0/libraries/FunctionsRequest.sol
+          echo "Available tags:"
+          cd lib/chainlink && git tag | grep v2.20 && cd ../..
+          echo "Check directory structure:"
+          find lib/chainlink -name "FunctionsClient.sol" -type f || echo "FunctionsClient.sol not found anywhere"
+          echo "Check what's in contracts dir:"
+          ls -la lib/chainlink/contracts/ || echo "contracts dir doesn't exist"
 
       - name: Run Forge build
         run: |
