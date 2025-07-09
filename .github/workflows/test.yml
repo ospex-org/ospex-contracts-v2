@@ -23,20 +23,37 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
 
-      - name: Fix missing submodules
+      - name: Fix missing submodules with correct versions
         run: |
+          # Remove any existing submodules that might be incomplete
+          rm -rf lib/chainlink lib/foundry-chainlink-toolkit lib/openzeppelin-contracts
+          
+          # Add chainlink with your exact version
           git submodule add --force https://github.com/smartcontractkit/chainlink lib/chainlink
-          git submodule add --force https://github.com/smartcontractkit/foundry-chainlink-toolkit lib/foundry-chainlink-toolkit
+          cd lib/chainlink
+          git checkout v2.20.0
+          cd ../..
+          
+          # Add other dependencies
+          git submodule add --force https://github.com/smartcontractkit/foundry-chainlink-toolkit lib/foundry-chainlink-toolkit  
           git submodule add --force https://github.com/OpenZeppelin/openzeppelin-contracts lib/openzeppelin-contracts
+          
           git submodule update --init --recursive
 
-      - name: Verify dependencies
+      - name: Verify chainlink structure
         run: |
-          echo "Contents of lib after fix:"
-          ls -la lib/
-          echo "Check openzeppelin-contracts:"
-          ls -la lib/openzeppelin-contracts/contracts/token/ERC20/ || echo "Still missing"
+          echo "Chainlink version:"
+          cd lib/chainlink && git log -1 --oneline && cd ../..
+          echo "Check if the required files exist:"
+          ls -la lib/chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol
+          ls -la lib/chainlink/contracts/src/v0.8/functions/v1_0_0/libraries/FunctionsRequest.sol
 
       - name: Run Forge build
         run: |
           forge build --via-ir --optimize --sizes
+        id: build
+
+      - name: Run Forge tests
+        run: |
+          forge test -vvv --via-ir --optimize
+        id: test
