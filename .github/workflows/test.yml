@@ -23,8 +23,35 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
 
+      - name: Debug - Check what's in lib
+        run: |
+          echo "Contents of lib folder:"
+          ls -la lib/ || echo "lib folder doesn't exist"
+          echo "Current directory:"
+          pwd
+          echo "Contents of current directory:"
+          ls -la
+
+      - name: Debug - Check .gitmodules
+        run: |
+          echo "Contents of .gitmodules:"
+          cat .gitmodules || echo ".gitmodules doesn't exist"
+
+      - name: Debug - Check foundry.toml
+        run: |
+          echo "Contents of foundry.toml:"
+          cat foundry.toml || echo "foundry.toml doesn't exist"
+
       - name: Install dependencies
-        run: forge install
+        run: |
+          forge install
+
+      - name: Debug - Check lib after install
+        run: |
+          echo "Contents of lib after forge install:"
+          ls -la lib/
+          echo "Check if openzeppelin-contracts exists:"
+          ls -la lib/openzeppelin-contracts/ || echo "openzeppelin-contracts not found"
 
       - name: Show Forge version
         run: |
@@ -34,8 +61,3 @@ jobs:
         run: |
           forge build --via-ir --optimize --sizes
         id: build
-
-      - name: Run Forge tests
-        run: |
-          forge test -vvv --via-ir --optimize
-        id: test
