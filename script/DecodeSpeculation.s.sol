@@ -50,7 +50,6 @@ contract DecodeSpeculation is Script {
         console.log("Scorer:", speculation.speculationScorer);
 
         console.log("\n-- Timestamps & Numbers --");
-        console.log("Start Timestamp:", speculation.startTimestamp);
         console.log(
             "The Number (Line/Spread/Total):",
             int256(speculation.theNumber)

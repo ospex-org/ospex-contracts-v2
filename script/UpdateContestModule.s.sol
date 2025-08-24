@@ -18,6 +18,7 @@ contract UpdateContestModule is Script {
     struct ModuleConfig {
         address ospexCoreAddress;
         bytes32 createContestSourceHash;
+        bytes32 updateContestMarketsSourceHash;
     }
 
     function run() external {
@@ -27,7 +28,8 @@ contract UpdateContestModule is Script {
         // Configuration - UPDATE THESE VALUES AS NEEDED
         ModuleConfig memory config = ModuleConfig({
             ospexCoreAddress: vm.envOr("OSPEX_CORE_ADDRESS", 0x8A583cc9282CC6dC735389d2Ca7Ea7Df3A2D3f7b), // Your deployed core address
-            createContestSourceHash: 0x74533c92d0380a7aa2c8d597453cdcea7350344971be3df02623fe339002f9ab // Update if needed
+            createContestSourceHash: 0x74533c92d0380a7aa2c8d597453cdcea7350344971be3df02623fe339002f9ab, // Update if needed
+            updateContestMarketsSourceHash: 0x74533c92d0380a7aa2c8d597453cdcea7350344971be3df02623fe339002f9ab // TODO: update this
         });
 
         // Validate configuration
@@ -57,7 +59,8 @@ contract UpdateContestModule is Script {
         
         ContestModule newContestModule = new ContestModule(
             config.ospexCoreAddress,
-            config.createContestSourceHash
+            config.createContestSourceHash,
+            config.updateContestMarketsSourceHash
         );
         
         address moduleAddress = address(newContestModule);
@@ -117,7 +120,8 @@ contract UpdateContestModule is Script {
     function getConfigFromEnv() internal view returns (ModuleConfig memory) {
         return ModuleConfig({
             ospexCoreAddress: vm.envAddress("OSPEX_CORE_ADDRESS"),
-            createContestSourceHash: vm.envBytes32("CREATE_CONTEST_SOURCE_HASH")
+            createContestSourceHash: vm.envBytes32("CREATE_CONTEST_SOURCE_HASH"),
+            updateContestMarketsSourceHash: vm.envBytes32("UPDATE_CONTEST_MARKETS_SOURCE_HASH")
         });
     }
 } 

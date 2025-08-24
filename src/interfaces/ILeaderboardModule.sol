@@ -2,11 +2,13 @@
 pragma solidity ^0.8.19;
 
 import {IModule} from "./IModule.sol";
-import {PositionType, Leaderboard, LeaderboardPosition, LeagueId, LeaderboardSpeculation, LeaderboardScoring} from "../core/OspexTypes.sol";
-
-// TODO: Import or define Leaderboard, LeaderboardPosition, etc.
+import {PositionType, Leaderboard, LeaderboardPosition, LeagueId, LeaderboardScoring} from "../core/OspexTypes.sol";
 
 interface ILeaderboardModule is IModule {
+    function s_leaderboardSpeculationRegistered(
+        uint256 leaderboardId,
+        uint256 speculationId
+    ) external view returns (bool);
 
     function createLeaderboard(
         uint256 entryFee,
@@ -18,19 +20,9 @@ interface ILeaderboardModule is IModule {
         uint32 claimWindow
     ) external returns (uint256 leaderboardId);
 
-    function createLeaderboardSpeculation(
-        uint256 contestId,
-        uint256 speculationId,
-        uint64 upperOdds,
-        uint64 lowerOdds,
-        int32 theNumber
-    ) external;
-
-    function updateLeaderboardSpeculation(
-        uint256 speculationId,
-        uint64 upperOdds,
-        uint64 lowerOdds,
-        int32 theNumber
+    function addLeaderboardSpeculation(
+        uint256 leaderboardId,
+        uint256 speculationId
     ) external;
 
     function registerUser(
@@ -69,13 +61,19 @@ interface ILeaderboardModule is IModule {
         uint256 speculationId
     ) external view returns (LeaderboardPosition memory);
 
-    function getLeaderboardSpeculation(
-        uint256 speculationId
-    ) external view returns (LeaderboardSpeculation memory);
-
     // Explicit getters for LeaderboardScoring fields (cannot return struct with mappings)
-    function getUserROI(uint256 leaderboardId, address user) external view returns (int256);
-    function getWinners(uint256 leaderboardId) external view returns (address[] memory);
-    function getHighestROI(uint256 leaderboardId) external view returns (int256);
-    function hasClaimed(uint256 leaderboardId, address user) external view returns (bool);
+    function getUserROI(
+        uint256 leaderboardId,
+        address user
+    ) external view returns (int256);
+    function getWinners(
+        uint256 leaderboardId
+    ) external view returns (address[] memory);
+    function getHighestROI(
+        uint256 leaderboardId
+    ) external view returns (int256);
+    function hasClaimed(
+        uint256 leaderboardId,
+        address user
+    ) external view returns (bool);
 }

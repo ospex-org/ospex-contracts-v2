@@ -33,17 +33,17 @@ interface ISpeculationModule is IModule {
     /**
      * @notice Creates a new speculation (betting market) for a contest
      * @param contestId The ID of the contest
-     * @param startTimestamp The start timestamp of the speculation (UTC seconds)
      * @param scorer The address of the scorer contract for this speculation
      * @param theNumber The line/spread/total number for the speculation
+     * @param speculationCreator The address of the speculation creator
      * @param leaderboardId The leaderboard ID (where the fee will be allocated)
      * @return speculationId The ID of the newly created speculation
      */
     function createSpeculation(
         uint256 contestId,
-        uint32 startTimestamp,
         address scorer,
         int32 theNumber,
+        address speculationCreator,
         uint256 leaderboardId
     ) external returns (uint256 speculationId);
 

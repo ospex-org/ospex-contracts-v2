@@ -4,8 +4,9 @@ pragma solidity ^0.8.19;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ITreasuryModule} from "../interfaces/ITreasuryModule.sol";
+import {ILeaderboardModule} from "../interfaces/ILeaderboardModule.sol";
 import {OspexCore} from "../core/OspexCore.sol";
-import {FeeType} from "../core/OspexTypes.sol";
+import {FeeType, Leaderboard} from "../core/OspexTypes.sol";
 
 /**
  * @title TreasuryModule
@@ -47,32 +48,26 @@ contract TreasuryModule is ITreasuryModule {
 
     // --- Events ---
     /**
-     * @notice Emitted when a fee is handled
+     * @notice Comprehensive event emitted when any fee is processed
      * @param payer The address that paid the fee
      * @param feeType The type of fee
-     * @param amount The amount of fee
-     * @param protocolCut The protocol cut
-     * @param leaderboardId The leaderboard ID
+     * @param totalAmount The total fee amount
+     * @param protocolCut The amount that went to protocol receiver
+     * @param leaderboardId The intended leaderboard ID
+     * @param leaderboardAllocation The amount allocated to leaderboard (0 if invalid)
+     * @param protocolFallback The additional amount sent to protocol due to invalid leaderboard
+     * @param leaderboardValid Whether the leaderboard was valid
      */
-    event FeeHandled(
+    event FeeProcessed(
         address indexed payer,
-        FeeType feeType,
-        uint256 amount,
+        FeeType indexed feeType,
+        uint256 totalAmount,
         uint256 protocolCut,
-        uint256 leaderboardId
+        uint256 indexed leaderboardId,
+        uint256 leaderboardAllocation,
+        uint256 protocolFallback,
+        bool leaderboardValid
     );
-    /**
-     * @notice Emitted when protocol cut is transferred
-     * @param receiver The address that received the protocol cut
-     * @param amount The amount of protocol cut
-     */
-    event ProtocolCutTransferred(address indexed receiver, uint256 amount);
-    /**
-     * @notice Emitted when a prize pool is funded
-     * @param leaderboardId The leaderboard ID
-     * @param amount The amount of prize pool funded
-     */
-    event PrizePoolFunded(uint256 indexed leaderboardId, uint256 amount);
     /**
      * @notice Emitted when a fee rate is set
      * @param feeType The type of fee
@@ -105,10 +100,13 @@ contract TreasuryModule is ITreasuryModule {
     /// @notice Modifier to ensure only the OspexCore contract can call the function
     /// @dev This is to prevent any module from calling the TreasuryModule directly
     modifier onlyCore() {
-        if (msg.sender != address(i_ospexCore)) revert TreasuryModule__NotCore();
+        if (msg.sender != address(i_ospexCore))
+            revert TreasuryModule__NotCore();
         _;
     }
 
+    /// @notice Modifier to ensure only the admin can call the function
+    /// @dev This is to prevent any module from calling the TreasuryModule directly
     modifier onlyAdmin() {
         if (
             !i_ospexCore.hasRole(i_ospexCore.DEFAULT_ADMIN_ROLE(), msg.sender)
@@ -152,7 +150,7 @@ contract TreasuryModule is ITreasuryModule {
      * @param feeType The type of fee
      * @param leaderboardId The leaderboard ID
      */
-    function handleFee(
+    function processFee(
         address payer,
         uint256 amount,
         FeeType feeType,
@@ -166,38 +164,65 @@ contract TreasuryModule is ITreasuryModule {
         }
 
         if (amount == 0) revert TreasuryModule__InvalidAllocation();
-        
-        // Validate leaderboard exists
-        if (feeType == FeeType.LeaderboardEntry && leaderboardId == 0) {
-            revert TreasuryModule__InvalidAllocation();
-        }
 
         // Calculate protocol cut
         uint256 protocolCut = (amount * s_protocolCutBps) / MAX_BPS;
         uint256 remaining = amount - protocolCut;
 
+        // Initialize tracking variables - default to protocol fallback
+        uint256 leaderboardAllocation = 0;
+        uint256 protocolFallback = remaining; // Default: send to protocol
+        bool leaderboardValid = false;
+
         // Transfer fee from payer
         i_token.safeTransferFrom(payer, address(this), amount);
+
         // Transfer protocol cut
         if (protocolCut > 0) {
             i_token.safeTransfer(s_protocolReceiver, protocolCut);
-            emit ProtocolCutTransferred(s_protocolReceiver, protocolCut);
-            i_ospexCore.emitCoreEvent(
-                keccak256("PROTOCOL_CUT_TRANSFERRED"),
-                abi.encode(s_protocolReceiver, protocolCut)
-            );
         }
-        // Allocate to leaderboard
-        s_leaderboardPrizePools[leaderboardId] += remaining;
-        emit PrizePoolFunded(leaderboardId, remaining);
-        i_ospexCore.emitCoreEvent(
-            keccak256("PRIZE_POOL_FUNDED"),
-            abi.encode(leaderboardId, remaining)
+
+        // Check if leaderboard is valid and allocate accordingly
+        Leaderboard memory leaderboard = ILeaderboardModule(
+            i_ospexCore.getModule(keccak256("LEADERBOARD_MODULE"))
+        ).getLeaderboard(leaderboardId);
+
+        if (leaderboard.startTime > 0 && leaderboardId > 0) {
+            // Valid leaderboard - override default fallback behavior
+            leaderboardValid = true;
+            leaderboardAllocation = remaining;
+            protocolFallback = 0; // Reset since we're allocating to leaderboard
+            s_leaderboardPrizePools[leaderboardId] += remaining;
+        }
+        // Invalid/missing leaderboard: keep default protocol fallback
+
+        // Send remaining funds to protocol if not allocated to leaderboard
+        if (protocolFallback > 0) {
+            i_token.safeTransfer(s_protocolReceiver, protocolFallback);
+        }
+
+        emit FeeProcessed(
+            payer,
+            feeType,
+            amount,
+            protocolCut,
+            leaderboardId,
+            leaderboardAllocation,
+            protocolFallback,
+            leaderboardValid
         );
-        emit FeeHandled(payer, feeType, amount, protocolCut, leaderboardId);
         i_ospexCore.emitCoreEvent(
-            keccak256("FEE_HANDLED"),
-            abi.encode(payer, feeType, amount, protocolCut, leaderboardId)
+            keccak256("FEE_PROCESSED"),
+            abi.encode(
+                payer,
+                feeType,
+                amount,
+                protocolCut,
+                leaderboardId,
+                leaderboardAllocation,
+                protocolFallback,
+                leaderboardValid
+            )
         );
     }
 

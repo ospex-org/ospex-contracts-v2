@@ -14,10 +14,6 @@ contract SpeculationModule is ISpeculationModule {
     // --- Custom Errors ---
     /// @notice Error for calling the module from non-authorized address
     error SpeculationModule__NotAuthorized(address caller);
-    /// @notice Error for calling the module from non-authorized address
-    error SpeculationModule__NotOracleModule(address caller);
-    /// @notice Error for invalid start timestamp
-    error SpeculationModule__InvalidStartTimestamp();
     /// @notice Error for already settled speculation
     error SpeculationModule__AlreadySettled();
     /// @notice Error for speculation not started
@@ -30,6 +26,8 @@ contract SpeculationModule is ISpeculationModule {
     error SpeculationModule__SpeculationNotOpen();
     /// @notice Error for contest not finalized
     error SpeculationModule__ContestNotFinalized(uint256 contestId);
+    /// @notice Error for contest not verified
+    error SpeculationModule__ContestNotVerified();
     /// @notice Error for minimum above maximum
     error SpeculationModule__MinAboveMax(uint256 minAmount, uint256 maxAmount);
     /// @notice Error for maximum below minimum
@@ -38,8 +36,6 @@ contract SpeculationModule is ISpeculationModule {
     error SpeculationModule__NotAdmin(address admin);
     /// @notice Error for invalid address
     error SpeculationModule__InvalidAddress();
-    /// @notice Error for invalid leaderboard ids
-    error SpeculationModule__InvalidLeaderboardIds();
     /// @notice Error for module not set
     error SpeculationModule__ModuleNotSet(bytes32 moduleType);
 
@@ -73,18 +69,16 @@ contract SpeculationModule is ISpeculationModule {
      * @notice Event for speculation creation
      * @param speculationId The ID of the speculation
      * @param contestId The ID of the contest
-     * @param creator The creator of the speculation
      * @param scorer The scorer of the speculation
      * @param theNumber The number of the speculation
-     * @param startTimestamp The start timestamp of the speculation
+     * @param speculationCreator The creator of the speculation
      */
     event SpeculationCreated(
         uint256 indexed speculationId,
-        uint256 contestId,
-        address indexed creator,
+        uint256 indexed contestId,
         address scorer,
         int32 theNumber,
-        uint32 startTimestamp
+        address speculationCreator
     );
 
     /**
@@ -106,7 +100,7 @@ contract SpeculationModule is ISpeculationModule {
      */
     event SpeculationForfeited(
         uint256 indexed speculationId,
-        address indexed forfeiter
+        address forfeiter
     );
 
     /**
@@ -138,16 +132,6 @@ contract SpeculationModule is ISpeculationModule {
             SpeculationStatus.Open
         ) {
             revert SpeculationModule__SpeculationNotOpen();
-        }
-        _;
-    }
-
-    /**
-     * @notice Modifier to ensure the caller is the OracleModule
-     */
-    modifier onlyOracleModule() {
-        if (msg.sender != _getModule(keccak256("ORACLE_MODULE"))) {
-            revert SpeculationModule__NotOracleModule(msg.sender);
         }
         _;
     }
@@ -192,24 +176,25 @@ contract SpeculationModule is ISpeculationModule {
     /**
      * @notice Creates a speculation
      * @param contestId The ID of the contest
-     * @param startTimestamp The start timestamp of the speculation
      * @param scorer The scorer of the speculation
      * @param theNumber The number of the speculation
+     * @param speculationCreator The creator of the speculation
      * @param leaderboardId The leaderboard ID (where the fee will be allocated)
      * @return speculationId The ID of the speculation
      */
     function createSpeculation(
         uint256 contestId,
-        uint32 startTimestamp,
         address scorer,
         int32 theNumber,
+        address speculationCreator,
         uint256 leaderboardId
-    ) external override onlyOracleModule returns (uint256) {
+    ) external override returns (uint256) {
         // Charge the speculation creation fee
-        uint256 feeAmount = ITreasuryModule(_getModule(keccak256("TREASURY_MODULE")))
-            .getFeeRate(FeeType.SpeculationCreation);
+        uint256 feeAmount = ITreasuryModule(
+            _getModule(keccak256("TREASURY_MODULE"))
+        ).getFeeRate(FeeType.SpeculationCreation);
         if (feeAmount > 0) {
-            i_ospexCore.handleFee(
+            i_ospexCore.processFee(
                 msg.sender,
                 feeAmount,
                 FeeType.SpeculationCreation,
@@ -217,26 +202,30 @@ contract SpeculationModule is ISpeculationModule {
             );
         }
 
-        if (startTimestamp <= uint32(block.timestamp)) {
-            revert SpeculationModule__InvalidStartTimestamp();
+        // Validate contest exists and is verified
+        Contest memory contest = IContestModule(
+            _getModule(keccak256("CONTEST_MODULE"))
+        ).getContest(contestId);
+        if (contest.contestStatus == ContestStatus.Unverified) {
+            revert SpeculationModule__ContestNotVerified();
         }
+
         uint256 speculationId = s_speculationIdCounter++;
         s_speculations[speculationId] = Speculation({
             contestId: contestId,
-            startTimestamp: startTimestamp,
             speculationScorer: scorer,
             theNumber: theNumber,
-            speculationCreator: msg.sender,
+            speculationCreator: speculationCreator,
             speculationStatus: SpeculationStatus.Open,
             winSide: WinSide.TBD
         });
+
         emit SpeculationCreated(
             speculationId,
             contestId,
-            msg.sender,
             scorer,
             theNumber,
-            startTimestamp
+            speculationCreator
         );
         // Emit protocol-wide core event
         i_ospexCore.emitCoreEvent(
@@ -244,10 +233,9 @@ contract SpeculationModule is ISpeculationModule {
             abi.encode(
                 speculationId,
                 contestId,
-                msg.sender,
                 scorer,
                 theNumber,
-                startTimestamp
+                speculationCreator
             )
         );
         return speculationId;
@@ -259,14 +247,20 @@ contract SpeculationModule is ISpeculationModule {
      */
     function settleSpeculation(uint256 speculationId) external override {
         Speculation storage s = s_speculations[speculationId];
-        if (uint32(block.timestamp) < s.startTimestamp) {
+
+        // Get contest start time for timing validation
+        uint32 contestStartTime = IContestModule(
+            _getModule(keccak256("CONTEST_MODULE"))
+        ).s_contestStartTimes(s.contestId);
+
+        if (uint32(block.timestamp) < contestStartTime) {
             revert SpeculationModule__SpeculationNotStarted();
         }
         if (s.speculationStatus == SpeculationStatus.Closed) {
             revert SpeculationModule__AlreadySettled();
         }
         // Auto-void if voidCooldown has passed
-        if (uint32(block.timestamp) >= s.startTimestamp + s_voidCooldown) {
+        if (uint32(block.timestamp) >= contestStartTime + s_voidCooldown) {
             s.speculationStatus = SpeculationStatus.Closed;
             s.winSide = WinSide.Void;
             emit SpeculationSettled(
@@ -282,8 +276,10 @@ contract SpeculationModule is ISpeculationModule {
             return;
         }
 
-        // 1. Get contest status from ContestModule
-        Contest memory contest = IContestModule(_getModule(keccak256("CONTEST_MODULE"))).getContest(s.contestId);
+        // Get contest status from ContestModule
+        Contest memory contest = IContestModule(
+            _getModule(keccak256("CONTEST_MODULE"))
+        ).getContest(s.contestId);
         if (
             !(contest.contestStatus == ContestStatus.Scored ||
                 contest.contestStatus == ContestStatus.ScoredManually)
@@ -291,15 +287,12 @@ contract SpeculationModule is ISpeculationModule {
             revert SpeculationModule__ContestNotFinalized(s.contestId);
         }
 
-        // 2. Call the scorer module
+        // Call the scorer module
         IScorerModule scorer = IScorerModule(s.speculationScorer);
         s.winSide = scorer.determineWinSide(s.contestId, s.theNumber);
         s.speculationStatus = SpeculationStatus.Closed;
 
-        // 3. Emit event
         emit SpeculationSettled(speculationId, s.winSide, s.speculationScorer);
-
-        // 4. Emit protocol-wide core event
         i_ospexCore.emitCoreEvent(
             keccak256("SPECULATION_SETTLED"),
             abi.encode(speculationId, s.winSide, s.speculationScorer)
@@ -317,7 +310,13 @@ contract SpeculationModule is ISpeculationModule {
             revert SpeculationModule__NotAuthorized(msg.sender);
         }
         Speculation storage s = s_speculations[speculationId];
-        if (s.startTimestamp + s_voidCooldown > uint32(block.timestamp)) {
+
+        // Get contest start time for timing validation
+        uint32 contestStartTime = IContestModule(
+            _getModule(keccak256("CONTEST_MODULE"))
+        ).s_contestStartTimes(s.contestId);
+
+        if (contestStartTime + s_voidCooldown > uint32(block.timestamp)) {
             revert SpeculationModule__VoidCooldownNotMet();
         }
         s.speculationStatus = SpeculationStatus.Closed;

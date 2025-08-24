@@ -18,8 +18,8 @@ import {
     LeagueId,
     PositionType,
     Leaderboard,
-    LeaderboardSpeculation,
     Contest,
+    ContestMarket,
     ContestStatus,
     Speculation,
     SpeculationStatus,
@@ -106,10 +106,18 @@ contract RulesModuleTest is Test {
         });
         mockContestModule.setContest(contestId, contest);
 
+        // Set up contest market data for validation tests
+        ContestMarket memory market = ContestMarket({
+            theNumber: 150,        // Market spread/total number
+            upperOdds: 18_000_000, // 1.8 odds for Upper
+            lowerOdds: 12_000_000, // 1.2 odds for Lower  
+            lastUpdated: uint32(block.timestamp)
+        });
+        mockContestModule.setContestMarket(contestId, mockScorer, market);
+
         // Set up a basic speculation
         Speculation memory speculation = Speculation({
             contestId: contestId,
-            startTimestamp: uint32(block.timestamp + 1 hours),
             speculationScorer: mockScorer,
             theNumber: 150, // +1.5 spread
             speculationCreator: admin,
@@ -130,15 +138,9 @@ contract RulesModuleTest is Test {
             CLAIM_WINDOW
         );
 
-        // Create LeaderboardSpeculation (as oracle module - test contract is registered as oracle)
-        // This provides market odds/numbers for RulesModule validation
-        leaderboardModule.createLeaderboardSpeculation(
-            contestId,
-            speculationId,
-            18_000_000, // 1.80 upper odds (Away/Over)
-            12_000_000, // 1.20 lower odds (Home/Under)  
-            -3_5000000  // -3.5 market number
-        );
+        // Add speculation to leaderboard for rules validation
+        vm.prank(admin);
+        leaderboardModule.addLeaderboardSpeculation(leaderboardId, speculationId);
     }
 
     // --- Constructor Tests ---
@@ -500,7 +502,6 @@ contract RulesModuleTest is Test {
     // --- Comprehensive Validation Tests ---
     function testValidateLeaderboardPosition_Success() public {
         _setupCompleteRules();
-        _setupLeaderboardSpeculation();
         
         // Move to leaderboard active period
         vm.warp(block.timestamp + 2 hours);
@@ -530,7 +531,6 @@ contract RulesModuleTest is Test {
 
     function testValidateLeaderboardPosition_FailsOutsideTimeWindow() public {
         _setupCompleteRules();
-        _setupLeaderboardSpeculation();
         
         // Before leaderboard starts
         assertFalse(rulesModule.validateLeaderboardPosition(
@@ -558,7 +558,6 @@ contract RulesModuleTest is Test {
 
     function testValidateLeaderboardPosition_FailsInvalidBetAmount() public {
         _setupCompleteRules();
-        _setupLeaderboardSpeculation();
         vm.warp(block.timestamp + 2 hours);
         
         // Bet too small (below 1% of bankroll)
@@ -586,12 +585,12 @@ contract RulesModuleTest is Test {
 
     function testValidateLeaderboardPosition_FailsSpeculationNotRegistered() public {
         _setupCompleteRules();
-        // Don't setup leaderboard speculation
+        // Don't setup leaderboard speculation - use unregistered speculation ID
         vm.warp(block.timestamp + 2 hours);
         
         assertFalse(rulesModule.validateLeaderboardPosition(
             leaderboardId,
-            speculationId,
+            speculationId + 1, // Use speculation ID 2 which is not registered
             5_000_000,
             DECLARED_BANKROLL,
             150,
@@ -602,7 +601,6 @@ contract RulesModuleTest is Test {
 
     function testValidateLeaderboardPosition_FailsNumberDeviation() public {
         _setupCompleteRules();
-        _setupLeaderboardSpeculation();
         vm.warp(block.timestamp + 2 hours);
         
         // Number too far from market (market is 150, max deviation is 150)
@@ -619,7 +617,6 @@ contract RulesModuleTest is Test {
 
     function testValidateLeaderboardPosition_FailsOddsEnforcement() public {
         _setupCompleteRules();
-        _setupLeaderboardSpeculation();
         vm.warp(block.timestamp + 2 hours);
         
         // Odds too good (market 1.8, max allowed ~2.25, user wants 3.0)
@@ -787,22 +784,5 @@ contract RulesModuleTest is Test {
             MAX_DEVIATION
         );
         vm.stopPrank();
-    }
-
-    function _setupLeaderboardSpeculation() internal {
-        LeaderboardSpeculation memory lbSpec = LeaderboardSpeculation({
-            contestId: contestId,
-            speculationId: speculationId,
-            upperOdds: 18_000_000, // 1.8
-            lowerOdds: 12_000_000, // 1.2
-            theNumber: 150 // +1.5
-        });
-        
-        // Mock the leaderboard module to return this speculation
-        vm.mockCall(
-            address(leaderboardModule),
-            abi.encodeWithSignature("getLeaderboardSpeculation(uint256)", speculationId),
-            abi.encode(lbSpec)
-        );
     }
 }

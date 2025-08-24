@@ -9,7 +9,7 @@ contract DecodeContest is Script {
     address constant CONTEST_MODULE = 0x336EfaBe3a35121BF5B74B19be169901642830eF;
     
     function run() external view {
-        uint256 contestId = vm.envOr("CONTEST_ID", uint256(39));
+        uint256 contestId = vm.envOr("CONTEST_ID", uint256(56));
         
         ContestModule contestModule = ContestModule(CONTEST_MODULE);
         Contest memory contest = contestModule.getContest(contestId);

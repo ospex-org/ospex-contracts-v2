@@ -80,6 +80,22 @@ contract PositionModuleTest is Test {
         // Register this test contract as ORACLE_MODULE so it can call createSpeculation
         core.registerModule(keccak256("ORACLE_MODULE"), address(this));
         
+        // Set up default verified contests for all tests
+        Contest memory defaultContest = Contest({
+            awayScore: 0,
+            homeScore: 0,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Verified, // Set the contest as verified
+            contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, defaultContest);
+        mockContestModule.setContest(2, defaultContest); // Add contest ID 2 for multi-contest tests
+        mockContestModule.setContest(3, defaultContest); // Add contest ID 3 for safety
+        
         // DO NOT set min/max speculation amounts here. They are set in the SpeculationModule constructor.
     }
 
@@ -101,12 +117,12 @@ contract PositionModuleTest is Test {
     }
 
     function testCreateUnmatchedPair_HappyPath() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 1_000_000);
@@ -134,12 +150,12 @@ contract PositionModuleTest is Test {
     }
 
     function testCreateUnmatchedPair_RevertsOnInvalidOdds() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 1_000_000);
@@ -160,12 +176,12 @@ contract PositionModuleTest is Test {
     }
 
     function testCreateUnmatchedPair_RevertsIfPositionAlreadyExists() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 2_000_000); // Approve enough for two positions
@@ -201,9 +217,9 @@ contract PositionModuleTest is Test {
 
         uint256 specId = speculationModule.createSpeculation(
             1,
-            startTime,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -242,12 +258,12 @@ contract PositionModuleTest is Test {
     }
 
     function testCreateUnmatchedPair_RevertsOnAmountOutOfRange() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 1);
@@ -263,12 +279,12 @@ contract PositionModuleTest is Test {
     }
 
     function testAdjustUnmatchedPair_HappyPath() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 2_000_000);
@@ -305,12 +321,12 @@ contract PositionModuleTest is Test {
     }
 
     function testAdjustUnmatchedPair_RevertsIfReduceAmountTooHigh() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 2 * 1_000_000);
@@ -354,12 +370,12 @@ contract PositionModuleTest is Test {
     }
 
     function testAdjustUnmatchedPair_RevertsIfUnmatchedAmountZero() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 2 * 1_000_000);
@@ -412,12 +428,12 @@ contract PositionModuleTest is Test {
     }
 
     function testAdjustUnmatchedPair_RevertsIfAmountExceedsMax() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 3 * 1_000_000);
@@ -468,9 +484,9 @@ contract PositionModuleTest is Test {
 
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 1_000_000);
@@ -522,12 +538,12 @@ contract PositionModuleTest is Test {
     }
 
     function testAdjustUnmatchedPair_HappyPathReduce() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 2 * 1_000_000);
@@ -561,12 +577,12 @@ contract PositionModuleTest is Test {
     }
 
     function testAdjustUnmatchedPair_HappyPathAddReduceAdd() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 4 * 1_000_000);
@@ -616,12 +632,12 @@ contract PositionModuleTest is Test {
     }
 
     function testAdjustUnmatchedPair_RevertsIfPositionDoesNotExist() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
         uint128 oddsPairId = positionModule.getOrCreateOddsPairId(
@@ -651,9 +667,9 @@ contract PositionModuleTest is Test {
 
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(mockScorer), // Use our mock scorer instead of 0x1234
             42,
+            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 1_000_000);
@@ -704,12 +720,12 @@ contract PositionModuleTest is Test {
     }
 
     function testCompleteUnmatchedPair_HappyPath() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
         address taker = address(0xCAFE);
@@ -770,12 +786,12 @@ contract PositionModuleTest is Test {
     }
 
     function testTransferPosition_HappyPath() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
         uint256 tokenUnit = 10_000_000; // 10 USDC
@@ -842,12 +858,12 @@ contract PositionModuleTest is Test {
     }
 
     function testTransferPosition_RevertsIfUnauthorized() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
         uint256 tokenUnit = 10_000_000; // 10 USDC
@@ -900,12 +916,12 @@ contract PositionModuleTest is Test {
     }
 
     function testTransferPosition_RevertsIfInvalidAmount() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
         uint256 tokenUnit = 10_000_000; // 10 USDC
@@ -1005,9 +1021,9 @@ contract PositionModuleTest is Test {
 
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 1_000_000);
@@ -1054,6 +1070,8 @@ contract PositionModuleTest is Test {
 
     // --- PAYOUT CALCULATION EDGE CASES ---
     function testClaimPosition_PushVoidForfeit() public {
+        uint32 futureTime = uint32(block.timestamp + 1 hours);
+        uint32 futureTime2 = uint32(block.timestamp + 2 hours);
         // Use MockSpeculationModule for this test
         MockSpeculationModule mockSpeculationModule = new MockSpeculationModule(
             address(core),
@@ -1081,13 +1099,13 @@ contract PositionModuleTest is Test {
         emit log_named_uint("[Push] block.timestamp after warp", block.timestamp);
 
         // Test Push scenario
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+
         emit log_named_uint("[Push] futureTime (startTimestamp)", futureTime);
         uint256 specIdPush = mockSpeculationModule.createSpeculation(
             1, // contestId 1
-            futureTime,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
         token.approve(address(localPositionModule), 1_000_000);
@@ -1135,13 +1153,13 @@ contract PositionModuleTest is Test {
         // Reset time for Void scenario
         vm.warp(1672531200 + 1 days); // Jan 2, 2023
         emit log_named_uint("[Void] block.timestamp after warp", block.timestamp);
-        uint32 futureTime2 = uint32(block.timestamp + 1 hours); // Calculate AFTER warp
+        futureTime2 = uint32(block.timestamp + 1 hours); // Calculate AFTER warp
         emit log_named_uint("[Void] futureTime2 (startTimestamp)", futureTime2);
         uint256 specIdVoid = mockSpeculationModule.createSpeculation(
             2, // contestId 2
-            futureTime2, // Use the correctly calculated future time
             address(mockScorer),
             43,
+            address(this),
             leaderboardId
         );
         token.approve(address(localPositionModule), 1_000_000);
@@ -1184,6 +1202,7 @@ contract PositionModuleTest is Test {
     }
 
     function testClaimPosition_WinLossScenarios() public {
+        uint32 futureTime = uint32(block.timestamp + 1 hours);
         // Use MockSpeculationModule for this test
         MockSpeculationModule mockSpeculationModule = new MockSpeculationModule(
             address(core),
@@ -1205,12 +1224,12 @@ contract PositionModuleTest is Test {
         // Create mock scorer
         MockScorerModule mockScorer = new MockScorerModule();
 
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+
         uint256 specId = mockSpeculationModule.createSpeculation(
             1,
-            futureTime,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
         uint256 tokenUnit = 10_000_000; // 10 USDC
@@ -1365,6 +1384,7 @@ contract PositionModuleTest is Test {
     }
 
     function testClaimPosition_LoserWithUnmatchedAmount() public {
+        uint32 futureTime = uint32(block.timestamp + 1 hours);
         // Use MockSpeculationModule for this test
         MockSpeculationModule mockSpeculationModule = new MockSpeculationModule(
             address(core),
@@ -1386,12 +1406,12 @@ contract PositionModuleTest is Test {
         // Create mock scorer
         MockScorerModule mockScorer = new MockScorerModule();
 
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+
         uint256 specId = mockSpeculationModule.createSpeculation(
             1,
-            futureTime,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
         uint256 makerAmount = 10_000_000; // 10 USDC
@@ -1471,9 +1491,9 @@ contract PositionModuleTest is Test {
         // Create a speculation with future timestamp
         uint256 specId = speculationModule.createSpeculation(
             1,
-            uint32(block.timestamp + 1 hours),
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -1501,9 +1521,9 @@ contract PositionModuleTest is Test {
         uint32 expiry = uint32(block.timestamp + 1 hours);
         uint256 specId = speculationModule.createSpeculation(
             1,
-            expiry + 1 hours,
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 1_000_000);
@@ -1544,9 +1564,9 @@ contract PositionModuleTest is Test {
         uint32 expiry = uint32(block.timestamp + 1 hours);
         uint256 specId = speculationModule.createSpeculation(
             1,
-            expiry + 1 hours,
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 1_000_000);
@@ -1586,9 +1606,9 @@ contract PositionModuleTest is Test {
         uint32 expiry = uint32(block.timestamp + 1 hours);
         uint256 specId = speculationModule.createSpeculation(
             1,
-            expiry + 1 hours,
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -1676,9 +1696,9 @@ contract PositionModuleTest is Test {
 
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 1_000_000);
@@ -1725,12 +1745,12 @@ contract PositionModuleTest is Test {
     }
 
     function testCompleteUnmatchedPairBatch_HappyPath() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
         address taker = address(0xCAFE);
@@ -1837,12 +1857,12 @@ contract PositionModuleTest is Test {
     function testCompleteUnmatchedPairBatch_RevertsOnArrayLengthMismatch()
         public
     {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
         address[] memory makers = new address[](2);
@@ -1872,12 +1892,12 @@ contract PositionModuleTest is Test {
     }
 
     function testCompleteUnmatchedPairBatch_RevertsIfOneFails() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+
         uint256 specId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(0x1234),
             42,
+            address(this),
             leaderboardId
         );
         address taker = address(0xCAFE);

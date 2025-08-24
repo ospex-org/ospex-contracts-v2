@@ -4,20 +4,39 @@ pragma solidity ^0.8.19;
 import "forge-std/Test.sol";
 import {ContestModule} from "../../src/modules/ContestModule.sol";
 import {TreasuryModule} from "../../src/modules/TreasuryModule.sol";
-import {Contest, ContestStatus, FeeType, LeagueId} from "../../src/core/OspexTypes.sol";
+import {Contest, ContestMarket, ContestStatus, FeeType, LeagueId, Leaderboard} from "../../src/core/OspexTypes.sol";
 import {OspexCore} from "../../src/core/OspexCore.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
+
+// Simple mock for leaderboard validation in processFee
+contract MockLeaderboardModule {
+    mapping(uint256 => Leaderboard) private leaderboards;
+
+    function setLeaderboard(uint256 leaderboardId, Leaderboard memory leaderboard) external {
+        leaderboards[leaderboardId] = leaderboard;
+    }
+
+    function getLeaderboard(uint256 leaderboardId) external view returns (Leaderboard memory) {
+        return leaderboards[leaderboardId];
+    }
+}
 
 contract ContestModuleTest is Test {
     ContestModule contestModule;
     TreasuryModule treasuryModule;
     OspexCore core;
     MockERC20 mockToken;
+    MockLeaderboardModule mockLeaderboardModule;
     address oracleModule = address(0xBEEF);
     address scoreManager = address(0xCAFE);
     address notOracle = address(0xBAD);
     address contestCreator = address(0x123);
     address admin = address(0x1234);
+    
+    // Mock scorer addresses for updateContestMarkets tests
+    address moneylineScorer = address(0xAAA1);
+    address spreadScorer = address(0xAAA2);
+    address totalScorer = address(0xAAA3);
 
     // Leaderboard Id and allocations set to 0 for testing
     uint256 leaderboardId = 0;
@@ -38,11 +57,20 @@ contract ContestModuleTest is Test {
         treasuryModule = new TreasuryModule(address(core), address(mockToken), address(0x2));
         core.registerModule(keccak256("TREASURY_MODULE"), address(treasuryModule));
         // Deploy and register Contest Module
-        contestModule = new ContestModule(address(core), bytes32("hash"));
+        contestModule = new ContestModule(address(core), bytes32("hash"), bytes32("markets_hash"));
         core.registerModule(
             keccak256("CONTEST_MODULE"),
             address(contestModule)
         );
+
+        // Deploy and register MockLeaderboardModule for processFee validation
+        mockLeaderboardModule = new MockLeaderboardModule();
+        core.registerModule(keccak256("LEADERBOARD_MODULE"), address(mockLeaderboardModule));
+        
+        // Register mock scorer modules for updateContestMarkets tests
+        core.registerModule(keccak256("MONEYLINE_SCORER"), moneylineScorer);
+        core.registerModule(keccak256("SPREAD_SCORER"), spreadScorer);
+        core.registerModule(keccak256("TOTAL_SCORER"), totalScorer);
         
         // Grant admin role to admin account
         core.grantRole(core.DEFAULT_ADMIN_ROLE(), admin);
@@ -53,7 +81,7 @@ contract ContestModuleTest is Test {
         vm.expectRevert(
             ContestModule.ContestModule__InvalidCoreAddress.selector
         );
-        new ContestModule(address(0), bytes32("hash"));
+        new ContestModule(address(0), bytes32("hash"), bytes32("markets_hash"));
     }
 
     function testGetModuleType() public view {
@@ -353,7 +381,7 @@ contract ContestModuleTest is Test {
         vm.expectCall(
             address(treasuryModule),
             abi.encodeWithSelector(
-                treasuryModule.handleFee.selector,
+                treasuryModule.processFee.selector,
                 contestCreator,
                 fee,
                 FeeType.ContestCreation,
@@ -415,5 +443,225 @@ contract ContestModuleTest is Test {
         );
         vm.prank(admin);
         contestModule.setCreateContestSourceHash(invalidHash);
+    }
+
+    // --- Update Contest Markets Tests ---
+    function testUpdateContestMarkets_Success() public {
+        uint256 contestId = 1;
+        
+        // Test values for all three markets
+        uint64 moneylineAwayOdds = 15_000_000; // 1.5
+        uint64 moneylineHomeOdds = 25_000_000; // 2.5
+        int32 spreadNumber = -350; // -3.5 point spread
+        uint64 spreadAwayOdds = 18_000_000; // 1.8
+        uint64 spreadHomeOdds = 22_000_000; // 2.2
+        int32 totalNumber = 22500; // 225.0 total points
+        uint64 overOdds = 19_000_000; // 1.9
+        uint64 underOdds = 21_000_000; // 2.1
+        
+        // Expect the ContestMarketsUpdated event
+        vm.expectEmit(true, true, true, true);
+        emit ContestModule.ContestMarketsUpdated(
+            contestId,
+            uint32(block.timestamp),
+            spreadNumber,
+            totalNumber,
+            moneylineAwayOdds,
+            moneylineHomeOdds,
+            spreadAwayOdds,
+            spreadHomeOdds,
+            overOdds,
+            underOdds
+        );
+        
+        // Call from oracle module
+        vm.prank(oracleModule);
+        contestModule.updateContestMarkets(
+            contestId,
+            moneylineAwayOdds,
+            moneylineHomeOdds,
+            spreadNumber,
+            spreadAwayOdds,
+            spreadHomeOdds,
+            totalNumber,
+            overOdds,
+            underOdds
+        );
+        
+        // Verify all three markets were updated correctly
+        ContestMarket memory moneylineMarket = contestModule.getContestMarket(contestId, moneylineScorer);
+        assertEq(moneylineMarket.theNumber, 0); // Moneyline always has theNumber = 0
+        assertEq(moneylineMarket.upperOdds, moneylineAwayOdds);
+        assertEq(moneylineMarket.lowerOdds, moneylineHomeOdds);
+        assertEq(moneylineMarket.lastUpdated, uint32(block.timestamp));
+        
+        ContestMarket memory spreadMarket = contestModule.getContestMarket(contestId, spreadScorer);
+        assertEq(spreadMarket.theNumber, spreadNumber);
+        assertEq(spreadMarket.upperOdds, spreadAwayOdds);
+        assertEq(spreadMarket.lowerOdds, spreadHomeOdds);
+        assertEq(spreadMarket.lastUpdated, uint32(block.timestamp));
+        
+        ContestMarket memory totalMarket = contestModule.getContestMarket(contestId, totalScorer);
+        assertEq(totalMarket.theNumber, totalNumber);
+        assertEq(totalMarket.upperOdds, overOdds);
+        assertEq(totalMarket.lowerOdds, underOdds);
+        assertEq(totalMarket.lastUpdated, uint32(block.timestamp));
+    }
+    
+    function testUpdateContestMarkets_RevertsIfNotOracleModule() public {
+        // Expect revert when called by non-oracle module
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ContestModule.ContestModule__NotOracleModule.selector,
+                notOracle
+            )
+        );
+        vm.prank(notOracle);
+        contestModule.updateContestMarkets(
+            1,
+            15_000_000, // moneylineAwayOdds
+            25_000_000, // moneylineHomeOdds
+            -350,       // spreadNumber
+            18_000_000, // spreadAwayOdds
+            22_000_000, // spreadHomeOdds
+            22500,      // totalNumber
+            19_000_000, // overOdds
+            21_000_000  // underOdds
+        );
+    }
+    
+    function testUpdateContestMarkets_HandlesEdgeCaseValues() public {
+        uint256 contestId = 2;
+        
+        // Test with edge case values
+        uint64 veryLowOdds = 10_500_000; // 1.05 (very low)
+        uint64 veryHighOdds = 50_000_000; // 5.0 (high)
+        int32 negativeSpread = -1500; // -15.0 points
+        int32 highTotal = 50000; // 500.0 points
+        
+        vm.prank(oracleModule);
+        contestModule.updateContestMarkets(
+            contestId,
+            veryLowOdds,    // moneylineAwayOdds
+            veryHighOdds,   // moneylineHomeOdds
+            negativeSpread, // spreadNumber
+            veryLowOdds,    // spreadAwayOdds
+            veryHighOdds,   // spreadHomeOdds
+            highTotal,      // totalNumber
+            veryLowOdds,    // overOdds
+            veryHighOdds    // underOdds
+        );
+        
+        // Verify edge case values were stored correctly
+        ContestMarket memory spreadMarket = contestModule.getContestMarket(contestId, spreadScorer);
+        assertEq(spreadMarket.theNumber, negativeSpread);
+        assertEq(spreadMarket.upperOdds, veryLowOdds);
+        assertEq(spreadMarket.lowerOdds, veryHighOdds);
+        
+        ContestMarket memory totalMarket = contestModule.getContestMarket(contestId, totalScorer);
+        assertEq(totalMarket.theNumber, highTotal);
+    }
+
+    // --- Set Update Contest Markets Source Hash Tests ---
+    function testSetUpdateContestMarketsSourceHash_OnlyAdmin() public {
+        bytes32 newHash = bytes32("new_update_hash");
+        bytes32 oldHash = contestModule.s_updateContestMarketsSourceHash();
+        
+        // Expect the UpdateContestMarketsSourceHashSet event
+        vm.expectEmit(true, true, true, true);
+        emit ContestModule.UpdateContestMarketsSourceHashSet(oldHash, newHash);
+        
+        // Test successful update by admin
+        vm.prank(admin);
+        contestModule.setUpdateContestMarketsSourceHash(newHash);
+        
+        // Verify the hash was updated
+        assertEq(contestModule.s_updateContestMarketsSourceHash(), newHash);
+    }
+
+    function testSetUpdateContestMarketsSourceHash_RevertsIfNotAdmin() public {
+        bytes32 newHash = bytes32("new_update_hash");
+        
+        // Expect revert when called by non-admin
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ContestModule.ContestModule__NotAdmin.selector,
+                notOracle
+            )
+        );
+        vm.prank(notOracle);
+        contestModule.setUpdateContestMarketsSourceHash(newHash);
+    }
+
+    function testSetUpdateContestMarketsSourceHash_RevertsIfInvalidHash() public {
+        bytes32 invalidHash = bytes32(0);
+        
+        // Expect revert when hash is zero
+        vm.expectRevert(
+            ContestModule.ContestModule__InvalidUpdateContestMarketsSourceHash.selector
+        );
+        vm.prank(admin);
+        contestModule.setUpdateContestMarketsSourceHash(invalidHash);
+    }
+
+    // --- Get Contest Market Tests ---
+    function testGetContestMarket_ReturnsCorrectData() public {
+        uint256 contestId = 1;
+        
+        // First update markets with known values
+        vm.prank(oracleModule);
+        contestModule.updateContestMarkets(
+            contestId,
+            16_000_000, // moneylineAwayOdds
+            24_000_000, // moneylineHomeOdds
+            -250,       // spreadNumber (-2.5)
+            17_000_000, // spreadAwayOdds
+            23_000_000, // spreadHomeOdds
+            21000,      // totalNumber (210.0)
+            18_000_000, // overOdds
+            22_000_000  // underOdds
+        );
+        
+        // Test all three market retrievals
+        ContestMarket memory moneylineMarket = contestModule.getContestMarket(contestId, moneylineScorer);
+        assertEq(moneylineMarket.theNumber, 0); // Moneyline always 0
+        assertEq(moneylineMarket.upperOdds, 16_000_000);
+        assertEq(moneylineMarket.lowerOdds, 24_000_000);
+        assertEq(moneylineMarket.lastUpdated, uint32(block.timestamp));
+        
+        ContestMarket memory spreadMarket = contestModule.getContestMarket(contestId, spreadScorer);
+        assertEq(spreadMarket.theNumber, -250);
+        assertEq(spreadMarket.upperOdds, 17_000_000);
+        assertEq(spreadMarket.lowerOdds, 23_000_000);
+        assertEq(spreadMarket.lastUpdated, uint32(block.timestamp));
+        
+        ContestMarket memory totalMarket = contestModule.getContestMarket(contestId, totalScorer);
+        assertEq(totalMarket.theNumber, 21000);
+        assertEq(totalMarket.upperOdds, 18_000_000);
+        assertEq(totalMarket.lowerOdds, 22_000_000);
+        assertEq(totalMarket.lastUpdated, uint32(block.timestamp));
+    }
+
+    function testGetContestMarket_ReturnsEmptyForNonExistentMarket() public {
+        uint256 nonExistentContestId = 999;
+        address unknownScorer = address(0x999);
+        
+        // Should return empty ContestMarket struct
+        ContestMarket memory market = contestModule.getContestMarket(nonExistentContestId, unknownScorer);
+        assertEq(market.theNumber, 0);
+        assertEq(market.upperOdds, 0);
+        assertEq(market.lowerOdds, 0);
+        assertEq(market.lastUpdated, 0);
+    }
+
+    function testGetContestMarket_ReturnsEmptyForUnsetMarket() public {
+        uint256 contestId = 1;
+        
+        // Get market before any updates (should be empty)
+        ContestMarket memory market = contestModule.getContestMarket(contestId, spreadScorer);
+        assertEq(market.theNumber, 0);
+        assertEq(market.upperOdds, 0);
+        assertEq(market.lowerOdds, 0);
+        assertEq(market.lastUpdated, 0);
     }
 }

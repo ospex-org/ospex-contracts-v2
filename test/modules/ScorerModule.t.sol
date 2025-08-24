@@ -77,9 +77,9 @@ contract ScorerModuleTest is Test {
         uint256 contestId = _storeContest(_contest(10, 5, ContestStatus.Scored));
         uint256 speculationId = speculationModule.createSpeculation(
             contestId,
-            uint32(block.timestamp + 1),
             address(moneyline),
             0,
+            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);
@@ -91,9 +91,9 @@ contract ScorerModuleTest is Test {
         uint256 contestId = _storeContest(_contest(3, 7, ContestStatus.Scored));
         uint256 speculationId = speculationModule.createSpeculation(
             contestId,
-            uint32(block.timestamp + 1),
             address(moneyline),
             0,
+            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);
@@ -105,9 +105,9 @@ contract ScorerModuleTest is Test {
         uint256 contestId = _storeContest(_contest(8, 8, ContestStatus.Scored));
         uint256 speculationId = speculationModule.createSpeculation(
             contestId,
-            uint32(block.timestamp + 1),
             address(moneyline),
             0,
+            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);
@@ -155,9 +155,9 @@ contract ScorerModuleTest is Test {
         int32 spreadNum = 3;
         uint256 speculationId = speculationModule.createSpeculation(
             contestId,
-            uint32(block.timestamp + 1),
             address(spread),
             spreadNum,
+            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);
@@ -171,9 +171,9 @@ contract ScorerModuleTest is Test {
         int32 spreadNum = 3;
         uint256 speculationId = speculationModule.createSpeculation(
             contestId,
-            uint32(block.timestamp + 1),
             address(spread),
             spreadNum,
+            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);
@@ -187,9 +187,9 @@ contract ScorerModuleTest is Test {
         int32 spreadNum = -4;
         uint256 speculationId = speculationModule.createSpeculation(
             contestId,
-            uint32(block.timestamp + 1),
             address(spread),
             spreadNum,
+            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);
@@ -203,9 +203,9 @@ contract ScorerModuleTest is Test {
         int32 spreadNum = -4;
         uint256 speculationId = speculationModule.createSpeculation(
             contestId,
-            uint32(block.timestamp + 1),
             address(spread),
             spreadNum,
+            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);
@@ -219,9 +219,9 @@ contract ScorerModuleTest is Test {
         int32 spreadNum = 2;
         uint256 speculationId = speculationModule.createSpeculation(
             contestId,
-            uint32(block.timestamp + 1),
             address(spread),
             spreadNum,
+            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);
@@ -247,9 +247,9 @@ contract ScorerModuleTest is Test {
         int32 totalNum = 24;
         uint256 speculationId = speculationModule.createSpeculation(
             contestId,
-            uint32(block.timestamp + 1),
             address(total),
             totalNum,
+            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);
@@ -262,9 +262,9 @@ contract ScorerModuleTest is Test {
         int32 totalNum = 20;
         uint256 speculationId = speculationModule.createSpeculation(
             contestId,
-            uint32(block.timestamp + 1),
             address(total),
             totalNum,
+            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);
@@ -277,9 +277,9 @@ contract ScorerModuleTest is Test {
         int32 totalNum = 20;
         uint256 speculationId = speculationModule.createSpeculation(
             contestId,
-            uint32(block.timestamp + 1),
             address(total),
             totalNum,
+            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);

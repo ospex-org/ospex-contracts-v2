@@ -100,6 +100,20 @@ contract SecondaryMarketModuleTest is Test {
             address(mockContestModule)
         );
         
+        // Set up a verified contest for speculation creation
+        Contest memory contest = Contest({
+            awayScore: 0,
+            homeScore: 0,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Verified,
+            contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, contest);
+        
         // Deploy secondary market module
         market = new SecondaryMarketModule(
             address(core),
@@ -124,12 +138,11 @@ contract SecondaryMarketModuleTest is Test {
         
         // Seller creates a speculation (need to call as oracle module)
         vm.startPrank(address(oracleModule));
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
         speculationId = speculationModule.createSpeculation(
             1, // contestId
-            futureTime,
             address(0xBEEF), // scorer
             42, // theNumber
+            address(oracleModule), // speculationCreator
             leaderboardId
         );
         vm.stopPrank();
@@ -412,12 +425,11 @@ contract SecondaryMarketModuleTest is Test {
         
         // Create a new speculation with the mock scorer (need to call as oracle module)
         vm.startPrank(address(oracleModule));
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
         uint256 testSpecId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(mockScorer),
             42,
+            address(oracleModule), // speculationCreator
             leaderboardId
         );
         vm.stopPrank();
@@ -461,8 +473,8 @@ contract SecondaryMarketModuleTest is Test {
         );
         vm.stopPrank();
         
-        // Warp to after speculation start time
-        vm.warp(futureTime + 1);
+        // Warp to after speculation start time (speculation no longer has timestamp)
+        vm.warp(block.timestamp + 1 hours);
 
         // Setup contest for settlement
         Contest memory contest = Contest({

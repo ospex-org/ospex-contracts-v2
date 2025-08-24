@@ -5,6 +5,7 @@ pragma solidity ^0.8.19;
 // [NOTE] All odds in this file use 1e7 precision: 1.10 = 11_000_000, 1.80 = 18_000_000, etc.
 
 import "forge-std/Test.sol";
+import "forge-std/console.sol";
 import {LeaderboardModule} from "../../src/modules/LeaderboardModule.sol";
 import {RulesModule} from "../../src/modules/RulesModule.sol";
 import {TreasuryModule} from "../../src/modules/TreasuryModule.sol";
@@ -18,7 +19,6 @@ import {MockScorerModule} from "../mocks/MockScorerModule.sol";
 import {
     Leaderboard, 
     LeaderboardPosition, 
-    LeaderboardSpeculation,
     PositionType, 
     FeeType,
     Contest,
@@ -235,127 +235,51 @@ contract LeaderboardModuleTest is Test {
     }
 
     // --- Leaderboard Speculation Tests ---
-    function testCreateLeaderboardSpeculation_Success() public {
-        vm.prank(oracleModule);
-        vm.expectEmit(true, true, true, true);
-        emit LeaderboardModule.LeaderboardSpeculationCreated(
-            contestId,
-            speculationId,
-            18_000_000, // 1.8 odds
-            12_000_000, // 1.2 odds
-            150 // +1.5 spread
+    function testAddLeaderboardSpeculation_Success() public {
+        vm.prank(admin);
+        vm.expectEmit();
+        emit LeaderboardModule.LeaderboardSpeculationAdded(
+            leaderboardId,
+            speculationId
         );
         
-        leaderboardModule.createLeaderboardSpeculation(
-            contestId,
-            speculationId,
-            18_000_000,
-            12_000_000,
-            150
+        leaderboardModule.addLeaderboardSpeculation(
+            leaderboardId,
+            speculationId
         );
         
-        LeaderboardSpeculation memory lbSpec = leaderboardModule.getLeaderboardSpeculation(speculationId);
-        assertEq(lbSpec.contestId, contestId);
-        assertEq(lbSpec.speculationId, speculationId);
-        assertEq(lbSpec.upperOdds, 18_000_000);
-        assertEq(lbSpec.lowerOdds, 12_000_000);
-        assertEq(lbSpec.theNumber, 150);
+        // Verify the speculation is registered for the leaderboard
+        bool isRegistered = leaderboardModule.s_leaderboardSpeculationRegistered(leaderboardId, speculationId);
+        assertTrue(isRegistered);
     }
 
-    function testCreateLeaderboardSpeculation_RevertsIfNotOracle() public {
+    function testAddLeaderboardSpeculation_RevertsIfNotAdmin() public {
         vm.prank(nonAdmin);
-        vm.expectRevert(abi.encodeWithSelector(LeaderboardModule.LeaderboardModule__NotOracleModule.selector, nonAdmin));
-        leaderboardModule.createLeaderboardSpeculation(
-            contestId,
-            speculationId,
-            18_000_000,
-            12_000_000,
-            150
+        vm.expectRevert(abi.encodeWithSelector(LeaderboardModule.LeaderboardModule__NotAdmin.selector, nonAdmin));
+        leaderboardModule.addLeaderboardSpeculation(
+            leaderboardId,
+            speculationId
         );
     }
 
-    function testCreateLeaderboardSpeculation_RevertsIfAlreadyExists() public {
-        // Create first
-        vm.prank(oracleModule);
-        leaderboardModule.createLeaderboardSpeculation(
-            contestId,
-            speculationId,
-            18_000_000,
-            12_000_000,
-            150
+    function testAddLeaderboardSpeculation_RevertsIfAlreadyExists() public {
+        // Add first
+        vm.prank(admin);
+        leaderboardModule.addLeaderboardSpeculation(
+            leaderboardId,
+            speculationId
         );
         
-        // Try to create again
-        vm.prank(oracleModule);
-        vm.expectRevert(abi.encodeWithSelector(LeaderboardModule.LeaderboardModule__LeaderboardSpeculationAlreadyExists.selector, speculationId));
-        leaderboardModule.createLeaderboardSpeculation(
-            contestId,
-            speculationId,
-            19_000_000,
-            11_000_000,
-            175
+        // Try to add again
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(LeaderboardModule.LeaderboardModule__SpeculationAlreadyExists.selector, speculationId));
+        leaderboardModule.addLeaderboardSpeculation(
+            leaderboardId,
+            speculationId
         );
     }
 
-    // --- Update Leaderboard Speculation Tests ---
-    function testUpdateLeaderboardSpeculation_Success() public {
-        // Create first
-        vm.prank(oracleModule);
-        leaderboardModule.createLeaderboardSpeculation(
-            contestId,
-            speculationId,
-            18_000_000,
-            12_000_000,
-            150
-        );
-        
-        // Update
-        vm.prank(oracleModule);
-        vm.expectEmit(true, true, true, true);
-        emit LeaderboardModule.LeaderboardSpeculationUpdated(
-            contestId,
-            speculationId,
-            19_000_000, // new odds
-            11_000_000, // new odds
-            175 // new number
-        );
-        
-        leaderboardModule.updateLeaderboardSpeculation(
-            speculationId,
-            19_000_000,
-            11_000_000,
-            175
-        );
-        
-        LeaderboardSpeculation memory lbSpec = leaderboardModule.getLeaderboardSpeculation(speculationId);
-        assertEq(lbSpec.contestId, contestId); // unchanged
-        assertEq(lbSpec.speculationId, speculationId); // unchanged
-        assertEq(lbSpec.upperOdds, 19_000_000); // updated
-        assertEq(lbSpec.lowerOdds, 11_000_000); // updated
-        assertEq(lbSpec.theNumber, 175); // updated
-    }
 
-    function testUpdateLeaderboardSpeculation_RevertsIfNotOracle() public {
-        vm.prank(nonAdmin);
-        vm.expectRevert(abi.encodeWithSelector(LeaderboardModule.LeaderboardModule__NotOracleModule.selector, nonAdmin));
-        leaderboardModule.updateLeaderboardSpeculation(
-            speculationId,
-            19_000_000,
-            11_000_000,
-            175
-        );
-    }
-
-    function testUpdateLeaderboardSpeculation_RevertsIfNotFound() public {
-        vm.prank(oracleModule);
-        vm.expectRevert(abi.encodeWithSelector(LeaderboardModule.LeaderboardModule__LeaderboardSpeculationNotFound.selector, speculationId));
-        leaderboardModule.updateLeaderboardSpeculation(
-            speculationId,
-            19_000_000,
-            11_000_000,
-            175
-        );
-    }
 
     // --- Register User Tests ---
     function testRegisterUser_Success() public {
@@ -517,14 +441,7 @@ contract LeaderboardModuleTest is Test {
         assertEq(lb.prizePool, 0);
     }
 
-    function testGetLeaderboardSpeculation_ReturnsEmptyForNonExistent() public view {
-        LeaderboardSpeculation memory lbSpec = leaderboardModule.getLeaderboardSpeculation(999);
-        assertEq(lbSpec.speculationId, 0);
-        assertEq(lbSpec.contestId, 0);
-        assertEq(lbSpec.upperOdds, 0);
-        assertEq(lbSpec.lowerOdds, 0);
-        assertEq(lbSpec.theNumber, 0);
-    }
+
 
     function testGetLeaderboardPosition_ReturnsEmptyForNonExistent() public view {
         LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(leaderboardId, user1, speculationId);
@@ -618,7 +535,7 @@ contract LeaderboardModuleTest is Test {
         
         vm.prank(user1);
         vm.expectEmit(true, true, true, true);
-        emit LeaderboardModule.PositionAddedToLeaderboard(
+        emit LeaderboardModule.LeaderboardPositionAdded(
             speculationId,
             user1,
             50_000_000, // 50 USDC
@@ -756,7 +673,7 @@ contract LeaderboardModuleTest is Test {
         
         vm.prank(user1);
         vm.expectEmit(true, true, true, true);
-        emit LeaderboardModule.PositionUpdatedInLeaderboard(
+        emit LeaderboardModule.LeaderboardPositionUpdated(
             speculationId,
             user1,
             100_000_000,
@@ -840,14 +757,11 @@ contract LeaderboardModuleTest is Test {
     }
 
     function _setupPositionAndSpeculation() internal {
-        // Create leaderboard speculation
-        vm.prank(oracleModule);
-        leaderboardModule.createLeaderboardSpeculation(
-            contestId,
-            speculationId,
-            18_000_000, // 1.8 odds
-            12_000_000, // 1.2 odds
-            150 // +1.5 spread
+        // Add speculation to leaderboard
+        vm.prank(admin);
+        leaderboardModule.addLeaderboardSpeculation(
+            leaderboardId,
+            speculationId
         );
     }
 
@@ -878,10 +792,12 @@ contract LeaderboardModuleTest is Test {
             address(speculationModule),
             abi.encodeWithSignature("getSpeculation(uint256)"),
             abi.encode(
-                contestId,
-                150, // theNumber
-                admin, // speculationScorer
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                contestId,          // contestId
+                admin,              // speculationScorer
+                int32(0),           // theNumber
+                address(0),         // speculationCreator
+                uint8(0),           // speculationStatus = Open
+                uint8(0)            // winSide = TBD
             )
         );
     }
@@ -992,7 +908,6 @@ contract LeaderboardModuleTest is Test {
             abi.encodeWithSignature("getSpeculation(uint256)"),
             abi.encode(
                 contestId,          // contestId
-                uint32(150),        // startTimestamp
                 admin,              // speculationScorer
                 int32(0),           // theNumber
                 address(0),         // speculationCreator
@@ -1128,10 +1043,15 @@ contract LeaderboardModuleTest is Test {
     }
 
     function testAdminSweep_RevertsNoUnclaimedPrizes() public {
+        console.log("=== Starting testAdminSweep_RevertsNoUnclaimedPrizes ===");
+        
+        console.log("Setting up leaderboard with winner...");
         _setupLeaderboardWithWinner();
+        console.log("Setup complete");
         
         // Warp to claim window and have user claim
         vm.warp(block.timestamp + 15 days);
+        console.log("Warped to claim window");
         
         vm.mockCall(
             address(treasuryModule),
@@ -1139,8 +1059,10 @@ contract LeaderboardModuleTest is Test {
             abi.encode()
         );
         
+        console.log("About to claim leaderboard prize...");
         vm.prank(user1);
         leaderboardModule.claimLeaderboardPrize(leaderboardId);
+        console.log("Prize claimed successfully");
         
         // Now try admin sweep - should fail as no unclaimed prizes
         vm.warp(block.timestamp + 50 days);
@@ -1282,7 +1204,14 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(speculationModule),
             abi.encodeWithSignature("getSpeculation(uint256)"),
-            abi.encode(contestId, 150, admin, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+            abi.encode(
+                contestId,          // contestId
+                admin,              // speculationScorer
+                int32(0),           // theNumber
+                address(0),         // speculationCreator
+                uint8(0),           // speculationStatus = Open
+                uint8(0)            // winSide = TBD
+            )
         );
         
         // Mock rules module to cap at 100 USDC
@@ -1324,14 +1253,115 @@ contract LeaderboardModuleTest is Test {
         assertEq(lbPos.amount, 100_000_000); // Should be capped to max
     }
 
+    function testRegisterPositionForLeaderboards_CanRetryAfterZeroMarketOdds() public {
+        _setupUserRegistration();
+        _setupPositionAndSpeculation();
+        _mockPositionModuleCalls();
+        
+        uint256[] memory leaderboardIds = new uint256[](1);
+        leaderboardIds[0] = leaderboardId;
+
+        // ===== PHASE 1: Initial attempt with zero market odds (should fail) =====
+        
+        // Mock rules validation to return FALSE (simulating zero market odds causing validation failure)
+        vm.mockCall(
+            address(rulesModule),
+            abi.encodeWithSignature("getMaxBetAmount(uint256,uint256)"),
+            abi.encode(100_000_000) // 100 USDC max
+        );
+        
+        vm.mockCall(
+            address(rulesModule),
+            abi.encodeWithSignature("getMinBetAmount(uint256,uint256)"),
+            abi.encode(1_000_000) // 1 USDC min
+        );
+        
+        vm.mockCall(
+            address(rulesModule),
+            abi.encodeWithSignature("validateLeaderboardPosition(uint256,uint256,uint256,uint256,int32,uint64,uint8)"),
+            abi.encode(false) // FAILS due to zero market odds
+        );
+
+        // First registration attempt should fail silently (no revert, but nothing gets registered)
+        vm.prank(user1);
+        leaderboardModule.registerPositionForLeaderboards(
+            speculationId,
+            1,
+            PositionType.Upper,
+            leaderboardIds
+        );
+
+        // Verify nothing was registered (should return 0 speculationId)
+        uint256 registeredSpecId1 = leaderboardModule.s_registeredLeaderboardSpeculation(
+            leaderboardId,
+            user1, 
+            contestId,
+            admin // scorer from _setupPositionAndSpeculation
+        );
+        assertEq(registeredSpecId1, 0); // Nothing registered
+
+        // ===== PHASE 2: Market odds become available, retry should succeed =====
+        
+        // Mock rules validation to return TRUE (simulating real market odds now available)
+        vm.mockCall(
+            address(rulesModule),
+            abi.encodeWithSignature("validateLeaderboardPosition(uint256,uint256,uint256,uint256,int32,uint64,uint8)"),
+            abi.encode(true) // NOW PASSES with real market odds
+        );
+
+        // Second registration attempt should succeed
+        vm.prank(user1);
+        vm.expectEmit(true, true, true, true);
+        emit LeaderboardModule.LeaderboardPositionAdded(
+            speculationId,
+            user1,
+            50_000_000, // 50 USDC from _mockPositionModuleCalls
+            PositionType.Upper,
+            leaderboardId
+        );
+        
+        leaderboardModule.registerPositionForLeaderboards(
+            speculationId,
+            1,
+            PositionType.Upper,
+            leaderboardIds
+        );
+
+        // Verify position is now registered
+        uint256 registeredSpecId2 = leaderboardModule.s_registeredLeaderboardSpeculation(
+            leaderboardId,
+            user1, 
+            contestId,
+            admin // scorer
+        );
+        assertEq(registeredSpecId2, speculationId); // Successfully registered
+
+        // Verify the position details
+        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(
+            leaderboardId,
+            user1,
+            speculationId
+        );
+        assertEq(lbPos.amount, 50_000_000);
+        assertEq(lbPos.contestId, contestId);
+        assertEq(lbPos.speculationId, speculationId);
+        assertEq(lbPos.user, user1);
+        assertEq(uint256(lbPos.positionType), uint256(PositionType.Upper));
+    }
+
     // --- Helper Functions for Complex Scenarios ---
     function _setupLeaderboardWithWinner() internal {
+        console.log("Setting up complete leaderboard scenario...");
         _setupCompleteLeaderboardScenario();
+        console.log("Complete leaderboard scenario setup done");
         
         // Submit ROI to make user1 the winner
+        console.log("About to warp and submit ROI...");
         vm.warp(block.timestamp + 10 days);
         vm.prank(user1);
+        console.log("Calling submitLeaderboardROI...");
         leaderboardModule.submitLeaderboardROI(leaderboardId);
+        console.log("ROI submission complete");
     }
 
     function _setupMultipleUsersScenario() internal {
@@ -1373,17 +1403,21 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(speculationModule),
             abi.encodeWithSignature("getSpeculation(uint256)", speculationId2),
-            abi.encode(contestId, 150, admin, uint256(0), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+            abi.encode(
+                contestId,          // contestId
+                admin,              // speculationScorer
+                int32(0),           // theNumber
+                address(0),         // speculationCreator
+                uint8(0),           // speculationStatus = Open
+                uint8(0)            // winSide = TBD
+            )
         );
         
-        // Create leaderboard speculation for user2
-        vm.prank(oracleModule);
-        leaderboardModule.createLeaderboardSpeculation(
-            contestId,
-            speculationId2,
-            18_000_000,
-            12_000_000,
-            150
+        // Add leaderboard speculation for user2
+        vm.prank(admin);
+        leaderboardModule.addLeaderboardSpeculation(
+            leaderboardId,
+            speculationId2
         );
         
         vm.prank(user2);
@@ -1430,7 +1464,6 @@ contract LeaderboardModuleTest is Test {
             abi.encodeWithSignature("getSpeculation(uint256)", 2),
             abi.encode(
                 contestId,          // contestId
-                uint32(150),        // startTimestamp
                 admin,              // speculationScorer
                 int32(0),           // theNumber
                 address(0),         // speculationCreator
@@ -1454,7 +1487,6 @@ contract LeaderboardModuleTest is Test {
             abi.encodeWithSignature("getSpeculation(uint256)", 1),
             abi.encode(
                 contestId,          // contestId
-                uint32(150),        // startTimestamp
                 admin,              // speculationScorer
                 int32(0),           // theNumber
                 address(0),         // speculationCreator
@@ -1469,7 +1501,6 @@ contract LeaderboardModuleTest is Test {
             abi.encodeWithSignature("getSpeculation(uint256)", 2),
             abi.encode(
                 contestId,          // contestId
-                uint32(150),        // startTimestamp
                 admin,              // speculationScorer
                 int32(0),           // theNumber
                 address(0),         // speculationCreator

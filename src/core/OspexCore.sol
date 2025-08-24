@@ -180,14 +180,14 @@ contract OspexCore is AccessControl {
     }
 
     /**
-     * @notice Handles a fee for a given payer, amount, fee type, and leaderboard ID
+     * @notice Processes a fee for a given payer, amount, fee type, and leaderboard ID
      * @dev Only callable by registered modules
      * @param payer The address of the payer
      * @param amount The amount of the fee
      * @param feeType The type of fee
      * @param leaderboardId The ID of the leaderboard
      */
-    function handleFee(
+    function processFee(
         address payer,
         uint256 amount,
         FeeType feeType,
@@ -197,6 +197,11 @@ contract OspexCore is AccessControl {
             revert OspexCore__NotRegisteredModule(msg.sender);
         }
         address treasuryModule = s_moduleRegistry[keccak256("TREASURY_MODULE")];
-        ITreasuryModule(treasuryModule).handleFee(payer, amount, feeType, leaderboardId);
+        ITreasuryModule(treasuryModule).processFee(
+            payer,
+            amount,
+            feeType,
+            leaderboardId
+        );
     }
 }

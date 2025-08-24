@@ -3,12 +3,25 @@ pragma solidity ^0.8.19;
 
 import "forge-std/Test.sol";
 import {SpeculationModule} from "../../src/modules/SpeculationModule.sol";
-import {Speculation, SpeculationStatus, WinSide, Contest, ContestStatus, FeeType, LeagueId} from "../../src/core/OspexTypes.sol";
+import {Speculation, SpeculationStatus, WinSide, Contest, ContestStatus, FeeType, LeagueId, Leaderboard} from "../../src/core/OspexTypes.sol";
 import {OspexCore} from "../../src/core/OspexCore.sol";
 import {MockContestModule} from "../mocks/MockContestModule.sol";
 import {MockScorerModule} from "../mocks/MockScorerModule.sol";
 import {TreasuryModule} from "../../src/modules/TreasuryModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
+
+// Simple mock for leaderboard validation in processFee
+contract MockLeaderboardModule {
+    mapping(uint256 => Leaderboard) private leaderboards;
+
+    function setLeaderboard(uint256 leaderboardId, Leaderboard memory leaderboard) external {
+        leaderboards[leaderboardId] = leaderboard;
+    }
+
+    function getLeaderboard(uint256 leaderboardId) external view returns (Leaderboard memory) {
+        return leaderboards[leaderboardId];
+    }
+}
 
 contract SpeculationModuleTest is Test {
     SpeculationModule speculationModule;
@@ -16,6 +29,7 @@ contract SpeculationModuleTest is Test {
     MockContestModule mockContestModule;
     TreasuryModule treasuryModule;
     MockERC20 mockToken;
+    MockLeaderboardModule mockLeaderboardModule;
     uint8 constant TOKEN_DECIMALS = 6;
     uint256 constant MIN_AMOUNT = 1;
     uint256 constant MAX_AMOUNT = 100;
@@ -52,6 +66,10 @@ contract SpeculationModuleTest is Test {
             address(mockContestModule)
         );
 
+        // Deploy and register MockLeaderboardModule for processFee validation
+        mockLeaderboardModule = new MockLeaderboardModule();
+        core.registerModule(keccak256("LEADERBOARD_MODULE"), address(mockLeaderboardModule));
+
         // Register this test contract as ORACLE_MODULE so it can call createSpeculation
         core.registerModule(keccak256("ORACLE_MODULE"), address(this));
 
@@ -63,6 +81,20 @@ contract SpeculationModuleTest is Test {
         
         // Grant admin role to admin account
         core.grantRole(core.DEFAULT_ADMIN_ROLE(), admin);
+
+        // Set up a default verified contest for all tests
+        Contest memory defaultContest = Contest({
+            awayScore: 0,
+            homeScore: 0,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Verified, // Set as verified so speculations can be created
+            contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, defaultContest);
     }
 
     function testConstructor_SetsDecimalsAndAmounts() public view {
@@ -78,17 +110,16 @@ contract SpeculationModuleTest is Test {
     }
 
     function testCreateSpeculation_Success() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
         uint256 id = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(0xBEEF),
             42,
+            address(this),
             leaderboardId
         );
         Speculation memory s = speculationModule.getSpeculation(id);
         assertEq(s.contestId, 1);
-        assertEq(s.startTimestamp, futureTime);
+        // Note: startTimestamp field removed from Speculation struct
         assertEq(s.speculationScorer, address(0xBEEF));
         assertEq(s.theNumber, 42);
         assertEq(s.speculationCreator, address(this));
@@ -96,30 +127,15 @@ contract SpeculationModuleTest is Test {
         assertEq(uint(s.winSide), uint(WinSide.TBD));
     }
 
-    function testCreateSpeculation_RevertsOnPastTimestamp() public {
-        vm.expectRevert(
-            SpeculationModule.SpeculationModule__InvalidStartTimestamp.selector
-        );
-        speculationModule.createSpeculation(
-            1,
-            uint32(block.timestamp - 1),
-            address(0xBEEF),
-            42,
-            leaderboardId
-        );
-    }
-
     function testSettleSpeculation_Success() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
-
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
 
         uint256 id = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -137,7 +153,7 @@ contract SpeculationModuleTest is Test {
         });
         mockContestModule.setContest(1, contest);
 
-        vm.warp(futureTime + 1);
+        vm.warp(block.timestamp + 1 hours);
         speculationModule.settleSpeculation(id);
         Speculation memory s = speculationModule.getSpeculation(id);
         assertEq(uint(s.speculationStatus), uint(SpeculationStatus.Closed));
@@ -151,9 +167,9 @@ contract SpeculationModuleTest is Test {
 
         uint256 id = speculationModule.createSpeculation(
             1,
-            nowTime,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -179,16 +195,14 @@ contract SpeculationModuleTest is Test {
     }
 
     function testSettleSpeculation_RevertsIfNotStarted() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
-
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
 
         uint256 id = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -205,6 +219,10 @@ contract SpeculationModuleTest is Test {
             jsonoddsId: ""
         });
         mockContestModule.setContest(1, contest);
+
+        // Set contest start time to future so settleSpeculation should revert
+        uint32 futureStartTime = uint32(block.timestamp + 1 hours);
+        mockContestModule.setContestStartTime(1, futureStartTime);
 
         vm.expectRevert(
             SpeculationModule.SpeculationModule__SpeculationNotStarted.selector
@@ -213,16 +231,14 @@ contract SpeculationModuleTest is Test {
     }
 
     function testSettleSpeculation_RevertsIfAlreadySettled() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
-
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
 
         uint256 id = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -240,7 +256,7 @@ contract SpeculationModuleTest is Test {
         });
         mockContestModule.setContest(1, contest);
 
-        vm.warp(futureTime + 1);
+        vm.warp(block.timestamp + 1 hours);
         speculationModule.settleSpeculation(id);
         vm.expectRevert(
             SpeculationModule.SpeculationModule__AlreadySettled.selector
@@ -256,9 +272,9 @@ contract SpeculationModuleTest is Test {
 
         uint256 id = speculationModule.createSpeculation(
             1,
-            nowTime,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -284,16 +300,15 @@ contract SpeculationModuleTest is Test {
     }
 
     function testForfeitSpeculation_RevertsIfCooldownNotMet() public {
-        uint32 nowTime = uint32(block.timestamp + 1);
 
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
 
         uint256 id = speculationModule.createSpeculation(
             1,
-            nowTime,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -317,18 +332,17 @@ contract SpeculationModuleTest is Test {
         speculationModule.forfeitSpeculation(id);
     }
 
-    function testSpeculationOpen_RevertsIfNotOpen() public {
-        // Create and settle a speculation
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
+    function testForfeitSpeculation_RevertsIfNotAuthorized() public {
+        uint32 nowTime = uint32(block.timestamp + 1);
 
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
 
         uint256 id = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -346,7 +360,49 @@ contract SpeculationModuleTest is Test {
         });
         mockContestModule.setContest(1, contest);
 
-        vm.warp(futureTime + 1);
+        // Warp past cooldown period
+        vm.warp(nowTime + speculationModule.s_voidCooldown() + 1);
+
+        // Try to call forfeitSpeculation from an unauthorized address
+        address unauthorizedCaller = address(0x999);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SpeculationModule.SpeculationModule__NotAuthorized.selector,
+                unauthorizedCaller
+            )
+        );
+        vm.prank(unauthorizedCaller);
+        speculationModule.forfeitSpeculation(id);
+    }
+
+    function testSpeculationOpen_RevertsIfNotOpen() public {
+        // Create and settle a speculation
+        // Use a MockScorerModule
+        MockScorerModule mockScorer = new MockScorerModule();
+
+        uint256 id = speculationModule.createSpeculation(
+            1,
+            address(mockScorer),
+            42,
+            address(this),
+            leaderboardId
+        );
+
+        // Set up the contest to be in Scored state
+        Contest memory contest = Contest({
+            awayScore: 1,
+            homeScore: 0,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored, // Set the contest as scored
+            contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, contest);
+
+        vm.warp(block.timestamp + 1 hours);
         speculationModule.settleSpeculation(id);
 
         // Try to call a function with speculationOpen modifier (forfeitSpeculation)
@@ -373,9 +429,9 @@ contract SpeculationModuleTest is Test {
         // Create speculation
         uint256 id = speculationModule.createSpeculation(
             1,
-            startTime,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -465,17 +521,16 @@ contract SpeculationModuleTest is Test {
     }
 
     function testGetSpeculation_ReturnsCorrectData() public {
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
         uint256 id = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(0xBEEF),
             42,
+            address(this),
             leaderboardId
         );
         Speculation memory s = speculationModule.getSpeculation(id);
         assertEq(s.contestId, 1);
-        assertEq(s.startTimestamp, futureTime);
+        // Note: startTimestamp field removed from Speculation struct
         assertEq(s.speculationScorer, address(0xBEEF));
         assertEq(s.theNumber, 42);
         assertEq(s.speculationCreator, address(this));
@@ -504,7 +559,7 @@ contract SpeculationModuleTest is Test {
         vm.expectCall(
             address(treasuryModule),
             abi.encodeWithSelector(
-                treasuryModule.handleFee.selector,
+                treasuryModule.processFee.selector,
                 address(this), // The test contract (ORACLE_MODULE) pays the fee
                 fee,
                 FeeType.SpeculationCreation,
@@ -513,12 +568,11 @@ contract SpeculationModuleTest is Test {
         );
 
         // Call createSpeculation as the ORACLE_MODULE (test contract)
-        uint32 futureTime = uint32(block.timestamp + 1 hours);
         uint256 speculationId = speculationModule.createSpeculation(
             1,
-            futureTime,
             address(0xBEEF),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -558,9 +612,9 @@ contract SpeculationModuleTest is Test {
         );
         newSpeculationModule.createSpeculation(
             1, // contestId
-            uint32(block.timestamp + 1 hours), // startTimestamp
             address(0xBEEF), // scorer
             42, // theNumber
+            address(this), // speculationCreator
             leaderboardId // leaderboardId
         );
     }

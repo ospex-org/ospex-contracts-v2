@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import {Contest, ContestStatus, FeeType, LeagueId} from "../core/OspexTypes.sol";
+import {Contest, ContestStatus, ContestMarket, FeeType, LeagueId} from "../core/OspexTypes.sol";
 import {OspexCore} from "../core/OspexCore.sol";
 import {IContestModule} from "../interfaces/IContestModule.sol";
 import {ITreasuryModule} from "../interfaces/ITreasuryModule.sol";
@@ -28,19 +28,17 @@ contract ContestModule is IContestModule {
         uint256 contestId,
         uint256 timeRemaining
     );
-    /// @notice Error for contest not unverified
-    error ContestModule__ContestNotUnverified(uint256 contestId);
     /// @notice Error for manual score wait period not met
     error ContestModule__ManualScoreWaitPeriodNotMet(
         uint256 contestId,
         uint256 timeRemaining
     );
-    /// @notice Error for invalid leaderboard ids
-    error ContestModule__InvalidLeaderboardIds();
     /// @notice Error for module not set
     error ContestModule__ModuleNotSet(bytes32 moduleType);
     /// @notice Error for invalid create contest source hash
     error ContestModule__InvalidCreateContestSourceHash();
+    /// @notice Error for invalid update contest markets source hash
+    error ContestModule__InvalidUpdateContestMarketsSourceHash();
 
     // --- Constants ---
     /// @notice The role of the ScoreManager, for manual score setting
@@ -58,10 +56,15 @@ contract ContestModule is IContestModule {
     uint256 public s_contestIdCounter;
     /// @notice The hash of the create contest source
     bytes32 public s_createContestSourceHash;
+    /// @notice The hash of the update contest markets source
+    bytes32 public s_updateContestMarketsSourceHash;
     /// @notice Mapping of contestId to Contest struct
     mapping(uint256 => Contest) private s_contests;
     /// @notice The contest start times
     mapping(uint256 => uint32) public s_contestStartTimes;
+    /// @notice Mapping of contestId to ContestMarket struct
+    mapping(uint256 => mapping(address => ContestMarket))
+        private s_contestMarket;
 
     // --- Events ---
     /**
@@ -88,6 +91,32 @@ contract ContestModule is IContestModule {
      * @param startTime The start time of the contest
      */
     event ContestVerified(uint256 indexed contestId, uint256 startTime);
+
+    /**
+     * @notice Emitted when a contest's market is updated
+     * @param contestId The ID of the contest
+     * @param lastUpdated Timestamp of the last update
+     * @param spreadNumber The current spread number
+     * @param totalNumber The current total number
+     * @param moneylineAwayOdds The current moneyline odds for the away team
+     * @param moneylineHomeOdds The current moneyline odds for the home team
+     * @param spreadAwayOdds The current spread odds for the away team
+     * @param spreadHomeOdds The current spread odds for the home team
+     * @param overOdds The current odds for the over
+     * @param underOdds The current odds for the under
+     */
+    event ContestMarketsUpdated(
+        uint256 indexed contestId,
+        uint32 lastUpdated,
+        int32 spreadNumber,
+        int32 totalNumber,
+        uint64 moneylineAwayOdds,
+        uint64 moneylineHomeOdds,
+        uint64 spreadAwayOdds,
+        uint64 spreadHomeOdds,
+        uint64 overOdds,
+        uint64 underOdds
+    );
 
     /**
      * @notice Emitted when a contest's scores are set
@@ -123,6 +152,16 @@ contract ContestModule is IContestModule {
         bytes32 newCreateContestSourceHash
     );
 
+    /**
+     * @notice Emitted when the update contest markets source hash is set
+     * @param oldUpdateContestMarketsSourceHash The old update contest markets source hash
+     * @param newUpdateContestMarketsSourceHash The new update contest markets source hash
+     */
+    event UpdateContestMarketsSourceHashSet(
+        bytes32 oldUpdateContestMarketsSourceHash,
+        bytes32 newUpdateContestMarketsSourceHash
+    );
+
     // --- Modifiers ---
     /**
      * @notice Modifier to ensure the caller is the OracleModule
@@ -150,13 +189,19 @@ contract ContestModule is IContestModule {
      * @notice Constructor sets the OspexCore address
      * @param _ospexCore The address of the OspexCore contract
      * @param _createContestSourceHash The hash of the create contest source
+     * @param _updateContestMarketsSourceHash The hash of the update contest markets source
      */
-    constructor(address _ospexCore, bytes32 _createContestSourceHash) {
+    constructor(
+        address _ospexCore,
+        bytes32 _createContestSourceHash,
+        bytes32 _updateContestMarketsSourceHash
+    ) {
         if (_ospexCore == address(0)) {
             revert ContestModule__InvalidCoreAddress();
         }
         i_ospexCore = OspexCore(_ospexCore);
         s_createContestSourceHash = _createContestSourceHash;
+        s_updateContestMarketsSourceHash = _updateContestMarketsSourceHash;
     }
 
     /**
@@ -193,7 +238,7 @@ contract ContestModule is IContestModule {
             _getModule(keccak256("TREASURY_MODULE"))
         ).getFeeRate(FeeType.ContestCreation);
         if (feeAmount > 0) {
-            i_ospexCore.handleFee(
+            i_ospexCore.processFee(
                 contestCreator,
                 feeAmount,
                 FeeType.ContestCreation,
@@ -210,7 +255,6 @@ contract ContestModule is IContestModule {
         c.scoreContestSourceHash = scoreContestSourceHash;
         c.contestCreator = contestCreator;
         c.contestStatus = ContestStatus.Unverified;
-        // Scores default to 0
 
         emit ContestCreated(
             contestId,
@@ -229,6 +273,98 @@ contract ContestModule is IContestModule {
                 jsonoddsId,
                 contestCreator,
                 scoreContestSourceHash
+            )
+        );
+    }
+
+    /**
+     * @inheritdoc IContestModule
+     * @dev Only callable by the OracleModule (enforced via core registry)
+     */
+
+    /**
+     * @notice Updates all market data for a contest from oracle response
+     * @dev Updates moneyline, spread, and total markets for all known scorers
+     * @param contestId The contest identifier
+     * @param moneylineAwayOdds Scaled decimal odds for away team moneyline
+     * @param moneylineHomeOdds Scaled decimal odds for home team moneyline
+     * @param spreadNumber The point spread
+     * @param spreadAwayOdds Scaled decimal odds for away spread
+     * @param spreadHomeOdds Scaled decimal odds for home spread
+     * @param totalNumber The total points
+     * @param overOdds Scaled decimal odds for over
+     * @param underOdds Scaled decimal odds for under
+     */
+    function updateContestMarkets(
+        uint256 contestId,
+        uint64 moneylineAwayOdds,
+        uint64 moneylineHomeOdds,
+        int32 spreadNumber,
+        uint64 spreadAwayOdds,
+        uint64 spreadHomeOdds,
+        int32 totalNumber,
+        uint64 overOdds,
+        uint64 underOdds
+    ) external override onlyOracleModule {
+        uint32 timestamp = uint32(block.timestamp);
+
+        // Get scorer addresses from core registry
+        address moneylineScorer = _getModule(keccak256("MONEYLINE_SCORER"));
+        address spreadScorer = _getModule(keccak256("SPREAD_SCORER"));
+        address totalScorer = _getModule(keccak256("TOTAL_SCORER"));
+
+        // Update moneyline market (theNumber = 0 for moneylines)
+        s_contestMarket[contestId][moneylineScorer] = ContestMarket({
+            theNumber: 0,
+            upperOdds: moneylineAwayOdds,
+            lowerOdds: moneylineHomeOdds,
+            lastUpdated: timestamp
+        });
+
+        // Update spread market
+        s_contestMarket[contestId][spreadScorer] = ContestMarket({
+            theNumber: spreadNumber,
+            upperOdds: spreadAwayOdds,
+            lowerOdds: spreadHomeOdds,
+            lastUpdated: timestamp
+        });
+
+        // Update total market
+        s_contestMarket[contestId][totalScorer] = ContestMarket({
+            theNumber: totalNumber,
+            upperOdds: overOdds,
+            lowerOdds: underOdds,
+            lastUpdated: timestamp
+        });
+
+        // Emit events for each market update
+        emit ContestMarketsUpdated(
+            contestId,
+            timestamp,
+            spreadNumber,
+            totalNumber,
+            moneylineAwayOdds,
+            moneylineHomeOdds,
+            spreadAwayOdds,
+            spreadHomeOdds,
+            overOdds,
+            underOdds
+        );
+
+        // Emit core events for each market
+        i_ospexCore.emitCoreEvent(
+            keccak256("CONTEST_MARKETS_UPDATED"),
+            abi.encode(
+                contestId,
+                timestamp,
+                spreadNumber,
+                totalNumber,
+                moneylineAwayOdds,
+                moneylineHomeOdds,
+                spreadAwayOdds,
+                spreadHomeOdds,
+                overOdds,
+                underOdds
             )
         );
     }
@@ -257,6 +393,31 @@ contract ContestModule is IContestModule {
         i_ospexCore.emitCoreEvent(
             keccak256("CREATE_CONTEST_SOURCE_HASH_SET"),
             abi.encode(oldCreateContestSourceHash, newCreateContestSourceHash)
+        );
+    }
+
+    /**
+     * @notice Sets the update contest markets source hash
+     * @param newUpdateContestMarketsSourceHash The hash of the update contest markets source
+     */
+    function setUpdateContestMarketsSourceHash(
+        bytes32 newUpdateContestMarketsSourceHash
+    ) external onlyAdmin {
+        if (newUpdateContestMarketsSourceHash == bytes32(0)) {
+            revert ContestModule__InvalidUpdateContestMarketsSourceHash();
+        }
+        bytes32 oldUpdateContestMarketsSourceHash = s_updateContestMarketsSourceHash;
+        s_updateContestMarketsSourceHash = newUpdateContestMarketsSourceHash;
+        emit UpdateContestMarketsSourceHashSet(
+            oldUpdateContestMarketsSourceHash,
+            newUpdateContestMarketsSourceHash
+        );
+        i_ospexCore.emitCoreEvent(
+            keccak256("UPDATE_CONTEST_MARKETS_SOURCE_HASH_SET"),
+            abi.encode(
+                oldUpdateContestMarketsSourceHash,
+                newUpdateContestMarketsSourceHash
+            )
         );
     }
 
@@ -376,6 +537,19 @@ contract ContestModule is IContestModule {
         uint256 contestId
     ) external view override returns (Contest memory contest) {
         contest = s_contests[contestId];
+    }
+
+    /**
+     * @notice Gets a contest market
+     * @param contestId The ID of the contest
+     * @param scorer The scorer contract address
+     * @return contestMarket The contest market
+     */
+    function getContestMarket(
+        uint256 contestId,
+        address scorer
+    ) external view override returns (ContestMarket memory contestMarket) {
+        contestMarket = s_contestMarket[contestId][scorer];
     }
 
     // --- Helper Function for Module Lookups ---

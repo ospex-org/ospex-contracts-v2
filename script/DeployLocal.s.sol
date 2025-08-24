@@ -38,6 +38,7 @@ contract DeployLocal is Script {
         uint256 minSaleAmount;
         uint256 maxSaleAmount;
         bytes32 createContestSourceHash;
+        bytes32 updateContestMarketsSourceHash;
         bytes32 donId;
         address protocolReceiver;
     }
@@ -81,6 +82,7 @@ contract DeployLocal is Script {
             minSaleAmount: 1 * 10**6, // 1 USDC
             maxSaleAmount: 100_000 * 10**6, // 100,000 USDC
             createContestSourceHash: keccak256("test_source_hash"),
+            updateContestMarketsSourceHash: keccak256("test_source_hash"),
             donId: bytes32("test_don_id"),
             protocolReceiver: deployer // Use deployer as protocol receiver for testing
         });
@@ -171,7 +173,8 @@ contract DeployLocal is Script {
 
         contracts.contestModule = address(new ContestModule(
             contracts.ospexCore,
-            config.createContestSourceHash
+            config.createContestSourceHash,
+            config.updateContestMarketsSourceHash
         ));
         console.log("ContestModule deployed at:", contracts.contestModule);
 

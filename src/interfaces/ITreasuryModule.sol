@@ -17,7 +17,7 @@ interface ITreasuryModule is IModule {
      * @param feeType The type of fee (see FeeType enum)
      * @param leaderboardId The leaderboard ID to allocate
      */
-    function handleFee(
+    function processFee(
         address payer,
         uint256 amount,
         FeeType feeType,

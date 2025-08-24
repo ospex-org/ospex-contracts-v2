@@ -29,6 +29,14 @@ enum ContestStatus {
     ScoredManually           // Manually scored by admin
 }
 
+/// @notice Represents a market for a contest
+struct ContestMarket {
+    int32 theNumber;                     // Line/spread/total number
+    uint64 upperOdds;                    // Upper odds
+    uint64 lowerOdds;                    // Lower odds
+    uint32 lastUpdated;                     // Winning side
+}
+
 /// @notice League Id
 enum LeagueId {
     Unknown,
@@ -48,7 +56,6 @@ enum LeagueId {
 /// @notice Represents a speculation on a contest outcome
 struct Speculation {
     uint256 contestId;                   // Associated contest ID
-    uint32 startTimestamp;               // Time when speculation starts
     address speculationScorer;           // Scorer contract address
     int32 theNumber;                     // Line/spread/total number
     address speculationCreator;          // Creator address
@@ -123,15 +130,6 @@ struct Leaderboard {
     uint32 claimWindow;           // Claim window after end (seconds)
 }
 
-/// @notice Stores current market odds/number and metadata for leaderboard enforcement
-struct LeaderboardSpeculation {
-    uint256 contestId;          // Associated contest ID (copied for convenience)
-    uint256 speculationId;      // Associated speculation ID
-    uint64 upperOdds;           // Current market odds for upper position (e.g., Away/Over)
-    uint64 lowerOdds;           // Current market odds for lower position (e.g., Home/Under)
-    int32 theNumber;            // Current market number (spread/total), if applicable
-}
-
 /// @notice Tracks a user's leaderboard-eligible position
 struct LeaderboardPosition {
     uint256 contestId;            // Contest ID
@@ -153,14 +151,12 @@ struct LeaderboardScoring {
 /// @notice Type of oracle request
 enum OracleRequestType {
     ContestCreate,
-    ContestScore,
-    LeaderboardSpeculationCreate,
-    LeaderboardSpeculationUpdate
+    ContestMarketsUpdate,
+    ContestScore
 }
 
 /// @notice Context for oracle requests
 struct OracleRequestContext {
     OracleRequestType requestType;
     uint256 contestId;             // Used for contest related requests
-    uint256 speculationId;         // Used for speculation/leaderboard related requests
 }

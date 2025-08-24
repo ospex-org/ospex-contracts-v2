@@ -109,6 +109,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         uint256 indexed speculationId,
         address indexed user,
         uint128 oddsPairId,
+        uint32 unmatchedExpiry,
         PositionType positionType,
         int256 amount
     );
@@ -353,11 +354,6 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
                 contributionAmount
             );
 
-        // Check position has unmatched amount
-        if (pos.unmatchedAmount == 0) {
-            revert PositionModule__InvalidAmount();
-        }
-
         // Update unmatched expiry if provided
         if (
             newUnmatchedExpiry != 0 && newUnmatchedExpiry != pos.unmatchedExpiry
@@ -390,6 +386,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
             speculationId,
             msg.sender,
             oddsPairId,
+            newUnmatchedExpiry,
             positionType,
             amount
         );
@@ -399,6 +396,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
                 speculationId,
                 msg.sender,
                 oddsPairId,
+                newUnmatchedExpiry,
                 positionType,
                 amount
             )

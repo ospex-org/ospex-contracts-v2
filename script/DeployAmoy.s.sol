@@ -40,6 +40,7 @@ contract DeployAmoy is Script {
         uint256 minSaleAmount;
         uint256 maxSaleAmount;
         bytes32 createContestSourceHash;
+        bytes32 updateContestMarketsSourceHash;
         bytes32 donId;
         address protocolReceiver;
     }
@@ -77,6 +78,7 @@ contract DeployAmoy is Script {
             minSaleAmount: 1 * 10**6, // 1 USDC
             maxSaleAmount: 100 * 10**6, // 100 USDC
             createContestSourceHash: 0x74533c92d0380a7aa2c8d597453cdcea7350344971be3df02623fe339002f9ab,
+            updateContestMarketsSourceHash: 0x74533c92d0380a7aa2c8d597453cdcea7350344971be3df02623fe339002f9ab, // TODO: update this
             donId: bytes32("fun-polygon-amoy-1"),
             protocolReceiver: deployer // Use deployer as protocol receiver for testing
         });
@@ -163,7 +165,8 @@ contract DeployAmoy is Script {
 
         contracts.contestModule = address(new ContestModule(
             contracts.ospexCore,
-            config.createContestSourceHash
+            config.createContestSourceHash,
+            config.updateContestMarketsSourceHash
         ));
         console.log("ContestModule deployed at:", contracts.contestModule);
 

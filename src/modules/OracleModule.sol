@@ -13,7 +13,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC1363} from "@openzeppelin/contracts/interfaces/IERC1363.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Contest, ContestStatus, LeagueId, OracleRequestContext, OracleRequestType, Speculation, SpeculationStatus} from "../core/OspexTypes.sol";
+import {Contest, ContestStatus, ContestMarket, LeagueId, OracleRequestContext, OracleRequestType, Speculation, SpeculationStatus} from "../core/OspexTypes.sol";
 import {OspexCore} from "../core/OspexCore.sol";
 import {IContestModule} from "../interfaces/IContestModule.sol";
 import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
@@ -27,32 +27,22 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
     // --- Custom Errors ---
     /// @notice Error for not admin
     error OracleModule__NotAdmin(address admin);
-    /// @notice Error for invalid module address
-    error OracleModule__InvalidModuleAddress();
     /// @notice Error for module not set
     error OracleModule__ModuleNotSet(bytes32 moduleType);
     /// @notice Error for incorrect source hash
     error OracleModule__IncorrectSourceHash();
     /// @notice Error for incorrect score source hash
     error OracleModule__IncorrectScoreSourceHash();
+    /// @notice Error for incorrect update source hash
+    error OracleModule__IncorrectUpdateSourceHash();
     /// @notice Error for chainlink function error
     error OracleModule__ChainlinkFunctionError(bytes err);
     /// @notice Error for subscription payment failed
     error OracleModule__SubscriptionPaymentFailed(uint256 payment);
-    /// @notice Error for contest module not set
-    error OracleModule__ContestModuleNotSet();
     /// @notice Error for contest not verified
     error OracleModule__ContestNotVerified();
     /// @notice Error for contest not started
     error OracleModule__ContestNotStarted(uint256 contestId);
-    /// @notice Error for speculation does not exist
-    error OracleModule__SpeculationDoesNotExist(uint256 speculationId);
-    /// @notice Error for speculation not open
-    error OracleModule__SpeculationNotOpen(uint256 speculationId);
-    /// @notice Error for speculation not for contest
-    error OracleModule__SpeculationNotForContest(uint256 contestId);
-    /// @notice Error for speculation started
-    error OracleModule__SpeculationStarted(uint256 speculationId);
     /// @notice Error for unexpected request id
     error OracleModule__UnexpectedRequestId(bytes32 requestId);
     /// @notice Error for input too short
@@ -87,12 +77,6 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
     mapping(bytes32 => OracleRequestContext) public s_requestContext;
 
     // Events
-    /**
-     * @notice Emitted when a module is set
-     * @param moduleType The type of the module
-     * @param moduleAddress The address of the module
-     */
-    event ModuleSet(bytes32 indexed moduleType, address indexed moduleAddress);
     /**
      * @notice Emitted when a response is received from the OracleModule
      * @param requestId The ID of the request
@@ -230,8 +214,60 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
             gasLimit,
             s_donId,
             OracleRequestType.ContestCreate,
-            contestId,
-            0 // No speculationId for contest creation
+            contestId
+        );
+    }
+
+    /**
+     * @notice Updates a contest market from the oracle
+     * @param contestId The ID of the contest
+     * @param contestMarketsUpdateSourceJS The source code for the contest markets update function
+     * @param encryptedSecretsUrls The encrypted secrets URLs
+     * @param subscriptionId The ID of the subscription
+     * @param gasLimit The gas limit for the request
+     */
+    function updateContestMarketsFromOracle(
+        uint256 contestId,
+        string calldata contestMarketsUpdateSourceJS,
+        bytes calldata encryptedSecretsUrls,
+        uint64 subscriptionId,
+        uint32 gasLimit
+    ) external nonReentrant handleLinkPayment(subscriptionId) {
+        IContestModule contestModule = IContestModule(
+            _getModule(keccak256("CONTEST_MODULE"))
+        );
+
+        // Check source hash for contest markets update
+        if (
+            keccak256(abi.encodePacked(contestMarketsUpdateSourceJS)) !=
+            contestModule.s_updateContestMarketsSourceHash()
+        ) {
+            revert OracleModule__IncorrectUpdateSourceHash();
+        }
+
+        Contest memory contest = contestModule.getContest(contestId);
+
+        // Contest must be verified
+        if (contest.contestStatus != ContestStatus.Verified) {
+            revert OracleModule__ContestNotVerified();
+        }
+
+        // Prepare args array
+        string[] memory args = new string[](3);
+        args[0] = contest.rundownId;
+        args[1] = contest.sportspageId;
+        args[2] = contest.jsonoddsId;
+
+        // Send oracle request
+        sendRequest(
+            contestMarketsUpdateSourceJS,
+            encryptedSecretsUrls,
+            args,
+            subscriptionId,
+            gasLimit,
+            s_donId,
+            OracleRequestType.ContestMarketsUpdate,
+            contestId
         );
     }
 
@@ -288,116 +324,8 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
             gasLimit,
             s_donId,
             OracleRequestType.ContestScore,
-            contestId,
-            0 // No speculationId for contest scoring
+            contestId
         );
-    }
-
-
-
-    function createSpeculationAndLeaderboardSpeculationFromOracle(
-        uint256 contestId,
-        uint32 startTimestamp,
-        address scorer,
-        int32 theNumber,
-        uint256 leaderboardId,
-        string calldata speculationSourceJS,
-        bytes calldata encryptedSecretsUrls,
-        uint64 subscriptionId,
-        uint32 gasLimit
-    ) external nonReentrant handleLinkPayment(subscriptionId) returns (uint256) {
-        Contest memory contest = IContestModule(
-            _getModule(keccak256("CONTEST_MODULE"))
-        ).getContest(contestId);
-
-        // Contest must be verified
-        if (contest.contestStatus != ContestStatus.Verified) {
-            revert OracleModule__ContestNotVerified();
-        }
-
-        uint256 speculationId = ISpeculationModule(
-            _getModule(keccak256("SPECULATION_MODULE"))
-        ).createSpeculation(
-            contestId,
-            startTimestamp,
-            scorer,
-            theNumber,
-            leaderboardId
-        );
-
-        // Prepare args array
-        string[] memory args = new string[](3);
-        args[0] = contest.rundownId;
-        args[1] = contest.sportspageId;
-        args[2] = contest.jsonoddsId;
-
-        // Send oracle request
-        sendRequest(
-            speculationSourceJS,
-            encryptedSecretsUrls,
-            args,
-            subscriptionId,
-            gasLimit,
-            s_donId,
-            OracleRequestType.LeaderboardSpeculationCreate,
-            contestId,
-            speculationId
-        );
-
-        return speculationId;
-    }
-
-    function updateLeaderboardSpeculationFromOracle(
-        uint256 speculationId,
-        string calldata speculationSourceJS,
-        bytes calldata encryptedSecretsUrls,
-        uint64 subscriptionId,
-        uint32 gasLimit
-    ) external nonReentrant handleLinkPayment(subscriptionId) {
-        ISpeculationModule speculationModule = ISpeculationModule(
-            _getModule(keccak256("SPECULATION_MODULE"))
-        );
-        Speculation memory speculation = speculationModule.getSpeculation(
-            speculationId
-        );
-
-        if (speculation.contestId == 0) {
-            revert OracleModule__SpeculationDoesNotExist(speculationId);
-        }
-
-        Contest memory contest = IContestModule(
-            _getModule(keccak256("CONTEST_MODULE"))
-        ).getContest(speculation.contestId);
-
-        // Contest must be verified
-        if (contest.contestStatus != ContestStatus.Verified) {
-            revert OracleModule__ContestNotVerified();
-        }
-
-        // Must be before the speculation start time
-        if (block.timestamp >= speculation.startTimestamp) {
-            revert OracleModule__SpeculationStarted(speculationId);
-        }
-
-        // Prepare args array
-        string[] memory args = new string[](3);
-        args[0] = contest.rundownId;
-        args[1] = contest.sportspageId;
-        args[2] = contest.jsonoddsId;
-
-        // Send oracle request
-        sendRequest(
-            speculationSourceJS,
-            encryptedSecretsUrls,
-            args,
-            subscriptionId,
-            gasLimit,
-            s_donId,
-            OracleRequestType.LeaderboardSpeculationUpdate,
-            speculation.contestId,
-            speculationId
-        );
-
     }
 
     /**
@@ -410,7 +338,6 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
      * @param donId The ID of the DON
      * @param requestType The type of request
      * @param contestId The ID of the contest
-     * @param speculationId The ID of the speculation
      * @return requestId The ID of the request
      */
     function sendRequest(
@@ -421,8 +348,7 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         uint32 gasLimit,
         bytes32 donId,
         OracleRequestType requestType,
-        uint256 contestId,
-        uint256 speculationId
+        uint256 contestId
     ) internal returns (bytes32) {
         FunctionsRequest.Request memory req;
         req.initializeRequestForInlineJavaScript(source);
@@ -442,8 +368,7 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         // Store the context for the request
         s_requestContext[s_lastRequestId] = OracleRequestContext({
             requestType: requestType,
-            contestId: contestId,
-            speculationId: speculationId
+            contestId: contestId
         });
 
         // Map requestId to contestId
@@ -478,28 +403,20 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         OracleRequestContext memory ctx = s_requestContext[requestId];
         if (ctx.requestType == OracleRequestType.ContestCreate) {
             _handleContestCreate(ctx.contestId, response);
+        } else if (ctx.requestType == OracleRequestType.ContestMarketsUpdate) {
+            _handleContestMarketsUpdate(ctx.contestId, response);
         } else if (ctx.requestType == OracleRequestType.ContestScore) {
             _handleContestScore(ctx.contestId, response);
-        } else if (
-            ctx.requestType == OracleRequestType.LeaderboardSpeculationCreate
-        ) {
-            _handleLeaderboardSpeculationCreate(
-                ctx.contestId,
-                ctx.speculationId,
-                response
-            );
-        } else if (
-            ctx.requestType == OracleRequestType.LeaderboardSpeculationUpdate
-        ) {
-            _handleLeaderboardSpeculationUpdate(
-                ctx.speculationId,
-                response
-            );
         } else {
             revert OracleModule__InvalidRequestType(ctx.requestType);
         }
     }
 
+    /**
+     * @notice Handles the contest create request
+     * @param contestId The ID of the contest
+     * @param response The response from the oracle
+     */
     function _handleContestCreate(
         uint256 contestId,
         bytes memory response
@@ -509,11 +426,53 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         (LeagueId leagueId, uint32 startTime) = extractLeagueIdAndStartTime(
             contestData
         );
-        // 3. Store leagueId and start time
+        // 2. Store leagueId and start time
         IContestModule(_getModule(keccak256("CONTEST_MODULE")))
             .setContestLeagueIdAndStartTime(contestId, leagueId, startTime);
     }
 
+    /**
+     * @notice Handles the contest market update request
+     * @param contestId The ID of the contest
+     * @param response The response from the oracle
+     */
+    function _handleContestMarketsUpdate(
+        uint256 contestId,
+        bytes memory response
+    ) internal {
+        // 1. Extract market data (all odds and numbers)
+        uint256 marketData = bytesToUint256(response);
+        (
+            uint64 moneylineAwayOdds,
+            uint64 moneylineHomeOdds,
+            int32 spreadNumber,
+            uint64 spreadAwayOdds,
+            uint64 spreadHomeOdds,
+            int32 totalNumber,
+            uint64 overOdds,
+            uint64 underOdds
+        ) = extractContestMarketData(marketData);
+
+        // 3. Update all contest markets with the extracted data
+        IContestModule(_getModule(keccak256("CONTEST_MODULE")))
+            .updateContestMarkets(
+                contestId,
+                moneylineAwayOdds,
+                moneylineHomeOdds,
+                spreadNumber,
+                spreadAwayOdds,
+                spreadHomeOdds,
+                totalNumber,
+                overOdds,
+                underOdds
+            );
+    }
+
+    /**
+     * @notice Handles the contest score request
+     * @param contestId The ID of the contest
+     * @param response The response from the oracle
+     */
     function _handleContestScore(
         uint256 contestId,
         bytes memory response
@@ -526,58 +485,6 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
             scores[0],
             scores[1]
         );
-    }
-
-    function _handleLeaderboardSpeculationCreate(
-        uint256 contestId,
-        uint256 speculationId,
-        bytes memory response
-    ) internal {
-        // 1. Decode the response
-        uint256 packedData = bytesToUint256(response);
-
-        // 2. theNumber and odds
-        (
-            int32 theNumber,
-            uint64 upperOdds,
-            uint64 lowerOdds
-        ) = extractLeaderboardSpeculationData(packedData);
-
-        // 3. Create LeaderboardSpeculation
-        ILeaderboardModule(
-            _getModule(keccak256("LEADERBOARD_MODULE"))
-        )
-            .createLeaderboardSpeculation(
-                contestId,
-                speculationId,
-                upperOdds,
-                lowerOdds,
-                theNumber
-            );
-    }
-
-    function _handleLeaderboardSpeculationUpdate(
-        uint256 speculationId,
-        bytes memory response
-    ) internal {
-        // 1. Decode the response
-        uint256 packedData = bytesToUint256(response);
-
-        // 2. theNumber and odds
-        (
-            int32 theNumber,
-            uint64 upperOdds,
-            uint64 lowerOdds
-        ) = extractLeaderboardSpeculationData(packedData);
-
-        // 3. Update the LeaderboardSpeculation
-        ILeaderboardModule(_getModule(keccak256("LEADERBOARD_MODULE")))
-            .updateLeaderboardSpeculation(
-                speculationId,
-                upperOdds,
-                lowerOdds,
-                theNumber
-            );
     }
 
     // --- Utility functions (from v2) ---
@@ -620,7 +527,7 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
      * @dev The packed uint256 is formatted as: [leagueId (2 digits)][...][startTime (10 digits)].
      *      - leagueId is extracted by dividing by 1e18 (shifts right by 18 digits).
      *      - startTime is extracted by taking the last 10 digits (modulo 1e10).
-     *      This packing is used to efficiently transmit multiple values in a single uint256 from the oracle.
+     *      This packing is used to transmit multiple values in a single uint256 from the oracle.
      * @param _uint The packed uint256 response containing league, teams, and time data.
      * @return leagueId The league ID (as an enum).
      * @return startTime Unix timestamp of contest start.
@@ -649,29 +556,80 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
     }
 
     /**
-     * @notice Extracts theNumber, upperOdds, and lowerOdds from a packed uint256.
-     * @dev The packed uint256 is formatted as:
-     *      [theNumber (4 digits)][upperOdds (5 digits)][lowerOdds (5 digits)]
-     *      - theNumber: (_uint / 1e10) % 1e4, then offset by -1000 to allow negative values.
-     *      - upperOdds: (_uint / 1e5) % 1e5, then converted from American odds to scaled decimal odds.
-     *      - lowerOdds: _uint % 1e5, then converted from American odds to scaled decimal odds.
-     *      This packing is used to efficiently transmit multiple values in a single uint256 from the oracle.
-     * @param _uint The packed uint256 containing leaderboard speculation data.
-     * @return theNumber The market number (spread/total), offset to allow negatives.
-     * @return upperOdds The upper odds, scaled.
-     * @return lowerOdds The lower odds, scaled.
+     * @notice Extracts contest market data from a packed uint256.
+     * @dev The _uint parameter contains data encoded in the following format (38 digits total):
+     *      [moneylineAway(5)][moneylineHome(5)][spread(4)][spreadAwayLine(5)][spreadHomeLine(5)][total(4)][overLine(5)][underLine(5)]
+     *      - moneylineAway: ((_uint / 1e33) % 1e5) - 10000, then converted via americanToScaledDecimalOdds
+     *      - moneylineHome: ((_uint / 1e28) % 1e5) - 10000, then converted via americanToScaledDecimalOdds
+     *      - spread: ((_uint / 1e24) % 1e4) - 1000 (offset to handle negatives)
+     *      - spreadAwayLine: ((_uint / 1e19) % 1e5) - 10000, then converted via americanToScaledDecimalOdds
+     *      - spreadHomeLine: ((_uint / 1e14) % 1e5) - 10000, then converted via americanToScaledDecimalOdds
+     *      - total: ((_uint / 1e10) % 1e4) - 1000 (offset to handle negatives)
+     *      - overLine: ((_uint / 1e5) % 1e5) - 10000, then converted via americanToScaledDecimalOdds
+     *      - underLine: (_uint % 1e5) - 10000, then converted via americanToScaledDecimalOdds
+     *      Odds are normalized in JavaScript by adding 10000 to handle negatives, then converted to scaled decimal format.
+     * @param _uint The packed uint256 containing all contest market data.
+     * @return moneylineAwayOdds Scaled decimal odds for away team moneyline
+     * @return moneylineHomeOdds Scaled decimal odds for home team moneyline
+     * @return spreadNumber The point spread
+     * @return spreadAwayOdds Scaled decimal odds for away spread
+     * @return spreadHomeOdds Scaled decimal odds for home spread
+     * @return totalNumber The total points
+     * @return overOdds Scaled decimal odds for over
+     * @return underOdds Scaled decimal odds for under
      */
-    function extractLeaderboardSpeculationData(
+    function extractContestMarketData(
         uint256 _uint
     )
         internal
         view
-        returns (int32 theNumber, uint64 upperOdds, uint64 lowerOdds)
+        returns (
+            uint64 moneylineAwayOdds,
+            uint64 moneylineHomeOdds,
+            int32 spreadNumber,
+            uint64 spreadAwayOdds,
+            uint64 spreadHomeOdds,
+            int32 totalNumber,
+            uint64 overOdds,
+            uint64 underOdds
+        )
     {
-        theNumber = int32(int256((_uint / 1e10) % 1e4)) - 1000; // 4 digits, offset back to +1000 (TODO: check this)
-        upperOdds = americanToScaledDecimalOdds((_uint / 1e5) % 1e5); // next 5 digits
-        lowerOdds = americanToScaledDecimalOdds(_uint % 1e5); // rightmost 5 digits
-        return (theNumber, upperOdds, lowerOdds);
+        // Extract moneyline odds (5 digits each, offset back from +10000, then convert to scaled decimal)
+        moneylineAwayOdds = americanToScaledDecimalOdds(
+            ((_uint / 1e33) % 1e5)
+        );
+        moneylineHomeOdds = americanToScaledDecimalOdds(
+            ((_uint / 1e28) % 1e5)
+        );
+
+        // Extract spread (4 digits, offset back from +1000)
+        spreadNumber = int32(int256((_uint / 1e24) % 1e4)) - 1000; // (TODO: check this)
+
+        // Extract spread odds (5 digits each, offset back from +10000, then convert to scaled decimal)
+        spreadAwayOdds = americanToScaledDecimalOdds(
+            ((_uint / 1e19) % 1e5)
+        );
+        spreadHomeOdds = americanToScaledDecimalOdds(
+            ((_uint / 1e14) % 1e5)
+        );
+
+        // Extract total (4 digits, offset back from +1000)
+        totalNumber = int32(int256((_uint / 1e10) % 1e4)) - 1000; // (TODO: check this)
+
+        // Extract total odds (5 digits each, offset back from +10000, then convert to scaled decimal)
+        overOdds = americanToScaledDecimalOdds(((_uint / 1e5) % 1e5));
+        underOdds = americanToScaledDecimalOdds((_uint % 1e5));
+
+        return (
+            moneylineAwayOdds,
+            moneylineHomeOdds,
+            spreadNumber,
+            spreadAwayOdds,
+            spreadHomeOdds,
+            totalNumber,
+            overOdds,
+            underOdds
+        );
     }
 
     /**
