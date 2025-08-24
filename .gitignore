@@ -33,3 +33,8 @@ reference/
 # Scripts (for creating a new secrets file)
 scripts/
 
+# ai prompts
+ai/
+
+# chainlink functions code
+chainlink-functions/
