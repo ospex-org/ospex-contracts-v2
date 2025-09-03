@@ -12,10 +12,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 contract ApproveLinkForOracle is Script {
     // Contract addresses
     address constant LINK_TOKEN = 0x0Fd9e8d3aF1aaee056EB9e802c3A762a667b1904;
-    address constant ORACLE_MODULE = 0x69BCAD36617475756A036c9024F1d6d6bfcEAb23;
+    address constant ORACLE_MODULE = 0xc8536E7cca2af6E9B632167810Ff55CD203a5a81;
     
-    // Approve a large amount (100 LINK should be plenty)
-    uint256 constant APPROVAL_AMOUNT = 100 * 10**18;
+    // Approve a large amount (10000 LINK should be plenty)
+    uint256 constant APPROVAL_AMOUNT = 10000 * 10**18;
 
     function run() external {
         // Get deployer address

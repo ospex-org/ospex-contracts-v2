@@ -224,7 +224,7 @@ contract DeployAmoy is Script {
         console.log("Registered TotalScorerModule");
     }
 
-    function printDeploymentInfo(DeployedContracts memory contracts) internal view {
+    function printDeploymentInfo(DeployedContracts memory contracts) internal pure {
         console.log("\n=== DEPLOYMENT SUMMARY FOR POLYGON AMOY ===");
         console.log("Network: Polygon Amoy Testnet");
         console.log("Using LINK at:", LINK_ADDRESS);

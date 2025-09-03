@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
+import {IScorerModule} from "../interfaces/IScorerModule.sol";
+import {IContestModule} from "../interfaces/IContestModule.sol";
+import {Contest, WinSide} from "../core/OspexTypes.sol";
+import {OspexCore} from "../core/OspexCore.sol";
+
 /**
  * @title SpreadScorerModule
  * @author ospex.org
  * @notice Module for spread (point difference) scoring logic
  */
-
-import {IScorerModule} from "../interfaces/IScorerModule.sol";
-import {IContestModule} from "../interfaces/IContestModule.sol";
-import {Contest, WinSide, ContestStatus} from "../core/OspexTypes.sol";
-import {OspexCore} from "../core/OspexCore.sol";
 
 contract SpreadScorerModule is IScorerModule {
     /// @notice Error for not a speculation module

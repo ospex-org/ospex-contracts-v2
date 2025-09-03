@@ -68,6 +68,14 @@ contract TreasuryModule is ITreasuryModule {
         uint256 protocolFallback,
         bool leaderboardValid
     );
+
+    event LeaderboardEntryFeeProcessed(
+        address indexed payer,
+        uint256 totalAmount,
+        uint256 protocolCut,
+        uint256 indexed leaderboardId,
+        uint256 leaderboardAllocation
+    );
     /**
      * @notice Emitted when a fee rate is set
      * @param feeType The type of fee
@@ -222,6 +230,51 @@ contract TreasuryModule is ITreasuryModule {
                 leaderboardAllocation,
                 protocolFallback,
                 leaderboardValid
+            )
+        );
+    }
+
+    /**
+     * @notice Processes a leaderboard entry fee for a given payer and amount
+     * @param payer The address of the payer
+     * @param amount The amount of the fee
+     * @param leaderboardId The ID of the leaderboard
+     */
+    function processLeaderboardEntryFee(
+        address payer,
+        uint256 amount,
+        uint256 leaderboardId
+    ) external override onlyCore {
+        // Calculate protocol cut
+        uint256 protocolCut = (amount * s_protocolCutBps) / MAX_BPS;
+        uint256 remaining = amount - protocolCut;
+
+        // Transfer fee from payer
+        i_token.safeTransferFrom(payer, address(this), amount);
+
+        // Transfer protocol cut
+        if (protocolCut > 0) {
+            i_token.safeTransfer(s_protocolReceiver, protocolCut);
+        }
+
+        // Add remaining funds to leaderboard prize pool
+        s_leaderboardPrizePools[leaderboardId] += remaining;
+
+        emit LeaderboardEntryFeeProcessed(
+            payer,
+            amount,
+            protocolCut,
+            leaderboardId,
+            remaining
+        );
+        i_ospexCore.emitCoreEvent(
+            keccak256("LEADERBOARD_ENTRY_FEE_PROCESSED"),
+            abi.encode(
+                payer,
+                amount,
+                protocolCut,
+                leaderboardId,
+                remaining
             )
         );
     }

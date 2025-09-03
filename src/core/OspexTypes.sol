@@ -101,8 +101,7 @@ enum PositionType {
 /// @dev Used for fee routing and allocation in TreasuryModule
 enum FeeType {
     ContestCreation,      // Fee for creating a contest
-    SpeculationCreation,  // Fee for creating a speculation/market
-    LeaderboardEntry      // Fee for entering a leaderboard
+    SpeculationCreation  // Fee for creating a speculation/market
 }
 
 /// @notice Represents an odds pool for a contest

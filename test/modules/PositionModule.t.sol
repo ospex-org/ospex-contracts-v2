@@ -12,7 +12,6 @@ import {ContributionModule} from "../../src/modules/ContributionModule.sol";
 import {SpeculationModule} from "../../src/modules/SpeculationModule.sol";
 import {TreasuryModule} from "../../src/modules/TreasuryModule.sol";
 import {PositionType, Contest, ContestStatus, Position, WinSide, OddsPair, LeagueId} from "../../src/core/OspexTypes.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockMarket} from "../mocks/MockMarket.sol";
 import {MockSpeculationModule} from "../mocks/MockSpeculationModule.sol";
 import {MockScorerModule} from "../mocks/MockScorerModule.sol";
@@ -135,13 +134,14 @@ contract PositionModuleTest is Test {
             1_000_000,
             0
         );
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
+            11_000_000,
+            PositionType.Upper
+        );
         Position memory pos = positionModule.getPosition(
             specId,
             address(this),
-            positionModule.getOrCreateOddsPairId(
-                11_000_000,
-                PositionType.Upper
-            ),
+            oddsPairId,
             PositionType.Upper
         );
         assertEq(pos.unmatchedAmount, 1_000_000);
@@ -297,12 +297,13 @@ contract PositionModuleTest is Test {
             0
         );
         // Add 1 USDC to the position
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
+            11_000_000,
+            PositionType.Upper
+        );
         positionModule.adjustUnmatchedPair(
             specId,
-            positionModule.getOrCreateOddsPairId(
-                11_000_000,
-                PositionType.Upper
-            ),
+            oddsPairId,
             0, // newUnmatchedExpiry
             PositionType.Upper,
             int256(1_000_000),
@@ -311,10 +312,7 @@ contract PositionModuleTest is Test {
         Position memory pos = positionModule.getPosition(
             specId,
             address(this),
-            positionModule.getOrCreateOddsPairId(
-                11_000_000,
-                PositionType.Upper
-            ),
+            oddsPairId,
             PositionType.Upper
         );
         assertEq(pos.unmatchedAmount, 2_000_000);
@@ -330,7 +328,7 @@ contract PositionModuleTest is Test {
             leaderboardId
         );
         token.approve(address(positionModule), 2 * 1_000_000);
-        uint128 oddsPairId = positionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
             11_000_000,
             PositionType.Upper
         );
@@ -379,7 +377,7 @@ contract PositionModuleTest is Test {
             leaderboardId
         );
         token.approve(address(positionModule), 2 * 1_000_000);
-        uint128 oddsPairId = positionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
             11_000_000,
             PositionType.Upper
         );
@@ -437,7 +435,7 @@ contract PositionModuleTest is Test {
             leaderboardId
         );
         token.approve(address(positionModule), 3 * 1_000_000);
-        uint128 oddsPairId = positionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
             11_000_000,
             PositionType.Upper
         );
@@ -515,21 +513,19 @@ contract PositionModuleTest is Test {
         mockContestModule.setContest(1, contest);
 
         speculationModule.settleSpeculation(specId);
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
+            11_000_000,
+            PositionType.Upper
+        );
         positionModule.claimPosition(
             specId,
-            positionModule.getOrCreateOddsPairId(
-                11_000_000,
-                PositionType.Upper
-            ),
+            oddsPairId,
             PositionType.Upper
         );
         Position memory pos = positionModule.getPosition(
             specId,
             address(this),
-            positionModule.getOrCreateOddsPairId(
-                11_000_000,
-                PositionType.Upper
-            ),
+            oddsPairId,
             PositionType.Upper
         );
         assertTrue(pos.claimed);
@@ -547,7 +543,7 @@ contract PositionModuleTest is Test {
             leaderboardId
         );
         token.approve(address(positionModule), 2 * 1_000_000);
-        uint128 oddsPairId = positionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
             11_000_000,
             PositionType.Upper
         );
@@ -586,7 +582,7 @@ contract PositionModuleTest is Test {
             leaderboardId
         );
         token.approve(address(positionModule), 4 * 1_000_000);
-        uint128 oddsPairId = positionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
             11_000_000,
             PositionType.Upper
         );
@@ -640,7 +636,7 @@ contract PositionModuleTest is Test {
             address(this),
             leaderboardId
         );
-        uint128 oddsPairId = positionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
             11_000_000,
             PositionType.Upper
         );
@@ -673,7 +669,7 @@ contract PositionModuleTest is Test {
             leaderboardId
         );
         token.approve(address(positionModule), 1_000_000);
-        uint128 oddsPairId = positionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
             11_000_000,
             PositionType.Upper
         );
@@ -743,7 +739,7 @@ contract PositionModuleTest is Test {
         );
         vm.startPrank(taker);
         token.approve(address(positionModule), 8_000_000); // 8 USDC
-        uint128 oddsPairId = positionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
             testOdds,
             PositionType.Upper
         );
@@ -796,7 +792,7 @@ contract PositionModuleTest is Test {
         );
         uint256 tokenUnit = 10_000_000; // 10 USDC
         token.approve(address(positionModule), tokenUnit);
-        uint128 oddsPairId = positionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
             11_000_000,
             PositionType.Upper
         );
@@ -868,7 +864,7 @@ contract PositionModuleTest is Test {
         );
         uint256 tokenUnit = 10_000_000; // 10 USDC
         token.approve(address(positionModule), tokenUnit);
-        uint128 oddsPairId = positionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
             11_000_000,
             PositionType.Upper
         );
@@ -926,7 +922,7 @@ contract PositionModuleTest is Test {
         );
         uint256 tokenUnit = 10_000_000; // 10 USDC
         token.approve(address(positionModule), tokenUnit);
-        uint128 oddsPairId = positionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
             11_000_000,
             PositionType.Upper
         );
@@ -1002,7 +998,7 @@ contract PositionModuleTest is Test {
 
     function testGetOddsPairAndOriginalInverseOdds() public {
         uint64 odds = 11_000_000;
-        uint128 oddsPairId = positionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
             odds,
             PositionType.Upper
         );
@@ -1027,7 +1023,7 @@ contract PositionModuleTest is Test {
             leaderboardId
         );
         token.approve(address(positionModule), 1_000_000);
-        uint128 oddsPairId = positionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
             11_000_000,
             PositionType.Upper
         );
@@ -1109,7 +1105,7 @@ contract PositionModuleTest is Test {
             leaderboardId
         );
         token.approve(address(localPositionModule), 1_000_000);
-        uint128 oddsPairId = localPositionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId, , ) = localPositionModule.getOrCreateOddsPairId(
             11_000_000,
             PositionType.Upper
         );
@@ -1236,7 +1232,7 @@ contract PositionModuleTest is Test {
 
         // Create Upper position
         token.approve(address(localPositionModule), tokenUnit);
-        uint128 upperOddsPairId = localPositionModule.getOrCreateOddsPairId(
+        (uint128 upperOddsPairId, , ) = localPositionModule.getOrCreateOddsPairId(
             11_000_000,
             PositionType.Upper
         );
@@ -1265,7 +1261,7 @@ contract PositionModuleTest is Test {
 
         // Create Lower position
         token.approve(address(localPositionModule), tokenUnit);
-        uint128 lowerOddsPairId = localPositionModule.getOrCreateOddsPairId(
+        (uint128 lowerOddsPairId, , ) = localPositionModule.getOrCreateOddsPairId(
             18_000_000,
             PositionType.Lower
         );
@@ -1420,7 +1416,7 @@ contract PositionModuleTest is Test {
         // Use higher odds (e.g., 2.00)
         uint64 odds = 20_000_000; // 2.00 odds
         token.approve(address(localPositionModule), makerAmount);
-        uint128 oddsPairId = localPositionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId, , ) = localPositionModule.getOrCreateOddsPairId(
             odds,
             PositionType.Upper
         );
@@ -1540,7 +1536,7 @@ contract PositionModuleTest is Test {
         token.transfer(taker, 1_000_000);
         vm.startPrank(taker);
         token.approve(address(positionModule), 1_000_000);
-        uint128 oddsPairId = positionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
             11_000_000,
             PositionType.Upper
         );
@@ -1570,7 +1566,7 @@ contract PositionModuleTest is Test {
             leaderboardId
         );
         token.approve(address(positionModule), 1_000_000);
-        uint128 oddsPairId = positionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
             11_000_000,
             PositionType.Upper
         );
@@ -1633,7 +1629,7 @@ contract PositionModuleTest is Test {
 
         vm.startPrank(taker);
         token.approve(address(positionModule), takerAmount);
-        uint128 oddsPairId = positionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
             odds,
             PositionType.Upper
         );
@@ -1702,7 +1698,7 @@ contract PositionModuleTest is Test {
             leaderboardId
         );
         token.approve(address(positionModule), 1_000_000);
-        uint128 oddsPairId = positionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
             11_000_000,
             PositionType.Upper
         );
@@ -1784,11 +1780,11 @@ contract PositionModuleTest is Test {
             0
         );
         // Calculate taker amounts
-        uint128 oddsPairId1 = positionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId1, , ) = positionModule.getOrCreateOddsPairId(
             odds1,
             PositionType.Upper
         );
-        uint128 oddsPairId2 = positionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId2, , ) = positionModule.getOrCreateOddsPairId(
             odds2,
             PositionType.Upper
         );
@@ -1869,10 +1865,11 @@ contract PositionModuleTest is Test {
         makers[0] = address(this);
         makers[1] = address(0xBEEF);
         uint128[] memory oddsPairIds = new uint128[](1);
-        oddsPairIds[0] = positionModule.getOrCreateOddsPairId(
+        (uint128 tempOddsPairId, , ) = positionModule.getOrCreateOddsPairId(
             18_000_000,
             PositionType.Upper
         );
+        oddsPairIds[0] = tempOddsPairId;
         PositionType[] memory makerPositionTypes = new PositionType[](2);
         makerPositionTypes[0] = PositionType.Upper;
         makerPositionTypes[1] = PositionType.Upper;
@@ -1931,11 +1928,11 @@ contract PositionModuleTest is Test {
             0
         );
         // Calculate taker amounts, but make second one too large
-        uint128 oddsPairId1 = positionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId1, , ) = positionModule.getOrCreateOddsPairId(
             odds1,
             PositionType.Upper
         );
-        uint128 oddsPairId2 = positionModule.getOrCreateOddsPairId(
+        (uint128 oddsPairId2, , ) = positionModule.getOrCreateOddsPairId(
             odds2,
             PositionType.Upper
         );

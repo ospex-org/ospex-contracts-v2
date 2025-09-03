@@ -14,10 +14,6 @@ import {ITreasuryModule} from "../interfaces/ITreasuryModule.sol";
 import {FeeType} from "./OspexTypes.sol";
 
 contract OspexCore is AccessControl {
-    /// @notice Emitted when a module is not the caller
-    /// @param caller The address of the caller
-    /// @param module The address of the module
-    error OspexCore__NotModule(address caller, address module);
     /// @notice Emitted when a module address is invalid
     /// @param moduleAddress The address of the module
     error OspexCore__InvalidModuleAddress(address moduleAddress);
@@ -55,20 +51,6 @@ contract OspexCore is AccessControl {
     mapping(bytes32 => address) public s_moduleRegistry;
     /// @notice Reverse mapping to efficiently check if an address is a registered module
     mapping(address => bool) public s_isModuleRegistered;
-
-    /**
-     * @notice Restricts function to only the registered module of the given type
-     * @param moduleType The module type identifier
-     */
-    modifier onlyModule(bytes32 moduleType) {
-        if (msg.sender != s_moduleRegistry[moduleType]) {
-            revert OspexCore__NotModule(
-                msg.sender,
-                s_moduleRegistry[moduleType]
-            );
-        }
-        _;
-    }
 
     /**
      * @notice Constructor sets deployer as protocol admin and module admin
@@ -201,6 +183,29 @@ contract OspexCore is AccessControl {
             payer,
             amount,
             feeType,
+            leaderboardId
+        );
+    }
+
+    /**
+     * @notice Processes a leaderboard entry fee for a given payer and amount
+     * @dev Only callable by registered modules
+     * @param payer The address of the payer
+     * @param amount The amount of the fee
+     * @param leaderboardId The ID of the leaderboard
+     */
+    function processLeaderboardEntryFee(
+        address payer,
+        uint256 amount,
+        uint256 leaderboardId
+    ) external {
+        if (!isRegisteredModule(msg.sender)) {
+            revert OspexCore__NotRegisteredModule(msg.sender);
+        }
+        address treasuryModule = s_moduleRegistry[keccak256("TREASURY_MODULE")];
+        ITreasuryModule(treasuryModule).processLeaderboardEntryFee(
+            payer,
+            amount,
             leaderboardId
         );
     }

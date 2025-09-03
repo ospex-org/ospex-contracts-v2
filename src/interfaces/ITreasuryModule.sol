@@ -25,6 +25,18 @@ interface ITreasuryModule is IModule {
     ) external;
 
     /**
+     * @notice Processes a leaderboard entry fee for a given payer and amount
+     * @param payer The address of the payer
+     * @param amount The amount of the fee
+     * @param leaderboardId The ID of the leaderboard
+     */
+    function processLeaderboardEntryFee(
+        address payer,
+        uint256 amount,
+        uint256 leaderboardId
+    ) external;
+
+    /**
      * @notice Admin: sets the fee rate for a given fee type
      * @param feeType The type of fee
      * @param rate The new fee rate (in token units or bps, per config)

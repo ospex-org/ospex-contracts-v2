@@ -2,14 +2,19 @@
 pragma solidity ^0.8.19;
 
 import {ILeaderboardModule} from "../interfaces/ILeaderboardModule.sol";
-import {IContestModule} from "../interfaces/IContestModule.sol";
 import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IPositionModule} from "../interfaces/IPositionModule.sol";
 import {ITreasuryModule} from "../interfaces/ITreasuryModule.sol";
 import {IRulesModule} from "../interfaces/IRulesModule.sol";
-import {PositionType, Leaderboard, LeaderboardPosition, Speculation, Position, OddsPair, FeeType, LeagueId, Contest, LeaderboardScoring, WinSide} from "../core/OspexTypes.sol";
+import {PositionType, Leaderboard, LeaderboardPosition, Speculation, Position, OddsPair, LeaderboardScoring, WinSide} from "../core/OspexTypes.sol";
 import {OspexCore} from "../core/OspexCore.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+/**
+ * @title LeaderboardModule
+ * @notice Handles leaderboard creation, storage, and status management for Ospex protocol
+ * @dev All business logic for leaderboards is implemented here.
+ */
 
 contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     // --- Custom Errors ---
@@ -372,14 +377,11 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         }
 
         // Charge the leaderboard entry fee
-        uint256 feeAmount = ITreasuryModule(
-            _getModule(keccak256("TREASURY_MODULE"))
-        ).getFeeRate(FeeType.LeaderboardEntry);
+        uint256 feeAmount = leaderboard.entryFee;
         if (feeAmount > 0) {
-            i_ospexCore.processFee(
+            i_ospexCore.processLeaderboardEntryFee(
                 msg.sender,
                 feeAmount,
-                FeeType.LeaderboardEntry,
                 leaderboardId
             );
         }

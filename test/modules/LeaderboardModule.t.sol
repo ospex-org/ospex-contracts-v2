@@ -290,15 +290,11 @@ contract LeaderboardModuleTest is Test {
             abi.encode(true)
         );
 
-        // Mock treasury module to return 0 fee
-        vm.mockCall(
-            address(treasuryModule),
-            abi.encodeWithSignature("getFeeRate(uint8)"),
-            abi.encode(0)
-        );
-
         // Warp to after leaderboard start
         vm.warp(block.timestamp + 2 hours);
+        
+        // Approve entry fee before registration
+        _approveEntryFee(user1);
         
         vm.prank(user1);
         vm.expectEmit(true, true, true, true);
@@ -318,22 +314,11 @@ contract LeaderboardModuleTest is Test {
             abi.encode(true)
         );
 
-        // Mock treasury module to return entry fee
-        vm.mockCall(
-            address(treasuryModule),
-            abi.encodeWithSignature("getFeeRate(uint8)"),
-            abi.encode(ENTRY_FEE)
-        );
-
-        // Mock core handleFee call
-        vm.mockCall(
-            address(core),
-            abi.encodeWithSignature("handleFee(address,uint256,uint8,uint256)"),
-            abi.encode()
-        );
-
         // Warp to after leaderboard start  
         vm.warp(block.timestamp + 2 hours);
+        
+        // Approve entry fee before registration
+        _approveEntryFee(user1);
         
         vm.prank(user1);
         leaderboardModule.registerUser(leaderboardId, DECLARED_BANKROLL);
@@ -350,14 +335,10 @@ contract LeaderboardModuleTest is Test {
             abi.encode(true)
         );
 
-        // Mock treasury module to return 0 fee
-        vm.mockCall(
-            address(treasuryModule),
-            abi.encodeWithSignature("getFeeRate(uint8)"),
-            abi.encode(0)
-        );
-
         // Don't warp time - leaderboard hasn't started yet but registration should work
+        
+        // Approve entry fee before registration
+        _approveEntryFee(user1);
         
         vm.prank(user1);
         vm.expectEmit(true, true, true, true);
@@ -394,15 +375,11 @@ contract LeaderboardModuleTest is Test {
             abi.encode(true)
         );
 
-        // Mock treasury module to return 0 fee
-        vm.mockCall(
-            address(treasuryModule),
-            abi.encodeWithSignature("getFeeRate(uint8)"),
-            abi.encode(0)
-        );
-
         // Warp to after leaderboard start
         vm.warp(block.timestamp + 2 hours);
+        
+        // Approve entry fee before registration
+        _approveEntryFee(user1);
         
         // Register first time
         vm.prank(user1);
@@ -752,6 +729,9 @@ contract LeaderboardModuleTest is Test {
         // Warp to after leaderboard start
         vm.warp(block.timestamp + 2 hours);
         
+        // Approve entry fee before registration
+        _approveEntryFee(user1);
+        
         vm.prank(user1);
         leaderboardModule.registerUser(leaderboardId, DECLARED_BANKROLL);
     }
@@ -831,11 +811,14 @@ contract LeaderboardModuleTest is Test {
     }
 
     function _mockTreasuryModuleForRegistration() internal {
-        vm.mockCall(
-            address(treasuryModule),
-            abi.encodeWithSignature("getFeeRate(uint8)"),
-            abi.encode(0)
-        );
+        // No longer needed - we removed getFeeRate for leaderboard entry fees
+        // Entry fees are now handled directly via processLeaderboardEntryFee
+    }
+    
+    function _approveEntryFee(address user) internal {
+        // Approve Treasury to spend user's USDC for entry fee
+        vm.prank(user);
+        token.approve(address(treasuryModule), ENTRY_FEE);
     }
 
     // --- ROI Submission Tests ---
@@ -1155,6 +1138,8 @@ contract LeaderboardModuleTest is Test {
         
         // Register user for all additional leaderboards
         for (uint256 i = 1; i < 8; i++) {
+            // Approve entry fee for each leaderboard registration
+            _approveEntryFee(user1);
             vm.prank(user1);
             leaderboardModule.registerUser(leaderboardIds[i], DECLARED_BANKROLL);
         }
@@ -1371,6 +1356,9 @@ contract LeaderboardModuleTest is Test {
         // Register user2
         _mockRulesModuleForRegistration();
         _mockTreasuryModuleForRegistration();
+        
+        // Approve entry fee before registration
+        _approveEntryFee(user2);
         
         vm.prank(user2);
         leaderboardModule.registerUser(leaderboardId, DECLARED_BANKROLL);

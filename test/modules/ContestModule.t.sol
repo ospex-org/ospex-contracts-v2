@@ -642,7 +642,7 @@ contract ContestModuleTest is Test {
         assertEq(totalMarket.lastUpdated, uint32(block.timestamp));
     }
 
-    function testGetContestMarket_ReturnsEmptyForNonExistentMarket() public {
+    function testGetContestMarket_ReturnsEmptyForNonExistentMarket() public view {
         uint256 nonExistentContestId = 999;
         address unknownScorer = address(0x999);
         
@@ -654,7 +654,7 @@ contract ContestModuleTest is Test {
         assertEq(market.lastUpdated, 0);
     }
 
-    function testGetContestMarket_ReturnsEmptyForUnsetMarket() public {
+    function testGetContestMarket_ReturnsEmptyForUnsetMarket() public view {
         uint256 contestId = 1;
         
         // Get market before any updates (should be empty)

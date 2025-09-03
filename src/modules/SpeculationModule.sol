@@ -10,6 +10,12 @@ import {ITreasuryModule} from "../interfaces/ITreasuryModule.sol";
 import {OspexCore} from "../core/OspexCore.sol";
 import {Speculation, SpeculationStatus, WinSide, Contest, ContestStatus, FeeType} from "../core/OspexTypes.sol";
 
+/**
+ * @title SpeculationModule
+ * @notice Handles speculation creation, storage, and status management for Ospex protocol
+ * @dev All business logic for speculations is implemented here.
+ */
+
 contract SpeculationModule is ISpeculationModule {
     // --- Custom Errors ---
     /// @notice Error for calling the module from non-authorized address

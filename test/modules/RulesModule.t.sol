@@ -276,6 +276,36 @@ contract RulesModuleTest is Test {
         );
     }
 
+    function testSetAllowLiveBetting_Success() public {
+        vm.prank(admin);
+        vm.expectEmit(true, true, true, true);
+        emit RulesModule.RuleSet(leaderboardId, "allowLiveBetting", 1);
+        
+        rulesModule.setAllowLiveBetting(leaderboardId, true);
+        
+        assertTrue(rulesModule.s_allowLiveBetting(leaderboardId));
+    }
+
+    function testSetAllowLiveBetting_RevertsIfNotAdmin() public {
+        vm.prank(nonAdmin);
+        vm.expectRevert(abi.encodeWithSelector(RulesModule.RulesModule__NotAdmin.selector, nonAdmin));
+        rulesModule.setAllowLiveBetting(leaderboardId, true);
+    }
+
+    function testSetAllowLiveBetting_RevertsIfLeaderboardStarted() public {
+        // Warp to after leaderboard start
+        vm.warp(block.timestamp + 2 hours);
+        
+        vm.prank(admin);
+        vm.expectRevert(RulesModule.RulesModule__LeaderboardStarted.selector);
+        rulesModule.setAllowLiveBetting(leaderboardId, true);
+    }
+
+    function testSetAllowLiveBetting_DefaultsToFalse() public view {
+        // Default value should be false
+        assertFalse(rulesModule.s_allowLiveBetting(leaderboardId));
+    }
+
     // --- Validation Function Tests ---
     function testIsBankrollValid_WithinRange() public {
         vm.startPrank(admin);
@@ -631,6 +661,102 @@ contract RulesModuleTest is Test {
         ));
     }
 
+    function testValidateLeaderboardPosition_FailsLiveBettingDisabled() public {
+        _setupCompleteRules();
+        
+        // Move to leaderboard active period first
+        vm.warp(block.timestamp + 2 hours);
+        
+        // Set contest start time to before current time (contest has started)
+        uint32 contestStartTime = uint32(block.timestamp - 1 hours);
+        mockContestModule.setContestStartTime(contestId, contestStartTime);
+        
+        // Live betting is disabled by default, so this should fail
+        assertFalse(rulesModule.validateLeaderboardPosition(
+            leaderboardId,
+            speculationId,
+            5_000_000,
+            DECLARED_BANKROLL,
+            150,
+            18_000_000,
+            PositionType.Upper
+        ));
+    }
+
+    function testValidateLeaderboardPosition_SucceedsLiveBettingEnabled() public {
+        _setupCompleteRules();
+        
+        // Enable live betting
+        vm.prank(admin);
+        rulesModule.setAllowLiveBetting(leaderboardId, true);
+        
+        // Move to leaderboard active period first
+        vm.warp(block.timestamp + 2 hours);
+        
+        // Set contest start time to before current time (contest has started)
+        uint32 contestStartTime = uint32(block.timestamp - 1 hours);
+        mockContestModule.setContestStartTime(contestId, contestStartTime);
+        
+        // Live betting is enabled, so this should succeed
+        assertTrue(rulesModule.validateLeaderboardPosition(
+            leaderboardId,
+            speculationId,
+            5_000_000,
+            DECLARED_BANKROLL,
+            150,
+            18_000_000,
+            PositionType.Upper
+        ));
+    }
+
+    function testValidateLeaderboardPosition_SucceedsBeforeContestStarts() public {
+        _setupCompleteRules();
+        
+        // Set contest start time to future (contest hasn't started yet)
+        uint32 contestStartTime = uint32(block.timestamp + 4 hours);
+        mockContestModule.setContestStartTime(contestId, contestStartTime);
+        
+        // Move to leaderboard active period (but before contest starts)
+        vm.warp(block.timestamp + 2 hours);
+        
+        // Should succeed regardless of live betting setting since contest hasn't started
+        assertTrue(rulesModule.validateLeaderboardPosition(
+            leaderboardId,
+            speculationId,
+            5_000_000,
+            DECLARED_BANKROLL,
+            150,
+            18_000_000,
+            PositionType.Upper
+        ));
+    }
+
+    function testGetAllRules_WithLiveBettingEnabled() public {
+        _setupCompleteRules();
+        
+        // Enable live betting
+        vm.prank(admin);
+        rulesModule.setAllowLiveBetting(leaderboardId, true);
+        
+        (
+            uint256 minBankroll,
+            uint256 maxBankroll,
+            uint16 minBetPercentage,
+            uint16 maxBetPercentage,
+            uint16 minBets,
+            uint16 oddsEnforcementBps,
+            bool allowLiveBetting
+        ) = rulesModule.getAllRules(leaderboardId);
+        
+        assertEq(minBankroll, MIN_BANKROLL);
+        assertEq(maxBankroll, MAX_BANKROLL);
+        assertEq(minBetPercentage, MIN_BET_PERCENTAGE);
+        assertEq(maxBetPercentage, MAX_BET_PERCENTAGE);
+        assertEq(minBets, MIN_BETS);
+        assertEq(oddsEnforcementBps, ODDS_ENFORCEMENT_BPS);
+        assertTrue(allowLiveBetting); // Should be true after setting
+    }
+
     // --- Getter Function Tests ---
     function testGetDeviationRule_Set() public {
         vm.prank(admin);
@@ -674,7 +800,8 @@ contract RulesModuleTest is Test {
             uint16 minBetPercentage,
             uint16 maxBetPercentage,
             uint16 minBets,
-            uint16 oddsEnforcementBps
+            uint16 oddsEnforcementBps,
+            bool allowLiveBetting
         ) = rulesModule.getAllRules(leaderboardId);
         
         assertEq(minBankroll, MIN_BANKROLL);
@@ -683,6 +810,7 @@ contract RulesModuleTest is Test {
         assertEq(maxBetPercentage, MAX_BET_PERCENTAGE);
         assertEq(minBets, MIN_BETS);
         assertEq(oddsEnforcementBps, ODDS_ENFORCEMENT_BPS);
+        assertFalse(allowLiveBetting); // Default should be false
     }
 
     function testGetMaxBetAmount_WithLimit() public {
@@ -784,5 +912,10 @@ contract RulesModuleTest is Test {
             MAX_DEVIATION
         );
         vm.stopPrank();
+        
+        // Set contest start time to future by default (contest hasn't started)
+        // This ensures existing tests continue to work as expected
+        uint32 contestStartTime = uint32(block.timestamp + 6 hours);
+        mockContestModule.setContestStartTime(contestId, contestStartTime);
     }
 }

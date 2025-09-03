@@ -28,8 +28,20 @@ contract TreasuryModuleTest is Test {
     address protocolReceiver = address(0xBEEF);
     address user = address(0x1234);
     address notCore = address(0xDEAD);
+    
+    // Events from TreasuryModule
+    event LeaderboardEntryFeeProcessed(
+        address indexed payer,
+        uint256 totalAmount,
+        uint256 protocolCut,
+        uint256 indexed leaderboardId,
+        uint256 leaderboardAllocation
+    );
     address notAdmin = address(0xBAD);
+    address admin = address(this); // This test contract has admin role
     uint256 leaderboardId = 1;
+    uint256 protocolCutBps = 500; // 5% protocol cut for testing
+    uint256 constant MAX_BPS = 10_000;
 
     function setUp() public {
         core = new OspexCore();
@@ -52,6 +64,9 @@ contract TreasuryModuleTest is Test {
         
         // Grant admin role to this test contract
         core.grantRole(core.DEFAULT_ADMIN_ROLE(), address(this));
+        
+        // Set protocol cut for testing
+        treasuryModule.setProtocolCut(protocolCutBps);
     }
 
     // --- Constructor ---
@@ -273,14 +288,22 @@ contract TreasuryModuleTest is Test {
             FeeType.ContestCreation,
             leaderboardId
         );
+        
         address winner = address(0xB0B);
         uint256 winnerBefore = token.balanceOf(winner);
+        
+        // Calculate expected prize pool amount (total - protocol cut)
+        uint256 totalFee = 1_000_000;
+        uint256 expectedProtocolCut = (totalFee * protocolCutBps) / MAX_BPS;
+        uint256 expectedPrizePool = totalFee - expectedProtocolCut; // 950,000 with 5% cut
+        
         vm.prank(notCore);
         vm.expectRevert(TreasuryModule.TreasuryModule__NotCore.selector);
-        treasuryModule.claimPrizePool(leaderboardId, winner, 1_000_000);
+        treasuryModule.claimPrizePool(leaderboardId, winner, expectedPrizePool);
+        
         vm.prank(address(core));
-        treasuryModule.claimPrizePool(leaderboardId, winner, 1_000_000);
-        assertEq(token.balanceOf(winner), winnerBefore + 1_000_000);
+        treasuryModule.claimPrizePool(leaderboardId, winner, expectedPrizePool);
+        assertEq(token.balanceOf(winner), winnerBefore + expectedPrizePool);
         assertEq(treasuryModule.getPrizePool(leaderboardId), 0);
     }
 
@@ -292,8 +315,8 @@ contract TreasuryModuleTest is Test {
 
     // --- Getters ---
     function testGetFeeRateAndPrizePool() public {
-        treasuryModule.setFeeRates(FeeType.LeaderboardEntry, 123);
-        assertEq(treasuryModule.getFeeRate(FeeType.LeaderboardEntry), 123);
+        treasuryModule.setFeeRates(FeeType.ContestCreation, 123);
+        assertEq(treasuryModule.getFeeRate(FeeType.ContestCreation), 123);
         
         // Set up a valid leaderboard so funds go to prize pool
         Leaderboard memory validLeaderboard = Leaderboard({
@@ -320,6 +343,164 @@ contract TreasuryModuleTest is Test {
             FeeType.ContestCreation,
             leaderboardId
         );
-        assertEq(treasuryModule.getPrizePool(leaderboardId), 1_000_000);
+        // After 5% protocol cut, prize pool should be 950,000
+        uint256 expectedPrizePool = 1_000_000 - ((1_000_000 * protocolCutBps) / MAX_BPS);
+        assertEq(treasuryModule.getPrizePool(leaderboardId), expectedPrizePool);
+    }
+
+    // --- Leaderboard Entry Fee Tests ---
+    function testProcessLeaderboardEntryFee() public {
+        uint256 entryFee = 10_000_000; // 10 USDC
+        uint256 expectedProtocolCut = (entryFee * protocolCutBps) / MAX_BPS;
+        uint256 expectedLeaderboardAmount = entryFee - expectedProtocolCut;
+
+        // Fund user and approve
+        vm.prank(user);
+        token.approve(address(treasuryModule), entryFee);
+
+        // Get initial balances
+        uint256 initialProtocolBalance = token.balanceOf(protocolReceiver);
+        uint256 initialPrizePool = treasuryModule.getPrizePool(leaderboardId);
+
+        // Process leaderboard entry fee
+        vm.prank(address(core));
+        treasuryModule.processLeaderboardEntryFee(user, entryFee, leaderboardId);
+
+        // Verify protocol receiver got their cut
+        assertEq(
+            token.balanceOf(protocolReceiver),
+            initialProtocolBalance + expectedProtocolCut,
+            "Protocol receiver should receive protocol cut"
+        );
+
+        // Verify prize pool increased
+        assertEq(
+            treasuryModule.getPrizePool(leaderboardId),
+            initialPrizePool + expectedLeaderboardAmount,
+            "Prize pool should increase by remaining amount"
+        );
+
+        // Verify treasury holds the prize pool amount (not transferred out until claimed)
+        assertEq(token.balanceOf(address(treasuryModule)), expectedLeaderboardAmount, "Treasury should hold prize pool funds");
+    }
+
+    function testProcessLeaderboardEntryFeeZeroProtocolCut() public {
+        // Set protocol cut to 0
+        vm.prank(admin);
+        treasuryModule.setProtocolCut(0);
+
+        uint256 entryFee = 5_000_000; // 5 USDC
+
+        // Fund user and approve
+        vm.prank(user);
+        token.approve(address(treasuryModule), entryFee);
+
+        // Get initial balances
+        uint256 initialProtocolBalance = token.balanceOf(protocolReceiver);
+        uint256 initialPrizePool = treasuryModule.getPrizePool(leaderboardId);
+
+        // Process leaderboard entry fee
+        vm.prank(address(core));
+        treasuryModule.processLeaderboardEntryFee(user, entryFee, leaderboardId);
+
+        // Verify protocol receiver got nothing
+        assertEq(
+            token.balanceOf(protocolReceiver),
+            initialProtocolBalance,
+            "Protocol receiver should receive nothing when cut is 0"
+        );
+
+        // Verify all funds went to prize pool
+        assertEq(
+            treasuryModule.getPrizePool(leaderboardId),
+            initialPrizePool + entryFee,
+            "All funds should go to prize pool when protocol cut is 0"
+        );
+    }
+
+    function testProcessLeaderboardEntryFeeMultipleEntries() public {
+        uint256 entryFee = 10_000_000; // 10 USDC
+        uint256 numEntries = 3;
+        uint256 totalFees = entryFee * numEntries;
+        uint256 expectedProtocolCut = (totalFees * protocolCutBps) / MAX_BPS;
+        uint256 expectedLeaderboardAmount = totalFees - expectedProtocolCut;
+
+        // Fund user and approve total
+        vm.prank(user);
+        token.approve(address(treasuryModule), totalFees);
+
+        // Get initial prize pool
+        uint256 initialPrizePool = treasuryModule.getPrizePool(leaderboardId);
+
+        // Process multiple entries
+        for (uint256 i = 0; i < numEntries; i++) {
+            vm.prank(address(core));
+            treasuryModule.processLeaderboardEntryFee(user, entryFee, leaderboardId);
+        }
+
+        // Verify final prize pool
+        assertEq(
+            treasuryModule.getPrizePool(leaderboardId),
+            initialPrizePool + expectedLeaderboardAmount,
+            "Prize pool should accumulate from multiple entries"
+        );
+    }
+
+    function testProcessLeaderboardEntryFeeOnlyCore() public {
+        uint256 entryFee = 1_000_000; // 1 USDC
+
+        // Fund user and approve
+        vm.prank(user);
+        token.approve(address(treasuryModule), entryFee);
+
+        // Try to call from non-core address
+        vm.prank(user);
+        vm.expectRevert(TreasuryModule.TreasuryModule__NotCore.selector);
+        treasuryModule.processLeaderboardEntryFee(user, entryFee, leaderboardId);
+    }
+
+    function testProcessLeaderboardEntryFeeInsufficientBalance() public {
+        uint256 entryFee = 1_000_000; // 1 USDC
+
+        // Don't fund user - should fail on transfer
+        vm.prank(address(core));
+        vm.expectRevert(); // ERC20 transfer will revert
+        treasuryModule.processLeaderboardEntryFee(user, entryFee, leaderboardId);
+    }
+
+    function testProcessLeaderboardEntryFeeInsufficientApproval() public {
+        uint256 entryFee = 1_000_000; // 1 USDC
+
+        // Fund user but don't approve enough
+        vm.prank(user);
+        token.approve(address(treasuryModule), entryFee - 1);
+
+        vm.prank(address(core));
+        vm.expectRevert(); // ERC20 transfer will revert
+        treasuryModule.processLeaderboardEntryFee(user, entryFee, leaderboardId);
+    }
+
+    function testProcessLeaderboardEntryFeeEmitsEvent() public {
+        uint256 entryFee = 2_000_000; // 2 USDC
+        uint256 expectedProtocolCut = (entryFee * protocolCutBps) / MAX_BPS;
+        uint256 expectedLeaderboardAmount = entryFee - expectedProtocolCut;
+
+        // Fund user and approve
+        vm.prank(user);
+        token.approve(address(treasuryModule), entryFee);
+
+        // Expect the event
+        vm.expectEmit(true, true, true, true);
+        emit LeaderboardEntryFeeProcessed(
+            user,
+            entryFee,
+            expectedProtocolCut,
+            leaderboardId,
+            expectedLeaderboardAmount
+        );
+
+        // Process leaderboard entry fee
+        vm.prank(address(core));
+        treasuryModule.processLeaderboardEntryFee(user, entryFee, leaderboardId);
     }
 }

@@ -2,35 +2,28 @@
 pragma solidity ^0.8.19;
 
 import "forge-std/Script.sol";
-import "forge-std/console.sol";
-
-// Core contracts
-import "../src/core/OspexCore.sol";
 import "../src/modules/RulesModule.sol";
+import "../src/core/OspexCore.sol";
 
-/**
- * @title UpdateRulesModule
- * @notice Script to redeploy RulesModule and update the core registry
- * @dev This script allows updating a single module without redeploying everything
- */
-contract UpdateRulesModule is Script {
-    // Expected configuration - update these as needed
+contract TestDeploy is Script {
+    // Add the struct from UpdateRulesModule
     struct ModuleConfig {
         address ospexCoreAddress;
     }
 
     function run() external {
-        // Get deployer address from environment or use default
-        address deployer = vm.envOr("DEPLOYER", address(0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3));
+        // Get deployer address like UpdateRulesModule
+        address deployer = vm.envOr("DEPLOYER", address(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266));
         
-        // Configuration - UPDATE THESE VALUES AS NEEDED
+        // Use struct like UpdateRulesModule
         ModuleConfig memory config = ModuleConfig({
-            ospexCoreAddress: vm.envOr("OSPEX_CORE_ADDRESS", 0x129a5c0fbA5f448F4b7cF4E1469D80cf8EceaEDb) // Anvil default core address
+            ospexCoreAddress: 0x5FbDB2315678afecb367f032d93F642f64180aa3
         });
 
-        // Validate configuration
+        // Add validation like UpdateRulesModule
         require(config.ospexCoreAddress != address(0), "OSPEX_CORE_ADDRESS must be set");
         
+        // Add header logs like UpdateRulesModule
         console.log("=== UPDATE RULES MODULE ===");
         console.log("Deployer:", deployer);
         console.log("OspexCore Address:", config.ospexCoreAddress);
@@ -38,25 +31,20 @@ contract UpdateRulesModule is Script {
 
         vm.startBroadcast(deployer);
 
-        // Deploy new RulesModule
+        // Break into helper functions like UpdateRulesModule
         address newRulesModule = deployNewRulesModule(config);
-        
-        // Update the registry
         updateCoreRegistry(config.ospexCoreAddress, newRulesModule);
         
-        // Print summary
+        // Print summary with minimal logging
         printUpdateSummary(config.ospexCoreAddress, newRulesModule);
-
+        
         vm.stopBroadcast();
     }
 
     function deployNewRulesModule(ModuleConfig memory config) internal returns (address) {
         console.log("\n=== Deploying New RulesModule ===");
         
-        RulesModule newRulesModule = new RulesModule(
-            config.ospexCoreAddress
-        );
-        
+        RulesModule newRulesModule = new RulesModule(config.ospexCoreAddress);
         address moduleAddress = address(newRulesModule);
         console.log("New RulesModule deployed at:", moduleAddress);
         
@@ -68,7 +56,7 @@ contract UpdateRulesModule is Script {
         
         OspexCore core = OspexCore(coreAddress);
         
-        // Get the old module address for logging
+        // Get old module for logging
         address oldModule = core.getModule(keccak256("RULES_MODULE"));
         console.log("Old RulesModule:", oldModule);
         console.log("New RulesModule:", newModuleAddress);
@@ -84,7 +72,7 @@ contract UpdateRulesModule is Script {
     }
 
     function printUpdateSummary(address , address newModuleAddress) internal pure {
-        // Only the essential info - the new contract address!
+        // Only the essential info you need - the new contract address!
         console.log("\n=== DEPLOYMENT COMPLETE ===");
         console.log("New RulesModule Address:", newModuleAddress);
     }
@@ -98,4 +86,4 @@ contract UpdateRulesModule is Script {
             ospexCoreAddress: vm.envAddress("OSPEX_CORE_ADDRESS")
         });
     }
-} 
+}

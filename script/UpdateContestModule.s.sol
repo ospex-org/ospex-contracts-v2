@@ -90,7 +90,7 @@ contract UpdateContestModule is Script {
         console.log("Update verified");
     }
 
-    function printUpdateSummary(address coreAddress, address newModuleAddress) internal view {
+    function printUpdateSummary(address coreAddress, address newModuleAddress) internal pure {
         console.log("\n=== UPDATE SUMMARY ===");
         console.log("Network: Polygon Amoy Testnet (or current network)");
         console.log("OspexCore:", coreAddress);

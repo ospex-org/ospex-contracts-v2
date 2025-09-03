@@ -2,7 +2,7 @@
 pragma solidity ^0.8.19;
 
 import {IModule} from "./IModule.sol";
-import {PositionType, Leaderboard, LeaderboardPosition, LeagueId, LeaderboardScoring} from "../core/OspexTypes.sol";
+import {PositionType, Leaderboard, LeaderboardPosition} from "../core/OspexTypes.sol";
 
 interface ILeaderboardModule is IModule {
     function s_leaderboardSpeculationRegistered(

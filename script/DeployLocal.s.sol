@@ -102,7 +102,7 @@ contract DeployLocal is Script {
 
     function deployContracts(
         DeploymentConfig memory config,
-        address deployer
+        address
     ) internal returns (DeployedContracts memory contracts) {
         console.log("\n=== Deploying Mock Tokens ===");
         
@@ -232,7 +232,7 @@ contract DeployLocal is Script {
         console.log("Registered TotalScorerModule");
     }
 
-    function printDeploymentInfo(DeployedContracts memory contracts) internal view {
+    function printDeploymentInfo(DeployedContracts memory contracts) internal pure {
         console.log("\n=== DEPLOYMENT SUMMARY ===");
         console.log("Core Contract:");
         console.log("  OspexCore:", contracts.ospexCore);
@@ -257,7 +257,7 @@ contract DeployLocal is Script {
         console.log("  TotalScorerModule:", contracts.totalScorerModule);
     }
 
-    function calculateDeploymentCosts() internal view {
+    function calculateDeploymentCosts() internal pure {
         console.log("\n=== DEPLOYMENT COST ANALYSIS ===");
         console.log("Gas used will be calculated after deployment completes.");
         console.log("Run with --gas-report flag to see detailed gas usage.");

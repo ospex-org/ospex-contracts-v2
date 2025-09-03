@@ -1,12 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-/**
- * @title OracleModule
- * @author ospex.org
- * @notice Module for oracle interactions, contest verification, and scoring
- */
-
 import {FunctionsClient} from "../../lib/chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol";
 import {FunctionsRequest} from "../../lib/chainlink/contracts/src/v0.8/functions/v1_0_0/libraries/FunctionsRequest.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -19,6 +13,12 @@ import {IContestModule} from "../interfaces/IContestModule.sol";
 import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IPositionModule} from "../interfaces/IPositionModule.sol";
 import {ILeaderboardModule} from "../interfaces/ILeaderboardModule.sol";
+
+/**
+ * @title OracleModule
+ * @author ospex.org
+ * @notice Module for oracle interactions, contest verification, and scoring
+ */
 
 contract OracleModule is FunctionsClient, ReentrancyGuard {
     using FunctionsRequest for FunctionsRequest.Request;
@@ -603,7 +603,7 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         );
 
         // Extract spread (4 digits, offset back from +1000)
-        spreadNumber = int32(int256((_uint / 1e24) % 1e4)) - 1000; // (TODO: check this)
+        spreadNumber = int32(int256((_uint / 1e24) % 1e4)) - 1000;
 
         // Extract spread odds (5 digits each, offset back from +10000, then convert to scaled decimal)
         spreadAwayOdds = americanToScaledDecimalOdds(
@@ -614,7 +614,7 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         );
 
         // Extract total (4 digits, offset back from +1000)
-        totalNumber = int32(int256((_uint / 1e10) % 1e4)) - 1000; // (TODO: check this)
+        totalNumber = int32(int256((_uint / 1e10) % 1e4)) - 1000;
 
         // Extract total odds (5 digits each, offset back from +10000, then convert to scaled decimal)
         overOdds = americanToScaledDecimalOdds(((_uint / 1e5) % 1e5));

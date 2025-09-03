@@ -12,6 +12,7 @@ interface IRulesModule is IModule {
     function setMaxBetPercentage(uint256 leaderboardId, uint16 value) external;
     function setMinBets(uint256 leaderboardId, uint16 value) external;
     function setOddsEnforcementBps(uint256 leaderboardId, uint16 value) external;
+    function setAllowLiveBetting(uint256 leaderboardId, bool value) external;
     function setDeviationRule(
         uint256 leaderboardId,
         LeagueId leagueId,
@@ -59,7 +60,8 @@ interface IRulesModule is IModule {
         uint16 minBetPercentage,
         uint16 maxBetPercentage,
         uint16 minBets,
-        uint16 oddsEnforcementBps
+        uint16 oddsEnforcementBps,
+        bool allowLiveBetting
     );
     function getMaxBetAmount(uint256 leaderboardId, uint256 bankroll) external view returns (uint256 maxBetAmount);
     function getMinBetAmount(uint256 leaderboardId, uint256 bankroll) external view returns (uint256 minBetAmount);

@@ -9,6 +9,12 @@ import {IPositionModule} from "../interfaces/IPositionModule.sol";
 import {OspexCore} from "../core/OspexCore.sol";
 import {LeagueId, Leaderboard, Contest, Speculation, PositionType, ContestMarket} from "../core/OspexTypes.sol";
 
+/**
+ * @title RulesModule
+ * @notice Handles rules creation, storage, and status management for Ospex protocol
+ * @dev All business logic for rules is implemented here.
+ */
+
 contract RulesModule is IRulesModule {
     // --- Custom Errors ---
     /// @notice Error thrown when the caller is not an admin
@@ -34,6 +40,7 @@ contract RulesModule is IRulesModule {
     mapping(uint256 => uint16) public s_maxBetPercentage;
     mapping(uint256 => uint16) public s_minBets;
     mapping(uint256 => uint16) public s_oddsEnforcementBps;
+    mapping(uint256 => bool) public s_allowLiveBetting;
 
     // Deviation rules - nested mappings for readability
     // leaderboardId => leagueId => scorer => positionType => maxDeviation
@@ -256,6 +263,23 @@ contract RulesModule is IRulesModule {
     }
 
     /**
+     * @notice Sets the allow live betting for a leaderboard
+     * @param leaderboardId The ID of the leaderboard
+     * @param value The allow live betting
+     */
+    function setAllowLiveBetting(
+        uint256 leaderboardId,
+        bool value
+    ) external override onlyAdmin leaderboardNotStarted(leaderboardId) {
+        s_allowLiveBetting[leaderboardId] = value;
+        emit RuleSet(leaderboardId, "allowLiveBetting", value ? 1 : 0);
+        i_ospexCore.emitCoreEvent(
+            keccak256("RULE_SET"),
+            abi.encode(leaderboardId, "allowLiveBetting", value ? 1 : 0)
+        );
+    }
+
+    /**
      * @notice Sets deviation rule for a specific leaderboard, league, scorer, and position type
      * @param leaderboardId The leaderboard ID
      * @param leagueId The league ID (e.g., NHL, NFL)
@@ -462,6 +486,9 @@ contract RulesModule is IRulesModule {
         ILeaderboardModule leaderboardModule = ILeaderboardModule(
             _getModule(keccak256("LEADERBOARD_MODULE"))
         );
+        IContestModule contestModule = IContestModule(
+            _getModule(keccak256("CONTEST_MODULE"))
+        );
         Leaderboard memory leaderboard = leaderboardModule.getLeaderboard(
             leaderboardId
         );
@@ -493,18 +520,26 @@ contract RulesModule is IRulesModule {
             return false; // Speculation not registered for leaderboard
         }
 
+        // Check if live betting is allowed
+        if (!s_allowLiveBetting[leaderboardId]) {
+            if (
+                block.timestamp >=
+                contestModule.s_contestStartTimes(speculation.contestId)
+            ) {
+                return false;
+            }
+        }
+
         // Get contest and speculation info for league/scorer validation
-        Contest memory contest = IContestModule(
-            _getModule(keccak256("CONTEST_MODULE"))
-        ).getContest(speculation.contestId);
+        Contest memory contest = contestModule.getContest(
+            speculation.contestId
+        );
 
         // Get current market data for validation
-        ContestMarket memory contestMarket = IContestModule(
-            _getModule(keccak256("CONTEST_MODULE"))
-        ).getContestMarket(
-                speculation.contestId,
-                speculation.speculationScorer
-            );
+        ContestMarket memory contestMarket = contestModule.getContestMarket(
+            speculation.contestId,
+            speculation.speculationScorer
+        );
 
         // Validate number deviation (for spreads/totals) - compare against current market number
         if (
@@ -559,7 +594,8 @@ contract RulesModule is IRulesModule {
             uint16 minBetPercentage,
             uint16 maxBetPercentage,
             uint16 minBets,
-            uint16 oddsEnforcementBps
+            uint16 oddsEnforcementBps,
+            bool allowLiveBetting
         )
     {
         return (
@@ -568,7 +604,8 @@ contract RulesModule is IRulesModule {
             s_minBetPercentage[leaderboardId],
             s_maxBetPercentage[leaderboardId],
             s_minBets[leaderboardId],
-            s_oddsEnforcementBps[leaderboardId]
+            s_oddsEnforcementBps[leaderboardId],
+            s_allowLiveBetting[leaderboardId]
         );
     }
 

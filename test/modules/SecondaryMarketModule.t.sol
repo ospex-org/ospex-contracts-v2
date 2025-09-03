@@ -9,8 +9,7 @@ import {ContributionModule} from "../../src/modules/ContributionModule.sol";
 import {TreasuryModule} from "../../src/modules/TreasuryModule.sol";
 import {OracleModule} from "../../src/modules/OracleModule.sol";
 import {OspexCore} from "../../src/core/OspexCore.sol";
-import {PositionType, SaleListing, SpeculationStatus, Speculation, Position, Contest, ContestStatus, WinSide, LeagueId} from "../../src/core/OspexTypes.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {PositionType, SaleListing, Position, Contest, ContestStatus, LeagueId} from "../../src/core/OspexTypes.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockContestModule} from "../mocks/MockContestModule.sol";
 import {MockScorerModule} from "../mocks/MockScorerModule.sol";
@@ -150,7 +149,7 @@ contract SecondaryMarketModuleTest is Test {
         // Seller creates an unmatched pair (position)
         vm.startPrank(seller);
         uint64 odds = 11_000_000; // 1.10 odds
-        oddsPairId = positionModule.getOrCreateOddsPairId(odds, positionType);
+        (oddsPairId, , ) = positionModule.getOrCreateOddsPairId(odds, positionType);
         token.approve(address(positionModule), 10e6);
         positionModule.createUnmatchedPair(
             speculationId,
@@ -438,7 +437,7 @@ contract SecondaryMarketModuleTest is Test {
         vm.startPrank(seller);
         token.approve(address(positionModule), 10e6);
         uint64 odds = 11_000_000;
-        uint128 testOddsPairId = positionModule.getOrCreateOddsPairId(odds, positionType);
+        (uint128 testOddsPairId, , ) = positionModule.getOrCreateOddsPairId(odds, positionType);
         positionModule.createUnmatchedPair(
             testSpecId,
             odds,

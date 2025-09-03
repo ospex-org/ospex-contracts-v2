@@ -94,7 +94,9 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         uint128 oddsPairId,
         uint32 unmatchedExpiry,
         PositionType positionType,
-        uint256 amount
+        uint256 amount,
+        uint64 upperOdds,
+        uint64 lowerOdds
     );
 
     /**
@@ -260,7 +262,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
             revert PositionModule__OddsOutOfRange(odds);
         }
         // --- Odds pair ID logic ---
-        uint128 oddsPairId = getOrCreateOddsPairId(odds, positionType);
+        (uint128 oddsPairId, uint64 upperOdds, uint64 lowerOdds) = getOrCreateOddsPairId(odds, positionType);
         // --- Position storage ---
         Position storage pos = s_positions[speculationId][msg.sender][
             oddsPairId
@@ -294,7 +296,9 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
             oddsPairId,
             unmatchedExpiry,
             positionType,
-            amount
+            amount,
+            upperOdds,
+            lowerOdds
         );
         i_ospexCore.emitCoreEvent(
             keccak256("POSITION_CREATED"),
@@ -304,7 +308,9 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
                 oddsPairId,
                 unmatchedExpiry,
                 positionType,
-                amount
+                amount,
+                upperOdds,
+                lowerOdds
             )
         );
     }
@@ -699,7 +705,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
     function getOrCreateOddsPairId(
         uint64 odds,
         PositionType positionType
-    ) public returns (uint128 oddsPairId) {
+    ) public returns (uint128 oddsPairId, uint64 upperOdds, uint64 lowerOdds) {
         uint64 normalizedOdds = roundOddsToNearestIncrement(odds);
         uint64 inverseOdds = calculateAndRoundInverseOdds(normalizedOdds);
         uint64 smallerOdds = normalizedOdds < inverseOdds
@@ -711,23 +717,21 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         oddsPairId = (positionType == PositionType.Lower)
             ? baseOddsPairId + 10000
             : baseOddsPairId;
+        OddsPair storage oddsPair = s_oddsPairs[oddsPairId];
         // Check if pair exists for this speculation/oddsPairId
-        if (s_oddsPairs[oddsPairId].oddsPairId == 0) {
+        if (oddsPair.oddsPairId == 0) {
             // Store original and inverse odds
             s_originalRequestedOdds[oddsPairId] = normalizedOdds;
             s_inverseCalculatedOdds[oddsPairId] = inverseOdds;
-            OddsPair memory oddsPair = OddsPair({
-                oddsPairId: oddsPairId,
-                upperOdds: (positionType == PositionType.Upper)
-                    ? normalizedOdds
-                    : inverseOdds,
-                lowerOdds: (positionType == PositionType.Upper)
-                    ? inverseOdds
-                    : normalizedOdds
-            });
-            s_oddsPairs[oddsPairId] = oddsPair;
+            oddsPair.oddsPairId = oddsPairId;
+            oddsPair.upperOdds = (positionType == PositionType.Upper)
+                ? normalizedOdds
+                : inverseOdds;
+            oddsPair.lowerOdds = (positionType == PositionType.Upper)
+                ? inverseOdds
+                : normalizedOdds;
         }
-        return oddsPairId;
+        return (oddsPairId, oddsPair.upperOdds, oddsPair.lowerOdds);
     }
 
     // --- Internal complete unmatched pair ---
