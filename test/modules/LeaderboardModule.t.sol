@@ -515,6 +515,7 @@ contract LeaderboardModuleTest is Test {
         emit LeaderboardModule.LeaderboardPositionAdded(
             speculationId,
             user1,
+            1, // oddsPairId
             50_000_000, // 50 USDC
             PositionType.Upper,
             leaderboardId
@@ -653,6 +654,7 @@ contract LeaderboardModuleTest is Test {
         emit LeaderboardModule.LeaderboardPositionUpdated(
             speculationId,
             user1,
+            1, // oddsPairId
             100_000_000,
             PositionType.Upper,
             leaderboardId
@@ -1300,6 +1302,7 @@ contract LeaderboardModuleTest is Test {
         emit LeaderboardModule.LeaderboardPositionAdded(
             speculationId,
             user1,
+            1, // oddsPairId
             50_000_000, // 50 USDC from _mockPositionModuleCalls
             PositionType.Upper,
             leaderboardId

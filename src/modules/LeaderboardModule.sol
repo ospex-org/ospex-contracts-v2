@@ -152,6 +152,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
      * @notice Event for adding a position to a leaderboard
      * @param speculationId The ID of the speculation
      * @param user The address of the user
+     * @param oddsPairId The ID of the odds pair
      * @param amount The amount of the position
      * @param positionType The type of the position
      * @param leaderboardId The ID of the leaderboard
@@ -159,6 +160,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     event LeaderboardPositionAdded(
         uint256 indexed speculationId,
         address indexed user,
+        uint128 oddsPairId,
         uint256 amount,
         PositionType positionType,
         uint256 indexed leaderboardId
@@ -168,6 +170,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
      * @notice Event for updating a position in a leaderboard
      * @param speculationId The ID of the speculation
      * @param user The address of the user
+     * @param oddsPairId The ID of the odds pair
      * @param amount The amount of the position
      * @param positionType The type of the position
      * @param leaderboardId The ID of the leaderboard
@@ -175,6 +178,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     event LeaderboardPositionUpdated(
         uint256 indexed speculationId,
         address indexed user,
+        uint128 oddsPairId,
         uint256 amount,
         PositionType positionType,
         uint256 indexed leaderboardId
@@ -488,6 +492,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
                 emit LeaderboardPositionAdded(
                     speculationId,
                     user,
+                    oddsPairId,
                     cappedAmount,
                     positionType,
                     leaderboardId
@@ -497,6 +502,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
                     abi.encode(
                         speculationId,
                         user,
+                        oddsPairId,
                         cappedAmount,
                         positionType,
                         leaderboardId
@@ -569,6 +575,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
                 emit LeaderboardPositionUpdated(
                     speculationId,
                     user,
+                    oddsPairId,
                     cappedAmount,
                     positionType,
                     leaderboardId
@@ -578,6 +585,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
                     abi.encode(
                         speculationId,
                         user,
+                        oddsPairId,
                         cappedAmount,
                         positionType,
                         leaderboardId
