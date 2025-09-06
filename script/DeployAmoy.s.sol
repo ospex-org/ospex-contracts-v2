@@ -21,8 +21,7 @@ import "../src/modules/MoneylineScorerModule.sol";
 import "../src/modules/SpreadScorerModule.sol";
 import "../src/modules/TotalScorerModule.sol";
 
-// Mock ERC20 for testnet
-import "../test/mocks/MockERC20.sol";
+// Using existing USDC contract instead of deploying mock token
 
 /**
  * @title DeployAmoy
@@ -49,7 +48,7 @@ contract DeployAmoy is Script {
     struct DeployedContracts {
         // Core
         address ospexCore;
-        // Mock token for testnet
+        // Existing USDC token for testnet
         address mockUSDC;
         // Modules
         address treasuryModule;
@@ -78,7 +77,7 @@ contract DeployAmoy is Script {
             minSaleAmount: 1 * 10**6, // 1 USDC
             maxSaleAmount: 100 * 10**6, // 100 USDC
             createContestSourceHash: 0x74533c92d0380a7aa2c8d597453cdcea7350344971be3df02623fe339002f9ab,
-            updateContestMarketsSourceHash: 0x74533c92d0380a7aa2c8d597453cdcea7350344971be3df02623fe339002f9ab, // TODO: update this
+            updateContestMarketsSourceHash: 0x7f5ce70565133fedb2e0f1aeb925f38a3b26924917cff852e7de40a9297119b4,
             donId: bytes32("fun-polygon-amoy-1"),
             protocolReceiver: deployer // Use deployer as protocol receiver for testing
         });
@@ -96,17 +95,13 @@ contract DeployAmoy is Script {
 
     function deployContracts(
         DeploymentConfig memory config,
-        address deployer
+        address /* deployer */
     ) internal returns (DeployedContracts memory contracts) {
-        console.log("\n=== Deploying Mock USDC Token ===");
+        console.log("\n=== Using Existing USDC Token ===");
         
-        // Deploy mock USDC token for testnet
-        MockERC20 mockUSDC = new MockERC20();
-        contracts.mockUSDC = address(mockUSDC);
-        
-        // Mint some initial supply to the deployer
-        mockUSDC.mint(deployer, 1_000_000 * 10**6); // 1M USDC
-        console.log("Mock USDC deployed at:", contracts.mockUSDC);
+        // Use existing USDC contract instead of deploying new one
+        contracts.mockUSDC = 0xB1D1c0A8Cc8BB165b34735972E798f64A785eaF8;
+        console.log("Using existing USDC at:", contracts.mockUSDC);
 
         console.log("\n=== Deploying Core Contract ===");
         
@@ -118,22 +113,22 @@ contract DeployAmoy is Script {
 
         // Deploy modules that only depend on OspexCore
         contracts.contributionModule = address(new ContributionModule(contracts.ospexCore));
-        console.log("ContributionModule deployed at:", contracts.contributionModule);
-
+        console.log("ContributionModule:", contracts.contributionModule);
+        
         contracts.leaderboardModule = address(new LeaderboardModule(contracts.ospexCore));
-        console.log("LeaderboardModule deployed at:", contracts.leaderboardModule);
-
+        console.log("LeaderboardModule:", contracts.leaderboardModule);
+        
         contracts.rulesModule = address(new RulesModule(contracts.ospexCore));
-        console.log("RulesModule deployed at:", contracts.rulesModule);
-
+        console.log("RulesModule:", contracts.rulesModule);
+        
         contracts.moneylineScorerModule = address(new MoneylineScorerModule(contracts.ospexCore));
-        console.log("MoneylineScorerModule deployed at:", contracts.moneylineScorerModule);
-
+        console.log("MoneylineScorerModule:", contracts.moneylineScorerModule);
+        
         contracts.spreadScorerModule = address(new SpreadScorerModule(contracts.ospexCore));
-        console.log("SpreadScorerModule deployed at:", contracts.spreadScorerModule);
-
+        console.log("SpreadScorerModule:", contracts.spreadScorerModule);
+        
         contracts.totalScorerModule = address(new TotalScorerModule(contracts.ospexCore));
-        console.log("TotalScorerModule deployed at:", contracts.totalScorerModule);
+        console.log("TotalScorerModule:", contracts.totalScorerModule);
 
         // Deploy modules with additional dependencies
         contracts.treasuryModule = address(new TreasuryModule(
@@ -141,19 +136,19 @@ contract DeployAmoy is Script {
             contracts.mockUSDC,
             config.protocolReceiver
         ));
-        console.log("TreasuryModule deployed at:", contracts.treasuryModule);
+        console.log("TreasuryModule:", contracts.treasuryModule);
 
         contracts.speculationModule = address(new SpeculationModule(
             contracts.ospexCore,
             config.tokenDecimals
         ));
-        console.log("SpeculationModule deployed at:", contracts.speculationModule);
+        console.log("SpeculationModule:", contracts.speculationModule);
 
         contracts.positionModule = address(new PositionModule(
             contracts.ospexCore,
             contracts.mockUSDC
         ));
-        console.log("PositionModule deployed at:", contracts.positionModule);
+        console.log("PositionModule:", contracts.positionModule);
 
         contracts.secondaryMarketModule = address(new SecondaryMarketModule(
             contracts.ospexCore,
@@ -161,14 +156,14 @@ contract DeployAmoy is Script {
             config.minSaleAmount,
             config.maxSaleAmount
         ));
-        console.log("SecondaryMarketModule deployed at:", contracts.secondaryMarketModule);
+        console.log("SecondaryMarketModule:", contracts.secondaryMarketModule);
 
         contracts.contestModule = address(new ContestModule(
             contracts.ospexCore,
             config.createContestSourceHash,
             config.updateContestMarketsSourceHash
         ));
-        console.log("ContestModule deployed at:", contracts.contestModule);
+        console.log("ContestModule:", contracts.contestModule);
 
         contracts.oracleModule = address(new OracleModule(
             contracts.ospexCore,
@@ -176,7 +171,9 @@ contract DeployAmoy is Script {
             LINK_ADDRESS,
             config.donId
         ));
-        console.log("OracleModule deployed at:", contracts.oracleModule);
+        console.log("OracleModule:", contracts.oracleModule);
+        
+        console.log("All modules deployed successfully");
 
         return contracts;
     }
@@ -188,40 +185,19 @@ contract DeployAmoy is Script {
         
         // Register all modules
         core.registerModule(keccak256("TREASURY_MODULE"), contracts.treasuryModule);
-        console.log("Registered TreasuryModule");
-
         core.registerModule(keccak256("ORACLE_MODULE"), contracts.oracleModule);
-        console.log("Registered OracleModule");
-
         core.registerModule(keccak256("SPECULATION_MODULE"), contracts.speculationModule);
-        console.log("Registered SpeculationModule");
-
         core.registerModule(keccak256("POSITION_MODULE"), contracts.positionModule);
-        console.log("Registered PositionModule");
-
         core.registerModule(keccak256("SECONDARY_MARKET_MODULE"), contracts.secondaryMarketModule);
-        console.log("Registered SecondaryMarketModule");
-
         core.registerModule(keccak256("CONTEST_MODULE"), contracts.contestModule);
-        console.log("Registered ContestModule");
-
         core.registerModule(keccak256("CONTRIBUTION_MODULE"), contracts.contributionModule);
-        console.log("Registered ContributionModule");
-
         core.registerModule(keccak256("LEADERBOARD_MODULE"), contracts.leaderboardModule);
-        console.log("Registered LeaderboardModule");
-
         core.registerModule(keccak256("RULES_MODULE"), contracts.rulesModule);
-        console.log("Registered RulesModule");
-
         core.registerModule(keccak256("MONEYLINE_SCORER"), contracts.moneylineScorerModule);
-        console.log("Registered MoneylineScorerModule");
-
         core.registerModule(keccak256("SPREAD_SCORER"), contracts.spreadScorerModule);
-        console.log("Registered SpreadScorerModule");
-
         core.registerModule(keccak256("TOTAL_SCORER"), contracts.totalScorerModule);
-        console.log("Registered TotalScorerModule");
+        
+        console.log("All modules registered successfully");
     }
 
     function printDeploymentInfo(DeployedContracts memory contracts) internal pure {
@@ -233,22 +209,13 @@ contract DeployAmoy is Script {
         console.log("\nCore Contract:");
         console.log("  OspexCore:", contracts.ospexCore);
         
-        console.log("\nTestnet Token:");
-        console.log("  MockUSDC:", contracts.mockUSDC);
+        console.log("\nExisting USDC Token:", contracts.mockUSDC);
         
-        console.log("\nModules:");
+        console.log("\nCore & Key Modules:");
+        console.log("  OspexCore:", contracts.ospexCore);
         console.log("  TreasuryModule:", contracts.treasuryModule);
         console.log("  OracleModule:", contracts.oracleModule);
-        console.log("  SpeculationModule:", contracts.speculationModule);
-        console.log("  PositionModule:", contracts.positionModule);
-        console.log("  SecondaryMarketModule:", contracts.secondaryMarketModule);
-        console.log("  ContestModule:", contracts.contestModule);
-        console.log("  ContributionModule:", contracts.contributionModule);
         console.log("  LeaderboardModule:", contracts.leaderboardModule);
-        console.log("  RulesModule:", contracts.rulesModule);
-        console.log("  MoneylineScorerModule:", contracts.moneylineScorerModule);
-        console.log("  SpreadScorerModule:", contracts.spreadScorerModule);
-        console.log("  TotalScorerModule:", contracts.totalScorerModule);
         
         console.log("\n=== NEXT STEPS ===");
         console.log("1. Fund the OracleModule with LINK tokens for Chainlink Functions");
