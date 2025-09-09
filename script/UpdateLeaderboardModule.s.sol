@@ -25,7 +25,7 @@ contract UpdateLeaderboardModule is Script {
         
         // Configuration - UPDATE THESE VALUES AS NEEDED
         ModuleConfig memory config = ModuleConfig({
-            ospexCoreAddress: vm.envOr("OSPEX_CORE_ADDRESS", 0x129a5c0fbA5f448F4b7cF4E1469D80cf8EceaEDb)
+            ospexCoreAddress: vm.envOr("OSPEX_CORE_ADDRESS", 0x829A2B2deaBd3b06f6E5938220eCfB450CE75e24)
         });
 
         // Validate configuration

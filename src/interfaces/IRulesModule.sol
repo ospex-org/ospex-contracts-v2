@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import {LeagueId, PositionType} from "../core/OspexTypes.sol";
+import {LeagueId, PositionType, LeaderboardPositionValidationResult} from "../core/OspexTypes.sol";
 import {IModule} from "./IModule.sol";
 
 interface IRulesModule is IModule {
@@ -23,10 +23,9 @@ interface IRulesModule is IModule {
 
     // --- Validation Functions ---
     function isBankrollValid(uint256 leaderboardId, uint256 bankroll) external view returns (bool);
-    function isBetValid(uint256 leaderboardId, uint256 bankroll, uint256 betAmount) external view returns (bool);
     function isMinPositionsMet(uint256 leaderboardId, uint256 userPositions) external view returns (bool);
-    function isOddsValid(uint256 leaderboardId, uint64 userOdds, uint64 marketOdds) external view returns (bool);
-    function isNumberValid(
+    function validateOdds(uint256 leaderboardId, uint64 userOdds, uint64 marketOdds) external view returns (bool);
+    function validateNumber(
         uint256 leaderboardId,
         LeagueId leagueId,
         address scorer,
@@ -37,12 +36,10 @@ interface IRulesModule is IModule {
     function validateLeaderboardPosition(
         uint256 leaderboardId,
         uint256 speculationId,
-        uint256 amount,
-        uint256 declaredBankroll,
         int32 userNumber,
         uint64 userOdds,
         PositionType positionType
-    ) external view returns (bool);
+    ) external view returns (LeaderboardPositionValidationResult);
 
     // --- Getter Functions ---
     function getDeviationRule(

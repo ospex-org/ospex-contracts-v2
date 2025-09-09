@@ -6,7 +6,7 @@ import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IPositionModule} from "../interfaces/IPositionModule.sol";
 import {ITreasuryModule} from "../interfaces/ITreasuryModule.sol";
 import {IRulesModule} from "../interfaces/IRulesModule.sol";
-import {PositionType, Leaderboard, LeaderboardPosition, Speculation, Position, OddsPair, LeaderboardScoring, WinSide} from "../core/OspexTypes.sol";
+import {PositionType, Leaderboard, LeaderboardPosition, Speculation, Position, OddsPair, LeaderboardScoring, WinSide, LeaderboardPositionValidationResult} from "../core/OspexTypes.sol";
 import {OspexCore} from "../core/OspexCore.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
@@ -38,6 +38,10 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     error LeaderboardModule__InvalidLeaderboardCount();
     /// @notice Error for invalid OspexCore
     error LeaderboardModule__InvalidOspexCore();
+    /// @notice Error for bet size below minimum
+    error LeaderboardModule__BetSizeBelowMinimum();
+    /// @notice Error for validation failed
+    error LeaderboardModule__ValidationFailed(LeaderboardPositionValidationResult reason);
     /// @notice Error for position already exists for speculation
     error LeaderboardModule__PositionAlreadyExistsForSpeculation();
     /// @notice Error for leaderboard speculation not registered for leaderboard
@@ -458,20 +462,25 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
                 ? maxBet
                 : matchedAmount;
 
-            // Validate position using comprehensive rules validation
+            // Confirm bet size is above minimum bet amount
             if (
-                cappedAmount >=
-                rulesModule.getMinBetAmount(leaderboardId, declaredBankroll) &&
-                rulesModule.validateLeaderboardPosition(
+                cappedAmount <
+                rulesModule.getMinBetAmount(leaderboardId, declaredBankroll)
+            ) {
+                revert LeaderboardModule__BetSizeBelowMinimum();
+            }
+
+            // Validate position using comprehensive rules validation
+            LeaderboardPositionValidationResult validationResult = rulesModule
+                .validateLeaderboardPosition(
                     leaderboardId,
                     speculationId,
-                    cappedAmount,
-                    declaredBankroll,
                     theNumber,
                     odds,
                     positionType
-                )
-            ) {
+                );
+
+            if (validationResult == LeaderboardPositionValidationResult.Valid) {
                 // Register this speculationId as the slot owner
                 s_registeredLeaderboardSpeculation[leaderboardId][user][
                     contestId
@@ -489,6 +498,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
                 });
                 // Track speculationId for user in this leaderboard
                 s_userSpeculationIds[leaderboardId][user].push(speculationId);
+
                 emit LeaderboardPositionAdded(
                     speculationId,
                     user,
@@ -508,6 +518,8 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
                         leaderboardId
                     )
                 );
+            } else {
+                revert LeaderboardModule__ValidationFailed(validationResult);
             }
         }
     }

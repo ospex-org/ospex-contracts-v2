@@ -7,7 +7,7 @@ import {IContestModule} from "../interfaces/IContestModule.sol";
 import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IPositionModule} from "../interfaces/IPositionModule.sol";
 import {OspexCore} from "../core/OspexCore.sol";
-import {LeagueId, Leaderboard, Contest, Speculation, PositionType, ContestMarket} from "../core/OspexTypes.sol";
+import {LeagueId, Leaderboard, Contest, Speculation, PositionType, ContestMarket, LeaderboardPositionValidationResult} from "../core/OspexTypes.sol";
 
 /**
  * @title RulesModule
@@ -348,31 +348,6 @@ contract RulesModule is IRulesModule {
     }
 
     /**
-     * @notice Validates if the bet amount is within the allowed range
-     * @param leaderboardId The ID of the leaderboard
-     * @param bankroll The bankroll to validate
-     * @param betAmount The bet amount to validate
-     * @return bool True if the bet amount is valid
-     */
-    function isBetValid(
-        uint256 leaderboardId,
-        uint256 bankroll,
-        uint256 betAmount
-    ) external view override returns (bool) {
-        if (s_minBetPercentage[leaderboardId] > 0) {
-            uint256 minBet = (bankroll * s_minBetPercentage[leaderboardId]) /
-                MAX_BPS;
-            if (betAmount < minBet) return false;
-        }
-        if (s_maxBetPercentage[leaderboardId] > 0) {
-            uint256 maxBet = (bankroll * s_maxBetPercentage[leaderboardId]) /
-                MAX_BPS;
-            if (betAmount > maxBet) return false;
-        }
-        return true;
-    }
-
-    /**
      * @notice Validates if the minimum number of positions is met
      * @param leaderboardId The ID of the leaderboard
      * @param userPositions The number of positions the user has
@@ -399,7 +374,7 @@ contract RulesModule is IRulesModule {
      * @return bool True if odds are valid (within enforcement or worse than market)
      * @dev Worse odds than market are always allowed, better odds are limited by enforcement BPS
      */
-    function isOddsValid(
+    function validateOdds(
         uint256 leaderboardId,
         uint64 userOdds,
         uint64 marketOdds
@@ -435,7 +410,7 @@ contract RulesModule is IRulesModule {
      * @param marketNumber The current market number
      * @return bool True if number is within allowed deviation
      */
-    function isNumberValid(
+    function validateNumber(
         uint256 leaderboardId,
         LeagueId leagueId,
         address scorer,
@@ -466,8 +441,6 @@ contract RulesModule is IRulesModule {
      * @notice Comprehensive validation for a leaderboard position
      * @param leaderboardId The leaderboard ID
      * @param speculationId The speculation ID
-     * @param amount The bet amount
-     * @param declaredBankroll The user's declared bankroll
      * @param userNumber The number the user is betting on (for spreads/totals)
      * @param userOdds The odds the user is getting
      * @param positionType The position type (Upper/Lower)
@@ -476,12 +449,10 @@ contract RulesModule is IRulesModule {
     function validateLeaderboardPosition(
         uint256 leaderboardId,
         uint256 speculationId,
-        uint256 amount,
-        uint256 declaredBankroll,
         int32 userNumber,
         uint64 userOdds,
         PositionType positionType
-    ) external view override returns (bool) {
+    ) external view override returns (LeaderboardPositionValidationResult) {
         // Get leaderboard to ensure it exists and is active
         ILeaderboardModule leaderboardModule = ILeaderboardModule(
             _getModule(keccak256("LEADERBOARD_MODULE"))
@@ -493,17 +464,21 @@ contract RulesModule is IRulesModule {
             leaderboardId
         );
 
-        if (leaderboard.startTime == 0) return false; // Leaderboard doesn't exist
-        if (
-            block.timestamp < leaderboard.startTime ||
-            block.timestamp >= leaderboard.endTime
-        ) {
-            return false; // Outside leaderboard time window
-        }
+        // Check if leaderboard exists
+        if (leaderboard.startTime == 0) return LeaderboardPositionValidationResult.LeaderboardDoesNotExist;
+        
+        // Check if leaderboard has started or ended
+        if (block.timestamp < leaderboard.startTime) return LeaderboardPositionValidationResult.LeaderboardHasNotStarted;
+        if (block.timestamp >= leaderboard.endTime) return LeaderboardPositionValidationResult.LeaderboardHasEnded;
 
-        // Validate bet amount against bankroll rules
-        if (!this.isBetValid(leaderboardId, declaredBankroll, amount)) {
-            return false;
+        // Check if speculation is registered for leaderboard
+        if (
+            !leaderboardModule.s_leaderboardSpeculationRegistered(
+                leaderboardId,
+                speculationId
+            )
+        ) {
+            return LeaderboardPositionValidationResult.SpeculationNotRegistered; // Speculation not registered for leaderboard
         }
 
         // Get speculation data for market comparison
@@ -511,22 +486,13 @@ contract RulesModule is IRulesModule {
             _getModule(keccak256("SPECULATION_MODULE"))
         ).getSpeculation(speculationId);
 
-        if (
-            !leaderboardModule.s_leaderboardSpeculationRegistered(
-                leaderboardId,
-                speculationId
-            )
-        ) {
-            return false; // Speculation not registered for leaderboard
-        }
-
         // Check if live betting is allowed
         if (!s_allowLiveBetting[leaderboardId]) {
             if (
                 block.timestamp >=
                 contestModule.s_contestStartTimes(speculation.contestId)
             ) {
-                return false;
+                return LeaderboardPositionValidationResult.LiveBettingNotAllowed;
             }
         }
 
@@ -543,7 +509,7 @@ contract RulesModule is IRulesModule {
 
         // Validate number deviation (for spreads/totals) - compare against current market number
         if (
-            !this.isNumberValid(
+            !this.validateNumber(
                 leaderboardId,
                 contest.leagueId,
                 speculation.speculationScorer,
@@ -552,7 +518,7 @@ contract RulesModule is IRulesModule {
                 contestMarket.theNumber
             )
         ) {
-            return false;
+            return LeaderboardPositionValidationResult.NumberDeviationTooLarge;
         }
 
         // Validate odds enforcement - compare against current market odds
@@ -560,11 +526,11 @@ contract RulesModule is IRulesModule {
             ? contestMarket.upperOdds
             : contestMarket.lowerOdds;
 
-        if (!this.isOddsValid(leaderboardId, userOdds, marketOdds)) {
-            return false;
+        if (!this.validateOdds(leaderboardId, userOdds, marketOdds)) {
+            return LeaderboardPositionValidationResult.OddsTooFavorable;
         }
 
-        return true;
+        return LeaderboardPositionValidationResult.Valid;
     }
 
     // --- Getter Functions ---

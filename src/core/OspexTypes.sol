@@ -159,3 +159,15 @@ struct OracleRequestContext {
     OracleRequestType requestType;
     uint256 contestId;             // Used for contest related requests
 }
+
+/// @notice Result of leaderboard position validation
+enum LeaderboardPositionValidationResult {
+    Valid,
+    LeaderboardDoesNotExist,
+    LeaderboardHasNotStarted,
+    LeaderboardHasEnded,
+    SpeculationNotRegistered,
+    LiveBettingNotAllowed,
+    NumberDeviationTooLarge,
+    OddsTooFavorable
+}

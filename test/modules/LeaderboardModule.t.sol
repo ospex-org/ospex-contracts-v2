@@ -26,7 +26,8 @@ import {
     Speculation,
     SpeculationStatus,
     WinSide,
-    LeagueId
+    LeagueId,
+    LeaderboardPositionValidationResult
 } from "../../src/core/OspexTypes.sol";
 
 contract LeaderboardModuleTest is Test {
@@ -797,10 +798,11 @@ contract LeaderboardModuleTest is Test {
             abi.encode(1_000_000) // 1 USDC min
         );
         
+        // Updated signature and return type for validateLeaderboardPosition
         vm.mockCall(
             address(rulesModule),
-            abi.encodeWithSignature("validateLeaderboardPosition(uint256,uint256,uint256,uint256,int32,uint64,uint8)"),
-            abi.encode(shouldPass)
+            abi.encodeWithSignature("validateLeaderboardPosition(uint256,uint256,int32,uint64,uint8)"),
+            abi.encode(shouldPass ? 0 : 5) // 0 = Valid, 5 = LiveBettingNotAllowed
         );
     }
 
@@ -1216,8 +1218,8 @@ contract LeaderboardModuleTest is Test {
         
         vm.mockCall(
             address(rulesModule),
-            abi.encodeWithSignature("validateLeaderboardPosition(uint256,uint256,uint256,uint256,int32,uint64,uint8)"),
-            abi.encode(true)
+            abi.encodeWithSignature("validateLeaderboardPosition(uint256,uint256,int32,uint64,uint8)"),
+            abi.encode(0) // LeaderboardPositionValidationResult.Valid
         );
         
         uint256[] memory leaderboardIds = new uint256[](1);
@@ -1248,9 +1250,9 @@ contract LeaderboardModuleTest is Test {
         uint256[] memory leaderboardIds = new uint256[](1);
         leaderboardIds[0] = leaderboardId;
 
-        // ===== PHASE 1: Initial attempt with zero market odds (should fail) =====
+        // ===== PHASE 1: Initial attempt with zero market odds (should revert) =====
         
-        // Mock rules validation to return FALSE (simulating zero market odds causing validation failure)
+        // Mock rules validation to return FAILURE (simulating zero market odds causing validation failure)
         vm.mockCall(
             address(rulesModule),
             abi.encodeWithSignature("getMaxBetAmount(uint256,uint256)"),
@@ -1265,12 +1267,16 @@ contract LeaderboardModuleTest is Test {
         
         vm.mockCall(
             address(rulesModule),
-            abi.encodeWithSignature("validateLeaderboardPosition(uint256,uint256,uint256,uint256,int32,uint64,uint8)"),
-            abi.encode(false) // FAILS due to zero market odds
+            abi.encodeWithSignature("validateLeaderboardPosition(uint256,uint256,int32,uint64,uint8)"),
+            abi.encode(7) // LeaderboardPositionValidationResult.OddsTooFavorable (simulating market odds issue)
         );
 
-        // First registration attempt should fail silently (no revert, but nothing gets registered)
+        // First registration attempt should now REVERT (new behavior with enum validation)
         vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSelector(
+            LeaderboardModule.LeaderboardModule__ValidationFailed.selector, 
+            uint256(LeaderboardPositionValidationResult.OddsTooFavorable)
+        ));
         leaderboardModule.registerPositionForLeaderboards(
             speculationId,
             1,
@@ -1278,22 +1284,13 @@ contract LeaderboardModuleTest is Test {
             leaderboardIds
         );
 
-        // Verify nothing was registered (should return 0 speculationId)
-        uint256 registeredSpecId1 = leaderboardModule.s_registeredLeaderboardSpeculation(
-            leaderboardId,
-            user1, 
-            contestId,
-            admin // scorer from _setupPositionAndSpeculation
-        );
-        assertEq(registeredSpecId1, 0); // Nothing registered
-
         // ===== PHASE 2: Market odds become available, retry should succeed =====
         
         // Mock rules validation to return TRUE (simulating real market odds now available)
         vm.mockCall(
             address(rulesModule),
-            abi.encodeWithSignature("validateLeaderboardPosition(uint256,uint256,uint256,uint256,int32,uint64,uint8)"),
-            abi.encode(true) // NOW PASSES with real market odds
+            abi.encodeWithSignature("validateLeaderboardPosition(uint256,uint256,int32,uint64,uint8)"),
+            abi.encode(0) // LeaderboardPositionValidationResult.Valid - NOW PASSES with real market odds
         );
 
         // Second registration attempt should succeed

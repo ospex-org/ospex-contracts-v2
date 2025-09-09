@@ -23,7 +23,8 @@ import {
     ContestStatus,
     Speculation,
     SpeculationStatus,
-    WinSide
+    WinSide,
+    LeaderboardPositionValidationResult
 } from "../../src/core/OspexTypes.sol";
 
 contract RulesModuleTest is Test {
@@ -340,36 +341,6 @@ contract RulesModuleTest is Test {
         assertTrue(rulesModule.isBankrollValid(leaderboardId, type(uint256).max));
     }
 
-    function testIsBetValid_WithinPercentageRange() public {
-        vm.startPrank(admin);
-        rulesModule.setMinBetPercentage(leaderboardId, MIN_BET_PERCENTAGE); // 1%
-        rulesModule.setMaxBetPercentage(leaderboardId, MAX_BET_PERCENTAGE); // 10%
-        vm.stopPrank();
-
-        uint256 minBet = (DECLARED_BANKROLL * MIN_BET_PERCENTAGE) / 10000; // 1M
-        uint256 maxBet = (DECLARED_BANKROLL * MAX_BET_PERCENTAGE) / 10000; // 10M
-        uint256 validBet = 5_000_000; // 5M (5%)
-
-        assertTrue(rulesModule.isBetValid(leaderboardId, DECLARED_BANKROLL, validBet));
-        assertTrue(rulesModule.isBetValid(leaderboardId, DECLARED_BANKROLL, minBet)); // exactly min
-        assertTrue(rulesModule.isBetValid(leaderboardId, DECLARED_BANKROLL, maxBet)); // exactly max
-    }
-
-    function testIsBetValid_OutOfPercentageRange() public {
-        vm.startPrank(admin);
-        rulesModule.setMinBetPercentage(leaderboardId, MIN_BET_PERCENTAGE); // 1%
-        rulesModule.setMaxBetPercentage(leaderboardId, MAX_BET_PERCENTAGE); // 10%
-        vm.stopPrank();
-
-        uint256 minBet = (DECLARED_BANKROLL * MIN_BET_PERCENTAGE) / 10000; // 1M
-        uint256 maxBet = (DECLARED_BANKROLL * MAX_BET_PERCENTAGE) / 10000; // 10M
-
-        // Below minimum
-        assertFalse(rulesModule.isBetValid(leaderboardId, DECLARED_BANKROLL, minBet - 1));
-        
-        // Above maximum
-        assertFalse(rulesModule.isBetValid(leaderboardId, DECLARED_BANKROLL, maxBet + 1));
-    }
 
     function testIsMinPositionsMet_EnoughPositions() public {
         vm.prank(admin);
@@ -397,7 +368,7 @@ contract RulesModuleTest is Test {
         uint64 marketOdds = 18_000_000; // 1.8
         uint64 userOdds = 30_000_000; // 3.0 (much better than market)
         
-        assertTrue(rulesModule.isOddsValid(leaderboardId, userOdds, marketOdds));
+        assertTrue(rulesModule.validateOdds(leaderboardId, userOdds, marketOdds));
     }
 
     function testIsOddsValid_WorseOddsAlwaysAllowed() public {
@@ -407,8 +378,8 @@ contract RulesModuleTest is Test {
         uint64 marketOdds = 18_000_000; // 1.8
         uint64 worseOdds = 15_000_000; // 1.5 (worse than market)
         
-        assertTrue(rulesModule.isOddsValid(leaderboardId, worseOdds, marketOdds));
-        assertTrue(rulesModule.isOddsValid(leaderboardId, marketOdds, marketOdds)); // equal
+        assertTrue(rulesModule.validateOdds(leaderboardId, worseOdds, marketOdds));
+        assertTrue(rulesModule.validateOdds(leaderboardId, marketOdds, marketOdds)); // equal
     }
 
     function testIsOddsValid_WithinEnforcementLimit() public {
@@ -421,7 +392,7 @@ contract RulesModuleTest is Test {
         // Max allowed = 2.0 + 0.25 = 2.25 = 22_500_000
         uint64 allowedOdds = 22_500_000;
         
-        assertTrue(rulesModule.isOddsValid(leaderboardId, allowedOdds, marketOdds));
+        assertTrue(rulesModule.validateOdds(leaderboardId, allowedOdds, marketOdds));
     }
 
     function testIsOddsValid_ExceedsEnforcementLimit() public {
@@ -432,12 +403,12 @@ contract RulesModuleTest is Test {
         // Max allowed = 2.25 = 22_500_000 (calculated above)
         uint64 tooGoodOdds = 22_500_001; // Just over the limit
         
-        assertFalse(rulesModule.isOddsValid(leaderboardId, tooGoodOdds, marketOdds));
+        assertFalse(rulesModule.validateOdds(leaderboardId, tooGoodOdds, marketOdds));
     }
 
     function testIsNumberValid_NoRuleSet() public view {
         // No deviation rule set - should allow all numbers
-        assertTrue(rulesModule.isNumberValid(
+        assertTrue(rulesModule.validateNumber(
             leaderboardId,
             LeagueId.NBA,
             mockScorer,
@@ -460,17 +431,17 @@ contract RulesModuleTest is Test {
         int32 marketNumber = 150; // +1.5
         
         // Within deviation
-        assertTrue(rulesModule.isNumberValid(
+        assertTrue(rulesModule.validateNumber(
             leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper,
             300, marketNumber // 300 - 150 = 150 (exactly at limit)
         ));
         
-        assertTrue(rulesModule.isNumberValid(
+        assertTrue(rulesModule.validateNumber(
             leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper,
             0, marketNumber // 150 - 0 = 150 (exactly at limit)
         ));
         
-        assertTrue(rulesModule.isNumberValid(
+        assertTrue(rulesModule.validateNumber(
             leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper,
             200, marketNumber // 200 - 150 = 50 (within limit)
         ));
@@ -489,12 +460,12 @@ contract RulesModuleTest is Test {
         int32 marketNumber = 150; // +1.5
         
         // Exceeds deviation
-        assertFalse(rulesModule.isNumberValid(
+        assertFalse(rulesModule.validateNumber(
             leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper,
             301, marketNumber // 301 - 150 = 151 (over limit)
         ));
         
-        assertFalse(rulesModule.isNumberValid(
+        assertFalse(rulesModule.validateNumber(
             leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper,
             -1, marketNumber // 150 - (-1) = 151 (over limit)
         ));
@@ -513,17 +484,17 @@ contract RulesModuleTest is Test {
         int32 marketNumber = 150;
         
         // Only exact match allowed
-        assertTrue(rulesModule.isNumberValid(
+        assertTrue(rulesModule.validateNumber(
             leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper,
             150, marketNumber
         ));
         
-        assertFalse(rulesModule.isNumberValid(
+        assertFalse(rulesModule.validateNumber(
             leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper,
             151, marketNumber
         ));
         
-        assertFalse(rulesModule.isNumberValid(
+        assertFalse(rulesModule.validateNumber(
             leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper,
             149, marketNumber
         ));
@@ -536,97 +507,68 @@ contract RulesModuleTest is Test {
         // Move to leaderboard active period
         vm.warp(block.timestamp + 2 hours);
         
-        assertTrue(rulesModule.validateLeaderboardPosition(
+        LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
             leaderboardId,
             speculationId,
-            5_000_000, // 5 USDC (5% of 100 USDC bankroll)
-            DECLARED_BANKROLL,
             150, // exact market number
             18_000_000, // market odds
             PositionType.Upper
-        ));
+        );
+        assertEq(uint256(result), uint256(LeaderboardPositionValidationResult.Valid));
     }
 
     function testValidateLeaderboardPosition_FailsInvalidLeaderboard() public view {
-        assertFalse(rulesModule.validateLeaderboardPosition(
+        LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
             999, // invalid leaderboard
             speculationId,
-            5_000_000,
-            DECLARED_BANKROLL,
             150,
             18_000_000,
             PositionType.Upper
-        ));
+        );
+        assertEq(uint256(result), uint256(LeaderboardPositionValidationResult.LeaderboardDoesNotExist));
     }
 
     function testValidateLeaderboardPosition_FailsOutsideTimeWindow() public {
         _setupCompleteRules();
         
         // Before leaderboard starts
-        assertFalse(rulesModule.validateLeaderboardPosition(
+        LeaderboardPositionValidationResult result1 = rulesModule.validateLeaderboardPosition(
             leaderboardId,
             speculationId,
-            5_000_000,
-            DECLARED_BANKROLL,
             150,
             18_000_000,
             PositionType.Upper
-        ));
+        );
+        assertEq(uint256(result1), uint256(LeaderboardPositionValidationResult.LeaderboardHasNotStarted));
         
         // After leaderboard ends
         vm.warp(block.timestamp + 9 days);
-        assertFalse(rulesModule.validateLeaderboardPosition(
+        LeaderboardPositionValidationResult result2 = rulesModule.validateLeaderboardPosition(
             leaderboardId,
             speculationId,
-            5_000_000,
-            DECLARED_BANKROLL,
             150,
             18_000_000,
             PositionType.Upper
-        ));
+        );
+        assertEq(uint256(result2), uint256(LeaderboardPositionValidationResult.LeaderboardHasEnded));
     }
 
-    function testValidateLeaderboardPosition_FailsInvalidBetAmount() public {
-        _setupCompleteRules();
-        vm.warp(block.timestamp + 2 hours);
-        
-        // Bet too small (below 1% of bankroll)
-        assertFalse(rulesModule.validateLeaderboardPosition(
-            leaderboardId,
-            speculationId,
-            500_000, // 0.5 USDC (0.5% of 100 USDC bankroll)
-            DECLARED_BANKROLL,
-            150,
-            18_000_000,
-            PositionType.Upper
-        ));
-        
-        // Bet too large (above 10% of bankroll)
-        assertFalse(rulesModule.validateLeaderboardPosition(
-            leaderboardId,
-            speculationId,
-            15_000_000, // 15 USDC (15% of 100 USDC bankroll)
-            DECLARED_BANKROLL,
-            150,
-            18_000_000,
-            PositionType.Upper
-        ));
-    }
+    // NOTE: Bet amount validation moved to LeaderboardModule
+    // This test is no longer applicable as RulesModule doesn't validate bet amounts
 
     function testValidateLeaderboardPosition_FailsSpeculationNotRegistered() public {
         _setupCompleteRules();
         // Don't setup leaderboard speculation - use unregistered speculation ID
         vm.warp(block.timestamp + 2 hours);
         
-        assertFalse(rulesModule.validateLeaderboardPosition(
+        LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
             leaderboardId,
             speculationId + 1, // Use speculation ID 2 which is not registered
-            5_000_000,
-            DECLARED_BANKROLL,
             150,
             18_000_000,
             PositionType.Upper
-        ));
+        );
+        assertEq(uint256(result), uint256(LeaderboardPositionValidationResult.SpeculationNotRegistered));
     }
 
     function testValidateLeaderboardPosition_FailsNumberDeviation() public {
@@ -634,15 +576,14 @@ contract RulesModuleTest is Test {
         vm.warp(block.timestamp + 2 hours);
         
         // Number too far from market (market is 150, max deviation is 150)
-        assertFalse(rulesModule.validateLeaderboardPosition(
+        LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
             leaderboardId,
             speculationId,
-            5_000_000,
-            DECLARED_BANKROLL,
             350, // 350 - 150 = 200 > 150 max deviation
             18_000_000,
             PositionType.Upper
-        ));
+        );
+        assertEq(uint256(result), uint256(LeaderboardPositionValidationResult.NumberDeviationTooLarge));
     }
 
     function testValidateLeaderboardPosition_FailsOddsEnforcement() public {
@@ -650,15 +591,14 @@ contract RulesModuleTest is Test {
         vm.warp(block.timestamp + 2 hours);
         
         // Odds too good (market 1.8, max allowed ~2.25, user wants 3.0)
-        assertFalse(rulesModule.validateLeaderboardPosition(
+        LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
             leaderboardId,
             speculationId,
-            5_000_000,
-            DECLARED_BANKROLL,
             150,
             30_000_000, // 3.0 odds (too good)
             PositionType.Upper
-        ));
+        );
+        assertEq(uint256(result), uint256(LeaderboardPositionValidationResult.OddsTooFavorable));
     }
 
     function testValidateLeaderboardPosition_FailsLiveBettingDisabled() public {
@@ -672,15 +612,14 @@ contract RulesModuleTest is Test {
         mockContestModule.setContestStartTime(contestId, contestStartTime);
         
         // Live betting is disabled by default, so this should fail
-        assertFalse(rulesModule.validateLeaderboardPosition(
+        LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
             leaderboardId,
             speculationId,
-            5_000_000,
-            DECLARED_BANKROLL,
             150,
             18_000_000,
             PositionType.Upper
-        ));
+        );
+        assertEq(uint256(result), uint256(LeaderboardPositionValidationResult.LiveBettingNotAllowed));
     }
 
     function testValidateLeaderboardPosition_SucceedsLiveBettingEnabled() public {
@@ -698,15 +637,14 @@ contract RulesModuleTest is Test {
         mockContestModule.setContestStartTime(contestId, contestStartTime);
         
         // Live betting is enabled, so this should succeed
-        assertTrue(rulesModule.validateLeaderboardPosition(
+        LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
             leaderboardId,
             speculationId,
-            5_000_000,
-            DECLARED_BANKROLL,
             150,
             18_000_000,
             PositionType.Upper
-        ));
+        );
+        assertEq(uint256(result), uint256(LeaderboardPositionValidationResult.Valid));
     }
 
     function testValidateLeaderboardPosition_SucceedsBeforeContestStarts() public {
@@ -720,15 +658,14 @@ contract RulesModuleTest is Test {
         vm.warp(block.timestamp + 2 hours);
         
         // Should succeed regardless of live betting setting since contest hasn't started
-        assertTrue(rulesModule.validateLeaderboardPosition(
+        LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
             leaderboardId,
             speculationId,
-            5_000_000,
-            DECLARED_BANKROLL,
             150,
             18_000_000,
             PositionType.Upper
-        ));
+        );
+        assertEq(uint256(result), uint256(LeaderboardPositionValidationResult.Valid));
     }
 
     function testGetAllRules_WithLiveBettingEnabled() public {
@@ -859,18 +796,11 @@ contract RulesModuleTest is Test {
     function testValidation_HandlesZeroValues() public {
         // Zero bankroll
         assertTrue(rulesModule.isBankrollValid(leaderboardId, 0));
-        
-        // Zero bet amount (should fail if minimum is set)
-        vm.prank(admin);
-        rulesModule.setMinBetPercentage(leaderboardId, MIN_BET_PERCENTAGE);
-        
-        assertFalse(rulesModule.isBetValid(leaderboardId, DECLARED_BANKROLL, 0));
     }
 
     function testValidation_HandlesMaxValues() public view {
         // Max uint256 values should not cause overflow
         assertTrue(rulesModule.isBankrollValid(leaderboardId, type(uint256).max));
-        assertTrue(rulesModule.isBetValid(leaderboardId, type(uint256).max, type(uint256).max));
     }
 
     function testModuleNotSet_Errors() public {
@@ -887,8 +817,6 @@ contract RulesModuleTest is Test {
         newRulesModule.validateLeaderboardPosition(
             leaderboardId,
             speculationId,
-            5_000_000,
-            DECLARED_BANKROLL,
             150,
             18_000_000,
             PositionType.Upper

@@ -8,15 +8,15 @@ import {Position, PositionType, OddsPair, Speculation, SpeculationStatus, WinSid
 
 contract DecodePosition is Script {
     // Contract addresses from deployment - change these to your deployed contract addresses
-    address constant POSITION_MODULE = 0x38da6da23FFBd2ff0bBE8ab554d63619dB4485b5;
-    address constant SPECULATION_MODULE = 0x70A854E75Dd31937510892aF458249CD0a4A201E;
+    address constant POSITION_MODULE = 0x646F0FC05d60f94501fC1880599805DA3920D22F;
+    address constant SPECULATION_MODULE = 0xfBE2C78Db07936746c97D2bbD8532E25f6E33166;
     
     function run() external view {
         // Hardcode the values you want to look up here
-        uint256 speculationId = vm.envOr("SPECULATION_ID", uint256(6)); // Example speculation ID
-        address user = vm.envOr("USER_ADDRESS", address(0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3)); // Example user address with correct checksum
+        uint256 speculationId = vm.envOr("SPECULATION_ID", uint256(0)); // Example speculation ID
+        address user = vm.envOr("USER_ADDRESS", address(0x30CB6F160ff723Fc9Eca646a4BD24Ff4b9e4f7Bb)); // Example user address with correct checksum
         // uint128 oddsPairId = vm.envOr("ODDS_PAIR_ID", uint128(189)); // Example oddsPairId
-        uint128 oddsPairId = 10062;
+        uint128 oddsPairId = 10063;
         PositionType positionType = PositionType.Lower; // Change to Upper if needed - you can also make this an env var
         
         PositionModule positionManager = PositionModule(POSITION_MODULE);
