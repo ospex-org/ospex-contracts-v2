@@ -13,10 +13,10 @@ contract DecodePosition is Script {
     
     function run() external view {
         // Hardcode the values you want to look up here
-        uint256 speculationId = vm.envOr("SPECULATION_ID", uint256(0)); // Example speculation ID
+        uint256 speculationId = vm.envOr("SPECULATION_ID", uint256(2)); // Example speculation ID
         address user = vm.envOr("USER_ADDRESS", address(0x30CB6F160ff723Fc9Eca646a4BD24Ff4b9e4f7Bb)); // Example user address with correct checksum
         // uint128 oddsPairId = vm.envOr("ODDS_PAIR_ID", uint128(189)); // Example oddsPairId
-        uint128 oddsPairId = 10063;
+        uint128 oddsPairId = 10090;
         PositionType positionType = PositionType.Lower; // Change to Upper if needed - you can also make this an env var
         
         PositionModule positionManager = PositionModule(POSITION_MODULE);

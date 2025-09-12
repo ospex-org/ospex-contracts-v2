@@ -19,6 +19,8 @@ contract TreasuryModule is ITreasuryModule {
     // --- Custom Errors ---
     /// @notice TreasuryModule__NotCore is thrown when a non-core module attempts to call the TreasuryModule
     error TreasuryModule__NotCore();
+    /// @notice TreasuryModule__NotLeaderboardModule is thrown when a non-leaderboard module attempts to call the TreasuryModule
+    error TreasuryModule__NotLeaderboardModule();
     /// @notice TreasuryModule__NotAdmin is thrown when a non-admin module attempts to call the TreasuryModule
     error TreasuryModule__NotAdmin(address admin);
     /// @notice TreasuryModule__InvalidReceiver is thrown when an invalid receiver is set
@@ -110,6 +112,13 @@ contract TreasuryModule is ITreasuryModule {
     modifier onlyCore() {
         if (msg.sender != address(i_ospexCore))
             revert TreasuryModule__NotCore();
+        _;
+    }
+
+    /// @notice Modifier to ensure only the LeaderboardModule contract can call the function
+    modifier onlyLeaderboardModule() {
+        if (msg.sender != address(i_ospexCore.getModule(keccak256("LEADERBOARD_MODULE"))))
+            revert TreasuryModule__NotLeaderboardModule();
         _;
     }
 
@@ -337,7 +346,7 @@ contract TreasuryModule is ITreasuryModule {
         uint256 leaderboardId,
         address to,
         uint256 share
-    ) external override onlyCore {
+    ) external override onlyLeaderboardModule {
         if (share == 0) revert TreasuryModule__InsufficientBalance();
         s_leaderboardPrizePools[leaderboardId] -= share;
         i_token.safeTransfer(to, share);

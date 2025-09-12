@@ -262,7 +262,7 @@ contract TreasuryModuleTest is Test {
     }
 
     // --- Prize Pool Claim ---
-    function testClaimPrizePool_OnlyCore() public {
+    function testClaimPrizePool_OnlyLeaderboardModule() public {
         // Set up a valid leaderboard so funds go to prize pool
         Leaderboard memory validLeaderboard = Leaderboard({
             prizePool: 0,
@@ -297,18 +297,25 @@ contract TreasuryModuleTest is Test {
         uint256 expectedProtocolCut = (totalFee * protocolCutBps) / MAX_BPS;
         uint256 expectedPrizePool = totalFee - expectedProtocolCut; // 950,000 with 5% cut
         
+        // Test that non-leaderboard module fails
         vm.prank(notCore);
-        vm.expectRevert(TreasuryModule.TreasuryModule__NotCore.selector);
+        vm.expectRevert(TreasuryModule.TreasuryModule__NotLeaderboardModule.selector);
         treasuryModule.claimPrizePool(leaderboardId, winner, expectedPrizePool);
         
+        // Test that Core (not leaderboard module) fails
         vm.prank(address(core));
+        vm.expectRevert(TreasuryModule.TreasuryModule__NotLeaderboardModule.selector);
+        treasuryModule.claimPrizePool(leaderboardId, winner, expectedPrizePool);
+        
+        // Test that LeaderboardModule succeeds
+        vm.prank(address(mockLeaderboardModule));
         treasuryModule.claimPrizePool(leaderboardId, winner, expectedPrizePool);
         assertEq(token.balanceOf(winner), winnerBefore + expectedPrizePool);
         assertEq(treasuryModule.getPrizePool(leaderboardId), 0);
     }
 
     function testClaimPrizePool_RevertsIfEmpty() public {
-        vm.prank(address(core));
+        vm.prank(address(mockLeaderboardModule));
         vm.expectRevert(TreasuryModule.TreasuryModule__InsufficientBalance.selector);
         treasuryModule.claimPrizePool(leaderboardId, user, 0);
     }

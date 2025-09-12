@@ -34,6 +34,8 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     error LeaderboardModule__UserAlreadyRegistered();
     /// @notice Error for user not registered for leaderboard
     error LeaderboardModule__UserNotRegisteredForLeaderboard();
+    /// @notice Error for ROI already submitted
+    error LeaderboardModule__ROIAlreadySubmitted();
     /// @notice Error for invalid leaderboard count
     error LeaderboardModule__InvalidLeaderboardCount();
     /// @notice Error for invalid OspexCore
@@ -630,6 +632,14 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             revert LeaderboardModule__UserNotRegisteredForLeaderboard();
         }
 
+        // --- Check if ROI already submitted ---
+        LeaderboardScoring storage leaderboardScoring = s_leaderboardScoring[
+            leaderboardId
+        ];
+        if (leaderboardScoring.userROIs[msg.sender] != 0) {
+            revert LeaderboardModule__ROIAlreadySubmitted();
+        }
+
         // --- Minimum positions check (via RulesModule) ---
         if (
             !IRulesModule(_getModule(keccak256("RULES_MODULE")))
@@ -645,10 +655,8 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         int256 roi = _calculateROI(leaderboardId, msg.sender, declaredBankroll);
 
         // --- Store and compare ---
-        LeaderboardScoring storage leaderboardScoring = s_leaderboardScoring[
-            leaderboardId
-        ];
         leaderboardScoring.userROIs[msg.sender] = roi;
+
         if (
             leaderboardScoring.winners.length == 0 ||
             roi > leaderboardScoring.highestROI
@@ -680,6 +688,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
                 );
             }
         }
+
         emit LeaderboardROISubmitted(leaderboardId, msg.sender, roi);
         i_ospexCore.emitCoreEvent(
             keccak256("LEADERBOARD_ROI_SUBMITTED"),
