@@ -43,7 +43,9 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     /// @notice Error for bet size below minimum
     error LeaderboardModule__BetSizeBelowMinimum();
     /// @notice Error for validation failed
-    error LeaderboardModule__ValidationFailed(LeaderboardPositionValidationResult reason);
+    error LeaderboardModule__ValidationFailed(
+        LeaderboardPositionValidationResult reason
+    );
     /// @notice Error for position already exists for speculation
     error LeaderboardModule__PositionAlreadyExistsForSpeculation();
     /// @notice Error for leaderboard speculation not registered for leaderboard
@@ -300,7 +302,6 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         }
         leaderboardId = s_nextLeaderboardId++;
         s_leaderboards[leaderboardId] = Leaderboard({
-            prizePool: 0,
             entryFee: entryFee,
             yieldStrategy: yieldStrategy,
             startTime: startTime,
@@ -741,15 +742,19 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             revert LeaderboardModule__AlreadyClaimed();
         }
 
+        ITreasuryModule treasuryModule = ITreasuryModule(
+            _getModule(keccak256("TREASURY_MODULE"))
+        );
+
         // Mark as claimed
         scoring.hasClaimed[msg.sender] = true;
 
         // Calculate share
-        uint256 share = lb.prizePool / scoring.winners.length;
+        uint256 share = treasuryModule.getPrizePool(leaderboardId) /
+            scoring.winners.length;
 
         // Transfer prize
-        ITreasuryModule(_getModule(keccak256("TREASURY_MODULE")))
-            .claimPrizePool(leaderboardId, msg.sender, share);
+        treasuryModule.claimPrizePool(leaderboardId, msg.sender, share);
 
         // Emit events
         emit LeaderboardPrizeClaimed(leaderboardId, msg.sender, share);
@@ -792,8 +797,13 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             revert LeaderboardModule__NoUnclaimedPrizes();
         }
 
+        ITreasuryModule treasuryModule = ITreasuryModule(
+            _getModule(keccak256("TREASURY_MODULE"))
+        );
+
         // Calculate unclaimed amount
-        uint256 share = lb.prizePool / scoring.winners.length;
+        uint256 share = treasuryModule.getPrizePool(leaderboardId) /
+            scoring.winners.length;
         uint256 unclaimedAmount = share * unclaimedCount;
 
         // Mark all as claimed to prevent future claims
@@ -802,8 +812,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         }
 
         // Transfer unclaimed to protocol treasury
-        ITreasuryModule(_getModule(keccak256("TREASURY_MODULE")))
-            .claimPrizePool(leaderboardId, to, unclaimedAmount);
+        treasuryModule.claimPrizePool(leaderboardId, to, unclaimedAmount);
 
         // Emit event
         emit LeaderboardPrizesSwept(leaderboardId, to, unclaimedAmount);

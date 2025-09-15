@@ -119,7 +119,6 @@ struct SaleListing {
 
 /// @notice Represents a leaderboard and its configuration/state
 struct Leaderboard {
-    uint256 prizePool;            // Total prize pool
     uint256 entryFee;             // Entry fee (if any)
     address yieldStrategy;        // Optional yield strategy contract
     uint32 startTime;             // Leaderboard start timestamp

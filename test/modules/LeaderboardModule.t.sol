@@ -181,7 +181,7 @@ contract LeaderboardModuleTest is Test {
         assertEq(lb.safetyPeriodDuration, SAFETY_PERIOD);
         assertEq(lb.roiSubmissionWindow, ROI_WINDOW);
         assertEq(lb.claimWindow, CLAIM_WINDOW);
-        assertEq(lb.prizePool, 0);
+        // Prize pool is now managed by TreasuryModule
     }
 
     function testCreateLeaderboard_RevertsIfNotAdmin() public {
@@ -416,7 +416,7 @@ contract LeaderboardModuleTest is Test {
         assertEq(lb.safetyPeriodDuration, SAFETY_PERIOD);
         assertEq(lb.roiSubmissionWindow, ROI_WINDOW);
         assertEq(lb.claimWindow, CLAIM_WINDOW);
-        assertEq(lb.prizePool, 0);
+        // Prize pool is now managed by TreasuryModule
     }
 
 
@@ -928,7 +928,7 @@ contract LeaderboardModuleTest is Test {
         
         vm.prank(user1);
         vm.expectEmit(true, true, true, true);
-        emit LeaderboardModule.LeaderboardPrizeClaimed(leaderboardId, user1, 0); // 0 prize pool for simplicity
+        emit LeaderboardModule.LeaderboardPrizeClaimed(leaderboardId, user1, 1e7); // Full 10 USDC prize pool (single winner)
         
         leaderboardModule.claimLeaderboardPrize(leaderboardId);
         
@@ -999,7 +999,7 @@ contract LeaderboardModuleTest is Test {
         
         vm.prank(admin);
         vm.expectEmit(true, true, true, true);
-        emit LeaderboardModule.LeaderboardPrizesSwept(leaderboardId, admin, 0);
+        emit LeaderboardModule.LeaderboardPrizesSwept(leaderboardId, admin, 1e7); // 10 USDC entry fee
         
         leaderboardModule.adminSweep(leaderboardId, admin);
         

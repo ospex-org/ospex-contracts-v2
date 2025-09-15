@@ -175,7 +175,6 @@ contract TreasuryModuleTest is Test {
         
         // Set up a valid leaderboard
         Leaderboard memory validLeaderboard = Leaderboard({
-            prizePool: 0,
             entryFee: 0,
             yieldStrategy: address(0),
             startTime: uint32(block.timestamp + 1 hours),
@@ -265,7 +264,6 @@ contract TreasuryModuleTest is Test {
     function testClaimPrizePool_OnlyLeaderboardModule() public {
         // Set up a valid leaderboard so funds go to prize pool
         Leaderboard memory validLeaderboard = Leaderboard({
-            prizePool: 0,
             entryFee: 100_000,
             yieldStrategy: address(0),
             startTime: uint32(block.timestamp),
@@ -327,7 +325,6 @@ contract TreasuryModuleTest is Test {
         
         // Set up a valid leaderboard so funds go to prize pool
         Leaderboard memory validLeaderboard = Leaderboard({
-            prizePool: 0,
             entryFee: 100_000,
             yieldStrategy: address(0),
             startTime: uint32(block.timestamp),
