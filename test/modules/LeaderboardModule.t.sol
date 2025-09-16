@@ -99,8 +99,8 @@ contract LeaderboardModuleTest is Test {
         core.registerModule(keccak256("ORACLE_MODULE"), oracleModule);
         
         // Register scorer modules for directional position conflict testing
-        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), address(mockScorerModule));
-        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), address(mockScorerModule));
+        core.registerModule(keccak256("MONEYLINE_SCORER"), address(mockScorerModule));
+        core.registerModule(keccak256("SPREAD_SCORER"), address(mockScorerModule));
 
         // Grant admin role
         core.grantRole(core.DEFAULT_ADMIN_ROLE(), admin);

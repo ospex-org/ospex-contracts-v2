@@ -91,8 +91,8 @@ contract RulesModuleTest is Test {
         core.registerModule(keccak256("ORACLE_MODULE"), address(this)); // Test contract as oracle
         
         // Register scorer modules for directional position conflict testing
-        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), address(mockScorerModule));
-        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), address(mockScorerModule));
+        core.registerModule(keccak256("MONEYLINE_SCORER"), address(mockScorerModule));
+        core.registerModule(keccak256("SPREAD_SCORER"), address(mockScorerModule));
 
         // Grant admin role
         core.grantRole(core.DEFAULT_ADMIN_ROLE(), admin);
@@ -871,8 +871,8 @@ contract RulesModuleTest is Test {
         address mockSpreadScorer = address(0x2222);
         
         // Register these as separate scorer modules (no prank needed - test contract has permissions)
-        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), mockMoneylineScorer);
-        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), mockSpreadScorer);
+        core.registerModule(keccak256("MONEYLINE_SCORER"), mockMoneylineScorer);
+        core.registerModule(keccak256("SPREAD_SCORER"), mockSpreadScorer);
         
         // Set up contest markets for both scorer addresses
         mockContestModule.setContestMarket(contestId, mockMoneylineScorer, ContestMarket({
@@ -972,8 +972,8 @@ contract RulesModuleTest is Test {
         address mockSpreadScorer = address(0x2222);
         
         // Register these as separate scorer modules (no prank needed - test contract has permissions)
-        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), mockMoneylineScorer);
-        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), mockSpreadScorer);
+        core.registerModule(keccak256("MONEYLINE_SCORER"), mockMoneylineScorer);
+        core.registerModule(keccak256("SPREAD_SCORER"), mockSpreadScorer);
         
         // Set up contest markets for both scorer addresses
         mockContestModule.setContestMarket(contestId, mockMoneylineScorer, ContestMarket({
