@@ -89,6 +89,10 @@ contract RulesModuleTest is Test {
         core.registerModule(keccak256("CONTEST_MODULE"), address(mockContestModule));
         core.registerModule(keccak256("SPECULATION_MODULE"), address(mockSpeculationModule));
         core.registerModule(keccak256("ORACLE_MODULE"), address(this)); // Test contract as oracle
+        
+        // Register scorer modules for directional position conflict testing
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), address(mockScorerModule));
+        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), address(mockScorerModule));
 
         // Grant admin role
         core.grantRole(core.DEFAULT_ADMIN_ROLE(), admin);
@@ -510,6 +514,7 @@ contract RulesModuleTest is Test {
         LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
             leaderboardId,
             speculationId,
+            user1, // user address
             150, // exact market number
             18_000_000, // market odds
             PositionType.Upper
@@ -521,6 +526,7 @@ contract RulesModuleTest is Test {
         LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
             999, // invalid leaderboard
             speculationId,
+            user1, // user address
             150,
             18_000_000,
             PositionType.Upper
@@ -535,6 +541,7 @@ contract RulesModuleTest is Test {
         LeaderboardPositionValidationResult result1 = rulesModule.validateLeaderboardPosition(
             leaderboardId,
             speculationId,
+            user1, // user address
             150,
             18_000_000,
             PositionType.Upper
@@ -546,6 +553,7 @@ contract RulesModuleTest is Test {
         LeaderboardPositionValidationResult result2 = rulesModule.validateLeaderboardPosition(
             leaderboardId,
             speculationId,
+            user1, // user address
             150,
             18_000_000,
             PositionType.Upper
@@ -564,6 +572,7 @@ contract RulesModuleTest is Test {
         LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
             leaderboardId,
             speculationId + 1, // Use speculation ID 2 which is not registered
+            user1, // user address
             150,
             18_000_000,
             PositionType.Upper
@@ -579,6 +588,7 @@ contract RulesModuleTest is Test {
         LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
             leaderboardId,
             speculationId,
+            user1, // user address
             350, // 350 - 150 = 200 > 150 max deviation
             18_000_000,
             PositionType.Upper
@@ -594,6 +604,7 @@ contract RulesModuleTest is Test {
         LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
             leaderboardId,
             speculationId,
+            user1, // user address
             150,
             30_000_000, // 3.0 odds (too good)
             PositionType.Upper
@@ -615,6 +626,7 @@ contract RulesModuleTest is Test {
         LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
             leaderboardId,
             speculationId,
+            user1, // user address
             150,
             18_000_000,
             PositionType.Upper
@@ -640,6 +652,7 @@ contract RulesModuleTest is Test {
         LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
             leaderboardId,
             speculationId,
+            user1, // user address
             150,
             18_000_000,
             PositionType.Upper
@@ -661,6 +674,7 @@ contract RulesModuleTest is Test {
         LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
             leaderboardId,
             speculationId,
+            user1, // user address
             150,
             18_000_000,
             PositionType.Upper
@@ -793,7 +807,7 @@ contract RulesModuleTest is Test {
         rulesModule.setMaxBankroll(leaderboardId, MAX_BANKROLL);
     }
 
-    function testValidation_HandlesZeroValues() public {
+    function testValidation_HandlesZeroValues() public view {
         // Zero bankroll
         assertTrue(rulesModule.isBankrollValid(leaderboardId, 0));
     }
@@ -817,6 +831,7 @@ contract RulesModuleTest is Test {
         newRulesModule.validateLeaderboardPosition(
             leaderboardId,
             speculationId,
+            user1, // user address
             150,
             18_000_000,
             PositionType.Upper
@@ -845,5 +860,207 @@ contract RulesModuleTest is Test {
         // This ensures existing tests continue to work as expected
         uint32 contestStartTime = uint32(block.timestamp + 6 hours);
         mockContestModule.setContestStartTime(contestId, contestStartTime);
+    }
+
+    function testValidateLeaderboardPosition_FailsDirectionalConflict_MoneylineToSpread() public {
+        _setupCompleteRules();
+        vm.warp(block.timestamp + 2 hours);
+        
+        // Create separate mock scorer addresses for moneyline and spread
+        address mockMoneylineScorer = address(0x1111);
+        address mockSpreadScorer = address(0x2222);
+        
+        // Register these as separate scorer modules (no prank needed - test contract has permissions)
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), mockMoneylineScorer);
+        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), mockSpreadScorer);
+        
+        // Set up contest markets for both scorer addresses
+        mockContestModule.setContestMarket(contestId, mockMoneylineScorer, ContestMarket({
+            theNumber: 150,
+            upperOdds: 18_000_000,
+            lowerOdds: 12_000_000,
+            lastUpdated: 1
+        }));
+        mockContestModule.setContestMarket(contestId, mockSpreadScorer, ContestMarket({
+            theNumber: 150,
+            upperOdds: 18_000_000,
+            lowerOdds: 12_000_000,
+            lastUpdated: 1
+        }));
+        
+        // Add the new speculations to the leaderboard
+        vm.startPrank(admin);
+        leaderboardModule.addLeaderboardSpeculation(leaderboardId, 10); // moneyline speculation
+        leaderboardModule.addLeaderboardSpeculation(leaderboardId, 11); // spread speculation  
+        vm.stopPrank();
+        
+        // Create a speculation with moneyline scorer
+        uint256 moneylineSpeculationId = 10;
+        vm.mockCall(
+            address(mockSpeculationModule),
+            abi.encodeWithSignature("getSpeculation(uint256)", moneylineSpeculationId),
+            abi.encode(Speculation({
+                contestId: contestId,
+                speculationScorer: mockMoneylineScorer,
+                theNumber: 150,
+                speculationCreator: address(0),
+                speculationStatus: SpeculationStatus.Open,
+                winSide: WinSide.TBD
+            }))
+        );
+        
+        // Create a speculation with spread scorer  
+        uint256 spreadSpeculationId = 11;
+        vm.mockCall(
+            address(mockSpeculationModule),
+            abi.encodeWithSignature("getSpeculation(uint256)", spreadSpeculationId),
+            abi.encode(Speculation({
+                contestId: contestId,
+                speculationScorer: mockSpreadScorer,
+                theNumber: 150,
+                speculationCreator: address(0),
+                speculationStatus: SpeculationStatus.Open,
+                winSide: WinSide.TBD
+            }))
+        );
+        
+        // Mock that user already has a moneyline position registered for this contest
+        vm.mockCall(
+            address(leaderboardModule),
+            abi.encodeWithSignature(
+                "s_registeredLeaderboardSpeculation(uint256,address,uint256,address)",
+                leaderboardId,
+                user1,
+                contestId,
+                mockMoneylineScorer
+            ),
+            abi.encode(moneylineSpeculationId) // Non-zero = position exists
+        );
+        
+        // Mock that user doesn't have a spread position yet
+        vm.mockCall(
+            address(leaderboardModule),
+            abi.encodeWithSignature(
+                "s_registeredLeaderboardSpeculation(uint256,address,uint256,address)",
+                leaderboardId,
+                user1,
+                contestId,
+                mockSpreadScorer
+            ),
+            abi.encode(0) // Zero = no position
+        );
+        
+        // Try to register spread position - should fail with DirectionalPositionConflict
+        LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
+            leaderboardId,
+            spreadSpeculationId,
+            user1,
+            150,
+            18_000_000,
+            PositionType.Upper
+        );
+        
+        assertEq(uint256(result), uint256(LeaderboardPositionValidationResult.DirectionalPositionConflict));
+    }
+
+    function testValidateLeaderboardPosition_FailsDirectionalConflict_SpreadToMoneyline() public {
+        _setupCompleteRules();
+        vm.warp(block.timestamp + 2 hours);
+        
+        // Create separate mock scorer addresses for moneyline and spread
+        address mockMoneylineScorer = address(0x1111);
+        address mockSpreadScorer = address(0x2222);
+        
+        // Register these as separate scorer modules (no prank needed - test contract has permissions)
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), mockMoneylineScorer);
+        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), mockSpreadScorer);
+        
+        // Set up contest markets for both scorer addresses
+        mockContestModule.setContestMarket(contestId, mockMoneylineScorer, ContestMarket({
+            theNumber: 150,
+            upperOdds: 18_000_000,
+            lowerOdds: 12_000_000,
+            lastUpdated: 1
+        }));
+        mockContestModule.setContestMarket(contestId, mockSpreadScorer, ContestMarket({
+            theNumber: 150,
+            upperOdds: 18_000_000,
+            lowerOdds: 12_000_000,
+            lastUpdated: 1
+        }));
+        
+        // Add the new speculations to the leaderboard
+        vm.startPrank(admin);
+        leaderboardModule.addLeaderboardSpeculation(leaderboardId, 12); // spread speculation
+        leaderboardModule.addLeaderboardSpeculation(leaderboardId, 13); // moneyline speculation  
+        vm.stopPrank();
+        
+        // Create a speculation with spread scorer
+        uint256 spreadSpeculationId = 12;
+        vm.mockCall(
+            address(mockSpeculationModule),
+            abi.encodeWithSignature("getSpeculation(uint256)", spreadSpeculationId),
+            abi.encode(Speculation({
+                contestId: contestId,
+                speculationScorer: mockSpreadScorer,
+                theNumber: 150,
+                speculationCreator: address(0),
+                speculationStatus: SpeculationStatus.Open,
+                winSide: WinSide.TBD
+            }))
+        );
+        
+        // Create a speculation with moneyline scorer
+        uint256 moneylineSpeculationId = 13;
+        vm.mockCall(
+            address(mockSpeculationModule),
+            abi.encodeWithSignature("getSpeculation(uint256)", moneylineSpeculationId),
+            abi.encode(Speculation({
+                contestId: contestId,
+                speculationScorer: mockMoneylineScorer,
+                theNumber: 150,
+                speculationCreator: address(0),
+                speculationStatus: SpeculationStatus.Open,
+                winSide: WinSide.TBD
+            }))
+        );
+        
+        // Mock that user already has a spread position registered for this contest
+        vm.mockCall(
+            address(leaderboardModule),
+            abi.encodeWithSignature(
+                "s_registeredLeaderboardSpeculation(uint256,address,uint256,address)",
+                leaderboardId,
+                user1,
+                contestId,
+                mockSpreadScorer
+            ),
+            abi.encode(spreadSpeculationId) // Non-zero = position exists
+        );
+        
+        // Mock that user doesn't have a moneyline position yet
+        vm.mockCall(
+            address(leaderboardModule),
+            abi.encodeWithSignature(
+                "s_registeredLeaderboardSpeculation(uint256,address,uint256,address)",
+                leaderboardId,
+                user1,
+                contestId,
+                mockMoneylineScorer
+            ),
+            abi.encode(0) // Zero = no position
+        );
+        
+        // Try to register moneyline position - should fail with DirectionalPositionConflict
+        LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
+            leaderboardId,
+            moneylineSpeculationId,
+            user1,
+            150,
+            18_000_000,
+            PositionType.Upper
+        );
+        
+        assertEq(uint256(result), uint256(LeaderboardPositionValidationResult.DirectionalPositionConflict));
     }
 }

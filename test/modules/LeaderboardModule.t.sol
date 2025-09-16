@@ -97,6 +97,10 @@ contract LeaderboardModuleTest is Test {
         core.registerModule(keccak256("CONTRIBUTION_MODULE"), address(contributionModule));
         core.registerModule(keccak256("CONTEST_MODULE"), address(mockContestModule));
         core.registerModule(keccak256("ORACLE_MODULE"), oracleModule);
+        
+        // Register scorer modules for directional position conflict testing
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), address(mockScorerModule));
+        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), address(mockScorerModule));
 
         // Grant admin role
         core.grantRole(core.DEFAULT_ADMIN_ROLE(), admin);
@@ -114,6 +118,9 @@ contract LeaderboardModuleTest is Test {
             jsonoddsId: "test-jsonodds-id"
         });
         mockContestModule.setContest(contestId, contest);
+        
+        // Set contest start time to future (after leaderboard starts) to avoid LiveBettingNotAllowed
+        mockContestModule.setContestStartTime(contestId, uint32(block.timestamp + 4 hours));
 
         // Create a basic leaderboard for most tests
         vm.prank(admin);
@@ -1114,6 +1121,9 @@ contract LeaderboardModuleTest is Test {
         _mockPositionModuleCalls();
         _mockRulesModuleValidation(true);
         
+        // Update contest start time to be in the future to avoid live betting validation
+        mockContestModule.setContestStartTime(contestId, uint32(block.timestamp + 6 hours));
+        
         // Create 8 different leaderboards (max allowed)
         uint256[] memory leaderboardIds = new uint256[](8);
         leaderboardIds[0] = leaderboardId; // Use the existing leaderboard from setUp
@@ -1134,6 +1144,11 @@ contract LeaderboardModuleTest is Test {
                 CLAIM_WINDOW
             );
             leaderboardIds[i] = newLeaderboardId;
+        }
+        
+        // Add speculation to all newly created leaderboards
+        for (uint256 i = 1; i < 8; i++) {
+            leaderboardModule.addLeaderboardSpeculation(leaderboardIds[i], speculationId);
         }
         vm.stopPrank();
         
@@ -1267,7 +1282,7 @@ contract LeaderboardModuleTest is Test {
         
         vm.mockCall(
             address(rulesModule),
-            abi.encodeWithSignature("validateLeaderboardPosition(uint256,uint256,int32,uint64,uint8)"),
+            abi.encodeWithSignature("validateLeaderboardPosition(uint256,uint256,address,int32,uint64,uint8)"),
             abi.encode(7) // LeaderboardPositionValidationResult.OddsTooFavorable (simulating market odds issue)
         );
 
@@ -1289,7 +1304,7 @@ contract LeaderboardModuleTest is Test {
         // Mock rules validation to return TRUE (simulating real market odds now available)
         vm.mockCall(
             address(rulesModule),
-            abi.encodeWithSignature("validateLeaderboardPosition(uint256,uint256,int32,uint64,uint8)"),
+            abi.encodeWithSignature("validateLeaderboardPosition(uint256,uint256,address,int32,uint64,uint8)"),
             abi.encode(0) // LeaderboardPositionValidationResult.Valid - NOW PASSES with real market odds
         );
 

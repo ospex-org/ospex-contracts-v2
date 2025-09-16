@@ -10,6 +10,13 @@ interface ILeaderboardModule is IModule {
         uint256 speculationId
     ) external view returns (bool);
 
+    function s_registeredLeaderboardSpeculation(
+        uint256 leaderboardId,
+        address user,
+        uint256 contestId,
+        address scorer
+    ) external view returns (uint256);
+
     function createLeaderboard(
         uint256 entryFee,
         address yieldStrategy,

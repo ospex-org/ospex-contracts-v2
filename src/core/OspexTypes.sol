@@ -168,5 +168,6 @@ enum LeaderboardPositionValidationResult {
     SpeculationNotRegistered,
     LiveBettingNotAllowed,
     NumberDeviationTooLarge,
-    OddsTooFavorable
+    OddsTooFavorable,
+    DirectionalPositionConflict
 }

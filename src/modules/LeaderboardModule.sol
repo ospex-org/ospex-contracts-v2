@@ -478,6 +478,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
                 .validateLeaderboardPosition(
                     leaderboardId,
                     speculationId,
+                    msg.sender,
                     theNumber,
                     odds,
                     positionType

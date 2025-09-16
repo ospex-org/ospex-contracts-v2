@@ -36,6 +36,7 @@ interface IRulesModule is IModule {
     function validateLeaderboardPosition(
         uint256 leaderboardId,
         uint256 speculationId,
+        address user,
         int32 userNumber,
         uint64 userOdds,
         PositionType positionType

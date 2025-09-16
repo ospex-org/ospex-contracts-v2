@@ -449,6 +449,7 @@ contract RulesModule is IRulesModule {
     function validateLeaderboardPosition(
         uint256 leaderboardId,
         uint256 speculationId,
+        address user,
         int32 userNumber,
         uint64 userOdds,
         PositionType positionType
@@ -465,11 +466,14 @@ contract RulesModule is IRulesModule {
         );
 
         // Check if leaderboard exists
-        if (leaderboard.startTime == 0) return LeaderboardPositionValidationResult.LeaderboardDoesNotExist;
-        
+        if (leaderboard.startTime == 0)
+            return LeaderboardPositionValidationResult.LeaderboardDoesNotExist;
+
         // Check if leaderboard has started or ended
-        if (block.timestamp < leaderboard.startTime) return LeaderboardPositionValidationResult.LeaderboardHasNotStarted;
-        if (block.timestamp >= leaderboard.endTime) return LeaderboardPositionValidationResult.LeaderboardHasEnded;
+        if (block.timestamp < leaderboard.startTime)
+            return LeaderboardPositionValidationResult.LeaderboardHasNotStarted;
+        if (block.timestamp >= leaderboard.endTime)
+            return LeaderboardPositionValidationResult.LeaderboardHasEnded;
 
         // Check if speculation is registered for leaderboard
         if (
@@ -492,7 +496,8 @@ contract RulesModule is IRulesModule {
                 block.timestamp >=
                 contestModule.s_contestStartTimes(speculation.contestId)
             ) {
-                return LeaderboardPositionValidationResult.LiveBettingNotAllowed;
+                return
+                    LeaderboardPositionValidationResult.LiveBettingNotAllowed;
             }
         }
 
@@ -528,6 +533,41 @@ contract RulesModule is IRulesModule {
 
         if (!this.validateOdds(leaderboardId, userOdds, marketOdds)) {
             return LeaderboardPositionValidationResult.OddsTooFavorable;
+        }
+
+        // Validate directional position conflict
+        address moneylineScorer = _getModule(
+            keccak256("MONEYLINE_SCORER_MODULE")
+        );
+        address spreadScorer = _getModule(keccak256("SPREAD_SCORER_MODULE"));
+
+        if (speculation.speculationScorer == moneylineScorer) {
+            if (
+                leaderboardModule.s_registeredLeaderboardSpeculation(
+                    leaderboardId,
+                    user,
+                    speculation.contestId,
+                    spreadScorer
+                ) != 0
+            ) {
+                return
+                    LeaderboardPositionValidationResult
+                        .DirectionalPositionConflict;
+            }
+        }
+        if (speculation.speculationScorer == spreadScorer) {
+            if (
+                leaderboardModule.s_registeredLeaderboardSpeculation(
+                    leaderboardId,
+                    user,
+                    speculation.contestId,
+                    moneylineScorer
+                ) != 0
+            ) {
+                return
+                    LeaderboardPositionValidationResult
+                        .DirectionalPositionConflict;
+            }
         }
 
         return LeaderboardPositionValidationResult.Valid;
