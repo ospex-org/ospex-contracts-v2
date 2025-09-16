@@ -441,6 +441,7 @@ contract RulesModule is IRulesModule {
      * @notice Comprehensive validation for a leaderboard position
      * @param leaderboardId The leaderboard ID
      * @param speculationId The speculation ID
+     * @param user The user address
      * @param userNumber The number the user is betting on (for spreads/totals)
      * @param userOdds The odds the user is getting
      * @param positionType The position type (Upper/Lower)
@@ -537,9 +538,9 @@ contract RulesModule is IRulesModule {
 
         // Validate directional position conflict
         address moneylineScorer = _getModule(
-            keccak256("MONEYLINE_SCORER_MODULE")
+            keccak256("MONEYLINE_SCORER")
         );
-        address spreadScorer = _getModule(keccak256("SPREAD_SCORER_MODULE"));
+        address spreadScorer = _getModule(keccak256("SPREAD_SCORER"));
 
         if (speculation.speculationScorer == moneylineScorer) {
             if (
