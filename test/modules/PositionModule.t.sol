@@ -1974,4 +1974,378 @@ contract PositionModuleTest is Test {
         );
         vm.stopPrank();
     }
+
+    // --- ODDSPAIR ORIENTATION FIX TESTS ---
+    
+    /**
+     * @notice Test 1: Verify no collisions when different maker odds map to complementary pairs
+     * @dev This test ensures that 1.92x and 2.09x (which are inverses) create DIFFERENT oddsPairIds
+     */
+    function testGetOrCreateOddsPairId_UniqueIdsForDifferentMakerOdds() public {
+        // Test first odds (1.92x)
+        (uint128 oddsPairId1, uint64 upper1, uint64 lower1) = positionModule.getOrCreateOddsPairId(
+            19_200_000,
+            PositionType.Upper
+        );
+        assertEq(oddsPairId1, 91, "Incorrect oddsPairId for 1.92x Upper");
+        assertEq(upper1, 19_200_000, "Upper should be maker's requested odds (1.92x)");
+        assertEq(lower1, 20_900_000, "Lower should be inverse (2.09x)");
+        
+        // Test second odds (2.09x)
+        (uint128 oddsPairId2, uint64 upper2, uint64 lower2) = positionModule.getOrCreateOddsPairId(
+            20_900_000,
+            PositionType.Upper
+        );
+        assertEq(oddsPairId2, 108, "Incorrect oddsPairId for 2.09x Upper");
+        assertEq(upper2, 20_900_000, "Upper should be maker's requested odds (2.09x)");
+        assertEq(lower2, 19_200_000, "Lower should be inverse (1.92x)");
+        
+        // Verify no collision - this is the critical assertion
+        assertTrue(oddsPairId1 != oddsPairId2, "OddsPairIds must be unique - no collision allowed");
+        
+        // Verify formula: oddsPairId = (normalizedOdds - MIN_ODDS) / ODDS_INCREMENT
+        uint128 expectedId1 = uint128((19_200_000 - positionModule.MIN_ODDS()) / positionModule.ODDS_INCREMENT());
+        uint128 expectedId2 = uint128((20_900_000 - positionModule.MIN_ODDS()) / positionModule.ODDS_INCREMENT());
+        assertEq(oddsPairId1, expectedId1, "Formula verification failed for 1.92x");
+        assertEq(oddsPairId2, expectedId2, "Formula verification failed for 2.09x");
+    }
+
+    /**
+     * @notice Test 2: Verify +10000 offset for Lower positions
+     * @dev Upper and Lower positions at same odds should create different oddsPairIds with correct orientation
+     */
+    function testGetOrCreateOddsPairId_UpperLowerOffsetWorksCorrectly() public {
+        uint256 specId = speculationModule.createSpeculation(
+            1,
+            address(0x1234),
+            42,
+            address(this),
+            leaderboardId
+        );
+        
+        // Test Upper at 1.8x
+        (uint128 upperOddsPairId, uint64 upperUpper, uint64 upperLower) = positionModule.getOrCreateOddsPairId(
+            18_000_000,
+            PositionType.Upper
+        );
+        assertEq(upperOddsPairId, 79, "Incorrect oddsPairId for 1.8x Upper");
+        assertEq(upperUpper, 18_000_000, "Upper position should have 1.8x as upper odds");
+        
+        // Test Lower at 1.8x
+        (uint128 lowerOddsPairId, uint64 lowerUpper, uint64 lowerLower) = positionModule.getOrCreateOddsPairId(
+            18_000_000,
+            PositionType.Lower
+        );
+        assertEq(lowerOddsPairId, 10079, "Incorrect oddsPairId for 1.8x Lower (should be base + 10000)");
+        assertEq(lowerLower, 18_000_000, "Lower position should have 1.8x as lower odds");
+        
+        // Verify offset is exactly 10000
+        assertEq(lowerOddsPairId, upperOddsPairId + 10000, "Lower offset must be exactly +10000");
+        
+        // Create actual positions to verify makers get their requested odds
+        token.approve(address(positionModule), 2_000_000);
+        positionModule.createUnmatchedPair(
+            specId,
+            18_000_000,
+            0,
+            PositionType.Upper,
+            1_000_000,
+            0
+        );
+        
+        positionModule.createUnmatchedPair(
+            specId,
+            18_000_000,
+            0,
+            PositionType.Lower,
+            1_000_000,
+            0
+        );
+        
+        // Verify stored OddsPairs
+        OddsPair memory upperPair = positionModule.getOddsPair(upperOddsPairId);
+        assertEq(upperPair.upperOdds, 18_000_000, "Upper maker should receive 1.8x");
+        
+        OddsPair memory lowerPair = positionModule.getOddsPair(lowerOddsPairId);
+        assertEq(lowerPair.lowerOdds, 18_000_000, "Lower maker should receive 1.8x");
+    }
+
+    /**
+     * @notice Test 3: Verify all four combinations create unique IDs with correct orientation
+     * @dev Tests Upper/Lower at 1.8x and Upper/Lower at 2.25x (inverse pair)
+     */
+    function testGetOrCreateOddsPairId_ComplementaryOddsPairs() public {
+        // Test case 1: Upper at 1.8x
+        (uint128 id1, uint64 upper1, uint64 lower1) = positionModule.getOrCreateOddsPairId(
+            18_000_000,
+            PositionType.Upper
+        );
+        assertEq(id1, 79, "Upper at 1.8x should have oddsPairId=79");
+        assertEq(upper1, 18_000_000, "Upper at 1.8x should store 18_000_000 as upperOdds");
+        assertEq(lower1, 22_500_000, "Upper at 1.8x should store ~2.25x as lowerOdds");
+        
+        // Test case 2: Lower at 1.8x
+        (uint128 id2, uint64 upper2, uint64 lower2) = positionModule.getOrCreateOddsPairId(
+            18_000_000,
+            PositionType.Lower
+        );
+        assertEq(id2, 10079, "Lower at 1.8x should have oddsPairId=10079");
+        assertEq(upper2, 22_500_000, "Lower at 1.8x should store ~2.25x as upperOdds");
+        assertEq(lower2, 18_000_000, "Lower at 1.8x should store 18_000_000 as lowerOdds");
+        
+        // Test case 3: Upper at 2.25x
+        (uint128 id3, uint64 upper3, uint64 lower3) = positionModule.getOrCreateOddsPairId(
+            22_500_000,
+            PositionType.Upper
+        );
+        assertEq(id3, 124, "Upper at 2.25x should have oddsPairId=124");
+        assertEq(upper3, 22_500_000, "Upper at 2.25x should store 22_500_000 as upperOdds");
+        assertEq(lower3, 18_000_000, "Upper at 2.25x should store ~1.8x as lowerOdds");
+        
+        // Test case 4: Lower at 2.25x
+        (uint128 id4, uint64 upper4, uint64 lower4) = positionModule.getOrCreateOddsPairId(
+            22_500_000,
+            PositionType.Lower
+        );
+        assertEq(id4, 10124, "Lower at 2.25x should have oddsPairId=10124");
+        assertEq(upper4, 18_000_000, "Lower at 2.25x should store ~1.8x as upperOdds");
+        assertEq(lower4, 22_500_000, "Lower at 2.25x should store 22_500_000 as lowerOdds");
+        
+        // Critical assertion: all four IDs must be unique
+        assertTrue(id1 != id2 && id1 != id3 && id1 != id4, "ID1 must be unique");
+        assertTrue(id2 != id3 && id2 != id4, "ID2 must be unique");
+        assertTrue(id3 != id4, "ID3 must be unique");
+        
+        // Verify inverse relationship
+        assertEq(upper1, lower3, "Upper at 1.8x inverse should match Lower at 2.25x");
+        assertEq(lower1, upper3, "Lower at 1.8x inverse should match Upper at 2.25x");
+    }
+
+    /**
+     * @notice Test 4: Verify no race condition - order doesn't affect stored odds
+     * @dev Create positions in different orders and verify identical results
+     */
+    function testGetOrCreateOddsPairId_OrderIndependence() public {
+        // Scenario A: Create Upper first, then Lower
+        uint256 specIdA = speculationModule.createSpeculation(
+            1,
+            address(0x1234),
+            42,
+            address(this),
+            leaderboardId
+        );
+        
+        (uint128 idA1, uint64 upperA1, uint64 lowerA1) = positionModule.getOrCreateOddsPairId(
+            19_200_000,
+            PositionType.Upper
+        );
+        assertEq(idA1, 91, "Scenario A: Upper at 1.92x should be oddsPairId=91");
+        
+        (uint128 idA2, uint64 upperA2, uint64 lowerA2) = positionModule.getOrCreateOddsPairId(
+            19_200_000,
+            PositionType.Lower
+        );
+        assertEq(idA2, 10091, "Scenario A: Lower at 1.92x should be oddsPairId=10091");
+        
+        // Record Scenario A values
+        OddsPair memory pairA1 = positionModule.getOddsPair(idA1);
+        OddsPair memory pairA2 = positionModule.getOddsPair(idA2);
+        
+        // Scenario B: Create Lower first, then Upper (on different speculation)
+        uint256 specIdB = speculationModule.createSpeculation(
+            2,
+            address(0x5678),
+            43,
+            address(this),
+            leaderboardId
+        );
+        
+        (uint128 idB1, uint64 upperB1, uint64 lowerB1) = positionModule.getOrCreateOddsPairId(
+            19_200_000,
+            PositionType.Lower
+        );
+        assertEq(idB1, 10091, "Scenario B: Lower at 1.92x should be oddsPairId=10091");
+        
+        (uint128 idB2, uint64 upperB2, uint64 lowerB2) = positionModule.getOrCreateOddsPairId(
+            19_200_000,
+            PositionType.Upper
+        );
+        assertEq(idB2, 91, "Scenario B: Upper at 1.92x should be oddsPairId=91");
+        
+        // Record Scenario B values (they should reuse the same global oddsPairs)
+        OddsPair memory pairB1 = positionModule.getOddsPair(idB1);
+        OddsPair memory pairB2 = positionModule.getOddsPair(idB2);
+        
+        // Critical assertions: Both scenarios should result in identical stored odds
+        assertEq(pairA1.upperOdds, pairB2.upperOdds, "Upper odds must match regardless of creation order");
+        assertEq(pairA1.lowerOdds, pairB2.lowerOdds, "Lower odds must match regardless of creation order");
+        assertEq(pairA2.upperOdds, pairB1.upperOdds, "Upper odds must match regardless of creation order");
+        assertEq(pairA2.lowerOdds, pairB1.lowerOdds, "Lower odds must match regardless of creation order");
+        
+        // Verify no race condition affected the values
+        assertEq(pairA1.upperOdds, 19_200_000, "Upper odds should be 1.92x");
+        assertEq(pairA2.lowerOdds, 19_200_000, "Lower odds should be 1.92x");
+    }
+
+    /**
+     * @notice Test 5: Verify different maker odds that round to same inverse still create unique IDs
+     * @dev Tests that 3.37x and 3.38x (both round to ~1.42x inverse) get different oddsPairIds
+     */
+    function testGetOrCreateOddsPairId_TakerReceivesCorrectInverseOdds() public {
+        uint256 specId = speculationModule.createSpeculation(
+            1,
+            address(0x1234),
+            42,
+            address(this),
+            leaderboardId
+        );
+        
+        // Test Upper at 3.37x
+        (uint128 id1, uint64 upper1, uint64 lower1) = positionModule.getOrCreateOddsPairId(
+            33_700_000,
+            PositionType.Upper
+        );
+        uint128 expectedId1 = uint128((33_700_000 - positionModule.MIN_ODDS()) / positionModule.ODDS_INCREMENT());
+        assertEq(id1, expectedId1, "3.37x Upper should have oddsPairId=236");
+        assertEq(upper1, 33_700_000, "Upper at 3.37x should store 33_700_000");
+        
+        // Test Upper at 3.38x
+        (uint128 id2, uint64 upper2, uint64 lower2) = positionModule.getOrCreateOddsPairId(
+            33_800_000,
+            PositionType.Upper
+        );
+        uint128 expectedId2 = uint128((33_800_000 - positionModule.MIN_ODDS()) / positionModule.ODDS_INCREMENT());
+        assertEq(id2, expectedId2, "3.38x Upper should have oddsPairId=237");
+        assertEq(upper2, 33_800_000, "Upper at 3.38x should store 33_800_000");
+        
+        // Critical assertion: Different oddsPairIds despite similar inverse
+        assertTrue(id1 != id2, "Different maker odds must create different oddsPairIds");
+        assertEq(id2, id1 + 1, "Sequential odds should create sequential oddsPairIds");
+        
+        // Verify both round to similar inverse (around 1.42x)
+        // The inverse might be exactly the same due to rounding
+        assertTrue(lower1 >= 14_100_000 && lower1 <= 14_300_000, "Inverse should be around 1.42x");
+        assertTrue(lower2 >= 14_100_000 && lower2 <= 14_300_000, "Inverse should be around 1.42x");
+        
+        // Create actual positions and complete with takers to verify
+        address taker1 = address(0xCAFE);
+        address taker2 = address(0xBEEF);
+        uint256 makerAmount = 10_000_000;
+        
+        token.approve(address(positionModule), 2 * makerAmount);
+        
+        // Create first position (3.37x)
+        positionModule.createUnmatchedPair(
+            specId,
+            33_700_000,
+            0,
+            PositionType.Upper,
+            makerAmount,
+            0
+        );
+        
+        // Create second position (3.38x)
+        positionModule.createUnmatchedPair(
+            specId,
+            33_800_000,
+            0,
+            PositionType.Upper,
+            makerAmount,
+            0
+        );
+        
+        // Calculate taker amounts
+        uint256 takerAmount1 = (makerAmount * (upper1 - 10_000_000)) / 10_000_000;
+        uint256 takerAmount2 = (makerAmount * (upper2 - 10_000_000)) / 10_000_000;
+        
+        // Fund takers
+        token.transfer(taker1, takerAmount1);
+        token.transfer(taker2, takerAmount2);
+        
+        // Taker 1 completes first position
+        vm.startPrank(taker1);
+        token.approve(address(positionModule), takerAmount1);
+        positionModule.completeUnmatchedPair(
+            specId,
+            address(this),
+            id1,
+            PositionType.Upper,
+            takerAmount1
+        );
+        vm.stopPrank();
+        
+        // Taker 2 completes second position
+        vm.startPrank(taker2);
+        token.approve(address(positionModule), takerAmount2);
+        positionModule.completeUnmatchedPair(
+            specId,
+            address(this),
+            id2,
+            PositionType.Upper,
+            takerAmount2
+        );
+        vm.stopPrank();
+        
+        // Verify takers received Lower positions with correct inverse odds
+        Position memory takerPos1 = positionModule.getPosition(specId, taker1, id1, PositionType.Lower);
+        Position memory takerPos2 = positionModule.getPosition(specId, taker2, id2, PositionType.Lower);
+        
+        assertGt(takerPos1.matchedAmount, 0, "Taker 1 should have matched amount");
+        assertGt(takerPos2.matchedAmount, 0, "Taker 2 should have matched amount");
+    }
+
+    /**
+     * @notice Test 6: Test boundary conditions
+     * @dev Tests MIN_ODDS, MAX_ODDS, and odds near 2.0x
+     */
+    function testGetOrCreateOddsPairId_EdgeCases() public {
+        // Subtest 1: MIN_ODDS (1.01x)
+        (uint128 minUpperId, uint64 minUpper, uint64 minLower) = positionModule.getOrCreateOddsPairId(
+            positionModule.MIN_ODDS(),
+            PositionType.Upper
+        );
+        assertEq(minUpperId, 0, "MIN_ODDS Upper should have oddsPairId=0");
+        assertEq(minUpper, positionModule.MIN_ODDS(), "Upper should be MIN_ODDS");
+        
+        (uint128 minLowerId, uint64 minUpperL, uint64 minLowerL) = positionModule.getOrCreateOddsPairId(
+            positionModule.MIN_ODDS(),
+            PositionType.Lower
+        );
+        assertEq(minLowerId, 10000, "MIN_ODDS Lower should have oddsPairId=10000");
+        assertEq(minLowerL, positionModule.MIN_ODDS(), "Lower should be MIN_ODDS");
+        
+        // Subtest 2: MAX_ODDS (101.00x)
+        (uint128 maxUpperId, uint64 maxUpper, uint64 maxLower) = positionModule.getOrCreateOddsPairId(
+            positionModule.MAX_ODDS(),
+            PositionType.Upper
+        );
+        uint128 expectedMaxId = uint128((positionModule.MAX_ODDS() - positionModule.MIN_ODDS()) / positionModule.ODDS_INCREMENT());
+        assertEq(maxUpperId, expectedMaxId, "MAX_ODDS Upper should have correct oddsPairId");
+        assertEq(maxUpper, positionModule.MAX_ODDS(), "Upper should be MAX_ODDS");
+        
+        (uint128 maxLowerId, uint64 maxUpperL, uint64 maxLowerL) = positionModule.getOrCreateOddsPairId(
+            positionModule.MAX_ODDS(),
+            PositionType.Lower
+        );
+        assertEq(maxLowerId, expectedMaxId + 10000, "MAX_ODDS Lower should have oddsPairId with +10000 offset");
+        assertEq(maxLowerL, positionModule.MAX_ODDS(), "Lower should be MAX_ODDS");
+        
+        // Subtest 3: Near 2.0x (where inverse ≈ maker odds)
+        (uint128 twoXId, uint64 twoXUpper, uint64 twoXLower) = positionModule.getOrCreateOddsPairId(
+            20_000_000,
+            PositionType.Upper
+        );
+        uint128 expectedTwoXId = uint128((20_000_000 - positionModule.MIN_ODDS()) / positionModule.ODDS_INCREMENT());
+        assertEq(twoXId, expectedTwoXId, "2.0x should have correct oddsPairId");
+        assertEq(twoXUpper, 20_000_000, "Upper should be 2.0x");
+        
+        // At 2.0x, the inverse should also be very close to 2.0x
+        // Inverse = (precision * precision) / (odds - precision) + precision
+        // For 2.0x: (1e7 * 1e7) / (2e7 - 1e7) + 1e7 = 1e14 / 1e7 + 1e7 = 2e7
+        assertTrue(twoXLower >= 19_900_000 && twoXLower <= 20_100_000, "Inverse of 2.0x should be close to 2.0x");
+        
+        // Verify the upper and lower odds are very close (within 1% for 2.0x)
+        uint256 diff = twoXUpper > twoXLower ? twoXUpper - twoXLower : twoXLower - twoXUpper;
+        assertTrue(diff < 200_000, "At 2.0x, upper and lower should be very close");
+    }
 }

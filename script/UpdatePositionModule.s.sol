@@ -26,8 +26,8 @@ contract UpdatePositionModule is Script {
         
         // Configuration - UPDATE THESE VALUES AS NEEDED
         ModuleConfig memory config = ModuleConfig({
-            ospexCoreAddress: vm.envOr("OSPEX_CORE_ADDRESS", 0x8A583cc9282CC6dC735389d2Ca7Ea7Df3A2D3f7b), // Your deployed core address
-            tokenAddress: vm.envOr("TOKEN_ADDRESS", 0x0bEcAfa5dC817143C7D000d1C60db865301d2D83) // Your USDC token address
+            ospexCoreAddress: vm.envOr("OSPEX_CORE_ADDRESS", 0x829A2B2deaBd3b06f6E5938220eCfB450CE75e24), // Your deployed core address
+            tokenAddress: vm.envOr("TOKEN_ADDRESS", 0xB1D1c0A8Cc8BB165b34735972E798f64A785eaF8) // Your USDC token address
         });
 
         // Validate configuration

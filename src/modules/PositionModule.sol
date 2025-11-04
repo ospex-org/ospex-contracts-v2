@@ -708,10 +708,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
     ) public returns (uint128 oddsPairId, uint64 upperOdds, uint64 lowerOdds) {
         uint64 normalizedOdds = roundOddsToNearestIncrement(odds);
         uint64 inverseOdds = calculateAndRoundInverseOdds(normalizedOdds);
-        uint64 smallerOdds = normalizedOdds < inverseOdds
-            ? normalizedOdds
-            : inverseOdds;
-        uint16 oddsIndex = uint16((smallerOdds - MIN_ODDS) / ODDS_INCREMENT);
+        uint16 oddsIndex = uint16((normalizedOdds - MIN_ODDS) / ODDS_INCREMENT);
         uint128 baseOddsPairId = uint128(oddsIndex);
         // Apply offset for Lower (home/under) positions
         oddsPairId = (positionType == PositionType.Lower)
