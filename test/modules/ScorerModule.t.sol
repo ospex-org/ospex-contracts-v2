@@ -79,7 +79,6 @@ contract ScorerModuleTest is Test {
             contestId,
             address(moneyline),
             0,
-            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);
@@ -93,7 +92,6 @@ contract ScorerModuleTest is Test {
             contestId,
             address(moneyline),
             0,
-            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);
@@ -107,7 +105,6 @@ contract ScorerModuleTest is Test {
             contestId,
             address(moneyline),
             0,
-            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);
@@ -157,7 +154,6 @@ contract ScorerModuleTest is Test {
             contestId,
             address(spread),
             spreadNum,
-            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);
@@ -173,7 +169,6 @@ contract ScorerModuleTest is Test {
             contestId,
             address(spread),
             spreadNum,
-            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);
@@ -189,7 +184,6 @@ contract ScorerModuleTest is Test {
             contestId,
             address(spread),
             spreadNum,
-            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);
@@ -205,7 +199,6 @@ contract ScorerModuleTest is Test {
             contestId,
             address(spread),
             spreadNum,
-            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);
@@ -221,7 +214,6 @@ contract ScorerModuleTest is Test {
             contestId,
             address(spread),
             spreadNum,
-            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);
@@ -249,7 +241,6 @@ contract ScorerModuleTest is Test {
             contestId,
             address(total),
             totalNum,
-            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);
@@ -264,7 +255,6 @@ contract ScorerModuleTest is Test {
             contestId,
             address(total),
             totalNum,
-            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);
@@ -279,7 +269,6 @@ contract ScorerModuleTest is Test {
             contestId,
             address(total),
             totalNum,
-            address(this),
             leaderboardId
         );
         vm.warp(block.timestamp + 2);

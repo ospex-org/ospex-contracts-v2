@@ -2,13 +2,24 @@
 pragma solidity ^0.8.19;
 
 import {OspexCore} from "../core/OspexCore.sol";
-import {Position, PositionType, Speculation, SpeculationStatus, OddsPair, WinSide} from "../core/OspexTypes.sol";
+import {
+    Position,
+    PositionType,
+    Speculation,
+    SpeculationStatus,
+    OddsPair,
+    WinSide
+} from "../core/OspexTypes.sol";
 import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IPositionModule} from "../interfaces/IPositionModule.sol";
 import {IContributionModule} from "../interfaces/IContributionModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {
+    SafeERC20
+} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {
+    ReentrancyGuard
+} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title PositionModule
@@ -200,9 +211,24 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         _;
     }
 
+    /**
+     * @notice Modifier to ensure the unmatched expiry is in the future
+     * @param unmatchedExpiry The expiry of the unmatched position
+     */
     modifier unmatchedExpiryInFuture(uint32 unmatchedExpiry) {
         if (unmatchedExpiry != 0 && unmatchedExpiry < block.timestamp) {
             revert PositionModule__InvalidUnmatchedExpiry();
+        }
+        _;
+    }
+
+    /**
+     * @notice Modifier to ensure the odds are in range
+     * @param odds The odds of the position
+     */
+    modifier oddsInRange(uint64 odds) {
+        if (odds < MIN_ODDS || odds > MAX_ODDS) {
+            revert PositionModule__OddsOutOfRange(odds);
         }
         _;
     }
@@ -249,69 +275,82 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         uint256 amount,
         uint256 contributionAmount
     )
-        external
+        public
         override
         nonReentrant
-        speculationOpen(speculationId)
         amountInRange(amount)
         unmatchedExpiryInFuture(unmatchedExpiry)
+        oddsInRange(odds)
     {
-        // --- Validation ---
-        // Check odds are in range
-        if (odds < MIN_ODDS || odds > MAX_ODDS) {
-            revert PositionModule__OddsOutOfRange(odds);
-        }
-        // --- Odds pair ID logic ---
-        (uint128 oddsPairId, uint64 upperOdds, uint64 lowerOdds) = getOrCreateOddsPairId(odds, positionType);
-        // --- Position storage ---
-        Position storage pos = s_positions[speculationId][msg.sender][
-            oddsPairId
-        ][positionType];
-        // --- Check if position already exists ---
-        if (pos.poolId != 0) {
-            revert PositionModule__PositionAlreadyExists();
-        }
-        // --- Token transfer ---
-        i_token.safeTransferFrom(msg.sender, address(this), amount);
-        // --- Position setup ---
-        pos.poolId = oddsPairId;
-        pos.unmatchedExpiry = unmatchedExpiry;
-        pos.matchedAmount = 0;
-        pos.unmatchedAmount = amount;
-        pos.positionType = positionType;
-        pos.claimed = false;
-        // --- Contribution handling ---
-        IContributionModule(_getModule(keccak256("CONTRIBUTION_MODULE")))
-            .handleContribution(
-                speculationId,
-                msg.sender,
-                oddsPairId,
-                positionType,
-                contributionAmount
-            );
-        // --- Emit events ---
-        emit PositionCreated(
+        _createUnmatchedPair(
             speculationId,
-            msg.sender,
-            oddsPairId,
+            odds,
             unmatchedExpiry,
             positionType,
             amount,
-            upperOdds,
-            lowerOdds
+            contributionAmount
         );
-        i_ospexCore.emitCoreEvent(
-            keccak256("POSITION_CREATED"),
-            abi.encode(
-                speculationId,
+    }
+
+    /**
+     * @inheritdoc IPositionModule
+     */
+
+    /**
+     * @notice Creates both a new speculation and unmatched pair
+     * @dev Convenience function that creates a speculation if it doesn't exist,
+     * @dev then creates an unmatched pair at the specified odds
+     * @param contestId The ID of the contest
+     * @param scorer The scorer of the speculation
+     * @param theNumber The line/spread/total number
+     * @param odds The odds of the position
+     * @param unmatchedExpiry The expiry of the unmatched position
+     * @param positionType The type of position
+     * @param amount The amount of the position
+     * @param contributionAmount The amount of the contribution
+     */
+    function createUnmatchedPairWithSpeculation(
+        uint256 contestId,
+        address scorer,
+        int32 theNumber,
+        uint256 leaderboardId,
+        uint64 odds,
+        uint32 unmatchedExpiry,
+        PositionType positionType,
+        uint256 amount,
+        uint256 contributionAmount
+    )
+        external
+        override
+        nonReentrant
+        amountInRange(amount)
+        unmatchedExpiryInFuture(unmatchedExpiry)
+        oddsInRange(odds)
+    {
+        ISpeculationModule specModule = ISpeculationModule(
+            _getModule(keccak256("SPECULATION_MODULE"))
+        );
+        uint256 speculationId = specModule.getSpeculationId(
+            contestId,
+            scorer,
+            theNumber
+        );
+        if (speculationId == 0) {
+            speculationId = specModule.createSpeculationWithUnmatchedPair(
+                contestId,
+                scorer,
+                theNumber,
                 msg.sender,
-                oddsPairId,
-                unmatchedExpiry,
-                positionType,
-                amount,
-                upperOdds,
-                lowerOdds
-            )
+                leaderboardId
+            );
+        }
+        _createUnmatchedPair(
+            speculationId,
+            odds,
+            unmatchedExpiry,
+            positionType,
+            amount,
+            contributionAmount
         );
     }
 
@@ -731,7 +770,78 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         return (oddsPairId, oddsPair.upperOdds, oddsPair.lowerOdds);
     }
 
-    // --- Internal complete unmatched pair ---
+    // --- Internal functions ---
+
+    /**
+    
+     */
+
+    function _createUnmatchedPair(
+        uint256 speculationId,
+        uint64 odds,
+        uint32 unmatchedExpiry,
+        PositionType positionType,
+        uint256 amount,
+        uint256 contributionAmount
+    ) internal speculationOpen(speculationId) {
+        // --- Odds pair ID logic ---
+        (
+            uint128 oddsPairId,
+            uint64 upperOdds,
+            uint64 lowerOdds
+        ) = getOrCreateOddsPairId(odds, positionType);
+        // --- Position storage ---
+        Position storage pos = s_positions[speculationId][msg.sender][
+            oddsPairId
+        ][positionType];
+        // --- Check if position already exists ---
+        if (pos.poolId != 0) {
+            revert PositionModule__PositionAlreadyExists();
+        }
+        // --- Token transfer ---
+        i_token.safeTransferFrom(msg.sender, address(this), amount);
+        // --- Position setup ---
+        pos.poolId = oddsPairId;
+        pos.unmatchedExpiry = unmatchedExpiry;
+        pos.matchedAmount = 0;
+        pos.unmatchedAmount = amount;
+        pos.positionType = positionType;
+        pos.claimed = false;
+        // --- Contribution handling ---
+        IContributionModule(_getModule(keccak256("CONTRIBUTION_MODULE")))
+            .handleContribution(
+                speculationId,
+                msg.sender,
+                oddsPairId,
+                positionType,
+                contributionAmount
+            );
+        // --- Emit events ---
+        emit PositionCreated(
+            speculationId,
+            msg.sender,
+            oddsPairId,
+            unmatchedExpiry,
+            positionType,
+            amount,
+            upperOdds,
+            lowerOdds
+        );
+        i_ospexCore.emitCoreEvent(
+            keccak256("POSITION_CREATED"),
+            abi.encode(
+                speculationId,
+                msg.sender,
+                oddsPairId,
+                unmatchedExpiry,
+                positionType,
+                amount,
+                upperOdds,
+                lowerOdds
+            )
+        );
+    }
+
     /**
      * @notice Completes an unmatched pair
      * @param speculationId The ID of the speculation
@@ -907,7 +1017,9 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
      * @notice Gets the module address
      * @param moduleType The type of module
      */
-    function _getModule(bytes32 moduleType) internal view returns (address module) {
+    function _getModule(
+        bytes32 moduleType
+    ) internal view returns (address module) {
         module = i_ospexCore.getModule(moduleType);
         if (module == address(0)) {
             revert PositionModule__ModuleNotSet(moduleType);

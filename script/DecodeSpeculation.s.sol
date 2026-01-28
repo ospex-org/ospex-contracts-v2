@@ -7,10 +7,10 @@ import {Speculation, SpeculationStatus, WinSide} from "../src/core/OspexTypes.so
 
 contract DecodeSpeculation is Script {
     address constant SPECULATION_MODULE =
-        0x9a1AB038d8942EbC597EB97Ebb4be62996302c67;
+        0xAC3af7f720EAa73611A932574a7A57cc32CEd24d;
 
     function run() external view {
-        uint256 speculationId = vm.envOr("SPECULATION_ID", uint256(4));
+        uint256 speculationId = vm.envOr("SPECULATION_ID", uint256(136));
 
         SpeculationModule speculationModule = SpeculationModule(
             SPECULATION_MODULE

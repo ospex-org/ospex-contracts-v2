@@ -8,7 +8,14 @@ import {ILeaderboardModule} from "../interfaces/ILeaderboardModule.sol";
 import {IModule} from "../interfaces/IModule.sol";
 import {ITreasuryModule} from "../interfaces/ITreasuryModule.sol";
 import {OspexCore} from "../core/OspexCore.sol";
-import {Speculation, SpeculationStatus, WinSide, Contest, ContestStatus, FeeType} from "../core/OspexTypes.sol";
+import {
+    Speculation,
+    SpeculationStatus,
+    WinSide,
+    Contest,
+    ContestStatus,
+    FeeType
+} from "../core/OspexTypes.sol";
 
 /**
  * @title SpeculationModule
@@ -24,6 +31,8 @@ contract SpeculationModule is ISpeculationModule {
     error SpeculationModule__AlreadySettled();
     /// @notice Error for speculation not started
     error SpeculationModule__SpeculationNotStarted();
+    /// @notice Error for speculation already exists
+    error SpeculationModule__SpeculationExists();
     /// @notice Error for void cooldown not met
     error SpeculationModule__VoidCooldownNotMet();
     /// @notice Error for void cooldown below minimum
@@ -69,6 +78,9 @@ contract SpeculationModule is ISpeculationModule {
     uint256 public s_minSpeculationAmount;
     /// @notice The speculations
     mapping(uint256 => Speculation) public s_speculations;
+    /// @notice Reverse lookup: contestId => scorer => theNumber => speculationId
+    mapping(uint256 => mapping(address => mapping(int32 => uint256)))
+        public s_speculationLookup;
 
     // --- Events ---
     /**
@@ -184,7 +196,6 @@ contract SpeculationModule is ISpeculationModule {
      * @param contestId The ID of the contest
      * @param scorer The scorer of the speculation
      * @param theNumber The number of the speculation
-     * @param speculationCreator The creator of the speculation
      * @param leaderboardId The leaderboard ID (where the fee will be allocated)
      * @return speculationId The ID of the speculation
      */
@@ -192,59 +203,45 @@ contract SpeculationModule is ISpeculationModule {
         uint256 contestId,
         address scorer,
         int32 theNumber,
-        address speculationCreator,
         uint256 leaderboardId
     ) external override returns (uint256) {
-        // Charge the speculation creation fee
-        uint256 feeAmount = ITreasuryModule(
-            _getModule(keccak256("TREASURY_MODULE"))
-        ).getFeeRate(FeeType.SpeculationCreation);
-        if (feeAmount > 0) {
-            i_ospexCore.processFee(
-                msg.sender,
-                feeAmount,
-                FeeType.SpeculationCreation,
-                leaderboardId
-            );
-        }
-
-        // Validate contest exists and is verified
-        Contest memory contest = IContestModule(
-            _getModule(keccak256("CONTEST_MODULE"))
-        ).getContest(contestId);
-        if (contest.contestStatus == ContestStatus.Unverified) {
-            revert SpeculationModule__ContestNotVerified();
-        }
-
-        uint256 speculationId = s_speculationIdCounter++;
-        s_speculations[speculationId] = Speculation({
-            contestId: contestId,
-            speculationScorer: scorer,
-            theNumber: theNumber,
-            speculationCreator: speculationCreator,
-            speculationStatus: SpeculationStatus.Open,
-            winSide: WinSide.TBD
-        });
-
-        emit SpeculationCreated(
-            speculationId,
-            contestId,
-            scorer,
-            theNumber,
-            speculationCreator
-        );
-        // Emit protocol-wide core event
-        i_ospexCore.emitCoreEvent(
-            keccak256("SPECULATION_CREATED"),
-            abi.encode(
-                speculationId,
+        return
+            _createSpeculation(
                 contestId,
                 scorer,
                 theNumber,
-                speculationCreator
-            )
+                msg.sender,
+                leaderboardId
+            );
+    }
+
+    // --- ISpeculationModule ---
+    /**
+     * @notice Creates a speculation, called from Position Module when creating an unmatched pair
+     * @param contestId The ID of the contest
+     * @param scorer The scorer of the speculation
+     * @param theNumber The number of the speculation
+     * @param speculationCreator The creator of the speculation
+     * @param leaderboardId The leaderboard ID (where the fee will be allocated)
+     * @return speculationId The ID of the speculation
+     */
+    function createSpeculationWithUnmatchedPair(
+        uint256 contestId,
+        address scorer,
+        int32 theNumber,
+        address speculationCreator,
+        uint256 leaderboardId
+    ) external override returns (uint256) {
+        if (msg.sender != _getModule(keccak256("POSITION_MODULE"))) {
+            revert SpeculationModule__NotAuthorized(msg.sender);
+        }
+        return _createSpeculation(
+            contestId,
+            scorer,
+            theNumber,
+            speculationCreator,
+            leaderboardId
         );
-        return speculationId;
     }
 
     /**
@@ -336,6 +333,82 @@ contract SpeculationModule is ISpeculationModule {
     }
 
     /**
+     * @notice Internal function to create a speculation
+     * @param contestId The ID of the contest
+     * @param scorer The scorer of the speculation
+     * @param theNumber The number of the speculation
+     * @param speculationCreator The creator of the speculation
+     * @param leaderboardId The leaderboard ID (where the fee will be allocated)
+     * @return speculationId The ID of the speculation
+     */
+    function _createSpeculation(
+        uint256 contestId,
+        address scorer,
+        int32 theNumber,
+        address speculationCreator,
+        uint256 leaderboardId
+    ) internal returns (uint256) {
+        if (s_speculationLookup[contestId][scorer][theNumber] != 0) {
+            revert SpeculationModule__SpeculationExists();
+        }
+
+        // Validate contest exists and is verified
+        Contest memory contest = IContestModule(
+            _getModule(keccak256("CONTEST_MODULE"))
+        ).getContest(contestId);
+        if (contest.contestStatus == ContestStatus.Unverified) {
+            revert SpeculationModule__ContestNotVerified();
+        }
+
+        // Charge the speculation creation fee
+        uint256 feeAmount = ITreasuryModule(
+            _getModule(keccak256("TREASURY_MODULE"))
+        ).getFeeRate(FeeType.SpeculationCreation);
+        if (feeAmount > 0) {
+            i_ospexCore.processFee(
+                speculationCreator,
+                feeAmount,
+                FeeType.SpeculationCreation,
+                leaderboardId
+            );
+        }
+
+        s_speculationIdCounter++;
+        uint256 speculationId = s_speculationIdCounter;
+        s_speculations[speculationId] = Speculation({
+            contestId: contestId,
+            speculationScorer: scorer,
+            theNumber: theNumber,
+            speculationCreator: speculationCreator,
+            speculationStatus: SpeculationStatus.Open,
+            winSide: WinSide.TBD
+        });
+
+        // Populate reverse lookup
+        s_speculationLookup[contestId][scorer][theNumber] = speculationId;
+
+        emit SpeculationCreated(
+            speculationId,
+            contestId,
+            scorer,
+            theNumber,
+            speculationCreator
+        );
+        // Emit protocol-wide core event
+        i_ospexCore.emitCoreEvent(
+            keccak256("SPECULATION_CREATED"),
+            abi.encode(
+                speculationId,
+                contestId,
+                scorer,
+                theNumber,
+                speculationCreator
+            )
+        );
+        return speculationId;
+    }
+
+    /**
      * @notice Gets a speculation
      * @param speculationId The ID of the speculation
      * @return speculation The speculation
@@ -344,6 +417,21 @@ contract SpeculationModule is ISpeculationModule {
         uint256 speculationId
     ) external view override returns (Speculation memory) {
         return s_speculations[speculationId];
+    }
+
+    /**
+     * @notice Gets a speculation ID by contest parameters
+     * @param contestId The ID of the contest
+     * @param scorer The scorer of the speculation
+     * @param theNumber The number of the speculation
+     * @return speculationId The ID of the speculation (0 if doesn't exist)
+     */
+    function getSpeculationId(
+        uint256 contestId,
+        address scorer,
+        int32 theNumber
+    ) external view override returns (uint256) {
+        return s_speculationLookup[contestId][scorer][theNumber];
     }
 
     /**

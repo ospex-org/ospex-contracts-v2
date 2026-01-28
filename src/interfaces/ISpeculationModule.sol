@@ -35,11 +35,26 @@ interface ISpeculationModule is IModule {
      * @param contestId The ID of the contest
      * @param scorer The address of the scorer contract for this speculation
      * @param theNumber The line/spread/total number for the speculation
-     * @param speculationCreator The address of the speculation creator
      * @param leaderboardId The leaderboard ID (where the fee will be allocated)
      * @return speculationId The ID of the newly created speculation
      */
     function createSpeculation(
+        uint256 contestId,
+        address scorer,
+        int32 theNumber,
+        uint256 leaderboardId
+    ) external returns (uint256 speculationId);
+
+    /**
+     * @notice Creates a speculation, called from Position Module when creating an unmatched pair
+     * @param contestId The ID of the contest
+     * @param scorer The scorer of the speculation
+     * @param theNumber The number of the speculation
+     * @param speculationCreator The creator of the speculation
+     * @param leaderboardId The leaderboard ID (where the fee will be allocated)
+     * @return speculationId The ID of the speculation
+     */
+    function createSpeculationWithUnmatchedPair(
         uint256 contestId,
         address scorer,
         int32 theNumber,
@@ -67,6 +82,19 @@ interface ISpeculationModule is IModule {
     function getSpeculation(
         uint256 speculationId
     ) external view returns (Speculation memory speculation);
+
+    /**
+     * @notice Gets a speculation ID by contest parameters
+     * @param contestId The ID of the contest
+     * @param scorer The scorer of the speculation
+     * @param theNumber The number of the speculation
+     * @return speculationId The ID of the speculation (0 if doesn't exist)
+     */
+    function getSpeculationId(
+        uint256 contestId,
+        address scorer,
+        int32 theNumber
+    ) external view returns (uint256 speculationId);
 
     /**
      * @notice Sets the minimum speculation amount (in whole tokens, normalized to token decimals)

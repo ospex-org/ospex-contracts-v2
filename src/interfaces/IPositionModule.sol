@@ -36,6 +36,30 @@ interface IPositionModule is IModule {
     ) external;
 
     /**
+     * @notice Creates both a new speculation and unmatched pair
+     * @param contestId The ID of the contest
+     * @param scorer The scorer of the speculation
+     * @param theNumber The line/spread/total number
+     * @param leaderboardId The leaderboard ID (where the fee will be allocated)
+     * @param odds The odds of the position
+     * @param unmatchedExpiry The expiry of the unmatched position
+     * @param positionType The type of position
+     * @param amount The amount of the position
+     * @param contributionAmount The amount of the contribution
+     */
+    function createUnmatchedPairWithSpeculation(
+        uint256 contestId,
+        address scorer,
+        int32 theNumber,
+        uint256 leaderboardId,
+        uint64 odds,
+        uint32 unmatchedExpiry,
+        PositionType positionType,
+        uint256 amount,
+        uint256 contributionAmount
+    ) external;
+
+    /**
      * @notice Adjusts the amount of an existing unmatched pair
      * @param speculationId Speculation ID
      * @param oddsPairId ID of the odds pair

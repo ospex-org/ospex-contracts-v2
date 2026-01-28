@@ -141,7 +141,6 @@ contract SecondaryMarketModuleTest is Test {
             1, // contestId
             address(0xBEEF), // scorer
             42, // theNumber
-            address(oracleModule), // speculationCreator
             leaderboardId
         );
         vm.stopPrank();
@@ -428,7 +427,6 @@ contract SecondaryMarketModuleTest is Test {
             1,
             address(mockScorer),
             42,
-            address(oracleModule), // speculationCreator
             leaderboardId
         );
         vm.stopPrank();

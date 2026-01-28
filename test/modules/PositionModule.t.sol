@@ -11,11 +11,23 @@ import {OspexCore} from "../../src/core/OspexCore.sol";
 import {ContributionModule} from "../../src/modules/ContributionModule.sol";
 import {SpeculationModule} from "../../src/modules/SpeculationModule.sol";
 import {TreasuryModule} from "../../src/modules/TreasuryModule.sol";
-import {PositionType, Contest, ContestStatus, Position, WinSide, OddsPair, LeagueId} from "../../src/core/OspexTypes.sol";
+import {PositionType, Contest, ContestStatus, Position, WinSide, OddsPair, LeagueId, Speculation, SpeculationStatus, FeeType, Leaderboard} from "../../src/core/OspexTypes.sol";
 import {MockMarket} from "../mocks/MockMarket.sol";
 import {MockSpeculationModule} from "../mocks/MockSpeculationModule.sol";
 import {MockScorerModule} from "../mocks/MockScorerModule.sol";
 import {MockContestModule} from "../mocks/MockContestModule.sol";
+
+contract MockLeaderboardModule {
+    mapping(uint256 => Leaderboard) private leaderboards;
+    
+    function setLeaderboard(uint256 leaderboardId, Leaderboard memory leaderboard) external {
+        leaderboards[leaderboardId] = leaderboard;
+    }
+    
+    function getLeaderboard(uint256 leaderboardId) external view returns (Leaderboard memory) {
+        return leaderboards[leaderboardId];
+    }
+}
 
 contract PositionModuleTest is Test {
     using stdStorage for StdStorage;
@@ -31,6 +43,7 @@ contract PositionModuleTest is Test {
     address protocolReceiver = address(0xFEED);
 
     MockContestModule mockContestModule;
+    MockLeaderboardModule mockLeaderboardModule;
 
     // leaderboard Id and allocation set to 0 for testing
     uint256 leaderboardId = 0;
@@ -51,6 +64,9 @@ contract PositionModuleTest is Test {
         
         // Register a mock contest module so SpeculationModule can call getContest
         mockContestModule = new MockContestModule();
+        
+        // Register a mock leaderboard module so TreasuryModule can call getLeaderboard
+        mockLeaderboardModule = new MockLeaderboardModule();
         
         // Register modules for event emission and inter-module communication
         // Note: The test contract (address(this)) is automatically granted MODULE_ADMIN_ROLE and DEFAULT_ADMIN_ROLE
@@ -74,6 +90,10 @@ contract PositionModuleTest is Test {
         core.registerModule(
             keccak256("CONTEST_MODULE"),
             address(mockContestModule)
+        );
+        core.registerModule(
+            keccak256("LEADERBOARD_MODULE"),
+            address(mockLeaderboardModule)
         );
         
         // Register this test contract as ORACLE_MODULE so it can call createSpeculation
@@ -121,7 +141,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 1_000_000);
@@ -155,7 +174,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 1_000_000);
@@ -181,7 +199,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 2_000_000); // Approve enough for two positions
@@ -219,7 +236,6 @@ contract PositionModuleTest is Test {
             1,
             address(mockScorer),
             42,
-            address(this),
             leaderboardId
         );
 
@@ -263,7 +279,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 1);
@@ -284,7 +299,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 2_000_000);
@@ -324,7 +338,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 2 * 1_000_000);
@@ -373,7 +386,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 2 * 1_000_000);
@@ -431,7 +443,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 3 * 1_000_000);
@@ -484,7 +495,6 @@ contract PositionModuleTest is Test {
             1,
             address(mockScorer),
             42,
-            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 1_000_000);
@@ -539,7 +549,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 2 * 1_000_000);
@@ -578,7 +587,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 4 * 1_000_000);
@@ -633,7 +641,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
@@ -665,7 +672,6 @@ contract PositionModuleTest is Test {
             1,
             address(mockScorer), // Use our mock scorer instead of 0x1234
             42,
-            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 1_000_000);
@@ -721,7 +727,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         address taker = address(0xCAFE);
@@ -787,7 +792,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         uint256 tokenUnit = 10_000_000; // 10 USDC
@@ -859,7 +863,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         uint256 tokenUnit = 10_000_000; // 10 USDC
@@ -917,7 +920,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         uint256 tokenUnit = 10_000_000; // 10 USDC
@@ -1019,7 +1021,6 @@ contract PositionModuleTest is Test {
             1,
             address(mockScorer),
             42,
-            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 1_000_000);
@@ -1101,7 +1102,6 @@ contract PositionModuleTest is Test {
             1, // contestId 1
             address(mockScorer),
             42,
-            address(this),
             leaderboardId
         );
         token.approve(address(localPositionModule), 1_000_000);
@@ -1155,7 +1155,6 @@ contract PositionModuleTest is Test {
             2, // contestId 2
             address(mockScorer),
             43,
-            address(this),
             leaderboardId
         );
         token.approve(address(localPositionModule), 1_000_000);
@@ -1225,7 +1224,6 @@ contract PositionModuleTest is Test {
             1,
             address(mockScorer),
             42,
-            address(this),
             leaderboardId
         );
         uint256 tokenUnit = 10_000_000; // 10 USDC
@@ -1407,7 +1405,6 @@ contract PositionModuleTest is Test {
             1,
             address(mockScorer),
             42,
-            address(this),
             leaderboardId
         );
         uint256 makerAmount = 10_000_000; // 10 USDC
@@ -1489,7 +1486,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
 
@@ -1519,7 +1515,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 1_000_000);
@@ -1562,7 +1557,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 1_000_000);
@@ -1604,7 +1598,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
 
@@ -1694,7 +1687,6 @@ contract PositionModuleTest is Test {
             1,
             address(mockScorer),
             42,
-            address(this),
             leaderboardId
         );
         token.approve(address(positionModule), 1_000_000);
@@ -1746,7 +1738,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         address taker = address(0xCAFE);
@@ -1858,7 +1849,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         address[] memory makers = new address[](2);
@@ -1894,7 +1884,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         address taker = address(0xCAFE);
@@ -2019,12 +2008,11 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         
         // Test Upper at 1.8x
-        (uint128 upperOddsPairId, uint64 upperUpper, uint64 upperLower) = positionModule.getOrCreateOddsPairId(
+        (uint128 upperOddsPairId, uint64 upperUpper, ) = positionModule.getOrCreateOddsPairId(
             18_000_000,
             PositionType.Upper
         );
@@ -2032,7 +2020,7 @@ contract PositionModuleTest is Test {
         assertEq(upperUpper, 18_000_000, "Upper position should have 1.8x as upper odds");
         
         // Test Lower at 1.8x
-        (uint128 lowerOddsPairId, uint64 lowerUpper, uint64 lowerLower) = positionModule.getOrCreateOddsPairId(
+        (uint128 lowerOddsPairId, , uint64 lowerLower) = positionModule.getOrCreateOddsPairId(
             18_000_000,
             PositionType.Lower
         );
@@ -2127,21 +2115,20 @@ contract PositionModuleTest is Test {
      */
     function testGetOrCreateOddsPairId_OrderIndependence() public {
         // Scenario A: Create Upper first, then Lower
-        uint256 specIdA = speculationModule.createSpeculation(
-            1,
-            address(0x1234),
-            42,
-            address(this),
-            leaderboardId
-        );
+        // uint256 specIdA = speculationModule.createSpeculation(
+        //     1,
+        //     address(0x1234),
+        //     42,
+        //     leaderboardId
+        // );
         
-        (uint128 idA1, uint64 upperA1, uint64 lowerA1) = positionModule.getOrCreateOddsPairId(
+        (uint128 idA1, , ) = positionModule.getOrCreateOddsPairId(
             19_200_000,
             PositionType.Upper
         );
         assertEq(idA1, 91, "Scenario A: Upper at 1.92x should be oddsPairId=91");
         
-        (uint128 idA2, uint64 upperA2, uint64 lowerA2) = positionModule.getOrCreateOddsPairId(
+        (uint128 idA2, , ) = positionModule.getOrCreateOddsPairId(
             19_200_000,
             PositionType.Lower
         );
@@ -2152,21 +2139,20 @@ contract PositionModuleTest is Test {
         OddsPair memory pairA2 = positionModule.getOddsPair(idA2);
         
         // Scenario B: Create Lower first, then Upper (on different speculation)
-        uint256 specIdB = speculationModule.createSpeculation(
-            2,
-            address(0x5678),
-            43,
-            address(this),
-            leaderboardId
-        );
+        // uint256 specIdB = speculationModule.createSpeculation(
+        //     2,
+        //     address(0x5678),
+        //     43,
+        //     leaderboardId
+        // );
         
-        (uint128 idB1, uint64 upperB1, uint64 lowerB1) = positionModule.getOrCreateOddsPairId(
+        (uint128 idB1, , ) = positionModule.getOrCreateOddsPairId(
             19_200_000,
             PositionType.Lower
         );
         assertEq(idB1, 10091, "Scenario B: Lower at 1.92x should be oddsPairId=10091");
         
-        (uint128 idB2, uint64 upperB2, uint64 lowerB2) = positionModule.getOrCreateOddsPairId(
+        (uint128 idB2, , ) = positionModule.getOrCreateOddsPairId(
             19_200_000,
             PositionType.Upper
         );
@@ -2196,7 +2182,6 @@ contract PositionModuleTest is Test {
             1,
             address(0x1234),
             42,
-            address(this),
             leaderboardId
         );
         
@@ -2300,14 +2285,14 @@ contract PositionModuleTest is Test {
      */
     function testGetOrCreateOddsPairId_EdgeCases() public {
         // Subtest 1: MIN_ODDS (1.01x)
-        (uint128 minUpperId, uint64 minUpper, uint64 minLower) = positionModule.getOrCreateOddsPairId(
+        (uint128 minUpperId, uint64 minUpper, ) = positionModule.getOrCreateOddsPairId(
             positionModule.MIN_ODDS(),
             PositionType.Upper
         );
         assertEq(minUpperId, 0, "MIN_ODDS Upper should have oddsPairId=0");
         assertEq(minUpper, positionModule.MIN_ODDS(), "Upper should be MIN_ODDS");
         
-        (uint128 minLowerId, uint64 minUpperL, uint64 minLowerL) = positionModule.getOrCreateOddsPairId(
+        (uint128 minLowerId, , uint64 minLowerL) = positionModule.getOrCreateOddsPairId(
             positionModule.MIN_ODDS(),
             PositionType.Lower
         );
@@ -2315,7 +2300,7 @@ contract PositionModuleTest is Test {
         assertEq(minLowerL, positionModule.MIN_ODDS(), "Lower should be MIN_ODDS");
         
         // Subtest 2: MAX_ODDS (101.00x)
-        (uint128 maxUpperId, uint64 maxUpper, uint64 maxLower) = positionModule.getOrCreateOddsPairId(
+        (uint128 maxUpperId, uint64 maxUpper, ) = positionModule.getOrCreateOddsPairId(
             positionModule.MAX_ODDS(),
             PositionType.Upper
         );
@@ -2323,7 +2308,7 @@ contract PositionModuleTest is Test {
         assertEq(maxUpperId, expectedMaxId, "MAX_ODDS Upper should have correct oddsPairId");
         assertEq(maxUpper, positionModule.MAX_ODDS(), "Upper should be MAX_ODDS");
         
-        (uint128 maxLowerId, uint64 maxUpperL, uint64 maxLowerL) = positionModule.getOrCreateOddsPairId(
+        (uint128 maxLowerId, , uint64 maxLowerL) = positionModule.getOrCreateOddsPairId(
             positionModule.MAX_ODDS(),
             PositionType.Lower
         );
@@ -2347,5 +2332,288 @@ contract PositionModuleTest is Test {
         // Verify the upper and lower odds are very close (within 1% for 2.0x)
         uint256 diff = twoXUpper > twoXLower ? twoXUpper - twoXLower : twoXLower - twoXUpper;
         assertTrue(diff < 200_000, "At 2.0x, upper and lower should be very close");
+    }
+
+    // --- NEW TESTS FOR createUnmatchedPairWithSpeculation ---
+
+    function testCreateUnmatchedPairWithSpeculation_CreatesSpeculationAndPosition() public {
+        // Verify speculation doesn't exist yet
+        uint256 existingSpecId = speculationModule.getSpeculationId(
+            1, // contestId
+            address(0x1234), // scorer
+            42 // theNumber
+        );
+        assertEq(existingSpecId, 0, "Speculation should not exist yet");
+
+        // Fund and approve tokens for position
+        token.approve(address(positionModule), 1_000_000);
+
+        // Call createUnmatchedPairWithSpeculation
+        positionModule.createUnmatchedPairWithSpeculation(
+            1, // contestId
+            address(0x1234), // scorer
+            42, // theNumber
+            leaderboardId,
+            11_000_000, // odds
+            0, // unmatchedExpiry
+            PositionType.Upper,
+            1_000_000, // amount
+            0 // contributionAmount
+        );
+
+        // Verify speculation was created
+        uint256 newSpecId = speculationModule.getSpeculationId(
+            1,
+            address(0x1234),
+            42
+        );
+        assertGt(newSpecId, 0, "Speculation should have been created");
+
+        Speculation memory spec = speculationModule.getSpeculation(newSpecId);
+        assertEq(spec.contestId, 1);
+        assertEq(spec.speculationScorer, address(0x1234));
+        assertEq(spec.theNumber, 42);
+        assertEq(spec.speculationCreator, address(this), "Creator should be msg.sender");
+
+        // Verify position was created
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
+            11_000_000,
+            PositionType.Upper
+        );
+        Position memory pos = positionModule.getPosition(
+            newSpecId,
+            address(this),
+            oddsPairId,
+            PositionType.Upper
+        );
+        assertEq(pos.unmatchedAmount, 1_000_000);
+        assertEq(uint(pos.positionType), uint(PositionType.Upper));
+    }
+
+    function testCreateUnmatchedPairWithSpeculation_ReusesExistingSpeculation() public {
+        // First create a speculation directly
+        uint256 existingSpecId = speculationModule.createSpeculation(
+            1,
+            address(0x1234),
+            42,
+            leaderboardId
+        );
+        assertGt(existingSpecId, 0, "Speculation should have been created");
+
+        // Get the current speculation counter
+        uint256 counterBefore = speculationModule.s_speculationIdCounter();
+
+        // Fund and approve tokens for position
+        token.approve(address(positionModule), 1_000_000);
+
+        // Call createUnmatchedPairWithSpeculation with same parameters
+        positionModule.createUnmatchedPairWithSpeculation(
+            1, // same contestId
+            address(0x1234), // same scorer
+            42, // same theNumber
+            leaderboardId,
+            11_000_000, // odds
+            0, // unmatchedExpiry
+            PositionType.Upper,
+            1_000_000, // amount
+            0 // contributionAmount
+        );
+
+        // Verify speculation ID counter didn't increase (no new speculation created)
+        uint256 counterAfter = speculationModule.s_speculationIdCounter();
+        assertEq(counterAfter, counterBefore, "Counter should not have increased");
+
+        // Verify the speculation ID is the same
+        uint256 specIdAfter = speculationModule.getSpeculationId(
+            1,
+            address(0x1234),
+            42
+        );
+        assertEq(specIdAfter, existingSpecId, "Should reuse existing speculation");
+
+        // Verify position was created with the existing speculation
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
+            11_000_000,
+            PositionType.Upper
+        );
+        Position memory pos = positionModule.getPosition(
+            existingSpecId,
+            address(this),
+            oddsPairId,
+            PositionType.Upper
+        );
+        assertEq(pos.unmatchedAmount, 1_000_000);
+    }
+
+    function testCreateUnmatchedPairWithSpeculation_ChargesFeeOnlyForNewSpeculation() public {
+        // Set a speculation creation fee
+        uint256 fee = 1_000_000; // 1 USDC
+        // Note: address(this) has DEFAULT_ADMIN_ROLE, so we can call setFeeRates directly
+        treasuryModule.setFeeRates(FeeType.SpeculationCreation, fee);
+
+        // Fund and approve tokens for fee and position
+        token.approve(address(treasuryModule), fee);
+        token.approve(address(positionModule), 1_000_000);
+
+        uint256 balanceBefore = token.balanceOf(address(this));
+
+        // Call createUnmatchedPairWithSpeculation (should create new speculation and charge fee)
+        positionModule.createUnmatchedPairWithSpeculation(
+            1,
+            address(0x1234),
+            42,
+            leaderboardId,
+            11_000_000,
+            0,
+            PositionType.Upper,
+            1_000_000,
+            0
+        );
+
+        uint256 balanceAfter1 = token.balanceOf(address(this));
+        // Should have paid fee + position amount
+        assertEq(balanceBefore - balanceAfter1, fee + 1_000_000, "Should have paid fee and position");
+
+        // Now call again with same speculation parameters (should NOT charge fee)
+        token.approve(address(positionModule), 1_000_000);
+        positionModule.createUnmatchedPairWithSpeculation(
+            1,
+            address(0x1234),
+            42,
+            leaderboardId,
+            15_000_000, // different odds
+            0,
+            PositionType.Lower, // different position type
+            1_000_000,
+            0
+        );
+
+        uint256 balanceAfter2 = token.balanceOf(address(this));
+        // Should only have paid position amount (no fee)
+        assertEq(balanceAfter1 - balanceAfter2, 1_000_000, "Should only pay position amount");
+    }
+
+    function testCreateUnmatchedPairWithSpeculation_RevertsOnInvalidOdds() public {
+        token.approve(address(positionModule), 1_000_000);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PositionModule.PositionModule__OddsOutOfRange.selector,
+                1_000_000
+            )
+        );
+        positionModule.createUnmatchedPairWithSpeculation(
+            1,
+            address(0x1234),
+            42,
+            leaderboardId,
+            1_000_000, // Invalid odds (below MIN_ODDS)
+            0,
+            PositionType.Upper,
+            1_000_000,
+            0
+        );
+    }
+
+    function testCreateUnmatchedPairWithSpeculation_RevertsOnInvalidAmount() public {
+        token.approve(address(positionModule), 1);
+
+        vm.expectRevert(PositionModule.PositionModule__InvalidAmount.selector);
+        positionModule.createUnmatchedPairWithSpeculation(
+            1,
+            address(0x1234),
+            42,
+            leaderboardId,
+            11_000_000,
+            0,
+            PositionType.Upper,
+            1, // Below min amount
+            0
+        );
+    }
+
+    function testCreateUnmatchedPairWithSpeculation_RevertsIfContestNotVerified() public {
+        // Set up an unverified contest
+        Contest memory unverifiedContest = Contest({
+            awayScore: 0,
+            homeScore: 0,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Unverified, // Unverified
+            contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
+        });
+        mockContestModule.setContest(99, unverifiedContest);
+
+        token.approve(address(positionModule), 1_000_000);
+
+        vm.expectRevert(
+            SpeculationModule.SpeculationModule__ContestNotVerified.selector
+        );
+        positionModule.createUnmatchedPairWithSpeculation(
+            99, // unverified contest
+            address(0x1234),
+            42,
+            leaderboardId,
+            11_000_000,
+            0,
+            PositionType.Upper,
+            1_000_000,
+            0
+        );
+    }
+
+    function testCreateUnmatchedPairWithSpeculation_CorrectlySetsSpeculationCreator() public {
+        // Create as address(this)
+        token.approve(address(positionModule), 1_000_000);
+
+        positionModule.createUnmatchedPairWithSpeculation(
+            1,
+            address(0x5555),
+            99,
+            leaderboardId,
+            11_000_000,
+            0,
+            PositionType.Upper,
+            1_000_000,
+            0
+        );
+
+        uint256 specId = speculationModule.getSpeculationId(
+            1,
+            address(0x5555),
+            99
+        );
+        Speculation memory spec = speculationModule.getSpeculation(specId);
+        assertEq(spec.speculationCreator, address(this), "Creator should be msg.sender (test contract)");
+
+        // Create as a different address
+        address otherUser = address(0x9999);
+        token.transfer(otherUser, 1_000_000);
+        vm.startPrank(otherUser);
+        token.approve(address(positionModule), 1_000_000);
+
+        positionModule.createUnmatchedPairWithSpeculation(
+            1,
+            address(0x6666),
+            88,
+            leaderboardId,
+            11_000_000,
+            0,
+            PositionType.Upper,
+            1_000_000,
+            0
+        );
+        vm.stopPrank();
+
+        uint256 specId2 = speculationModule.getSpeculationId(
+            1,
+            address(0x6666),
+            88
+        );
+        Speculation memory spec2 = speculationModule.getSpeculation(specId2);
+        assertEq(spec2.speculationCreator, otherUser, "Creator should be msg.sender (otherUser)");
     }
 }

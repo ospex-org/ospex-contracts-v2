@@ -114,7 +114,6 @@ contract SpeculationModuleTest is Test {
             1,
             address(0xBEEF),
             42,
-            address(this),
             leaderboardId
         );
         Speculation memory s = speculationModule.getSpeculation(id);
@@ -135,7 +134,6 @@ contract SpeculationModuleTest is Test {
             1,
             address(mockScorer),
             42,
-            address(this),
             leaderboardId
         );
 
@@ -169,7 +167,6 @@ contract SpeculationModuleTest is Test {
             1,
             address(mockScorer),
             42,
-            address(this),
             leaderboardId
         );
 
@@ -202,7 +199,6 @@ contract SpeculationModuleTest is Test {
             1,
             address(mockScorer),
             42,
-            address(this),
             leaderboardId
         );
 
@@ -238,7 +234,6 @@ contract SpeculationModuleTest is Test {
             1,
             address(mockScorer),
             42,
-            address(this),
             leaderboardId
         );
 
@@ -274,7 +269,6 @@ contract SpeculationModuleTest is Test {
             1,
             address(mockScorer),
             42,
-            address(this),
             leaderboardId
         );
 
@@ -308,7 +302,6 @@ contract SpeculationModuleTest is Test {
             1,
             address(mockScorer),
             42,
-            address(this),
             leaderboardId
         );
 
@@ -342,7 +335,6 @@ contract SpeculationModuleTest is Test {
             1,
             address(mockScorer),
             42,
-            address(this),
             leaderboardId
         );
 
@@ -384,7 +376,6 @@ contract SpeculationModuleTest is Test {
             1,
             address(mockScorer),
             42,
-            address(this),
             leaderboardId
         );
 
@@ -431,7 +422,6 @@ contract SpeculationModuleTest is Test {
             1,
             address(mockScorer),
             42,
-            address(this),
             leaderboardId
         );
 
@@ -525,7 +515,6 @@ contract SpeculationModuleTest is Test {
             1,
             address(0xBEEF),
             42,
-            address(this),
             leaderboardId
         );
         Speculation memory s = speculationModule.getSpeculation(id);
@@ -572,7 +561,6 @@ contract SpeculationModuleTest is Test {
             1,
             address(0xBEEF),
             42,
-            address(this),
             leaderboardId
         );
 
@@ -602,6 +590,25 @@ contract SpeculationModuleTest is Test {
         );
         newCore.registerModule(keccak256("ORACLE_MODULE"), address(this));
         
+        // Register a mock contest module so we can get past the contest validation
+        // This allows us to test the TREASURY_MODULE check specifically
+        MockContestModule mockContest = new MockContestModule();
+        newCore.registerModule(keccak256("CONTEST_MODULE"), address(mockContest));
+        
+        // Set up a verified contest
+        Contest memory testContest = Contest({
+            awayScore: 0,
+            homeScore: 0,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Verified,
+            contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
+        });
+        mockContest.setContest(1, testContest);
+        
         // Try to create a speculation - this will call _getModule for TREASURY_MODULE
         // which won't be registered, causing the revert
         vm.expectRevert(
@@ -614,8 +621,70 @@ contract SpeculationModuleTest is Test {
             1, // contestId
             address(0xBEEF), // scorer
             42, // theNumber
-            address(this), // speculationCreator
             leaderboardId // leaderboardId
         );
+    }
+
+    function testCreateSpeculationWithUnmatchedPair_RevertsWhenCalledByNonPositionModule() public {
+        // First register a mock PositionModule so the authorization check can work
+        address mockPositionModule = address(0x7777);
+        core.registerModule(keccak256("POSITION_MODULE"), mockPositionModule);
+        
+        // Try to call createSpeculationWithUnmatchedPair from a different address (not the PositionModule)
+        address nonPositionModule = address(0x999);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SpeculationModule.SpeculationModule__NotAuthorized.selector,
+                nonPositionModule
+            )
+        );
+        vm.prank(nonPositionModule);
+        speculationModule.createSpeculationWithUnmatchedPair(
+            1, // contestId
+            address(0xBEEF), // scorer
+            42, // theNumber
+            address(0x123), // speculationCreator
+            leaderboardId
+        );
+    }
+
+    function testCreateSpeculationWithUnmatchedPair_SuccessWhenCalledByPositionModule() public {
+        // Get the PositionModule address
+        address positionModuleAddr = core.getModule(keccak256("POSITION_MODULE"));
+        
+        // Register a mock PositionModule if not already registered
+        if (positionModuleAddr == address(0)) {
+            positionModuleAddr = address(0x7777);
+            core.registerModule(keccak256("POSITION_MODULE"), positionModuleAddr);
+        }
+        
+        address creator = address(0x456);
+        
+        // Approve fee payment from creator
+        uint256 fee = treasuryModule.getFeeRate(FeeType.SpeculationCreation);
+        if (fee > 0) {
+            mockToken.transfer(creator, fee);
+            vm.prank(creator);
+            mockToken.approve(address(treasuryModule), fee);
+        }
+        
+        // Call from PositionModule
+        vm.prank(positionModuleAddr);
+        uint256 id = speculationModule.createSpeculationWithUnmatchedPair(
+            1, // contestId
+            address(0xBEEF), // scorer
+            42, // theNumber
+            creator, // speculationCreator
+            leaderboardId
+        );
+        
+        // Verify speculation was created with correct creator
+        Speculation memory s = speculationModule.getSpeculation(id);
+        assertEq(s.contestId, 1);
+        assertEq(s.speculationScorer, address(0xBEEF));
+        assertEq(s.theNumber, 42);
+        assertEq(s.speculationCreator, creator);
+        assertEq(uint(s.speculationStatus), uint(SpeculationStatus.Open));
+        assertEq(uint(s.winSide), uint(WinSide.TBD));
     }
 }
