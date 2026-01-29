@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.20;
 
 import {Contest, ContestStatus, ContestMarket, FeeType, LeagueId} from "../core/OspexTypes.sol";
 import {OspexCore} from "../core/OspexCore.sol";

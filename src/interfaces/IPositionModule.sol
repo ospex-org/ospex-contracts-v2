@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.20;
 
 import {Position, PositionType, OddsPair} from "../core/OspexTypes.sol";
 import {IModule} from "./IModule.sol";

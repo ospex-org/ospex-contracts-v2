@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.20;
 
 import {IScorerModule} from "../interfaces/IScorerModule.sol";
 import {IContestModule} from "../interfaces/IContestModule.sol";

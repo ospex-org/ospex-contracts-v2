@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.20;
 
 import {IRulesModule} from "../interfaces/IRulesModule.sol";
 import {ILeaderboardModule} from "../interfaces/ILeaderboardModule.sol";

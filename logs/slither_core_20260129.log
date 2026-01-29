@@ -1,0 +1,48 @@
+'forge clean' running (wd: C:\Users\vince\Documents\solidity\ospex-matched-pairs\ospex-foundry-matched-pairs)
+'forge config --json' running
+'forge build --build-info src\core' running (wd: C:\Users\vince\Documents\solidity\ospex-matched-pairs\ospex-foundry-matched-pairs)
+INFO:Detectors:
+Detector: pragma
+2 different versions of Solidity are used:
+	- Version constraint ^0.8.20 is used by:
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/access/AccessControl.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/access/IAccessControl.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/utils/Context.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/utils/introspection/ERC165.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/utils/introspection/IERC165.sol#2-4)
+	- Version constraint ^0.8.19 is used by:
+		-^0.8.19 (src/core/OspexCore.sol#1-2)
+		-^0.8.19 (src/core/OspexTypes.sol#1-2)
+		-^0.8.19 (src/interfaces/IModule.sol#1-2)
+		-^0.8.19 (src/interfaces/ITreasuryModule.sol#1-2)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#different-pragma-directives-are-used
+INFO:Detectors:
+Detector: solc-version
+Version constraint ^0.8.20 contains known severe issues (https://solidity.readthedocs.io/en/latest/bugs.html)
+	- VerbatimInvalidDeduplication
+	- FullInlinerNonExpressionSplitArgumentEvaluationOrder
+	- MissingSideEffectsOnSelectorAccess.
+It is used by:
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/access/AccessControl.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/access/IAccessControl.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/utils/Context.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/utils/introspection/ERC165.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/utils/introspection/IERC165.sol#2-4)
+Version constraint ^0.8.19 contains known severe issues (https://solidity.readthedocs.io/en/latest/bugs.html)
+	- VerbatimInvalidDeduplication
+	- FullInlinerNonExpressionSplitArgumentEvaluationOrder
+	- MissingSideEffectsOnSelectorAccess.
+It is used by:
+	- ^0.8.19 (src/core/OspexCore.sol#1-2)
+	- ^0.8.19 (src/core/OspexTypes.sol#1-2)
+	- ^0.8.19 (src/interfaces/IModule.sol#1-2)
+	- ^0.8.19 (src/interfaces/ITreasuryModule.sol#1-2)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#incorrect-versions-of-solidity
+INFO:Detectors:
+Detector: naming-convention
+Variable OspexCore.s_admin (src/core/OspexCore.sol#59-60) is not in mixedCase
+Variable OspexCore.s_pendingAdmin (src/core/OspexCore.sol#61-62) is not in mixedCase
+Variable OspexCore.s_moduleRegistry (src/core/OspexCore.sol#65) is not in mixedCase
+Variable OspexCore.s_isModuleRegistered (src/core/OspexCore.sol#67) is not in mixedCase
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#conformance-to-solidity-naming-conventions
+INFO:Slither:src/core/ analyzed (8 contracts with 101 detectors), 7 result(s) found
