@@ -2616,4 +2616,463 @@ contract PositionModuleTest is Test {
         Speculation memory spec2 = speculationModule.getSpeculation(specId2);
         assertEq(spec2.speculationCreator, otherUser, "Creator should be msg.sender (otherUser)");
     }
+
+    // --- CLAIM POSITION EDGE CASE TESTS ---
+
+    /**
+     * @notice Test that claimPosition reverts with NoPayout when matchedAmount=0 and unmatchedAmount=0
+     * @dev This scenario occurs when a user transfers their entire matched position via secondary market
+     */
+    function testClaimPosition_RevertsWithNoPayout_WhenBothAmountsZero() public {
+        // Setup: Deploy mock speculation module and local position module
+        MockSpeculationModule mockSpeculationModule = new MockSpeculationModule(
+            address(core),
+            6
+        );
+        core.registerModule(
+            keccak256("SPECULATION_MODULE"),
+            address(mockSpeculationModule)
+        );
+        PositionModule localPositionModule = new PositionModule(
+            address(core),
+            address(token)
+        );
+        core.registerModule(
+            keccak256("POSITION_MODULE"),
+            address(localPositionModule)
+        );
+
+        // Setup mock market for position transfers
+        MockMarket mockMarket = new MockMarket(address(localPositionModule));
+        core.setMarketRole(address(mockMarket), true);
+
+        MockScorerModule mockScorer = new MockScorerModule();
+
+        uint256 specId = mockSpeculationModule.createSpeculation(
+            1,
+            address(mockScorer),
+            42,
+            leaderboardId
+        );
+
+        // Maker creates position
+        uint256 makerAmount = 10_000_000; // 10 USDC
+        uint64 odds = 20_000_000; // 2.00 odds
+        token.approve(address(localPositionModule), makerAmount);
+        (uint128 oddsPairId, , ) = localPositionModule.getOrCreateOddsPairId(
+            odds,
+            PositionType.Upper
+        );
+        localPositionModule.createUnmatchedPair(
+            specId,
+            odds,
+            0,
+            PositionType.Upper,
+            makerAmount,
+            0
+        );
+
+        // Taker matches fully
+        address taker = address(0xCAFE);
+        uint256 takerAmount = 10_000_000; // Full match at 2.00 odds
+        token.transfer(taker, takerAmount);
+        vm.startPrank(taker);
+        token.approve(address(localPositionModule), takerAmount);
+        localPositionModule.completeUnmatchedPair(
+            specId,
+            address(this),
+            oddsPairId,
+            PositionType.Upper,
+            takerAmount
+        );
+        vm.stopPrank();
+
+        // Maker transfers entire matched position to another user via secondary market
+        address buyer = address(0xBEEF);
+        mockMarket.transferPosition(
+            specId,
+            address(this),
+            oddsPairId,
+            PositionType.Upper,
+            buyer,
+            10_000_000 // Transfer all matched amount
+        );
+
+        // Verify maker's position now has matchedAmount=0 and unmatchedAmount=0
+        Position memory makerPos = localPositionModule.getPosition(
+            specId,
+            address(this),
+            oddsPairId,
+            PositionType.Upper
+        );
+        assertEq(makerPos.matchedAmount, 0, "matchedAmount should be 0 after full transfer");
+        assertEq(makerPos.unmatchedAmount, 0, "unmatchedAmount should be 0");
+        assertTrue(makerPos.poolId != 0, "poolId should still be set");
+
+        // Settle speculation
+        vm.warp(block.timestamp + 2 hours);
+        Contest memory contest = Contest({
+            awayScore: 100,
+            homeScore: 90,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored,
+            contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, contest);
+        mockSpeculationModule.settleSpeculation(specId);
+
+        // Attempt to claim should revert with NoPayout
+        vm.expectRevert(PositionModule.PositionModule__NoPayout.selector);
+        localPositionModule.claimPosition(specId, oddsPairId, PositionType.Upper);
+    }
+
+    /**
+     * @notice Test that calling claimPosition twice reverts with AlreadyClaimed
+     */
+    function testClaimPosition_RevertsWithAlreadyClaimed_OnDoubleClaim() public {
+        MockScorerModule mockScorer = new MockScorerModule();
+
+        uint256 specId = speculationModule.createSpeculation(
+            1,
+            address(mockScorer),
+            42,
+            leaderboardId
+        );
+
+        // Create position
+        token.approve(address(positionModule), 1_000_000);
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
+            11_000_000,
+            PositionType.Upper
+        );
+        positionModule.createUnmatchedPair(
+            specId,
+            11_000_000,
+            0,
+            PositionType.Upper,
+            1_000_000,
+            0
+        );
+
+        // Settle speculation
+        vm.warp(block.timestamp + 2 hours);
+        Contest memory contest = Contest({
+            awayScore: 100,
+            homeScore: 90,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored,
+            contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, contest);
+        speculationModule.settleSpeculation(specId);
+
+        // First claim succeeds
+        positionModule.claimPosition(specId, oddsPairId, PositionType.Upper);
+
+        // Second claim should revert with AlreadyClaimed
+        vm.expectRevert(PositionModule.PositionModule__AlreadyClaimed.selector);
+        positionModule.claimPosition(specId, oddsPairId, PositionType.Upper);
+    }
+
+    /**
+     * @notice Test that claimPosition with wrong oddsPairId reverts with PositionDoesNotExist
+     */
+    function testClaimPosition_RevertsWithPositionDoesNotExist_WrongOddsPairId() public {
+        MockScorerModule mockScorer = new MockScorerModule();
+
+        uint256 specId = speculationModule.createSpeculation(
+            1,
+            address(mockScorer),
+            42,
+            leaderboardId
+        );
+
+        // Create position at odds 1.10
+        token.approve(address(positionModule), 1_000_000);
+        (uint128 correctOddsPairId, , ) = positionModule.getOrCreateOddsPairId(
+            11_000_000, // 1.10 odds
+            PositionType.Upper
+        );
+        positionModule.createUnmatchedPair(
+            specId,
+            11_000_000,
+            0,
+            PositionType.Upper,
+            1_000_000,
+            0
+        );
+
+        // Get a different oddsPairId (for 2.00 odds)
+        (uint128 wrongOddsPairId, , ) = positionModule.getOrCreateOddsPairId(
+            20_000_000, // 2.00 odds - different from position
+            PositionType.Upper
+        );
+
+        // Verify they are different
+        assertTrue(correctOddsPairId != wrongOddsPairId, "OddsPairIds should be different");
+
+        // Settle speculation
+        vm.warp(block.timestamp + 2 hours);
+        Contest memory contest = Contest({
+            awayScore: 100,
+            homeScore: 90,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored,
+            contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, contest);
+        speculationModule.settleSpeculation(specId);
+
+        // Attempt to claim with wrong oddsPairId should revert
+        vm.expectRevert(PositionModule.PositionModule__PositionDoesNotExist.selector);
+        positionModule.claimPosition(specId, wrongOddsPairId, PositionType.Upper);
+    }
+
+    // --- H-4 FIX VERIFICATION TEST ---
+
+    /**
+     * @notice Test that transferPosition preserves recipient's existing unmatchedAmount
+     * @dev Verifies fix for H-4: transferPosition should NOT zero out buyer's unmatchedAmount
+     *
+     * Scenario:
+     * 1. Buyer creates an unmatched position (unmatchedAmount = 5 USDC)
+     * 2. Seller creates an unmatched position at same odds
+     * 3. Taker matches seller's position
+     * 4. Seller's matched position is transferred to Buyer via secondary market
+     * 5. Buyer's original unmatchedAmount should be PRESERVED, not zeroed
+     */
+    function testTransferPosition_PreservesRecipientUnmatchedAmount() public {
+        uint256 specId = speculationModule.createSpeculation(
+            1,
+            address(0x1234),
+            42,
+            leaderboardId
+        );
+
+        uint64 odds = 20_000_000; // 2.00 odds
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
+            odds,
+            PositionType.Upper
+        );
+
+        // Step 1: Buyer creates an unmatched position with 5 USDC
+        uint256 buyerUnmatchedAmount = 5_000_000;
+        token.transfer(user, buyerUnmatchedAmount);
+        vm.startPrank(user);
+        token.approve(address(positionModule), buyerUnmatchedAmount);
+        positionModule.createUnmatchedPair(
+            specId,
+            odds,
+            0, // no expiry
+            PositionType.Upper,
+            buyerUnmatchedAmount,
+            0
+        );
+        vm.stopPrank();
+
+        // Verify buyer's initial position
+        Position memory buyerPosBefore = positionModule.getPosition(
+            specId,
+            user,
+            oddsPairId,
+            PositionType.Upper
+        );
+        assertEq(buyerPosBefore.unmatchedAmount, buyerUnmatchedAmount, "Buyer should have 5 USDC unmatched");
+        assertEq(buyerPosBefore.matchedAmount, 0, "Buyer should have 0 matched initially");
+
+        // Step 2: Seller creates an unmatched position with 10 USDC
+        address seller = address(0x5E11);
+        uint256 sellerAmount = 10_000_000;
+        token.transfer(seller, sellerAmount);
+        vm.startPrank(seller);
+        token.approve(address(positionModule), sellerAmount);
+        positionModule.createUnmatchedPair(
+            specId,
+            odds,
+            0,
+            PositionType.Upper,
+            sellerAmount,
+            0
+        );
+        vm.stopPrank();
+
+        // Step 3: Taker matches seller's position fully
+        // At 2.00 odds, taker needs to deposit equal amount
+        address taker = address(0xCAFE);
+        uint256 takerAmount = 10_000_000;
+        token.transfer(taker, takerAmount);
+        vm.startPrank(taker);
+        token.approve(address(positionModule), takerAmount);
+        positionModule.completeUnmatchedPair(
+            specId,
+            seller,
+            oddsPairId,
+            PositionType.Upper,
+            takerAmount
+        );
+        vm.stopPrank();
+
+        // Verify seller has matched position
+        Position memory sellerPos = positionModule.getPosition(
+            specId,
+            seller,
+            oddsPairId,
+            PositionType.Upper
+        );
+        assertEq(sellerPos.matchedAmount, sellerAmount, "Seller should have 10 USDC matched");
+
+        // Step 4: Transfer seller's matched position to buyer via MockMarket
+        MockMarket market = new MockMarket(address(positionModule));
+        core.setMarketRole(address(market), true);
+        market.transferPosition(
+            specId,
+            seller,
+            oddsPairId,
+            PositionType.Upper,
+            user, // transfer to buyer (user)
+            sellerPos.matchedAmount
+        );
+
+        // Step 5: Verify buyer's unmatchedAmount is PRESERVED
+        Position memory buyerPosAfter = positionModule.getPosition(
+            specId,
+            user,
+            oddsPairId,
+            PositionType.Upper
+        );
+        assertEq(
+            buyerPosAfter.unmatchedAmount,
+            buyerUnmatchedAmount,
+            "H-4 FIX: Buyer's unmatchedAmount should be preserved after transfer"
+        );
+        assertEq(
+            buyerPosAfter.matchedAmount,
+            sellerPos.matchedAmount,
+            "Buyer should now have seller's matched amount"
+        );
+        assertFalse(buyerPosAfter.claimed, "Position should not be claimed");
+    }
+
+    /**
+     * @notice Test that transferPosition correctly accumulates matchedAmount when recipient has existing matched position
+     * @dev Additional test for H-4: ensures matchedAmount is added, not replaced
+     */
+    function testTransferPosition_AccumulatesMatchedAmount() public {
+        uint256 specId = speculationModule.createSpeculation(
+            1,
+            address(0x1234),
+            42,
+            leaderboardId
+        );
+
+        uint64 odds = 20_000_000; // 2.00 odds
+        (uint128 oddsPairId, , ) = positionModule.getOrCreateOddsPairId(
+            odds,
+            PositionType.Upper
+        );
+
+        // Step 1: Buyer creates and gets matched position (5 USDC)
+        uint256 buyerAmount = 5_000_000;
+        token.transfer(user, buyerAmount);
+        vm.startPrank(user);
+        token.approve(address(positionModule), buyerAmount);
+        positionModule.createUnmatchedPair(
+            specId,
+            odds,
+            0,
+            PositionType.Upper,
+            buyerAmount,
+            0
+        );
+        vm.stopPrank();
+
+        // Taker matches buyer's position
+        address taker1 = address(0xCAF1);
+        token.transfer(taker1, buyerAmount);
+        vm.startPrank(taker1);
+        token.approve(address(positionModule), buyerAmount);
+        positionModule.completeUnmatchedPair(
+            specId,
+            user,
+            oddsPairId,
+            PositionType.Upper,
+            buyerAmount
+        );
+        vm.stopPrank();
+
+        // Verify buyer's matched position
+        Position memory buyerPosBefore = positionModule.getPosition(
+            specId,
+            user,
+            oddsPairId,
+            PositionType.Upper
+        );
+        assertEq(buyerPosBefore.matchedAmount, buyerAmount, "Buyer should have 5 USDC matched");
+
+        // Step 2: Seller creates and gets matched position (10 USDC)
+        address seller = address(0x5E11);
+        uint256 sellerAmount = 10_000_000;
+        token.transfer(seller, sellerAmount);
+        vm.startPrank(seller);
+        token.approve(address(positionModule), sellerAmount);
+        positionModule.createUnmatchedPair(
+            specId,
+            odds,
+            0,
+            PositionType.Upper,
+            sellerAmount,
+            0
+        );
+        vm.stopPrank();
+
+        address taker2 = address(0xCAF2);
+        token.transfer(taker2, sellerAmount);
+        vm.startPrank(taker2);
+        token.approve(address(positionModule), sellerAmount);
+        positionModule.completeUnmatchedPair(
+            specId,
+            seller,
+            oddsPairId,
+            PositionType.Upper,
+            sellerAmount
+        );
+        vm.stopPrank();
+
+        // Step 3: Transfer seller's position to buyer
+        MockMarket market = new MockMarket(address(positionModule));
+        core.setMarketRole(address(market), true);
+        market.transferPosition(
+            specId,
+            seller,
+            oddsPairId,
+            PositionType.Upper,
+            user,
+            sellerAmount
+        );
+
+        // Step 4: Verify buyer's matchedAmount is ACCUMULATED (5 + 10 = 15)
+        Position memory buyerPosAfter = positionModule.getPosition(
+            specId,
+            user,
+            oddsPairId,
+            PositionType.Upper
+        );
+        assertEq(
+            buyerPosAfter.matchedAmount,
+            buyerAmount + sellerAmount,
+            "Buyer's matchedAmount should accumulate (5 + 10 = 15)"
+        );
+    }
 }

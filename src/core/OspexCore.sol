@@ -23,6 +23,9 @@ contract OspexCore is AccessControl {
     /// @notice Emitted when a module is not registered
     /// @param moduleAddress The address of the module
     error OspexCore__NotRegisteredModule(address moduleAddress);
+    /// @notice Emitted when a non-pending admin attempts to set a new admin
+    /// @param caller The address of the caller
+    error OspexCore__NotPendingAdmin(address caller);
 
     /// @notice Emitted when a module is registered or updated
     /// @param moduleType The bytes32 identifier for the module type
@@ -37,6 +40,14 @@ contract OspexCore is AccessControl {
     /// @param newAdmin The new admin address
     event AdminChanged(address indexed previousAdmin, address indexed newAdmin);
 
+    /// @notice Emitted when a new admin is proposed
+    /// @param currentAdmin The current admin address
+    /// @param pendingAdmin The pending admin address
+    event AdminTransferProposed(
+        address indexed currentAdmin,
+        address indexed pendingAdmin
+    );
+
     /// @notice Emitted when a protocol-wide event is emitted for off-chain indexing
     /// @param eventType The bytes32 event type identifier
     /// @param eventData Arbitrary event data (encoded)
@@ -46,6 +57,10 @@ contract OspexCore is AccessControl {
     bytes32 public constant MODULE_ADMIN_ROLE = keccak256("MODULE_ADMIN_ROLE");
     /// @notice Role for approved market contracts
     bytes32 public constant MARKET_ROLE = keccak256("MARKET_ROLE");
+    /// @notice The address of the admin
+    address public s_admin;
+    /// @notice The address of the pending admin
+    address public s_pendingAdmin;
 
     /// @notice Registry of module addresses by module type
     mapping(bytes32 => address) public s_moduleRegistry;
@@ -58,6 +73,7 @@ contract OspexCore is AccessControl {
     constructor() {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(MODULE_ADMIN_ROLE, msg.sender);
+        s_admin = msg.sender;
     }
 
     /**
@@ -94,17 +110,34 @@ contract OspexCore is AccessControl {
     }
 
     /**
-     * @notice Changes the protocol admin (DEFAULT_ADMIN_ROLE)
-     * @dev Only callable by current DEFAULT_ADMIN_ROLE
+     * @notice Proposes a new admin
+     * @dev Only callable by DEFAULT_ADMIN_ROLE
      * @param newAdmin The address of the new admin
      */
-    function setAdmin(address newAdmin) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function proposeAdmin(
+        address newAdmin
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (newAdmin == address(0)) {
             revert OspexCore__InvalidAdminAddress(newAdmin);
         }
-        _revokeRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _grantRole(DEFAULT_ADMIN_ROLE, newAdmin);
-        emit AdminChanged(msg.sender, newAdmin);
+        s_pendingAdmin = newAdmin;
+        emit AdminTransferProposed(msg.sender, newAdmin);
+    }
+
+    /**
+     * @notice Accepts the proposed admin
+     * @dev Only callable by the pending admin
+     */
+    function acceptAdmin() external {
+        if (msg.sender != s_pendingAdmin) {
+            revert OspexCore__NotPendingAdmin(msg.sender);
+        }
+        address oldAdmin = s_admin;
+        _revokeRole(DEFAULT_ADMIN_ROLE, oldAdmin);
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        s_pendingAdmin = address(0);
+        s_admin = msg.sender;
+        emit AdminChanged(oldAdmin, msg.sender);
     }
 
     /**

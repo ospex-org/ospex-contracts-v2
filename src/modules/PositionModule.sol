@@ -135,6 +135,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
      * @param makerPositionType The type of position
      * @param taker The address of the taker
      * @param amount The amount of the position
+     * @param takerAmount The amount of the taker's position
      */
     event PositionMatched(
         uint256 indexed speculationId,
@@ -142,7 +143,8 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         uint128 oddsPairId,
         PositionType makerPositionType,
         address indexed taker,
-        uint256 amount
+        uint256 amount,
+        uint256 takerAmount
     );
 
     /**
@@ -547,11 +549,17 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
             oddsPairId,
             positionType
         );
-        if (amount > fromPos.matchedAmount) {
+        if (amount == 0 || amount > fromPos.matchedAmount) {
             revert PositionModule__InvalidAmount();
         }
 
+        // Calculate proportional takerAmount to transfer
+        uint256 takerAmountToTransfer = (amount * fromPos.takerAmount) /
+            fromPos.matchedAmount;
+
         fromPos.matchedAmount -= amount;
+        fromPos.takerAmount -= takerAmountToTransfer;
+
         Position storage toPos = s_positions[speculationId][to][oddsPairId][
             positionType
         ];
@@ -560,7 +568,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
             toPos.positionType = positionType;
         }
         toPos.matchedAmount += amount;
-        toPos.unmatchedAmount = 0;
+        toPos.takerAmount += takerAmountToTransfer;
         toPos.claimed = false;
 
         emit PositionTransferred(
@@ -621,7 +629,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         }
 
         // Calculate payout for matched amount
-        uint256 payout = calculatePayout(speculationId, oddsPairId, pos);
+        uint256 payout = calculatePayout(speculationId, pos);
 
         // Add any unmatched amount to the payout
         payout += pos.unmatchedAmount;
@@ -629,6 +637,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         // Zero out the position
         pos.unmatchedAmount = 0;
         pos.matchedAmount = 0;
+        pos.takerAmount = 0;
         pos.claimed = true;
 
         // Transfer total payout
@@ -805,6 +814,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         pos.unmatchedExpiry = unmatchedExpiry;
         pos.matchedAmount = 0;
         pos.unmatchedAmount = amount;
+        pos.takerAmount = 0;
         pos.positionType = positionType;
         pos.claimed = false;
         // --- Contribution handling ---
@@ -906,6 +916,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         // Update maker's position
         makerPos.matchedAmount += makerAmountConsumed;
         makerPos.unmatchedAmount -= makerAmountConsumed;
+        makerPos.takerAmount += amount;
 
         // Determine taker position type
         PositionType takerPositionType = makerPositionType == PositionType.Upper
@@ -922,6 +933,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         }
         takerPos.matchedAmount += amount;
         takerPos.unmatchedAmount = 0;
+        takerPos.takerAmount += makerAmountConsumed;
         takerPos.claimed = false;
 
         emit PositionMatched(
@@ -930,7 +942,8 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
             oddsPairId,
             makerPositionType,
             taker,
-            amount
+            amount,
+            makerAmountConsumed
         );
         i_ospexCore.emitCoreEvent(
             keccak256("POSITION_MATCHED"),
@@ -940,7 +953,8 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
                 oddsPairId,
                 makerPositionType,
                 taker,
-                amount
+                amount,
+                makerAmountConsumed
             )
         );
     }
@@ -973,18 +987,15 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
     /**
      * @notice Calculates the payout for a position
      * @param speculationId The ID of the speculation
-     * @param oddsPairId The ID of the odds pair
      * @param position The position to calculate the payout for
      */
     function calculatePayout(
         uint256 speculationId,
-        uint128 oddsPairId,
         Position memory position
     ) internal view returns (uint256) {
         Speculation memory speculation = ISpeculationModule(
             _getModule(keccak256("SPECULATION_MODULE"))
         ).getSpeculation(speculationId);
-        OddsPair memory oddsPair = getOddsPair(oddsPairId);
 
         // Handle special cases first
         if (
@@ -1004,10 +1015,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
                     speculation.winSide == WinSide.Under)));
 
         if (isWinner) {
-            uint64 odds = position.positionType == PositionType.Upper
-                ? oddsPair.upperOdds
-                : oddsPair.lowerOdds;
-            return (position.matchedAmount * odds) / ODDS_PRECISION;
+            return position.matchedAmount + position.takerAmount;
         }
         return 0; // Losing position gets nothing
     }

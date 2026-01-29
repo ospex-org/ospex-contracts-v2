@@ -1140,6 +1140,11 @@ contract SecondaryMarketModuleTest is Test {
             amount / 2,
             "Listing amount should be reduced after partial buy"
         );
+        assertEq(
+            listing.price,
+            price / 2,
+            "Listing price should be reduced proportionally after partial buy"
+        );
     }
     function testUpdateListing_OnlyPrice() public {
         vm.startPrank(seller);
@@ -1290,5 +1295,147 @@ contract SecondaryMarketModuleTest is Test {
             0 // contribution
         );
         vm.stopPrank();
+    }
+
+    // --- H-3 FIX VERIFICATION TESTS ---
+
+    /**
+     * @notice Test that multiple sequential partial buys maintain correct price-per-unit
+     * @dev This is the key test for verifying H-3 fix: listing.price must be reduced
+     *      proportionally after each partial buy so subsequent buyers pay fair price
+     *
+     * Scenario:
+     * - Seller lists 10 units for 100 USDC total (10 USDC per unit)
+     * - Buyer 1 buys 4 units, should pay 40 USDC
+     * - Buyer 2 buys 3 units, should pay 30 USDC
+     * - Buyer 3 buys remaining 3 units, should pay 30 USDC
+     * - Total paid should equal original listing price (100 USDC)
+     */
+    function testBuyPosition_MultiplePartialBuys_MaintainsCorrectPricing() public {
+        // Setup: seller lists 10 units for 100 USDC
+        uint256 totalPrice = 100e6;
+        uint256 totalAmount = 10e6;
+        uint256 pricePerUnit = totalPrice / totalAmount; // 10 USDC per unit
+
+        vm.startPrank(seller);
+        market.listPositionForSale(
+            speculationId,
+            oddsPairId,
+            positionType,
+            totalPrice,
+            totalAmount,
+            0
+        );
+        vm.stopPrank();
+
+        // Create additional buyers
+        address buyer2 = address(0x3333);
+        address buyer3 = address(0x4444);
+        token.transfer(buyer2, 100e6);
+        token.transfer(buyer3, 100e6);
+
+        // Buyer 1 buys 4 units
+        uint256 buyer1Amount = 4e6;
+        uint256 expectedBuyer1Price = (totalPrice * buyer1Amount) / totalAmount; // 40 USDC
+
+        vm.startPrank(buyer);
+        token.approve(address(market), expectedBuyer1Price);
+        uint256 buyer1BalBefore = token.balanceOf(buyer);
+        market.buyPosition(speculationId, seller, oddsPairId, positionType, buyer1Amount);
+        uint256 buyer1Paid = buyer1BalBefore - token.balanceOf(buyer);
+        vm.stopPrank();
+
+        assertEq(buyer1Paid, expectedBuyer1Price, "Buyer 1 should pay 40 USDC for 4 units");
+
+        // Check listing state after first buy
+        SaleListing memory listingAfter1 = market.getSaleListing(speculationId, seller, oddsPairId, positionType);
+        assertEq(listingAfter1.amount, 6e6, "Listing should have 6 units remaining");
+        assertEq(listingAfter1.price, 60e6, "Listing price should be 60 USDC remaining");
+
+        // Buyer 2 buys 3 units - should pay 30 USDC (not 50 which would happen without fix)
+        uint256 buyer2Amount = 3e6;
+        uint256 expectedBuyer2Price = (listingAfter1.price * buyer2Amount) / listingAfter1.amount; // 30 USDC
+
+        vm.startPrank(buyer2);
+        token.approve(address(market), expectedBuyer2Price);
+        uint256 buyer2BalBefore = token.balanceOf(buyer2);
+        market.buyPosition(speculationId, seller, oddsPairId, positionType, buyer2Amount);
+        uint256 buyer2Paid = buyer2BalBefore - token.balanceOf(buyer2);
+        vm.stopPrank();
+
+        assertEq(buyer2Paid, expectedBuyer2Price, "Buyer 2 should pay 30 USDC for 3 units");
+        assertEq(buyer2Paid, 3e6 * pricePerUnit, "Buyer 2 price should match original per-unit price");
+
+        // Check listing state after second buy
+        SaleListing memory listingAfter2 = market.getSaleListing(speculationId, seller, oddsPairId, positionType);
+        assertEq(listingAfter2.amount, 3e6, "Listing should have 3 units remaining");
+        assertEq(listingAfter2.price, 30e6, "Listing price should be 30 USDC remaining");
+
+        // Buyer 3 buys remaining 3 units
+        uint256 buyer3Amount = 3e6;
+        uint256 expectedBuyer3Price = listingAfter2.price; // All remaining = 30 USDC
+
+        vm.startPrank(buyer3);
+        token.approve(address(market), expectedBuyer3Price);
+        uint256 buyer3BalBefore = token.balanceOf(buyer3);
+        market.buyPosition(speculationId, seller, oddsPairId, positionType, buyer3Amount);
+        uint256 buyer3Paid = buyer3BalBefore - token.balanceOf(buyer3);
+        vm.stopPrank();
+
+        assertEq(buyer3Paid, expectedBuyer3Price, "Buyer 3 should pay 30 USDC for 3 units");
+
+        // Verify listing is now empty (deleted)
+        SaleListing memory finalListing = market.getSaleListing(speculationId, seller, oddsPairId, positionType);
+        assertEq(finalListing.amount, 0, "Listing should be deleted after full sale");
+        assertEq(finalListing.price, 0, "Listing price should be 0 after full sale");
+
+        // Verify total paid equals original listing price
+        uint256 totalPaid = buyer1Paid + buyer2Paid + buyer3Paid;
+        assertEq(totalPaid, totalPrice, "Total paid by all buyers should equal original listing price");
+
+        // Verify seller received all proceeds
+        assertEq(
+            market.getPendingSaleProceeds(seller),
+            totalPrice,
+            "Seller should have total price as pending proceeds"
+        );
+    }
+
+    /**
+     * @notice Test that price-per-unit remains consistent across partial buys
+     * @dev Verifies the fix by checking that each buyer pays the same rate per unit
+     *      Uses seller's actual matched position of 10e6
+     */
+    function testBuyPosition_PartialBuys_ConsistentPricePerUnit() public {
+        // Setup: seller lists 10 units for 20 USDC (2 USDC per unit)
+        // Note: seller's matched position is 10e6 from setup
+        uint256 totalPrice = 20e6;
+        uint256 totalAmount = 10e6;
+
+        vm.startPrank(seller);
+        market.listPositionForSale(
+            speculationId,
+            oddsPairId,
+            positionType,
+            totalPrice,
+            totalAmount,
+            0
+        );
+        vm.stopPrank();
+
+        // Buyer buys 4 units - should pay 8 USDC (4 * 2 USDC per unit)
+        vm.startPrank(buyer);
+        token.approve(address(market), 8e6);
+        market.buyPosition(speculationId, seller, oddsPairId, positionType, 4e6);
+        vm.stopPrank();
+
+        SaleListing memory listingAfter = market.getSaleListing(speculationId, seller, oddsPairId, positionType);
+
+        // Verify price per unit is still 2 USDC
+        // Remaining: 6 units for 12 USDC = 2 USDC per unit
+        uint256 remainingPricePerUnit = listingAfter.price / listingAfter.amount;
+        assertEq(remainingPricePerUnit, 2, "Price per unit should remain 2 USDC after partial buy");
+        assertEq(listingAfter.amount, 6e6, "Should have 6 units remaining");
+        assertEq(listingAfter.price, 12e6, "Should have 12 USDC price remaining");
     }
 }

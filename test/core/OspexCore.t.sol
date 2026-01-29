@@ -65,24 +65,54 @@ contract OspexCoreTest is Test {
         assertEq(core.getModule(MODULE_TYPE), dummyModule1);
     }
 
-    function testSetAdmin_Succeeds() public {
+    // --- TWO-STEP ADMIN TRANSFER TESTS (M-3 Fix) ---
+
+    /**
+     * @notice Test the full two-step admin transfer flow
+     * @dev Verifies proposeAdmin + acceptAdmin works correctly
+     */
+    function testTwoStepAdminTransfer_HappyPath() public {
         address newAdmin = address(0xB0B);
+
+        // Step 1: Current admin proposes new admin
         vm.prank(admin);
         vm.expectEmit(true, true, false, true);
+        emit OspexCore.AdminTransferProposed(admin, newAdmin);
+        core.proposeAdmin(newAdmin);
+
+        // Verify pending admin is set
+        assertEq(core.s_pendingAdmin(), newAdmin);
+        // Old admin still has role
+        assertTrue(core.hasRole(core.DEFAULT_ADMIN_ROLE(), admin));
+        // New admin doesn't have role yet
+        assertFalse(core.hasRole(core.DEFAULT_ADMIN_ROLE(), newAdmin));
+
+        // Step 2: New admin accepts
+        vm.prank(newAdmin);
+        vm.expectEmit(true, true, false, true);
         emit OspexCore.AdminChanged(admin, newAdmin);
-        core.setAdmin(newAdmin);
+        core.acceptAdmin();
+
+        // Verify transfer completed
         assertTrue(core.hasRole(core.DEFAULT_ADMIN_ROLE(), newAdmin));
         assertFalse(core.hasRole(core.DEFAULT_ADMIN_ROLE(), admin));
+        assertEq(core.s_pendingAdmin(), address(0)); // Pending admin cleared
     }
 
-    function testSetAdmin_RevertsIfNotAdmin() public {
+    /**
+     * @notice Test proposeAdmin reverts if caller is not admin
+     */
+    function testProposeAdmin_RevertsIfNotAdmin() public {
         address newAdmin = address(0xB0B);
         vm.prank(address(0xBAD));
         vm.expectRevert();
-        core.setAdmin(newAdmin);
+        core.proposeAdmin(newAdmin);
     }
 
-    function testSetAdmin_RevertsIfZeroAddress() public {
+    /**
+     * @notice Test proposeAdmin reverts if zero address
+     */
+    function testProposeAdmin_RevertsIfZeroAddress() public {
         vm.prank(admin);
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -90,7 +120,134 @@ contract OspexCoreTest is Test {
                 address(0)
             )
         );
-        core.setAdmin(address(0));
+        core.proposeAdmin(address(0));
+    }
+
+    /**
+     * @notice Test acceptAdmin reverts if caller is not the pending admin
+     */
+    function testAcceptAdmin_RevertsIfNotPendingAdmin() public {
+        address newAdmin = address(0xB0B);
+        address imposter = address(0xBAD);
+
+        // Propose new admin
+        vm.prank(admin);
+        core.proposeAdmin(newAdmin);
+
+        // Imposter tries to accept
+        vm.prank(imposter);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                OspexCore.OspexCore__NotPendingAdmin.selector,
+                imposter
+            )
+        );
+        core.acceptAdmin();
+    }
+
+    /**
+     * @notice Test acceptAdmin reverts if no pending admin is set
+     */
+    function testAcceptAdmin_RevertsIfNoPendingAdmin() public {
+        // No proposeAdmin called, so s_pendingAdmin is address(0)
+        vm.prank(address(0xB0B));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                OspexCore.OspexCore__NotPendingAdmin.selector,
+                address(0xB0B)
+            )
+        );
+        core.acceptAdmin();
+    }
+
+    /**
+     * @notice Test that pending admin can be changed before acceptance
+     * @dev This is important - admin should be able to correct a mistake
+     */
+    function testProposeAdmin_CanChangePendingAdmin() public {
+        address wrongAdmin = address(0xBAD);
+        address correctAdmin = address(0xB0B);
+
+        // First proposal (wrong address)
+        vm.prank(admin);
+        core.proposeAdmin(wrongAdmin);
+        assertEq(core.s_pendingAdmin(), wrongAdmin);
+
+        // Second proposal (correct address) - overwrites first
+        vm.prank(admin);
+        core.proposeAdmin(correctAdmin);
+        assertEq(core.s_pendingAdmin(), correctAdmin);
+
+        // Wrong admin cannot accept anymore
+        vm.prank(wrongAdmin);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                OspexCore.OspexCore__NotPendingAdmin.selector,
+                wrongAdmin
+            )
+        );
+        core.acceptAdmin();
+
+        // Correct admin can accept
+        vm.prank(correctAdmin);
+        core.acceptAdmin();
+        assertTrue(core.hasRole(core.DEFAULT_ADMIN_ROLE(), correctAdmin));
+    }
+
+    /**
+     * @notice Test that s_admin storage variable is updated correctly
+     */
+    function testTwoStepAdminTransfer_UpdatesStorageVariable() public {
+        address newAdmin = address(0xB0B);
+
+        // Verify initial s_admin
+        assertEq(core.s_admin(), admin);
+
+        // Propose and accept
+        vm.prank(admin);
+        core.proposeAdmin(newAdmin);
+        vm.prank(newAdmin);
+        core.acceptAdmin();
+
+        // Verify s_admin is updated (not just the role)
+        assertEq(core.s_admin(), newAdmin);
+    }
+
+    /**
+     * @notice Test that new admin can perform admin actions after transfer
+     */
+    function testTwoStepAdminTransfer_NewAdminCanActAsAdmin() public {
+        address newAdmin = address(0xB0B);
+        address anotherNewAdmin = address(0xC0C);
+
+        // Complete transfer to newAdmin
+        vm.prank(admin);
+        core.proposeAdmin(newAdmin);
+        vm.prank(newAdmin);
+        core.acceptAdmin();
+
+        // New admin can now propose another admin
+        vm.prank(newAdmin);
+        core.proposeAdmin(anotherNewAdmin);
+        assertEq(core.s_pendingAdmin(), anotherNewAdmin);
+    }
+
+    /**
+     * @notice Test that old admin cannot perform admin actions after transfer
+     */
+    function testTwoStepAdminTransfer_OldAdminCannotActAsAdmin() public {
+        address newAdmin = address(0xB0B);
+
+        // Complete transfer
+        vm.prank(admin);
+        core.proposeAdmin(newAdmin);
+        vm.prank(newAdmin);
+        core.acceptAdmin();
+
+        // Old admin cannot propose anymore
+        vm.prank(admin);
+        vm.expectRevert();
+        core.proposeAdmin(address(0xD0D));
     }
 
     function testEmitCoreEvent_EmitsEvent() public {

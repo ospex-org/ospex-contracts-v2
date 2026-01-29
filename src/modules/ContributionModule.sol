@@ -2,18 +2,23 @@
 pragma solidity ^0.8.19;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {
+    SafeERC20
+} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IModule} from "../interfaces/IModule.sol";
 import {IContributionModule} from "../interfaces/IContributionModule.sol";
 import {OspexCore} from "../core/OspexCore.sol";
 import {PositionType} from "../core/OspexTypes.sol";
+import {
+    ReentrancyGuard
+} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title ContributionModule
  * @notice Centralizes all contribution logic for the Ospex protocol
  * @dev Handles contribution token/receiver, transfers, and events. Called by other modules.
  */
-contract ContributionModule is IContributionModule, IModule {
+contract ContributionModule is IContributionModule, IModule, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // --- Custom Errors ---
@@ -148,7 +153,7 @@ contract ContributionModule is IContributionModule, IModule {
         uint128 oddsPairId,
         PositionType positionType,
         uint256 contributionAmount
-    ) external override onlyAuthorizedCaller {
+    ) external override onlyAuthorizedCaller nonReentrant {
         if (contributionAmount > 0) {
             if (
                 address(s_contributionToken) == address(0) ||

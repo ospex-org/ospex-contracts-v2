@@ -2,14 +2,24 @@
 pragma solidity ^0.8.19;
 
 import {OspexCore} from "../core/OspexCore.sol";
-import {SaleListing, Position, PositionType, Speculation, SpeculationStatus} from "../core/OspexTypes.sol";
+import {
+    SaleListing,
+    Position,
+    PositionType,
+    Speculation,
+    SpeculationStatus
+} from "../core/OspexTypes.sol";
 import {ISecondaryMarketModule} from "../interfaces/ISecondaryMarketModule.sol";
 import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IPositionModule} from "../interfaces/IPositionModule.sol";
 import {IContributionModule} from "../interfaces/IContributionModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {
+    SafeERC20
+} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {
+    ReentrancyGuard
+} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title SecondaryMarketModule
@@ -340,6 +350,7 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
             ];
         } else {
             listing.amount -= amount;
+            listing.price -= purchasePrice;
         }
 
         emit PositionSold(
@@ -565,12 +576,13 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
      * @notice Gets the module address
      * @param moduleType The type of module
      */
-    function _getModule(bytes32 moduleType) internal view returns (address module) {
+    function _getModule(
+        bytes32 moduleType
+    ) internal view returns (address module) {
         module = i_ospexCore.getModule(moduleType);
         if (module == address(0)) {
             revert SecondaryMarketModule__ModuleNotSet(moduleType);
         }
         return module;
     }
-
 }
