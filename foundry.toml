@@ -9,6 +9,12 @@ fs_permissions = [{ access = "read", path = "chainlink-functions" }]
 [profile.ci]
 solc = "0.8.24"
 
+[profile.slither]
+solc = "0.8.24"
+via_ir = true
+optimizer = true
+optimizer_runs = 200
+
 # via_ir = true
 # optimizer = true
 

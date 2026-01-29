@@ -1,0 +1,567 @@
+'forge clean' running (wd: C:\Users\vince\Documents\solidity\ospex-matched-pairs\ospex-foundry-matched-pairs)
+'forge config --json' running
+'forge build --build-info src\modules' running (wd: C:\Users\vince\Documents\solidity\ospex-matched-pairs\ospex-foundry-matched-pairs)
+INFO:Detectors:
+Detector: arbitrary-send-erc20
+ContributionModule.handleContribution(uint256,address,uint128,PositionType,uint256) (src/modules/ContributionModule.sol#146-181) uses arbitrary from in transferFrom: s_contributionToken.safeTransferFrom(contributor,s_contributionReceiver,contributionAmount) (src/modules/ContributionModule.sol#159-164)
+TreasuryModule.processFee(address,uint256,FeeType,uint256) (src/modules/TreasuryModule.sol#165-235) uses arbitrary from in transferFrom: i_token.safeTransferFrom(payer,address(this),amount) (src/modules/TreasuryModule.sol#190-191)
+TreasuryModule.processLeaderboardEntryFee(address,uint256,uint256) (src/modules/TreasuryModule.sol#244-279) uses arbitrary from in transferFrom: i_token.safeTransferFrom(payer,address(this),amount) (src/modules/TreasuryModule.sol#255-256)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#arbitrary-from-in-transferfrom
+INFO:Detectors:
+Detector: divide-before-multiply
+LeaderboardModule.adminSweep(uint256,address) (src/modules/LeaderboardModule.sol#748-802) performs a multiplication on the result of a division:
+	- share = treasuryModule.getPrizePool(leaderboardId) / scoring.winners.length (src/modules/LeaderboardModule.sol#782-783)
+	- unclaimedAmount = share * unclaimedCount (src/modules/LeaderboardModule.sol#784-786)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#divide-before-multiply
+INFO:Detectors:
+Detector: reentrancy-no-eth
+Reentrancy in SpeculationModule._createSpeculation(uint256,address,int32,address,uint256) (src/modules/SpeculationModule.sol#337-394):
+	External calls:
+	- i_ospexCore.processFee(speculationCreator,feeAmount,FeeType.SpeculationCreation,leaderboardId) (src/modules/SpeculationModule.sol#359-364)
+	State variables written after the call(s):
+	- s_speculationLookup[contestId][scorer][theNumber] = speculationId (src/modules/SpeculationModule.sol#377-378)
+	SpeculationModule.s_speculationLookup (src/modules/SpeculationModule.sol#81-82) can be used in cross function reentrancies:
+	- SpeculationModule._createSpeculation(uint256,address,int32,address,uint256) (src/modules/SpeculationModule.sol#337-394)
+	- SpeculationModule.getSpeculationId(uint256,address,int32) (src/modules/SpeculationModule.sol#418-424)
+	- SpeculationModule.s_speculationLookup (src/modules/SpeculationModule.sol#81-82)
+Reentrancy in SecondaryMarketModule.buyPosition(uint256,address,uint128,PositionType,uint256) (src/modules/SecondaryMarketModule.sol#296-360):
+	External calls:
+	- IPositionModule(_getModule(keccak256(bytes)(POSITION_MODULE))).transferPosition(speculationId,seller,oddsPairId,positionType,msg.sender,amount) (src/modules/SecondaryMarketModule.sol#328-334)
+	State variables written after the call(s):
+	- delete s_saleListings[speculationId][seller][oddsPairId][positionType] (src/modules/SecondaryMarketModule.sol#335-338)
+	SecondaryMarketModule.s_saleListings (src/modules/SecondaryMarketModule.sol#76-77) can be used in cross function reentrancies:
+	- SecondaryMarketModule.getSaleListing(uint256,address,uint128,PositionType) (src/modules/SecondaryMarketModule.sol#538-548)
+	- SecondaryMarketModule.s_saleListings (src/modules/SecondaryMarketModule.sol#76-77)
+	- listing.amount -= amount (src/modules/SecondaryMarketModule.sol#339-340)
+	SecondaryMarketModule.s_saleListings (src/modules/SecondaryMarketModule.sol#76-77) can be used in cross function reentrancies:
+	- SecondaryMarketModule.getSaleListing(uint256,address,uint128,PositionType) (src/modules/SecondaryMarketModule.sol#538-548)
+	- SecondaryMarketModule.s_saleListings (src/modules/SecondaryMarketModule.sol#76-77)
+	- listing.price -= purchasePrice (src/modules/SecondaryMarketModule.sol#341-342)
+	SecondaryMarketModule.s_saleListings (src/modules/SecondaryMarketModule.sol#76-77) can be used in cross function reentrancies:
+	- SecondaryMarketModule.getSaleListing(uint256,address,uint128,PositionType) (src/modules/SecondaryMarketModule.sol#538-548)
+	- SecondaryMarketModule.s_saleListings (src/modules/SecondaryMarketModule.sol#76-77)
+Reentrancy in LeaderboardModule.increaseLeaderboardPositionAmount(uint256,uint128,PositionType,uint256[]) (src/modules/LeaderboardModule.sol#521-593):
+	External calls:
+	- i_ospexCore.emitCoreEvent(keccak256(bytes)(LEADERBOARD_POSITION_UPDATED),abi.encode(speculationId,user,oddsPairId,cappedAmount,positionType,leaderboardId)) (src/modules/LeaderboardModule.sol#583-592)
+	State variables written after the call(s):
+	- lbPos.amount = cappedAmount (src/modules/LeaderboardModule.sol#575-576)
+	LeaderboardModule.s_leaderboardPositions (src/modules/LeaderboardModule.sol#81-82) can be used in cross function reentrancies:
+	- LeaderboardModule._calculateROI(uint256,address,uint256) (src/modules/LeaderboardModule.sol#888-907)
+	- LeaderboardModule.getLeaderboardPosition(uint256,address,uint256) (src/modules/LeaderboardModule.sol#1016-1024)
+	- LeaderboardModule.increaseLeaderboardPositionAmount(uint256,uint128,PositionType,uint256[]) (src/modules/LeaderboardModule.sol#521-593)
+	- LeaderboardModule.registerPositionForLeaderboards(uint256,uint128,PositionType,uint256[]) (src/modules/LeaderboardModule.sol#405-514)
+	- (None,declaredBankroll) = _getLeaderboardAndBankroll(leaderboardId,user) (src/modules/LeaderboardModule.sol#544-548)
+		- leaderboard = s_leaderboards[leaderboardId] (src/modules/LeaderboardModule.sol#816-818)
+	LeaderboardModule.s_leaderboards (src/modules/LeaderboardModule.sol#72) can be used in cross function reentrancies:
+	- LeaderboardModule._getLeaderboardAndBankroll(uint256,address) (src/modules/LeaderboardModule.sol#811-829)
+	- LeaderboardModule.createLeaderboard(uint256,address,uint32,uint32,uint32,uint32,uint32) (src/modules/LeaderboardModule.sol#284-324)
+	- LeaderboardModule.getLeaderboard(uint256) (src/modules/LeaderboardModule.sol#1005-1010)
+	- LeaderboardModule.registerUser(uint256,uint256) (src/modules/LeaderboardModule.sol#352-396)
+	- LeaderboardModule.submitLeaderboardROI(uint256) (src/modules/LeaderboardModule.sol#597-680)
+Reentrancy in LeaderboardModule.registerPositionForLeaderboards(uint256,uint128,PositionType,uint256[]) (src/modules/LeaderboardModule.sol#405-514):
+	External calls:
+	- i_ospexCore.emitCoreEvent(keccak256(bytes)(LEADERBOARD_POSITION_ADDED),abi.encode(speculationId,user,oddsPairId,cappedAmount,positionType,leaderboardId)) (src/modules/LeaderboardModule.sol#500-510)
+	State variables written after the call(s):
+	- (None,declaredBankroll) = _getLeaderboardAndBankroll(leaderboardId,user) (src/modules/LeaderboardModule.sol#428-432)
+		- leaderboard = s_leaderboards[leaderboardId] (src/modules/LeaderboardModule.sol#816-818)
+	LeaderboardModule.s_leaderboards (src/modules/LeaderboardModule.sol#72) can be used in cross function reentrancies:
+	- LeaderboardModule._getLeaderboardAndBankroll(uint256,address) (src/modules/LeaderboardModule.sol#811-829)
+	- LeaderboardModule.createLeaderboard(uint256,address,uint32,uint32,uint32,uint32,uint32) (src/modules/LeaderboardModule.sol#284-324)
+	- LeaderboardModule.getLeaderboard(uint256) (src/modules/LeaderboardModule.sol#1005-1010)
+	- LeaderboardModule.registerUser(uint256,uint256) (src/modules/LeaderboardModule.sol#352-396)
+	- LeaderboardModule.submitLeaderboardROI(uint256) (src/modules/LeaderboardModule.sol#597-680)
+	- s_registeredLeaderboardSpeculation[leaderboardId][user][contestId][scorer] = speculationId (src/modules/LeaderboardModule.sol#477-479)
+	LeaderboardModule.s_registeredLeaderboardSpeculation (src/modules/LeaderboardModule.sol#96-98) can be used in cross function reentrancies:
+	- LeaderboardModule.increaseLeaderboardPositionAmount(uint256,uint128,PositionType,uint256[]) (src/modules/LeaderboardModule.sol#521-593)
+	- LeaderboardModule.registerPositionForLeaderboards(uint256,uint128,PositionType,uint256[]) (src/modules/LeaderboardModule.sol#405-514)
+	- LeaderboardModule.s_registeredLeaderboardSpeculation (src/modules/LeaderboardModule.sol#96-98)
+	- s_userSpeculationIds[leaderboardId][user].push(speculationId) (src/modules/LeaderboardModule.sol#492-493)
+	LeaderboardModule.s_userSpeculationIds (src/modules/LeaderboardModule.sol#86-88) can be used in cross function reentrancies:
+	- LeaderboardModule._calculateROI(uint256,address,uint256) (src/modules/LeaderboardModule.sol#888-907)
+	- LeaderboardModule.registerPositionForLeaderboards(uint256,uint128,PositionType,uint256[]) (src/modules/LeaderboardModule.sol#405-514)
+	- LeaderboardModule.s_userSpeculationIds (src/modules/LeaderboardModule.sol#86-88)
+	- LeaderboardModule.submitLeaderboardROI(uint256) (src/modules/LeaderboardModule.sol#597-680)
+Reentrancy in LeaderboardModule.registerUser(uint256,uint256) (src/modules/LeaderboardModule.sol#352-396):
+	External calls:
+	- i_ospexCore.processLeaderboardEntryFee(msg.sender,feeAmount,leaderboardId) (src/modules/LeaderboardModule.sol#382-385)
+	State variables written after the call(s):
+	- s_userBankrolls[leaderboardId][msg.sender] = declaredBankroll (src/modules/LeaderboardModule.sol#387-389)
+	LeaderboardModule.s_userBankrolls (src/modules/LeaderboardModule.sol#76-77) can be used in cross function reentrancies:
+	- LeaderboardModule._getLeaderboardAndBankroll(uint256,address) (src/modules/LeaderboardModule.sol#811-829)
+	- LeaderboardModule.registerUser(uint256,uint256) (src/modules/LeaderboardModule.sol#352-396)
+	- LeaderboardModule.s_userBankrolls (src/modules/LeaderboardModule.sol#76-77)
+	- LeaderboardModule.submitLeaderboardROI(uint256) (src/modules/LeaderboardModule.sol#597-680)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-2
+INFO:Detectors:
+Detector: uninitialized-local
+OracleModule.sendRequest(string,bytes,string[],uint64,uint32,bytes32,OracleRequestType,uint256).req (src/modules/OracleModule.sol#352) is a local variable never initialized
+Buffer.fromBytes(bytes).buf (lib/chainlink/contracts/src/v0.8/vendor/@ensdomains/buffer/v0.1.0/Buffer.sol#54) is a local variable never initialized
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#uninitialized-local-variables
+INFO:Detectors:
+Detector: unused-return
+CBOR.create(uint256) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#42-46) ignores return value by Buffer.init(cbor.buf,capacity) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#44)
+CBOR.writeUInt256(CBOR.CBORBuffer,uint256) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#51-56) ignores return value by buf.buf.appendUint8(uint8((MAJOR_TYPE_TAG << 5) | TAG_TYPE_BIGNUM)) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#55-56)
+CBOR.writeInt256(CBOR.CBORBuffer,int256) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#56-66) ignores return value by buf.buf.appendUint8(uint8((MAJOR_TYPE_TAG << 5) | TAG_TYPE_NEGATIVE_BIGNUM)) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#60-63)
+CBOR.writeBytes(CBOR.CBORBuffer,bytes) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#79-84) ignores return value by buf.buf.append(value) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#83-84)
+CBOR.writeString(CBOR.CBORBuffer,string) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#84-89) ignores return value by buf.buf.append(bytes(value)) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#89)
+CBOR.writeFixedNumeric(CBOR.CBORBuffer,uint8,uint64) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#175-197) ignores return value by buf.buf.appendUint8(uint8((major << 5) | value)) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#180-183)
+CBOR.writeFixedNumeric(CBOR.CBORBuffer,uint8,uint64) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#175-197) ignores return value by buf.buf.appendUint8(uint8((major << 5) | 24)) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#185-187)
+CBOR.writeFixedNumeric(CBOR.CBORBuffer,uint8,uint64) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#175-197) ignores return value by buf.buf.appendInt(value,1) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#188-189)
+CBOR.writeFixedNumeric(CBOR.CBORBuffer,uint8,uint64) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#175-197) ignores return value by buf.buf.appendUint8(uint8((major << 5) | 25)) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#189-191)
+CBOR.writeFixedNumeric(CBOR.CBORBuffer,uint8,uint64) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#175-197) ignores return value by buf.buf.appendInt(value,2) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#191)
+CBOR.writeFixedNumeric(CBOR.CBORBuffer,uint8,uint64) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#175-197) ignores return value by buf.buf.appendUint8(uint8((major << 5) | 26)) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#193-194)
+CBOR.writeFixedNumeric(CBOR.CBORBuffer,uint8,uint64) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#175-197) ignores return value by buf.buf.appendInt(value,4) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#194)
+CBOR.writeFixedNumeric(CBOR.CBORBuffer,uint8,uint64) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#175-197) ignores return value by buf.buf.appendUint8(uint8((major << 5) | 27)) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#195-196)
+CBOR.writeFixedNumeric(CBOR.CBORBuffer,uint8,uint64) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#175-197) ignores return value by buf.buf.appendInt(value,8) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#196-197)
+CBOR.writeIndefiniteLengthType(CBOR.CBORBuffer,uint8) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#197-201) ignores return value by buf.buf.appendUint8(uint8((major << 5) | 31)) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#200-201)
+CBOR.writeContentFree(CBOR.CBORBuffer,uint8) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#209-216) ignores return value by buf.buf.appendUint8(uint8((MAJOR_TYPE_CONTENT_FREE << 5) | value)) (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#212-215)
+OracleModule.createContestFromOracle(string,string,string,string,bytes32,uint256,bytes,uint64,uint32) (src/modules/OracleModule.sol#161-210) ignores return value by IContestModule(contestModule).createContest(rundownId,sportspageId,jsonoddsId,scoreContestSourceHash,msg.sender,leaderboardId) (src/modules/OracleModule.sol#193-199)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#unused-return
+INFO:Detectors:
+Detector: missing-zero-check
+ContributionModule.setContributionReceiver(address).newReceiver (src/modules/ContributionModule.sol#127-128) lacks a zero-check on :
+		- s_contributionReceiver = newReceiver (src/modules/ContributionModule.sol#128-130)
+OracleModule.constructor(address,address,address,bytes32).router (src/modules/OracleModule.sol#138) lacks a zero-check on :
+		- s_router = router (src/modules/OracleModule.sol#143-144)
+OracleModule.constructor(address,address,address,bytes32).linkAddress (src/modules/OracleModule.sol#138-139) lacks a zero-check on :
+		- i_linkAddress = linkAddress (src/modules/OracleModule.sol#144-145)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#missing-zero-address-validation
+INFO:Detectors:
+Detector: calls-loop
+LeaderboardModule.registerPositionForLeaderboards(uint256,uint128,PositionType,uint256[]) (src/modules/LeaderboardModule.sol#405-514) has external calls inside a loop: maxBet = rulesModule.getMaxBetAmount(leaderboardId,declaredBankroll) (src/modules/LeaderboardModule.sol#448-451)
+LeaderboardModule.registerPositionForLeaderboards(uint256,uint128,PositionType,uint256[]) (src/modules/LeaderboardModule.sol#405-514) has external calls inside a loop: cappedAmount < rulesModule.getMinBetAmount(leaderboardId,declaredBankroll) (src/modules/LeaderboardModule.sol#456-459)
+LeaderboardModule.registerPositionForLeaderboards(uint256,uint128,PositionType,uint256[]) (src/modules/LeaderboardModule.sol#405-514) has external calls inside a loop: validationResult = rulesModule.validateLeaderboardPosition(leaderboardId,speculationId,user,theNumber,odds,positionType) (src/modules/LeaderboardModule.sol#464-473)
+LeaderboardModule.registerPositionForLeaderboards(uint256,uint128,PositionType,uint256[]) (src/modules/LeaderboardModule.sol#405-514) has external calls inside a loop: i_ospexCore.emitCoreEvent(keccak256(bytes)(LEADERBOARD_POSITION_ADDED),abi.encode(speculationId,user,oddsPairId,cappedAmount,positionType,leaderboardId)) (src/modules/LeaderboardModule.sol#500-510)
+LeaderboardModule.increaseLeaderboardPositionAmount(uint256,uint128,PositionType,uint256[]) (src/modules/LeaderboardModule.sol#521-593) has external calls inside a loop: maxBet = IRulesModule(_getModule(keccak256(bytes)(RULES_MODULE))).getMaxBetAmount(leaderboardId,declaredBankroll) (src/modules/LeaderboardModule.sol#570-572)
+LeaderboardModule.increaseLeaderboardPositionAmount(uint256,uint128,PositionType,uint256[]) (src/modules/LeaderboardModule.sol#521-593) has external calls inside a loop: i_ospexCore.emitCoreEvent(keccak256(bytes)(LEADERBOARD_POSITION_UPDATED),abi.encode(speculationId,user,oddsPairId,cappedAmount,positionType,leaderboardId)) (src/modules/LeaderboardModule.sol#583-592)
+LeaderboardModule._calculatePositionNet(LeaderboardPosition) (src/modules/LeaderboardModule.sol#913-941) has external calls inside a loop: spec = ISpeculationModule(_getModule(keccak256(bytes)(SPECULATION_MODULE))).getSpeculation(lbPos.speculationId) (src/modules/LeaderboardModule.sol#916-921)
+	Calls stack containing the loop:
+		LeaderboardModule.submitLeaderboardROI(uint256)
+		LeaderboardModule._calculateROI(uint256,address,uint256)
+LeaderboardModule._calculatePositionNet(LeaderboardPosition) (src/modules/LeaderboardModule.sol#913-941) has external calls inside a loop: oddsPrecision = uint256(IPositionModule(_getModule(keccak256(bytes)(POSITION_MODULE))).ODDS_PRECISION()) (src/modules/LeaderboardModule.sol#922-925)
+	Calls stack containing the loop:
+		LeaderboardModule.submitLeaderboardROI(uint256)
+		LeaderboardModule._calculateROI(uint256,address,uint256)
+PositionModule._getModule(bytes32) (src/modules/PositionModule.sol#1000-1009) has external calls inside a loop: module = i_ospexCore.getModule(moduleType) (src/modules/PositionModule.sol#1003-1004)
+	Calls stack containing the loop:
+		PositionModule.completeUnmatchedPairBatch(uint256,address[],uint128[],PositionType[],uint256[])
+		PositionModule._completeUnmatchedPair(uint256,address,uint128,PositionType,uint256,address)
+		PositionModule.speculationOpen(uint256)
+PositionModule.speculationOpen(uint256) (src/modules/PositionModule.sol#181-191) has external calls inside a loop: spec = ISpeculationModule(_getModule(keccak256(bytes)(SPECULATION_MODULE))).getSpeculation(speculationId) (src/modules/PositionModule.sol#185-189)
+	Calls stack containing the loop:
+		PositionModule.completeUnmatchedPairBatch(uint256,address[],uint128[],PositionType[],uint256[])
+		PositionModule._completeUnmatchedPair(uint256,address,uint128,PositionType,uint256,address)
+PositionModule.amountInRange(uint256) (src/modules/PositionModule.sol#194-208) has external calls inside a loop: amount < specModule.s_minSpeculationAmount() || amount > specModule.s_maxSpeculationAmount() (src/modules/PositionModule.sol#202-204)
+	Calls stack containing the loop:
+		PositionModule.completeUnmatchedPairBatch(uint256,address[],uint128[],PositionType[],uint256[])
+		PositionModule._completeUnmatchedPair(uint256,address,uint128,PositionType,uint256,address)
+PositionModule._completeUnmatchedPair(uint256,address,uint128,PositionType,uint256,address) (src/modules/PositionModule.sol#832-927) has external calls inside a loop: i_ospexCore.emitCoreEvent(keccak256(bytes)(POSITION_MATCHED),abi.encode(speculationId,maker,oddsPairId,makerPositionType,taker,amount,makerAmountConsumed)) (src/modules/PositionModule.sol#921-927)
+	Calls stack containing the loop:
+		PositionModule.completeUnmatchedPairBatch(uint256,address[],uint128[],PositionType[],uint256[])
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation/#calls-inside-a-loop
+INFO:Detectors:
+Detector: reentrancy-benign
+Reentrancy in SpeculationModule._createSpeculation(uint256,address,int32,address,uint256) (src/modules/SpeculationModule.sol#337-394):
+	External calls:
+	- i_ospexCore.processFee(speculationCreator,feeAmount,FeeType.SpeculationCreation,leaderboardId) (src/modules/SpeculationModule.sol#359-364)
+	State variables written after the call(s):
+	- s_speculationIdCounter ++ (src/modules/SpeculationModule.sol#364-365)
+	- s_speculations[speculationId] = Speculation({contestId:contestId,speculationScorer:scorer,theNumber:theNumber,speculationCreator:speculationCreator,speculationStatus:SpeculationStatus.Open,winSide:WinSide.TBD}) (src/modules/SpeculationModule.sol#366-376)
+Reentrancy in ContestModule.createContest(string,string,string,bytes32,address,uint256) (src/modules/ContestModule.sol#224-268):
+	External calls:
+	- i_ospexCore.processFee(contestCreator,feeAmount,FeeType.ContestCreation,leaderboardId) (src/modules/ContestModule.sol#235-239)
+	State variables written after the call(s):
+	- s_contestIdCounter ++ (src/modules/ContestModule.sol#239-240)
+	- c.rundownId = rundownId (src/modules/ContestModule.sol#243-244)
+	- c.sportspageId = sportspageId (src/modules/ContestModule.sol#244-245)
+	- c.jsonoddsId = jsonoddsId (src/modules/ContestModule.sol#245-246)
+	- c.scoreContestSourceHash = scoreContestSourceHash (src/modules/ContestModule.sol#247-250)
+	- c.contestCreator = contestCreator (src/modules/ContestModule.sol#250-251)
+	- c.contestStatus = ContestStatus.Unverified (src/modules/ContestModule.sol#251-252)
+Reentrancy in OracleModule.createContestFromOracle(string,string,string,string,bytes32,uint256,bytes,uint64,uint32) (src/modules/OracleModule.sol#161-210):
+	External calls:
+	- IContestModule(contestModule).createContest(rundownId,sportspageId,jsonoddsId,scoreContestSourceHash,msg.sender,leaderboardId) (src/modules/OracleModule.sol#193-199)
+	- sendRequest(createContestSourceJS,encryptedSecretsUrls,args,subscriptionId,gasLimit,s_donId,OracleRequestType.ContestCreate,contestId) (src/modules/OracleModule.sol#200-210)
+		- requestId = i_router.sendRequest(subscriptionId,data,FunctionsRequest.REQUEST_DATA_VERSION,callbackGasLimit,donId) (lib/chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol#35-40)
+	- handleLinkPayment(subscriptionId) (src/modules/OracleModule.sol#171-172)
+		- ! IERC1363(i_linkAddress).transferAndCall(s_router,payment,abi.encode(subscriptionId)) (src/modules/OracleModule.sol#116-122)
+	State variables written after the call(s):
+	- sendRequest(createContestSourceJS,encryptedSecretsUrls,args,subscriptionId,gasLimit,s_donId,OracleRequestType.ContestCreate,contestId) (src/modules/OracleModule.sol#200-210)
+		- s_requestContext[s_lastRequestId] = OracleRequestContext({requestType:requestType,contestId:contestId}) (src/modules/OracleModule.sol#366-370)
+	- sendRequest(createContestSourceJS,encryptedSecretsUrls,args,subscriptionId,gasLimit,s_donId,OracleRequestType.ContestCreate,contestId) (src/modules/OracleModule.sol#200-210)
+		- s_requestMapping[s_lastRequestId] = contestId (src/modules/OracleModule.sol#372-373)
+Reentrancy in PositionModule.createUnmatchedPairWithSpeculation(uint256,address,int32,uint256,uint64,uint32,PositionType,uint256,uint256) (src/modules/PositionModule.sol#307-342):
+	External calls:
+	- speculationId = specModule.createSpeculationWithUnmatchedPair(contestId,scorer,theNumber,msg.sender,leaderboardId) (src/modules/PositionModule.sol#330-335)
+	- _createUnmatchedPair(speculationId,odds,unmatchedExpiry,positionType,amount,contributionAmount) (src/modules/PositionModule.sol#336-342)
+		- IContributionModule(_getModule(keccak256(bytes)(CONTRIBUTION_MODULE))).handleContribution(speculationId,msg.sender,oddsPairId,positionType,contributionAmount) (src/modules/PositionModule.sol#800-806)
+		- i_ospexCore.emitCoreEvent(keccak256(bytes)(POSITION_CREATED),abi.encode(speculationId,msg.sender,oddsPairId,unmatchedExpiry,positionType,amount,upperOdds,lowerOdds)) (src/modules/PositionModule.sol#813-821)
+	State variables written after the call(s):
+	- _createUnmatchedPair(speculationId,odds,unmatchedExpiry,positionType,amount,contributionAmount) (src/modules/PositionModule.sol#336-342)
+		- s_inverseCalculatedOdds[oddsPairId] = inverseOdds (src/modules/PositionModule.sol#756-757)
+	- _createUnmatchedPair(speculationId,odds,unmatchedExpiry,positionType,amount,contributionAmount) (src/modules/PositionModule.sol#336-342)
+		- s_originalRequestedOdds[oddsPairId] = normalizedOdds (src/modules/PositionModule.sol#756)
+Reentrancy in SecondaryMarketModule.listPositionForSale(uint256,uint128,PositionType,uint256,uint256,uint256) (src/modules/SecondaryMarketModule.sol#222-282):
+	External calls:
+	- IContributionModule(_getModule(keccak256(bytes)(CONTRIBUTION_MODULE))).handleContribution(speculationId,msg.sender,oddsPairId,positionType,contributionAmount) (src/modules/SecondaryMarketModule.sol#253-258)
+	State variables written after the call(s):
+	- s_saleListings[speculationId][msg.sender][oddsPairId][positionType] = SaleListing({price:price,amount:saleAmount}) (src/modules/SecondaryMarketModule.sol#258-262)
+Reentrancy in LeaderboardModule.registerPositionForLeaderboards(uint256,uint128,PositionType,uint256[]) (src/modules/LeaderboardModule.sol#405-514):
+	External calls:
+	- i_ospexCore.emitCoreEvent(keccak256(bytes)(LEADERBOARD_POSITION_ADDED),abi.encode(speculationId,user,oddsPairId,cappedAmount,positionType,leaderboardId)) (src/modules/LeaderboardModule.sol#500-510)
+	State variables written after the call(s):
+	- s_leaderboardPositions[leaderboardId][user][speculationId] = LeaderboardPosition({contestId:contestId,speculationId:speculationId,amount:cappedAmount,user:user,odds:odds,positionType:positionType}) (src/modules/LeaderboardModule.sol#481-490)
+Reentrancy in OracleModule.scoreContestFromOracle(uint256,string,bytes,uint64,uint32) (src/modules/OracleModule.sol#277-316):
+	External calls:
+	- sendRequest(scoreContestSourceJS,encryptedSecretsUrls,args,subscriptionId,gasLimit,s_donId,OracleRequestType.ContestScore,contestId) (src/modules/OracleModule.sol#308-316)
+		- requestId = i_router.sendRequest(subscriptionId,data,FunctionsRequest.REQUEST_DATA_VERSION,callbackGasLimit,donId) (lib/chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol#35-40)
+	- handleLinkPayment(subscriptionId) (src/modules/OracleModule.sol#281)
+		- ! IERC1363(i_linkAddress).transferAndCall(s_router,payment,abi.encode(subscriptionId)) (src/modules/OracleModule.sol#116-122)
+	State variables written after the call(s):
+	- sendRequest(scoreContestSourceJS,encryptedSecretsUrls,args,subscriptionId,gasLimit,s_donId,OracleRequestType.ContestScore,contestId) (src/modules/OracleModule.sol#308-316)
+		- s_requestContext[s_lastRequestId] = OracleRequestContext({requestType:requestType,contestId:contestId}) (src/modules/OracleModule.sol#366-370)
+	- sendRequest(scoreContestSourceJS,encryptedSecretsUrls,args,subscriptionId,gasLimit,s_donId,OracleRequestType.ContestScore,contestId) (src/modules/OracleModule.sol#308-316)
+		- s_requestMapping[s_lastRequestId] = contestId (src/modules/OracleModule.sol#372-373)
+Reentrancy in OracleModule.sendRequest(string,bytes,string[],uint64,uint32,bytes32,OracleRequestType,uint256) (src/modules/OracleModule.sol#346-375):
+	External calls:
+	- s_lastRequestId = _sendRequest(req.encodeCBOR(),subscriptionId,gasLimit,donId) (src/modules/OracleModule.sol#361-365)
+		- requestId = i_router.sendRequest(subscriptionId,data,FunctionsRequest.REQUEST_DATA_VERSION,callbackGasLimit,donId) (lib/chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol#35-40)
+	State variables written after the call(s):
+	- s_requestContext[s_lastRequestId] = OracleRequestContext({requestType:requestType,contestId:contestId}) (src/modules/OracleModule.sol#366-370)
+	- s_requestMapping[s_lastRequestId] = contestId (src/modules/OracleModule.sol#372-373)
+Reentrancy in OracleModule.updateContestMarketsFromOracle(uint256,string,bytes,uint64,uint32) (src/modules/OracleModule.sol#224-262):
+	External calls:
+	- sendRequest(contestMarketsUpdateSourceJS,encryptedSecretsUrls,args,subscriptionId,gasLimit,s_donId,OracleRequestType.ContestMarketsUpdate,contestId) (src/modules/OracleModule.sol#252-262)
+		- requestId = i_router.sendRequest(subscriptionId,data,FunctionsRequest.REQUEST_DATA_VERSION,callbackGasLimit,donId) (lib/chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol#35-40)
+	- handleLinkPayment(subscriptionId) (src/modules/OracleModule.sol#229-230)
+		- ! IERC1363(i_linkAddress).transferAndCall(s_router,payment,abi.encode(subscriptionId)) (src/modules/OracleModule.sol#116-122)
+	State variables written after the call(s):
+	- sendRequest(contestMarketsUpdateSourceJS,encryptedSecretsUrls,args,subscriptionId,gasLimit,s_donId,OracleRequestType.ContestMarketsUpdate,contestId) (src/modules/OracleModule.sol#252-262)
+		- s_requestContext[s_lastRequestId] = OracleRequestContext({requestType:requestType,contestId:contestId}) (src/modules/OracleModule.sol#366-370)
+	- sendRequest(contestMarketsUpdateSourceJS,encryptedSecretsUrls,args,subscriptionId,gasLimit,s_donId,OracleRequestType.ContestMarketsUpdate,contestId) (src/modules/OracleModule.sol#252-262)
+		- s_requestMapping[s_lastRequestId] = contestId (src/modules/OracleModule.sol#372-373)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-3
+INFO:Detectors:
+Detector: reentrancy-events
+Reentrancy in SpeculationModule._createSpeculation(uint256,address,int32,address,uint256) (src/modules/SpeculationModule.sol#337-394):
+	External calls:
+	- i_ospexCore.processFee(speculationCreator,feeAmount,FeeType.SpeculationCreation,leaderboardId) (src/modules/SpeculationModule.sol#359-364)
+	Event emitted after the call(s):
+	- SpeculationCreated(speculationId,contestId,scorer,theNumber,speculationCreator) (src/modules/SpeculationModule.sol#379-382)
+Reentrancy in FunctionsClient._sendRequest(bytes,uint64,uint32,bytes32) (lib/chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol#29-43):
+	External calls:
+	- requestId = i_router.sendRequest(subscriptionId,data,FunctionsRequest.REQUEST_DATA_VERSION,callbackGasLimit,donId) (lib/chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol#35-40)
+	Event emitted after the call(s):
+	- RequestSent(requestId) (lib/chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol#40-41)
+Reentrancy in ContestModule.createContest(string,string,string,bytes32,address,uint256) (src/modules/ContestModule.sol#224-268):
+	External calls:
+	- i_ospexCore.processFee(contestCreator,feeAmount,FeeType.ContestCreation,leaderboardId) (src/modules/ContestModule.sol#235-239)
+	Event emitted after the call(s):
+	- ContestCreated(contestId,rundownId,sportspageId,jsonoddsId,contestCreator,scoreContestSourceHash) (src/modules/ContestModule.sol#252-256)
+Reentrancy in LeaderboardModule.increaseLeaderboardPositionAmount(uint256,uint128,PositionType,uint256[]) (src/modules/LeaderboardModule.sol#521-593):
+	External calls:
+	- i_ospexCore.emitCoreEvent(keccak256(bytes)(LEADERBOARD_POSITION_UPDATED),abi.encode(speculationId,user,oddsPairId,cappedAmount,positionType,leaderboardId)) (src/modules/LeaderboardModule.sol#583-592)
+	Event emitted after the call(s):
+	- LeaderboardPositionUpdated(speculationId,user,oddsPairId,cappedAmount,positionType,leaderboardId) (src/modules/LeaderboardModule.sol#577-583)
+Reentrancy in LeaderboardModule.registerPositionForLeaderboards(uint256,uint128,PositionType,uint256[]) (src/modules/LeaderboardModule.sol#405-514):
+	External calls:
+	- i_ospexCore.emitCoreEvent(keccak256(bytes)(LEADERBOARD_POSITION_ADDED),abi.encode(speculationId,user,oddsPairId,cappedAmount,positionType,leaderboardId)) (src/modules/LeaderboardModule.sol#500-510)
+	Event emitted after the call(s):
+	- LeaderboardPositionAdded(speculationId,user,oddsPairId,cappedAmount,positionType,leaderboardId) (src/modules/LeaderboardModule.sol#494-500)
+Reentrancy in LeaderboardModule.registerUser(uint256,uint256) (src/modules/LeaderboardModule.sol#352-396):
+	External calls:
+	- i_ospexCore.processLeaderboardEntryFee(msg.sender,feeAmount,leaderboardId) (src/modules/LeaderboardModule.sol#382-385)
+	Event emitted after the call(s):
+	- UserRegistered(leaderboardId,msg.sender,declaredBankroll) (src/modules/LeaderboardModule.sol#390-391)
+Reentrancy in LeaderboardModule.submitLeaderboardROI(uint256) (src/modules/LeaderboardModule.sol#597-680):
+	External calls:
+	- i_ospexCore.emitCoreEvent(keccak256(bytes)(LEADERBOARD_NEW_HIGHEST_ROI),abi.encode(leaderboardId,roi,msg.sender)) (src/modules/LeaderboardModule.sol#653-659)
+	- i_ospexCore.emitCoreEvent(keccak256(bytes)(LEADERBOARD_NEW_HIGHEST_ROI),abi.encode(leaderboardId,roi,msg.sender)) (src/modules/LeaderboardModule.sol#673-676)
+	Event emitted after the call(s):
+	- LeaderboardROISubmitted(leaderboardId,msg.sender,roi) (src/modules/LeaderboardModule.sol#677-678)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-4
+INFO:Detectors:
+Detector: timestamp
+ContestModule.scoreContestManually(uint256,uint32,uint32) (src/modules/ContestModule.sol#469-511) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < s_contestStartTimes[contestId] (src/modules/ContestModule.sol#485-487)
+	- block.timestamp < startTime + MANUAL_SCORE_WAIT_PERIOD (src/modules/ContestModule.sol#494)
+LeaderboardModule.createLeaderboard(uint256,address,uint32,uint32,uint32,uint32,uint32) (src/modules/LeaderboardModule.sol#284-324) uses timestamp for comparisons
+	Dangerous comparisons:
+	- startTime >= endTime || startTime < block.timestamp (src/modules/LeaderboardModule.sol#292-293)
+LeaderboardModule.registerUser(uint256,uint256) (src/modules/LeaderboardModule.sol#352-396) uses timestamp for comparisons
+	Dangerous comparisons:
+	- leaderboard.startTime == 0 || block.timestamp >= leaderboard.endTime (src/modules/LeaderboardModule.sol#361-362)
+LeaderboardModule.submitLeaderboardROI(uint256) (src/modules/LeaderboardModule.sol#597-680) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < claimWindowStart || block.timestamp > claimWindowEnd (src/modules/LeaderboardModule.sol#607-610)
+LeaderboardModule.claimLeaderboardPrize(uint256) (src/modules/LeaderboardModule.sol#685-743) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < claimWindowStart || block.timestamp > claimWindowEnd (src/modules/LeaderboardModule.sol#697-702)
+LeaderboardModule.adminSweep(uint256,address) (src/modules/LeaderboardModule.sol#748-802) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp <= claimWindowEnd (src/modules/LeaderboardModule.sol#762-763)
+LeaderboardModule._getLeaderboardAndBankroll(uint256,address) (src/modules/LeaderboardModule.sol#811-829) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < leaderboard.startTime || block.timestamp >= leaderboard.endTime (src/modules/LeaderboardModule.sol#822-827)
+OracleModule.scoreContestFromOracle(uint256,string,bytes,uint64,uint32) (src/modules/OracleModule.sol#277-316) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < contestModule.s_contestStartTimes(contestId) (src/modules/OracleModule.sol#300-302)
+PositionModule._completeUnmatchedPair(uint256,address,uint128,PositionType,uint256,address) (src/modules/PositionModule.sol#832-927) uses timestamp for comparisons
+	Dangerous comparisons:
+	- makerPos.unmatchedExpiry != 0 && makerPos.unmatchedExpiry < block.timestamp (src/modules/PositionModule.sol#856-857)
+RulesModule.validateLeaderboardPosition(uint256,uint256,address,int32,uint64,PositionType) (src/modules/RulesModule.sol#441-558) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < leaderboard.startTime (src/modules/RulesModule.sol#461-462)
+	- block.timestamp >= leaderboard.endTime (src/modules/RulesModule.sol#465)
+	- block.timestamp >= contestModule.s_contestStartTimes(speculation.contestId) (src/modules/RulesModule.sol#485-486)
+SpeculationModule.settleSpeculation(uint256) (src/modules/SpeculationModule.sol#239-296) uses timestamp for comparisons
+	Dangerous comparisons:
+	- uint32(block.timestamp) < contestStartTime (src/modules/SpeculationModule.sol#252-254)
+	- uint32(block.timestamp) >= contestStartTime + s_voidCooldown (src/modules/SpeculationModule.sol#260)
+SpeculationModule.forfeitSpeculation(uint256) (src/modules/SpeculationModule.sol#298-325) uses timestamp for comparisons
+	Dangerous comparisons:
+	- contestStartTime + s_voidCooldown > uint32(block.timestamp) (src/modules/SpeculationModule.sol#313-315)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#block-timestamp
+INFO:Detectors:
+Detector: assembly
+Buffer.init(Buffer.buffer,uint256) (lib/chainlink/contracts/src/v0.8/vendor/@ensdomains/buffer/v0.1.0/Buffer.sol#27-43) uses assembly
+	- INLINE ASM (lib/chainlink/contracts/src/v0.8/vendor/@ensdomains/buffer/v0.1.0/Buffer.sol#34-42)
+Buffer.truncate(Buffer.buffer) (lib/chainlink/contracts/src/v0.8/vendor/@ensdomains/buffer/v0.1.0/Buffer.sol#69-74) uses assembly
+	- INLINE ASM (lib/chainlink/contracts/src/v0.8/vendor/@ensdomains/buffer/v0.1.0/Buffer.sol#72-74)
+Buffer.append(Buffer.buffer,bytes,uint256) (lib/chainlink/contracts/src/v0.8/vendor/@ensdomains/buffer/v0.1.0/Buffer.sol#85-127) uses assembly
+	- INLINE ASM (lib/chainlink/contracts/src/v0.8/vendor/@ensdomains/buffer/v0.1.0/Buffer.sol#94-107)
+	- INLINE ASM (lib/chainlink/contracts/src/v0.8/vendor/@ensdomains/buffer/v0.1.0/Buffer.sol#111-114)
+	- INLINE ASM (lib/chainlink/contracts/src/v0.8/vendor/@ensdomains/buffer/v0.1.0/Buffer.sol#120-126)
+Buffer.appendUint8(Buffer.buffer,uint8) (lib/chainlink/contracts/src/v0.8/vendor/@ensdomains/buffer/v0.1.0/Buffer.sol#148-166) uses assembly
+	- INLINE ASM (lib/chainlink/contracts/src/v0.8/vendor/@ensdomains/buffer/v0.1.0/Buffer.sol#154-166)
+Buffer.append(Buffer.buffer,bytes32,uint256) (lib/chainlink/contracts/src/v0.8/vendor/@ensdomains/buffer/v0.1.0/Buffer.sol#178-200) uses assembly
+	- INLINE ASM (lib/chainlink/contracts/src/v0.8/vendor/@ensdomains/buffer/v0.1.0/Buffer.sol#187-199)
+Buffer.appendInt(Buffer.buffer,uint256,uint256) (lib/chainlink/contracts/src/v0.8/vendor/@ensdomains/buffer/v0.1.0/Buffer.sol#233-252) uses assembly
+	- INLINE ASM (lib/chainlink/contracts/src/v0.8/vendor/@ensdomains/buffer/v0.1.0/Buffer.sol#239-251)
+SafeERC20._callOptionalReturn(IERC20,bytes) (lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol#155-172) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol#157-167)
+SafeERC20._callOptionalReturnBool(IERC20,bytes) (lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol#183-192) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol#186-191)
+OracleModule.bytesToUint32(bytes) (src/modules/OracleModule.sol#495-507) uses assembly
+	- INLINE ASM (src/modules/OracleModule.sol#501-506)
+OracleModule.bytesToUint256(bytes) (src/modules/OracleModule.sol#509-519) uses assembly
+	- INLINE ASM (src/modules/OracleModule.sol#515-519)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#assembly-usage
+INFO:Detectors:
+Detector: pragma
+3 different versions of Solidity are used:
+	- Version constraint ^0.8.19 is used by:
+		-^0.8.19 (lib/chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol#1-2)
+		-^0.8.19 (lib/chainlink/contracts/src/v0.8/functions/v1_0_0/interfaces/IFunctionsClient.sol#1-2)
+		-^0.8.19 (lib/chainlink/contracts/src/v0.8/functions/v1_0_0/interfaces/IFunctionsRouter.sol#1-2)
+		-^0.8.19 (lib/chainlink/contracts/src/v0.8/functions/v1_0_0/libraries/FunctionsRequest.sol#1-2)
+		-^0.8.19 (lib/chainlink/contracts/src/v0.8/functions/v1_0_0/libraries/FunctionsResponse.sol#1-2)
+	- Version constraint ^0.8.4 is used by:
+		-^0.8.4 (lib/chainlink/contracts/src/v0.8/vendor/@ensdomains/buffer/v0.1.0/Buffer.sol#1-2)
+		-^0.8.4 (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#1-2)
+	- Version constraint ^0.8.20 is used by:
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/access/AccessControl.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/access/IAccessControl.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/interfaces/IERC1363.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/interfaces/IERC165.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/utils/Context.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/utils/introspection/ERC165.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/utils/introspection/IERC165.sol#2-4)
+		-^0.8.20 (src/core/OspexCore.sol#1-2)
+		-^0.8.20 (src/core/OspexTypes.sol#1-2)
+		-^0.8.20 (src/interfaces/IContestModule.sol#1-2)
+		-^0.8.20 (src/interfaces/IContributionModule.sol#1-2)
+		-^0.8.20 (src/interfaces/ILeaderboardModule.sol#1-2)
+		-^0.8.20 (src/interfaces/IModule.sol#1-2)
+		-^0.8.20 (src/interfaces/IPositionModule.sol#1-2)
+		-^0.8.20 (src/interfaces/IRulesModule.sol#1-2)
+		-^0.8.20 (src/interfaces/IScorerModule.sol#1-2)
+		-^0.8.20 (src/interfaces/ISecondaryMarketModule.sol#1-2)
+		-^0.8.20 (src/interfaces/ISpeculationModule.sol#1-2)
+		-^0.8.20 (src/interfaces/ITreasuryModule.sol#1-2)
+		-^0.8.20 (src/modules/ContestModule.sol#1-2)
+		-^0.8.20 (src/modules/ContributionModule.sol#1-2)
+		-^0.8.20 (src/modules/LeaderboardModule.sol#1-2)
+		-^0.8.20 (src/modules/MoneylineScorerModule.sol#1-2)
+		-^0.8.20 (src/modules/OracleModule.sol#1-2)
+		-^0.8.20 (src/modules/PositionModule.sol#1-2)
+		-^0.8.20 (src/modules/RulesModule.sol#1-2)
+		-^0.8.20 (src/modules/SecondaryMarketModule.sol#1-2)
+		-^0.8.20 (src/modules/SpeculationModule.sol#1-2)
+		-^0.8.20 (src/modules/SpreadScorerModule.sol#1-2)
+		-^0.8.20 (src/modules/TotalScorerModule.sol#1-2)
+		-^0.8.20 (src/modules/TreasuryModule.sol#1-2)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#different-pragma-directives-are-used
+INFO:Detectors:
+Detector: solc-version
+Version constraint ^0.8.19 contains known severe issues (https://solidity.readthedocs.io/en/latest/bugs.html)
+	- VerbatimInvalidDeduplication
+	- FullInlinerNonExpressionSplitArgumentEvaluationOrder
+	- MissingSideEffectsOnSelectorAccess.
+It is used by:
+	- ^0.8.19 (lib/chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol#1-2)
+	- ^0.8.19 (lib/chainlink/contracts/src/v0.8/functions/v1_0_0/interfaces/IFunctionsClient.sol#1-2)
+	- ^0.8.19 (lib/chainlink/contracts/src/v0.8/functions/v1_0_0/interfaces/IFunctionsRouter.sol#1-2)
+	- ^0.8.19 (lib/chainlink/contracts/src/v0.8/functions/v1_0_0/libraries/FunctionsRequest.sol#1-2)
+	- ^0.8.19 (lib/chainlink/contracts/src/v0.8/functions/v1_0_0/libraries/FunctionsResponse.sol#1-2)
+Version constraint ^0.8.4 contains known severe issues (https://solidity.readthedocs.io/en/latest/bugs.html)
+	- FullInlinerNonExpressionSplitArgumentEvaluationOrder
+	- MissingSideEffectsOnSelectorAccess
+	- AbiReencodingHeadOverflowWithStaticArrayCleanup
+	- DirtyBytesArrayToStorage
+	- DataLocationChangeInInternalOverride
+	- NestedCalldataArrayAbiReencodingSizeValidation
+	- SignedImmutables.
+It is used by:
+	- ^0.8.4 (lib/chainlink/contracts/src/v0.8/vendor/@ensdomains/buffer/v0.1.0/Buffer.sol#1-2)
+	- ^0.8.4 (lib/chainlink/contracts/src/v0.8/vendor/solidity-cborutils/v2.0.0/CBOR.sol#1-2)
+Version constraint ^0.8.20 contains known severe issues (https://solidity.readthedocs.io/en/latest/bugs.html)
+	- VerbatimInvalidDeduplication
+	- FullInlinerNonExpressionSplitArgumentEvaluationOrder
+	- MissingSideEffectsOnSelectorAccess.
+It is used by:
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/access/AccessControl.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/access/IAccessControl.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/interfaces/IERC1363.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/interfaces/IERC165.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/utils/Context.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/utils/introspection/ERC165.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/utils/introspection/IERC165.sol#2-4)
+	- ^0.8.20 (src/core/OspexCore.sol#1-2)
+	- ^0.8.20 (src/core/OspexTypes.sol#1-2)
+	- ^0.8.20 (src/interfaces/IContestModule.sol#1-2)
+	- ^0.8.20 (src/interfaces/IContributionModule.sol#1-2)
+	- ^0.8.20 (src/interfaces/ILeaderboardModule.sol#1-2)
+	- ^0.8.20 (src/interfaces/IModule.sol#1-2)
+	- ^0.8.20 (src/interfaces/IPositionModule.sol#1-2)
+	- ^0.8.20 (src/interfaces/IRulesModule.sol#1-2)
+	- ^0.8.20 (src/interfaces/IScorerModule.sol#1-2)
+	- ^0.8.20 (src/interfaces/ISecondaryMarketModule.sol#1-2)
+	- ^0.8.20 (src/interfaces/ISpeculationModule.sol#1-2)
+	- ^0.8.20 (src/interfaces/ITreasuryModule.sol#1-2)
+	- ^0.8.20 (src/modules/ContestModule.sol#1-2)
+	- ^0.8.20 (src/modules/ContributionModule.sol#1-2)
+	- ^0.8.20 (src/modules/LeaderboardModule.sol#1-2)
+	- ^0.8.20 (src/modules/MoneylineScorerModule.sol#1-2)
+	- ^0.8.20 (src/modules/OracleModule.sol#1-2)
+	- ^0.8.20 (src/modules/PositionModule.sol#1-2)
+	- ^0.8.20 (src/modules/RulesModule.sol#1-2)
+	- ^0.8.20 (src/modules/SecondaryMarketModule.sol#1-2)
+	- ^0.8.20 (src/modules/SpeculationModule.sol#1-2)
+	- ^0.8.20 (src/modules/SpreadScorerModule.sol#1-2)
+	- ^0.8.20 (src/modules/TotalScorerModule.sol#1-2)
+	- ^0.8.20 (src/modules/TreasuryModule.sol#1-2)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#incorrect-versions-of-solidity
+INFO:Detectors:
+Detector: naming-convention
+Struct Buffer.buffer (lib/chainlink/contracts/src/v0.8/vendor/@ensdomains/buffer/v0.1.0/Buffer.sol#16-20) is not in CapWords
+Variable OspexCore.s_admin (src/core/OspexCore.sol#59-60) is not in mixedCase
+Variable OspexCore.s_pendingAdmin (src/core/OspexCore.sol#61-62) is not in mixedCase
+Variable OspexCore.s_moduleRegistry (src/core/OspexCore.sol#65) is not in mixedCase
+Variable OspexCore.s_isModuleRegistered (src/core/OspexCore.sol#67) is not in mixedCase
+Function IContestModule.s_contestIdCounter() (src/interfaces/IContestModule.sol#12-13) is not in mixedCase
+Function IContestModule.s_createContestSourceHash() (src/interfaces/IContestModule.sol#15-16) is not in mixedCase
+Function IContestModule.s_updateContestMarketsSourceHash() (src/interfaces/IContestModule.sol#18-19) is not in mixedCase
+Function IContestModule.s_contestStartTimes(uint256) (src/interfaces/IContestModule.sol#21-24) is not in mixedCase
+Function ILeaderboardModule.s_leaderboardSpeculationRegistered(uint256,uint256) (src/interfaces/ILeaderboardModule.sol#7-11) is not in mixedCase
+Function ILeaderboardModule.s_registeredLeaderboardSpeculation(uint256,address,uint256,address) (src/interfaces/ILeaderboardModule.sol#11-18) is not in mixedCase
+Function IPositionModule.ODDS_PRECISION() (src/interfaces/IPositionModule.sol#16-18) is not in mixedCase
+Function ISpeculationModule.s_minSpeculationAmount() (src/interfaces/ISpeculationModule.sol#14-16) is not in mixedCase
+Function ISpeculationModule.s_maxSpeculationAmount() (src/interfaces/ISpeculationModule.sol#19-21) is not in mixedCase
+Function ISpeculationModule.s_voidCooldown() (src/interfaces/ISpeculationModule.sol#24-26) is not in mixedCase
+Function ISpeculationModule.i_tokenDecimals() (src/interfaces/ISpeculationModule.sol#29-31) is not in mixedCase
+Variable ContestModule.i_ospexCore (src/modules/ContestModule.sol#50-51) is not in mixedCase
+Variable ContestModule.s_contestIdCounter (src/modules/ContestModule.sol#55) is not in mixedCase
+Variable ContestModule.s_createContestSourceHash (src/modules/ContestModule.sol#57) is not in mixedCase
+Variable ContestModule.s_updateContestMarketsSourceHash (src/modules/ContestModule.sol#59) is not in mixedCase
+Variable ContestModule.s_contestStartTimes (src/modules/ContestModule.sol#62-63) is not in mixedCase
+Variable ContributionModule.i_ospexCore (src/modules/ContributionModule.sol#35-36) is not in mixedCase
+Variable ContributionModule.s_contributionToken (src/modules/ContributionModule.sol#37-38) is not in mixedCase
+Variable ContributionModule.s_contributionReceiver (src/modules/ContributionModule.sol#39-40) is not in mixedCase
+Variable LeaderboardModule.s_userBankrolls (src/modules/LeaderboardModule.sol#76-77) is not in mixedCase
+Variable LeaderboardModule.s_userSpeculationIds (src/modules/LeaderboardModule.sol#86-88) is not in mixedCase
+Variable LeaderboardModule.s_leaderboardSpeculationRegistered (src/modules/LeaderboardModule.sol#91-93) is not in mixedCase
+Variable LeaderboardModule.s_registeredLeaderboardSpeculation (src/modules/LeaderboardModule.sol#96-98) is not in mixedCase
+Variable LeaderboardModule.s_nextLeaderboardId (src/modules/LeaderboardModule.sol#103) is not in mixedCase
+Variable LeaderboardModule.i_ospexCore (src/modules/LeaderboardModule.sol#105-106) is not in mixedCase
+Parameter MoneylineScorerModule.scoreMoneyline(uint32,uint32)._awayScore (src/modules/MoneylineScorerModule.sol#62-63) is not in mixedCase
+Parameter MoneylineScorerModule.scoreMoneyline(uint32,uint32)._homeScore (src/modules/MoneylineScorerModule.sol#64) is not in mixedCase
+Variable MoneylineScorerModule.i_ospexCore (src/modules/MoneylineScorerModule.sol#23-24) is not in mixedCase
+Parameter OracleModule.extractLeagueIdAndStartTime(uint256)._uint (src/modules/OracleModule.sol#541) is not in mixedCase
+Parameter OracleModule.uintToResultScore(uint32)._uint (src/modules/OracleModule.sol#551) is not in mixedCase
+Parameter OracleModule.extractContestMarketData(uint256)._uint (src/modules/OracleModule.sol#585) is not in mixedCase
+Variable OracleModule.i_ospexCore (src/modules/OracleModule.sol#56-57) is not in mixedCase
+Variable OracleModule.s_linkDenominator (src/modules/OracleModule.sol#62-63) is not in mixedCase
+Variable OracleModule.s_router (src/modules/OracleModule.sol#64) is not in mixedCase
+Variable OracleModule.s_donId (src/modules/OracleModule.sol#66) is not in mixedCase
+Variable OracleModule.s_lastRequestId (src/modules/OracleModule.sol#67-68) is not in mixedCase
+Variable OracleModule.s_lastResponse (src/modules/OracleModule.sol#68-70) is not in mixedCase
+Variable OracleModule.s_lastError (src/modules/OracleModule.sol#71) is not in mixedCase
+Variable OracleModule.s_requestMapping (src/modules/OracleModule.sol#71-73) is not in mixedCase
+Variable OracleModule.s_requestContext (src/modules/OracleModule.sol#74-76) is not in mixedCase
+Variable PositionModule.i_ospexCore (src/modules/PositionModule.sol#66-67) is not in mixedCase
+Variable PositionModule.i_token (src/modules/PositionModule.sol#68) is not in mixedCase
+Variable PositionModule.s_positions (src/modules/PositionModule.sol#80-81) is not in mixedCase
+Variable PositionModule.s_oddsPairs (src/modules/PositionModule.sol#82-84) is not in mixedCase
+Variable PositionModule.s_originalRequestedOdds (src/modules/PositionModule.sol#86-87) is not in mixedCase
+Variable PositionModule.s_inverseCalculatedOdds (src/modules/PositionModule.sol#88-89) is not in mixedCase
+Variable RulesModule.i_ospexCore (src/modules/RulesModule.sol#33-34) is not in mixedCase
+Variable RulesModule.s_minBankroll (src/modules/RulesModule.sol#34-37) is not in mixedCase
+Variable RulesModule.s_maxBankroll (src/modules/RulesModule.sol#37-38) is not in mixedCase
+Variable RulesModule.s_minBetPercentage (src/modules/RulesModule.sol#38-39) is not in mixedCase
+Variable RulesModule.s_maxBetPercentage (src/modules/RulesModule.sol#39-40) is not in mixedCase
+Variable RulesModule.s_minBets (src/modules/RulesModule.sol#40-41) is not in mixedCase
+Variable RulesModule.s_oddsEnforcementBps (src/modules/RulesModule.sol#41-42) is not in mixedCase
+Variable RulesModule.s_allowLiveBetting (src/modules/RulesModule.sol#42-43) is not in mixedCase
+Variable RulesModule.s_deviationRules (src/modules/RulesModule.sol#46-47) is not in mixedCase
+Variable RulesModule.s_deviationRuleSet (src/modules/RulesModule.sol#51-52) is not in mixedCase
+Variable SecondaryMarketModule.i_ospexCore (src/modules/SecondaryMarketModule.sol#66-67) is not in mixedCase
+Variable SecondaryMarketModule.i_token (src/modules/SecondaryMarketModule.sol#68) is not in mixedCase
+Variable SecondaryMarketModule.s_minSaleAmount (src/modules/SecondaryMarketModule.sol#70-71) is not in mixedCase
+Variable SecondaryMarketModule.s_maxSaleAmount (src/modules/SecondaryMarketModule.sol#72-73) is not in mixedCase
+Variable SecondaryMarketModule.s_saleListings (src/modules/SecondaryMarketModule.sol#76-77) is not in mixedCase
+Variable SecondaryMarketModule.s_pendingSaleProceeds (src/modules/SecondaryMarketModule.sol#77-79) is not in mixedCase
+Variable SpeculationModule.i_ospexCore (src/modules/SpeculationModule.sol#62-63) is not in mixedCase
+Variable SpeculationModule.i_tokenDecimals (src/modules/SpeculationModule.sol#65) is not in mixedCase
+Variable SpeculationModule.s_speculationIdCounter (src/modules/SpeculationModule.sol#69) is not in mixedCase
+Variable SpeculationModule.s_voidCooldown (src/modules/SpeculationModule.sol#70-71) is not in mixedCase
+Variable SpeculationModule.s_maxSpeculationAmount (src/modules/SpeculationModule.sol#74-75) is not in mixedCase
+Variable SpeculationModule.s_minSpeculationAmount (src/modules/SpeculationModule.sol#76-77) is not in mixedCase
+Variable SpeculationModule.s_speculations (src/modules/SpeculationModule.sol#78-79) is not in mixedCase
+Variable SpeculationModule.s_speculationLookup (src/modules/SpeculationModule.sol#81-82) is not in mixedCase
+Parameter SpreadScorerModule.scoreSpread(uint32,uint32,int32)._awayScore (src/modules/SpreadScorerModule.sol#69) is not in mixedCase
+Parameter SpreadScorerModule.scoreSpread(uint32,uint32,int32)._homeScore (src/modules/SpreadScorerModule.sol#70-71) is not in mixedCase
+Parameter SpreadScorerModule.scoreSpread(uint32,uint32,int32)._theNumber (src/modules/SpreadScorerModule.sol#71-72) is not in mixedCase
+Variable SpreadScorerModule.i_ospexCore (src/modules/SpreadScorerModule.sol#23-24) is not in mixedCase
+Parameter TotalScorerModule.scoreTotal(uint32,uint32,int32)._awayScore (src/modules/TotalScorerModule.sol#68) is not in mixedCase
+Parameter TotalScorerModule.scoreTotal(uint32,uint32,int32)._homeScore (src/modules/TotalScorerModule.sol#69-70) is not in mixedCase
+Parameter TotalScorerModule.scoreTotal(uint32,uint32,int32)._theNumber (src/modules/TotalScorerModule.sol#70-71) is not in mixedCase
+Variable TotalScorerModule.i_ospexCore (src/modules/TotalScorerModule.sol#23-24) is not in mixedCase
+Variable TreasuryModule.i_ospexCore (src/modules/TreasuryModule.sol#34-35) is not in mixedCase
+Variable TreasuryModule.i_token (src/modules/TreasuryModule.sol#36) is not in mixedCase
+Variable TreasuryModule.s_feeRates (src/modules/TreasuryModule.sol#38-39) is not in mixedCase
+Variable TreasuryModule.s_protocolCutBps (src/modules/TreasuryModule.sol#40) is not in mixedCase
+Variable TreasuryModule.s_protocolReceiver (src/modules/TreasuryModule.sol#42) is not in mixedCase
+Variable TreasuryModule.s_leaderboardPrizePools (src/modules/TreasuryModule.sol#44-45) is not in mixedCase
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#conformance-to-solidity-naming-conventions
+INFO:Detectors:
+Detector: unindexed-event-address
+Event ContributionModule.ContributionTokenSet(address) (src/modules/ContributionModule.sol#60) has address parameters but no indexed parameters
+Event ContributionModule.ContributionReceiverSet(address) (src/modules/ContributionModule.sol#65) has address parameters but no indexed parameters
+Event TreasuryModule.ProtocolReceiverSet(address) (src/modules/TreasuryModule.sol#93-94) has address parameters but no indexed parameters
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#unindexed-event-address-parameters
+INFO:Detectors:
+Detector: immutable-states
+OracleModule.s_donId (src/modules/OracleModule.sol#66) should be immutable 
+OracleModule.s_router (src/modules/OracleModule.sol#64) should be immutable 
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#state-variables-that-could-be-declared-immutable
+INFO:Slither:src/modules/ analyzed (39 contracts with 101 detectors), 179 result(s) found

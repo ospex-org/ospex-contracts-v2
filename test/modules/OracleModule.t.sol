@@ -267,13 +267,13 @@ contract OracleModuleTest is Test {
         vm.deal(user, 10 ether);
     }
 
-    function testConstructor_SetsStateCorrectly() public view {
-        assertEq(address(oracleModule.i_ospexCore()), address(core));
-        assertEq(oracleModule.s_router(), address(router));
-        assertEq(oracleModule.s_donId(), donId);
-        // i_linkAddress is internal, cannot check directly
-        // assertEq(address(oracleModule.i_linkAddress()), address(linkToken));
-    }
+  function testConstructor_SetsStateCorrectly() public view {
+      assertEq(address(oracleModule.i_ospexCore()), address(core));
+      // s_router is now internal (managed by FunctionsClient), cannot check directly
+      assertEq(oracleModule.i_donId(), donId);
+      // i_linkAddress is internal, cannot check directly
+      // assertEq(address(oracleModule.i_linkAddress()), address(linkToken));
+  }
 
     function testCreateContestFromOracle_HappyPath() public {
         // Arrange: set up contest source hash to match what OracleModule expects

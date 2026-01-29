@@ -1,18 +1,43 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {FunctionsClient} from "../../lib/chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol";
-import {FunctionsRequest} from "../../lib/chainlink/contracts/src/v0.8/functions/v1_0_0/libraries/FunctionsRequest.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {
+    FunctionsClient
+} from "../../lib/chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol";
+import {
+    FunctionsRequest
+} from "../../lib/chainlink/contracts/src/v0.8/functions/v1_0_0/libraries/FunctionsRequest.sol";
+import {
+    ReentrancyGuard
+} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC1363} from "@openzeppelin/contracts/interfaces/IERC1363.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Contest, ContestStatus, ContestMarket, LeagueId, OracleRequestContext, OracleRequestType, Speculation, SpeculationStatus} from "../core/OspexTypes.sol";
+import {
+    SafeERC20
+} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {
+    Contest,
+    ContestStatus,
+    ContestMarket,
+    LeagueId,
+    OracleRequestContext,
+    OracleRequestType,
+    Speculation,
+    SpeculationStatus
+} from "../core/OspexTypes.sol";
 import {OspexCore} from "../core/OspexCore.sol";
 import {IContestModule} from "../interfaces/IContestModule.sol";
 import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IPositionModule} from "../interfaces/IPositionModule.sol";
 import {ILeaderboardModule} from "../interfaces/ILeaderboardModule.sol";
+
+/// @notice Minimal interface for LINK token's transferAndCall (ERC677)
+interface ILinkToken {
+    function transferAndCall(
+        address to,
+        uint256 value,
+        bytes calldata data
+    ) external returns (bool);
+}
 
 /**
  * @title OracleModule
@@ -27,6 +52,8 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
     // --- Custom Errors ---
     /// @notice Error for not admin
     error OracleModule__NotAdmin(address admin);
+    /// @notice Error for invalid address
+    error OracleModule__InvalidAddress();
     /// @notice Error for module not set
     error OracleModule__ModuleNotSet(bytes32 moduleType);
     /// @notice Error for incorrect source hash
@@ -64,8 +91,7 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
     uint256 public s_linkDenominator = 250;
 
     // Chainlink Functions config
-    address public s_router;
-    bytes32 public s_donId;
+    bytes32 public immutable i_donId;
 
     // Request tracking
     bytes32 public s_lastRequestId;
@@ -119,8 +145,8 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
 
         // Pay subscription fee to DON
         if (
-            !IERC1363(i_linkAddress).transferAndCall(
-                s_router,
+            !ILinkToken(i_linkAddress).transferAndCall(
+                address(i_router),
                 payment,
                 abi.encode(subscriptionId)
             )
@@ -144,10 +170,17 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         address linkAddress,
         bytes32 donId
     ) FunctionsClient(router) {
+        if (
+            _ospexCore == address(0) ||
+            router == address(0) ||
+            linkAddress == address(0) ||
+            donId == bytes32(0)
+        ) {
+            revert OracleModule__InvalidAddress();
+        }
         i_ospexCore = OspexCore(_ospexCore);
-        s_router = router;
         i_linkAddress = linkAddress;
-        s_donId = donId;
+        i_donId = donId;
     }
 
     /**
@@ -212,7 +245,7 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
             args,
             subscriptionId,
             gasLimit,
-            s_donId,
+            i_donId,
             OracleRequestType.ContestCreate,
             contestId
         );
@@ -265,7 +298,7 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
             args,
             subscriptionId,
             gasLimit,
-            s_donId,
+            i_donId,
             OracleRequestType.ContestMarketsUpdate,
             contestId
         );
@@ -322,7 +355,7 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
             args,
             subscriptionId,
             gasLimit,
-            s_donId,
+            i_donId,
             OracleRequestType.ContestScore,
             contestId
         );
@@ -609,23 +642,15 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         )
     {
         // Extract moneyline odds (5 digits each, offset back from +10000, then convert to scaled decimal)
-        moneylineAwayOdds = americanToScaledDecimalOdds(
-            ((_uint / 1e33) % 1e5)
-        );
-        moneylineHomeOdds = americanToScaledDecimalOdds(
-            ((_uint / 1e28) % 1e5)
-        );
+        moneylineAwayOdds = americanToScaledDecimalOdds(((_uint / 1e33) % 1e5));
+        moneylineHomeOdds = americanToScaledDecimalOdds(((_uint / 1e28) % 1e5));
 
         // Extract spread (4 digits, offset back from +1000)
         spreadNumber = int32(int256((_uint / 1e24) % 1e4)) - 1000;
 
         // Extract spread odds (5 digits each, offset back from +10000, then convert to scaled decimal)
-        spreadAwayOdds = americanToScaledDecimalOdds(
-            ((_uint / 1e19) % 1e5)
-        );
-        spreadHomeOdds = americanToScaledDecimalOdds(
-            ((_uint / 1e14) % 1e5)
-        );
+        spreadAwayOdds = americanToScaledDecimalOdds(((_uint / 1e19) % 1e5));
+        spreadHomeOdds = americanToScaledDecimalOdds(((_uint / 1e14) % 1e5));
 
         // Extract total (4 digits, offset back from +1000)
         totalNumber = int32(int256((_uint / 1e10) % 1e4)) - 1000;

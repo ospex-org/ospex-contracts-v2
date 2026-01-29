@@ -123,9 +123,11 @@ contract ContributionModule is IContributionModule, IModule, ReentrancyGuard {
             abi.encode(newToken)
         );
     }
+
     /**
      * @notice Sets the contribution receiver
      * @param newReceiver The address of the new contribution receiver
+     * @dev The contribution receiver can be set to address(0) to disable contributions
      */
     function setContributionReceiver(
         address newReceiver

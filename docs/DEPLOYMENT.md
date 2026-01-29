@@ -210,13 +210,78 @@ After successful deployment:
 3. **Create test contests and speculations**
 4. **Run integration tests** to verify the full system works
 
-## Testnet Deployment
+## Testnet Deployment (Polygon Amoy)
 
-For testnet deployment, modify the script to:
-1. Use real token addresses (e.g., USDC on Polygon)
-2. Use real Chainlink router and LINK token addresses
-3. Update DON ID and source hashes for the target network
-4. Set appropriate gas prices and limits
-5. Use secure wallet management practices
+For Polygon Amoy testnet deployment:
 
-Never use test keystores or private keys for testnet or mainnet deployments! 
+```bash
+forge script script/DeployAmoy.s.sol:DeployAmoy \
+  --rpc-url https://rpc-amoy.polygon.technology \
+  --broadcast \
+  --verify \
+  --etherscan-api-key $POLYGONSCAN_API_KEY \
+  --interactive \
+  -vvvv
+```
+
+### Amoy Network Configuration
+
+| Parameter | Value |
+|-----------|-------|
+| Chain ID | 80002 |
+| USDC (Mock) | Deploy MockERC20 or use testnet faucet |
+| Chainlink Router | `0xA9d587a00A31A52Ed70D6026794a8FC5E2F5dCb0` |
+| Chainlink DON ID | `fun-polygon-amoy-1` |
+| Subscription ID | Create via [Chainlink Functions](https://functions.chain.link/polygon-amoy) |
+
+### Requirements
+- MATIC for gas (use [Polygon Faucet](https://faucet.polygon.technology/))
+- LINK for Chainlink subscription
+
+---
+
+## Mainnet Deployment (Polygon)
+
+For Polygon mainnet deployment:
+
+```bash
+forge script script/DeployMainnet.s.sol:DeployMainnet \
+  --rpc-url https://polygon-rpc.com \
+  --broadcast \
+  --interactive \
+  -vvvv
+```
+
+**Note:** Omit `--verify` for initial unverified deployment. Add it later when ready to open-source.
+
+### Mainnet Network Configuration
+
+| Parameter | Value |
+|-----------|-------|
+| Chain ID | 137 |
+| Native USDC | `0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359` |
+| Chainlink Router | See [Chainlink Docs](https://docs.chain.link/chainlink-functions/supported-networks) |
+| Chainlink DON ID | `fun-polygon-mainnet-1` |
+
+### Pre-Deployment Checklist
+
+- [ ] Deployer wallet funded with MATIC
+- [ ] Chainlink subscription created and funded with LINK
+- [ ] Fee receiver address configured
+- [ ] All module addresses documented after deployment
+- [ ] Test with small amounts before full operation
+
+### Post-Deployment
+
+1. Save all deployed contract addresses
+2. Register modules with OspexCore
+3. Set token address (native USDC)
+4. Configure Chainlink subscription with OracleModule address as consumer
+5. Grant necessary roles (MODULE_ROLE, SCORER_ROLE, etc.)
+
+### Security Notes
+
+- Use hardware wallet for deployer account
+- Never commit private keys
+- Consider using a multisig for admin functions post-launch
+- Verify contract on Polygonscan only when ready to open-source 

@@ -364,7 +364,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     function registerUser(
         uint256 leaderboardId,
         uint256 declaredBankroll
-    ) external override {
+    ) external override nonReentrant {
         Leaderboard storage leaderboard = s_leaderboards[leaderboardId];
 
         // Check if leaderboard exists and hasn't ended
