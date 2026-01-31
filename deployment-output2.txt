@@ -1,0 +1,92 @@
+No files changed, compilation skipped
+Script ran successfully.
+
+== Logs ==
+  Deploying to Polygon Mainnet with address: 0xfd6C7Fc1F182de53AA636584f1c6B80d9D885886
+  Balance: 150758373742390904050
+  
+=== Using Polygon Mainnet USDC ===
+  Using USDC at: 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359
+  
+=== Deploying Core Contract ===
+  OspexCore deployed at: 0x076F659C4747b1E3Cb2846853E499047F291236E
+  
+=== Deploying Modules ===
+  ContributionModule: 0xC97a7D52f8B9AB694f778BC5ca488DC1D7528725
+  LeaderboardModule: 0x82c93AAf547fC809646A7bEd5D8A9D4B72Db3045
+  RulesModule: 0x4377A09760b3587dAf1717F094bf7bd455daD4af
+  MoneylineScorerModule: 0xD7b35DE1bbFD03625a17F38472d3FBa7b77cBeCf
+  SpreadScorerModule: 0x48Fe67B7b866Ce87eA4B6f45BF7Bcc3cf868ccD0
+  TotalScorerModule: 0x599FFd7A5A00525DD54BD247f136f99aF6108513
+  TreasuryModule: 0x669774a69CA0b4741F46991C6E5a607210cfC99E
+  SpeculationModule: 0x85E25F3BC29fAD936824ED44624f1A6200F3816E
+  PositionModule: 0x9E56311029F8CC5e2708C4951011697b9Bb40A09
+  SecondaryMarketModule: 0x6FA9812cECD93084d7E276dD88e0aCE9E18E9EB5
+  ContestModule: 0x86c057E38A3A852D45d7D842e0F552f03Cb95c36
+  OracleModule: 0xFda6b6e6eb383159651CDC22d9E79a4c2C5E041F
+  All modules deployed successfully
+  
+=== Registering Modules ===
+  All modules registered successfully
+  
+=== DEPLOYMENT SUMMARY FOR POLYGON MAINNET ===
+  Network: Polygon Mainnet (Chain ID: 137)
+  Using LINK at: 0xb0897686c545045aFc77CF20eC7A532E3120E0F1
+  Using Chainlink Functions Router at: 0xdc2AAF042Aeff2E68B3e8E33F19e4B9fA7C73F10
+  Fee Receiver: 0xdaC630aE52b868FF0A180458eFb9ac88e7425114
+  
+Core Contract:
+    OspexCore: 0x076F659C4747b1E3Cb2846853E499047F291236E
+  
+USDC Token: 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359
+  
+Core & Key Modules:
+    OspexCore: 0x076F659C4747b1E3Cb2846853E499047F291236E
+    TreasuryModule: 0x669774a69CA0b4741F46991C6E5a607210cfC99E
+    OracleModule: 0xFda6b6e6eb383159651CDC22d9E79a4c2C5E041F
+    LeaderboardModule: 0x82c93AAf547fC809646A7bEd5D8A9D4B72Db3045
+  
+=== CRITICAL NEXT STEPS ===
+  1. Add OracleModule as consumer to Chainlink subscription ID 191
+  2. Transfer admin role to hardware wallet (two-step process)
+  3. Update frontend with new contract addresses
+  4. Update agent server with new contract addresses
+  5. Test with small positions before going live
+  
+=== CHAINLINK FUNCTIONS SETUP ===
+  Add this address as consumer to subscription 191:
+  OracleModule: 0xFda6b6e6eb383159651CDC22d9E79a4c2C5E041F
+  DON ID: fun-polygon-mainnet-1
+  Functions Router: 0xdc2AAF042Aeff2E68B3e8E33F19e4B9fA7C73F10
+  
+=== FRONTEND CONFIGURATION ===
+  Update your frontend configuration with these addresses:
+  OSPEX_CORE_ADDRESS= 0x076F659C4747b1E3Cb2846853E499047F291236E
+  USDC_ADDRESS= 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359
+  TREASURY_MODULE_ADDRESS= 0x669774a69CA0b4741F46991C6E5a607210cfC99E
+  SPECULATION_MODULE_ADDRESS= 0x85E25F3BC29fAD936824ED44624f1A6200F3816E
+  POSITION_MODULE_ADDRESS= 0x9E56311029F8CC5e2708C4951011697b9Bb40A09
+  CONTEST_MODULE_ADDRESS= 0x86c057E38A3A852D45d7D842e0F552f03Cb95c36
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 137
+
+Estimated gas price: 1112.834131658 gwei
+
+Estimated total gas used for script: 27660801
+
+Estimated amount required: 30.781883461799738058 POL
+
+==========================
+
+Transactions saved to: /Users/ospex/ospex-contracts-v2/broadcast/DeployPolygon.s.sol/137/run-latest.json
+
+Sensitive values saved to: /Users/ospex/ospex-contracts-v2/cache/DeployPolygon.s.sol/137/run-latest.json
+
+Error: Failed to send transaction after 4 attempts Err(server returned an error response: error code -32000: replacement transaction underpriced)
+
+Context:
+- server returned an error response: error code -32000: nonce too low: next nonce 27, tx nonce 4
