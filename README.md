@@ -50,8 +50,8 @@ Odds use 1e7 precision (e.g., 1.80 = 18,000,000). Positions are typed as Upper (
 Requires [Foundry](https://book.getfoundry.sh/getting-started/installation).
 
 ```bash
-git clone https://github.com/ospex-org/ospex-foundry-matched-pairs.git
-cd ospex-foundry-matched-pairs
+git clone https://github.com/ospex-org/ospex-contracts-v2.git
+cd ospex-contracts-v2
 git submodule update --init --recursive
 forge build --via-ir --optimize
 ```
