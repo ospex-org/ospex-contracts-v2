@@ -1,218 +1,70 @@
-# Ospex Protocol Deployment Guide
+# Deployment
 
-This guide explains how to deploy the Ospex protocol to a local Anvil chain for testing and development.
+## Mainnet Contract Addresses (Polygon, Chain ID 137)
 
-## Prerequisites
+| Contract | Address |
+|----------|---------|
+| OspexCore | [`0x8016b2C5f161e84940E25Bb99479aAca19D982aD`](https://polygonscan.com/address/0x8016b2C5f161e84940E25Bb99479aAca19D982aD) |
+| PositionModule | [`0xF717aa8fe4BEDcA345B027D065DA0E1a31465B1A`](https://polygonscan.com/address/0xF717aa8fe4BEDcA345B027D065DA0E1a31465B1A) |
+| SpeculationModule | [`0x599FFd7A5A00525DD54BD247f136f99aF6108513`](https://polygonscan.com/address/0x599FFd7A5A00525DD54BD247f136f99aF6108513) |
+| ContestModule | [`0x9E56311029F8CC5e2708C4951011697b9Bb40A09`](https://polygonscan.com/address/0x9E56311029F8CC5e2708C4951011697b9Bb40A09) |
+| OracleModule | [`0x5105b835365dB92e493B430635e374E16f3C8249`](https://polygonscan.com/address/0x5105b835365dB92e493B430635e374E16f3C8249) |
+| LeaderboardModule | [`0xEA6FF671Bc70e1926af9915aEF9D38AD2548066b`](https://polygonscan.com/address/0xEA6FF671Bc70e1926af9915aEF9D38AD2548066b) |
+| RulesModule | [`0xEfDf69ef9f3657d6571bb9c979D2Ce3D7Afb6891`](https://polygonscan.com/address/0xEfDf69ef9f3657d6571bb9c979D2Ce3D7Afb6891) |
+| TreasuryModule | [`0x48Fe67B7b866Ce87eA4B6f45BF7Bcc3cf868ccD0`](https://polygonscan.com/address/0x48Fe67B7b866Ce87eA4B6f45BF7Bcc3cf868ccD0) |
+| SecondaryMarketModule | [`0x85E25F3BC29fAD936824ED44624f1A6200F3816E`](https://polygonscan.com/address/0x85E25F3BC29fAD936824ED44624f1A6200F3816E) |
+| ContributionModule | [`0x384e356422E530c1AAF934CA48c178B19CA5C4F8`](https://polygonscan.com/address/0x384e356422E530c1AAF934CA48c178B19CA5C4F8) |
+| MoneylineScorerModule | [`0x82c93AAf547fC809646A7bEd5D8A9D4B72Db3045`](https://polygonscan.com/address/0x82c93AAf547fC809646A7bEd5D8A9D4B72Db3045) |
+| SpreadScorerModule | [`0x4377A09760b3587dAf1717F094bf7bd455daD4af`](https://polygonscan.com/address/0x4377A09760b3587dAf1717F094bf7bd455daD4af) |
+| TotalScorerModule | [`0xD7b35DE1bbFD03625a17F38472d3FBa7b77cBeCf`](https://polygonscan.com/address/0xD7b35DE1bbFD03625a17F38472d3FBa7b77cBeCf) |
 
-1. **Foundry installed** - Follow [Foundry installation guide](https://book.getfoundry.sh/getting-started/installation)
-2. **Git and dependencies** - Ensure all submodules are initialized:
+**Token:** Native USDC ([`0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359`](https://polygonscan.com/address/0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359)), 6 decimals
+
+---
+
+## Network Configuration
+
+| Parameter | Mainnet (Polygon) | Testnet (Amoy) |
+|-----------|-------------------|----------------|
+| Chain ID | 137 | 80002 |
+| Chainlink Router | `0xdc2AAF042Aeff2E68B3e8E33F19e4B9fA7C73F10` | `0xA9d587a00A31A52Ed70D6026794a8FC5E2F5dCb0` |
+| Chainlink DON ID | `fun-polygon-mainnet-1` | `fun-polygon-amoy-1` |
+| Chainlink Subscription | [191](https://functions.chain.link/polygon/191) | [416](https://functions.chain.link/polygon-amoy/416) |
+| Token | Native USDC (6 decimals) | Mock USDC (6 decimals) |
+
+---
+
+## Local Deployment
+
+### Prerequisites
+
+1. [Foundry](https://book.getfoundry.sh/getting-started/installation) installed
+2. Submodules initialized:
    ```bash
    git submodule update --init --recursive
    ```
 
-## Local Deployment Setup
-
-### 1. Start Local Anvil Chain
-
-In a separate terminal, start Anvil:
+### Start Anvil
 
 ```bash
 anvil
 ```
 
-This starts a local Ethereum node on `http://127.0.0.1:8545` with several pre-funded accounts.
-
-### 2. Deploy Contracts (Interactive Method)
-
-Run the deployment script with the interactive flag to use your wallet keystore:
-
-```bash
-forge script script/DeployLocal.s.sol:DeployLocal --rpc-url http://127.0.0.1:8545 --broadcast --interactive --gas-report -vvvv
-```
-
-**Flags explained:**
-- `--rpc-url http://127.0.0.1:8545`: Connect to local Anvil chain
-- `--broadcast`: Actually deploy the contracts (not just simulate)
-- `--interactive`: Prompt for wallet credentials (keystore method)
-- `--gas-report`: Show detailed gas usage report
-- `-vvvv`: Very verbose output for debugging
-
-### Alternative: Using Private Key (Less Secure)
-
-If you prefer to use a private key instead:
-
-1. Create a `.env` file:
-   ```bash
-   PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
-   ```
-
-2. Modify the script to load the private key from environment
-
-**Note:** Only use test private keys for local development!
-
-### 3. Wallet Setup for Interactive Mode
-
-When using `--interactive`, you'll be prompted for:
-- **Keystore path**: Path to your wallet keystore file
-- **Password**: Password for the keystore
-
-For local testing, you can create a test keystore:
-
-```bash
-# Create a test keystore (use a simple password for testing)
-cast wallet new-mnemonic --words 12
-cast wallet import test-wallet --interactive
-```
-
-Then use the generated keystore with the deployment script.
-
-## What Gets Deployed
-
-The deployment script deploys the following contracts in order:
-
-### Mock Contracts (for testing)
-1. **MockERC20** - Test token (USDC-like with 6 decimals)
-2. **MockLinkToken** - Mock LINK token for Chainlink Functions
-3. **MockFunctionsRouter** - Mock Chainlink Functions router
-
-### Core Protocol
-4. **OspexCore** - Main registry and access control contract
-
-### Modules
-5. **ContributionModule** - Handles contribution logic
-6. **LeaderboardModule** - Manages leaderboards and scoring
-7. **RulesModule** - Enforces leaderboard rules
-8. **MoneylineScorerModule** - Scores moneyline bets
-9. **SpreadScorerModule** - Scores spread bets
-10. **TotalScorerModule** - Scores over/under bets
-11. **TreasuryModule** - Handles fees and prize pools
-12. **SpeculationModule** - Manages speculation lifecycle
-13. **PositionModule** - Handles user positions
-14. **SecondaryMarketModule** - Enables position trading
-15. **ContestModule** - Manages contests
-16. **OracleModule** - Handles oracle interactions
-
-All modules are automatically registered with the core contract.
-
-## Deployment Configuration
-
-The script uses these default configurations for local testing:
-
-- **Token Decimals**: 6 (USDC-like)
-- **Min Sale Amount**: 1 USDC
-- **Max Sale Amount**: 100,000 USDC
-- **Protocol Receiver**: Deployer address
-- **Create Contest Source Hash**: Test hash
-- **DON ID**: Test DON ID
-
-## Expected Gas Usage
-
-Total deployment gas usage is approximately:
-- **~15-20 million gas** for all contracts
-- At 1 gwei gas price: ~0.015-0.020 ETH
-- At current gas prices (20 gwei): ~0.3-0.4 ETH
-
-## Cost Estimates for Different Networks
-
-Based on typical gas prices:
-
-| Network | Gas Price | Estimated Cost |
-|---------|-----------|----------------|
-| Anvil (Local) | 1 gwei | ~0.02 ETH |
-| Polygon | 30 gwei | ~0.5 MATIC |
-| Arbitrum | 0.1 gwei | ~0.002 ETH |
-| Optimism | 0.001 gwei | ~0.00002 ETH |
-| Ethereum Mainnet | 20 gwei | ~0.3-0.4 ETH |
-
-## Wallet Management
-
-### Using Existing Keystore
-
-If you already have a keystore file:
+### Deploy
 
 ```bash
 forge script script/DeployLocal.s.sol:DeployLocal \
   --rpc-url http://127.0.0.1:8545 \
   --broadcast \
-  --keystore /path/to/your/keystore \
-  --gas-report -vvvv
+  --interactive \
+  -vvvv
 ```
 
-### Creating a New Test Keystore
+The script deploys mock tokens (ERC20, LINK, Chainlink Functions router), OspexCore, all modules, and registers everything automatically.
 
-For local testing, create a test keystore:
-
-```bash
-# Generate new wallet
-cast wallet new-mnemonic --words 12
-
-# Import to keystore
-cast wallet import test-wallet --interactive
-
-# The keystore will be saved to ~/.foundry/keystores/
-```
-
-## Testing the Deployment
-
-After deployment, you can verify everything works by:
-
-1. **Running the test suite**:
-   ```bash
-   forge test --gas-report
-   ```
-
-2. **Checking deployed addresses**: The script prints all deployed contract addresses
-
-3. **Interacting with contracts**: Use `cast` commands or write integration tests
-
-## Troubleshooting
-
-### Common Issues
-
-1. **"out of gas" errors**: Increase gas limit in foundry.toml or use `--gas-limit` flag
-2. **"insufficient funds"**: Ensure the deployer account has enough ETH
-3. **"nonce too low"**: Restart Anvil or use `--reset` flag
-4. **"keystore not found"**: Check the keystore path or create a new one
-
-### Debug Commands
-
-```bash
-# Check deployer balance (replace with your address)
-cast balance <YOUR_ADDRESS> --rpc-url http://127.0.0.1:8545
-
-# Get nonce
-cast nonce <YOUR_ADDRESS> --rpc-url http://127.0.0.1:8545
-
-# Check contract bytecode
-cast code <CONTRACT_ADDRESS> --rpc-url http://127.0.0.1:8545
-
-# List available keystores
-ls ~/.foundry/keystores/
-```
-
-## Funding Your Wallet on Anvil
-
-If using a custom wallet with Anvil, you'll need to fund it. Use one of the pre-funded Anvil accounts:
-
-```bash
-# Transfer ETH from Anvil account #0 to your wallet
-cast send <YOUR_ADDRESS> --value 10ether \
-  --rpc-url http://127.0.0.1:8545 \
-  --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
-```
-
-## Next Steps
-
-After successful deployment:
-
-1. **Save the deployment addresses** from the console output
-2. **Fund mock tokens** to test accounts for testing
-3. **Create test contests and speculations**
-4. **Run integration tests** to verify the full system works
+---
 
 ## Testnet Deployment (Polygon Amoy)
-
-For Polygon Amoy testnet deployment:
 
 ```bash
 forge script script/DeployAmoy.s.sol:DeployAmoy \
@@ -224,64 +76,54 @@ forge script script/DeployAmoy.s.sol:DeployAmoy \
   -vvvv
 ```
 
-### Amoy Network Configuration
-
-| Parameter | Value |
-|-----------|-------|
-| Chain ID | 80002 |
-| USDC (Mock) | Deploy MockERC20 or use testnet faucet |
-| Chainlink Router | `0xA9d587a00A31A52Ed70D6026794a8FC5E2F5dCb0` |
-| Chainlink DON ID | `fun-polygon-amoy-1` |
-| Subscription ID | Create via [Chainlink Functions](https://functions.chain.link/polygon-amoy) |
-
-### Requirements
-- MATIC for gas (use [Polygon Faucet](https://faucet.polygon.technology/))
+Requirements:
+- POL for gas ([Polygon Faucet](https://faucet.polygon.technology/))
 - LINK for Chainlink subscription
 
 ---
 
 ## Mainnet Deployment (Polygon)
 
-For Polygon mainnet deployment:
-
 ```bash
-forge script script/DeployMainnet.s.sol:DeployMainnet \
+forge script script/DeployPolygon.s.sol:DeployPolygon \
   --rpc-url https://polygon-rpc.com \
   --broadcast \
+  --verify \
+  --etherscan-api-key $POLYGONSCAN_API_KEY \
   --interactive \
   -vvvv
 ```
 
-**Note:** Omit `--verify` for initial unverified deployment. Add it later when ready to open-source.
-
-### Mainnet Network Configuration
-
-| Parameter | Value |
-|-----------|-------|
-| Chain ID | 137 |
-| Native USDC | `0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359` |
-| Chainlink Router | See [Chainlink Docs](https://docs.chain.link/chainlink-functions/supported-networks) |
-| Chainlink DON ID | `fun-polygon-mainnet-1` |
-
 ### Pre-Deployment Checklist
 
-- [ ] Deployer wallet funded with MATIC
+- [ ] Deployer wallet funded with POL
 - [ ] Chainlink subscription created and funded with LINK
 - [ ] Fee receiver address configured
 - [ ] All module addresses documented after deployment
-- [ ] Test with small amounts before full operation
 
 ### Post-Deployment
 
 1. Save all deployed contract addresses
-2. Register modules with OspexCore
-3. Set token address (native USDC)
-4. Configure Chainlink subscription with OracleModule address as consumer
-5. Grant necessary roles (MODULE_ROLE, SCORER_ROLE, etc.)
+2. Modules are auto-registered with OspexCore by the deploy script
+3. Configure Chainlink subscription with OracleModule address as consumer
+4. Set contest creation and scoring source hashes on ContestModule
 
-### Security Notes
+---
 
-- Use hardware wallet for deployer account
-- Never commit private keys
-- Consider using a multisig for admin functions post-launch
-- Verify contract on Polygonscan only when ready to open-source 
+## Deployment Order
+
+The deploy scripts create contracts in this order:
+
+1. **OspexCore** — central registry
+2. **ContributionModule**
+3. **LeaderboardModule**
+4. **RulesModule**
+5. **MoneylineScorerModule**, **SpreadScorerModule**, **TotalScorerModule**
+6. **TreasuryModule**
+7. **SpeculationModule**
+8. **PositionModule**
+9. **SecondaryMarketModule**
+10. **ContestModule**
+11. **OracleModule**
+
+All modules are registered with OspexCore during deployment. See [ADMIN_PRIVILEGES.md](ADMIN_PRIVILEGES.md) for the full trust model and role assignments.

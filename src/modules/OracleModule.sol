@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.20;
 
 import {
@@ -373,16 +373,6 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
      * @param contestId The ID of the contest
      * @return requestId The ID of the request
      *
-     * @dev TODO [H-2]: Refactor to support concurrent oracle requests.
-     * Current implementation uses s_lastRequestId which only tracks the most recent request.
-     * If multiple requests are sent before callbacks arrive, earlier callbacks will revert
-     * with UnexpectedRequestId, wasting LINK tokens.
-     *
-     * Recommended fix: Replace s_lastRequestId with a mapping pattern:
-     *   mapping(bytes32 => bool) public s_pendingRequests;
-     *
-     * In sendRequest: s_pendingRequests[requestId] = true;
-     * In fulfillRequest: require(s_pendingRequests[requestId]); delete s_pendingRequests[requestId];
      */
     function sendRequest(
         string memory source,
@@ -427,8 +417,6 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
      * @param response The response from the oracle
      * @param err The error from the oracle
      *
-     * @dev TODO [H-2]: This validation (requestId == s_lastRequestId) breaks concurrent requests.
-     * See sendRequest TODO for the recommended mapping-based fix.
      */
     function fulfillRequest(
         bytes32 requestId,

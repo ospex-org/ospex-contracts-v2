@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.20;
 
 import {OspexCore} from "../core/OspexCore.sol";
@@ -782,7 +782,13 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
     // --- Internal functions ---
 
     /**
-    
+     * @notice Creates an unmatched pair
+     * @param speculationId The ID of the speculation
+     * @param odds The odds of the pair
+     * @param unmatchedExpiry The expiry of the unmatched position
+     * @param positionType The type of position
+     * @param amount The amount of the position
+     * @param contributionAmount The amount of the contribution
      */
 
     function _createUnmatchedPair(
