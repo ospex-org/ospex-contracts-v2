@@ -38,3 +38,6 @@ ai/
 
 # chainlink functions code
 chainlink-functions/
+
+# deployment files
+deployments/
