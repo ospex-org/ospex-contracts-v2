@@ -51,32 +51,14 @@ contract MockLeaderboardModuleSolvency {
     }
 }
 
-/// @notice Helper contract that calls completeUnmatchedPair so we can try-catch it
-contract MatchHelper {
-    PositionModule public positionModule;
-    MockERC20 public token;
-
-    constructor(address _positionModule, address _token) {
-        positionModule = PositionModule(_positionModule);
-        token = MockERC20(_token);
-    }
-
-    function doMatch(
-        uint256 specId,
-        address maker,
-        uint128 oddsPairId,
-        PositionType makerPositionType,
-        uint256 amount
-    ) external {
-        token.approve(address(positionModule), amount);
-        positionModule.completeUnmatchedPair(
-            specId,
-            maker,
-            oddsPairId,
-            makerPositionType,
-            amount
-        );
-    }
+/// @notice Bundles fuzz params to reduce stack depth
+struct FuzzParams {
+    uint64 odds;
+    uint64 invOdds;
+    uint256 makerDeposit;
+    uint256 takerDeposit;
+    uint128 oddsPairId;
+    uint256 specId;
 }
 
 contract SolvencyFuzzTest is Test {
@@ -89,9 +71,9 @@ contract SolvencyFuzzTest is Test {
     MockContestModule mockContestModule;
     MockLeaderboardModuleSolvency mockLeaderboardModule;
     MockScorerModule mockScorer;
-    MatchHelper matchHelper;
 
     address maker = address(0xAAAA);
+    address taker = address(0xBBBB);
     address protocolReceiver = address(0xFEED);
 
     uint256 leaderboardId = 0;
@@ -108,8 +90,9 @@ contract SolvencyFuzzTest is Test {
         core = new OspexCore();
         token = new MockERC20();
 
-        // Fund maker generously
+        // Fund maker and taker generously
         token.transfer(maker, 100_000_000_000); // 100k USDC
+        token.transfer(taker, 100_000_000_000); // 100k USDC
 
         speculationModule = new SpeculationModule(address(core), 6);
         contributionModule = new ContributionModule(address(core));
@@ -123,13 +106,6 @@ contract SolvencyFuzzTest is Test {
         mockLeaderboardModule = new MockLeaderboardModuleSolvency();
         mockScorer = new MockScorerModule();
 
-        // Deploy match helper and fund it
-        matchHelper = new MatchHelper(
-            address(positionModule),
-            address(token)
-        );
-        token.transfer(address(matchHelper), 100_000_000_000);
-
         // Register modules
         core.registerModule(keccak256("POSITION_MODULE"), address(positionModule));
         core.registerModule(keccak256("SPECULATION_MODULE"), address(speculationModule));
@@ -139,22 +115,31 @@ contract SolvencyFuzzTest is Test {
         core.registerModule(keccak256("LEADERBOARD_MODULE"), address(mockLeaderboardModule));
         core.registerModule(keccak256("ORACLE_MODULE"), address(this));
 
+        // Grant MARKET_ROLE to test contract so it can call createMatchedPair
+        core.setMarketRole(address(this), true);
+
         // Set up verified contest
-        Contest memory defaultContest = Contest({
-            awayScore: 0,
-            homeScore: 0,
-            leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Verified,
-            contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0),
-            rundownId: "",
-            sportspageId: "",
-            jsonoddsId: ""
-        });
-        mockContestModule.setContest(1, defaultContest);
+        mockContestModule.setContest(1, _verifiedContest());
 
         // Raise max speculation amount for fuzz range
         speculationModule.setMaxSpeculationAmount(100_000);
+    }
+
+    // ===================== EXTERNAL WRAPPER (for try-catch) =====================
+
+    /// @notice External wrapper so try-catch can be used on createMatchedPair
+    function callCreateMatchedPair(
+        uint256 specId,
+        uint64 odds,
+        PositionType makerPositionType,
+        address _maker,
+        uint256 makerAmountRemaining,
+        address _taker,
+        uint256 takerAmount
+    ) external {
+        positionModule.createMatchedPair(
+            specId, odds, makerPositionType, _maker, makerAmountRemaining, _taker, takerAmount, 0, 0
+        );
     }
 
     // ===================== HELPERS =====================
@@ -186,6 +171,20 @@ contract SolvencyFuzzTest is Test {
         return positionType == PositionType.Lower ? baseId + 10000 : baseId;
     }
 
+    function _verifiedContest() internal view returns (Contest memory) {
+        return Contest({
+            awayScore: 0,
+            homeScore: 0,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Verified,
+            contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
+        });
+    }
+
     function _settleSpeculation(
         uint256 specId,
         int32 theNumber,
@@ -210,38 +209,67 @@ contract SolvencyFuzzTest is Test {
         speculationModule.settleSpeculation(specId);
     }
 
-    /// @notice Logs all key values in human-readable form
-    function _logMatchSetup(
-        uint64 odds,
-        uint64 invOdds,
-        uint256 makerDeposit,
-        uint256 takerDeposit,
-        bool winUpper
-    ) internal pure {
+    /// @notice Approves tokens and attempts to create matched pair, returns false if reverted
+    function _approveAndMatch(FuzzParams memory p) internal returns (bool) {
+        vm.prank(maker);
+        token.approve(address(positionModule), p.makerDeposit);
+        vm.prank(taker);
+        token.approve(address(positionModule), p.takerDeposit);
+
+        try this.callCreateMatchedPair(
+            p.specId, p.odds, PositionType.Upper, maker, p.makerDeposit, taker, p.takerDeposit
+        ) {
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /// @notice Claims winning side (or both on push) and asserts zero remaining balance
+    function _claimWinnerAndAssert(FuzzParams memory p, WinSide winSide) internal {
+        if (winSide == WinSide.Push || winSide == WinSide.Void || winSide == WinSide.Forfeit) {
+            // Both sides get their stake back
+            vm.prank(maker);
+            positionModule.claimPosition(p.specId, p.oddsPairId, PositionType.Upper);
+            vm.prank(taker);
+            positionModule.claimPosition(p.specId, p.oddsPairId, PositionType.Lower);
+        } else if (winSide == WinSide.Away || winSide == WinSide.Over) {
+            // Upper wins — maker claims all
+            vm.prank(maker);
+            positionModule.claimPosition(p.specId, p.oddsPairId, PositionType.Upper);
+        } else {
+            // Lower wins — taker claims all
+            vm.prank(taker);
+            positionModule.claimPosition(p.specId, p.oddsPairId, PositionType.Lower);
+        }
+
+        uint256 remaining = token.balanceOf(address(positionModule));
+        assertEq(remaining, 0, "INSOLVENCY: tokens stuck in contract after all claims");
+    }
+
+    /// @notice Logs match setup
+    function _logMatchSetup(FuzzParams memory p, bool winUpper) internal pure {
         console.log("--- Solvency Test Setup ---");
-        console.log("  Upper odds (raw):", uint256(odds));
-        console.log("  Lower odds (raw):", uint256(invOdds));
-        console.log("  Upper odds (x100):", uint256(odds) / 100_000);
-        console.log("  Lower odds (x100):", uint256(invOdds) / 100_000);
-        console.log("  Maker deposit (USDC raw):", makerDeposit);
-        console.log("  Taker deposit (USDC raw):", takerDeposit);
+        console.log("  Upper odds (raw):", uint256(p.odds));
+        console.log("  Lower odds (raw):", uint256(p.invOdds));
+        console.log("  Upper odds (x100):", uint256(p.odds) / 100_000);
+        console.log("  Lower odds (x100):", uint256(p.invOdds) / 100_000);
+        console.log("  Maker deposit (USDC raw):", p.makerDeposit);
+        console.log("  Taker deposit (USDC raw):", p.takerDeposit);
         console.log("  Winner: Upper?", winUpper);
     }
 
-    function _logClaimResults(
-        uint256 makerBalBefore,
-        uint256 makerBalAfter,
-        uint256 takerBalBefore,
-        uint256 takerBalAfter,
-        uint256 contractRemaining
-    ) internal pure {
-        console.log("--- Claim Results ---");
-        console.log("  Maker received:", makerBalAfter - makerBalBefore);
-        console.log("  Taker received:", takerBalAfter - takerBalBefore);
-        console.log("  Contract remaining:", contractRemaining);
-        if (contractRemaining > 0) {
-            console.log("  >>> INSOLVENCY DETECTED <<<");
-        }
+    /// @notice Logs positions after matching
+    function _logPositions(FuzzParams memory p) internal view {
+        Position memory makerPos = positionModule.getPosition(
+            p.specId, maker, p.oddsPairId, PositionType.Upper
+        );
+        Position memory takerPos = positionModule.getPosition(
+            p.specId, taker, p.oddsPairId, PositionType.Lower
+        );
+        console.log("  Maker matchedAmount:", makerPos.matchedAmount);
+        console.log("  Taker matchedAmount:", takerPos.matchedAmount);
+        console.log("  Contract balance after match:", token.balanceOf(address(positionModule)));
     }
 
     // ===================== FUZZ TESTS =====================
@@ -258,78 +286,41 @@ contract SolvencyFuzzTest is Test {
         uint64 odds = _oddsFromIndex(oddsIndex);
         uint256 amount = bound(amountRaw, 1_000_000, 100_000_000);
 
-        uint64 invOdds = _inverseOdds(odds);
-
         uint256 matchableAmount = (amount *
             (uint256(odds) - ODDS_PRECISION)) / ODDS_PRECISION;
         vm.assume(matchableAmount >= 1_000_000);
         vm.assume(matchableAmount <= 100_000_000_000);
 
-        _logMatchSetup(odds, invOdds, amount, matchableAmount, winUpper);
+        FuzzParams memory p = FuzzParams({
+            odds: odds,
+            invOdds: _inverseOdds(odds),
+            makerDeposit: amount,
+            takerDeposit: matchableAmount,
+            oddsPairId: _getOddsPairId(odds, PositionType.Upper),
+            specId: speculationModule.createSpeculation(1, address(mockScorer), 0, leaderboardId)
+        });
+
+        _logMatchSetup(p, winUpper);
 
         // Log the rounding invariant check
         uint256 product = (uint256(odds) - ODDS_PRECISION) *
-            (uint256(invOdds) - ODDS_PRECISION);
+            (uint256(p.invOdds) - ODDS_PRECISION);
         console.log("  (A-1)*(B-1) product:", product);
         console.log("  PRECISION^2:        ", uint256(ODDS_PRECISION) * uint256(ODDS_PRECISION));
 
-        uint256 specId = speculationModule.createSpeculation(
-            1, address(mockScorer), 0, leaderboardId
-        );
-
-        // Maker creates unmatched pair (Upper side)
-        vm.startPrank(maker);
-        token.approve(address(positionModule), amount);
-        positionModule.createUnmatchedPair(
-            specId, odds, 0, PositionType.Upper, amount, 0
-        );
-        vm.stopPrank();
-
-        uint128 oddsPairId = _getOddsPairId(odds, PositionType.Upper);
-
-        // Taker matches via helper (try-catch for rounding overflow)
-        try matchHelper.doMatch(
-            specId, maker, oddsPairId, PositionType.Upper, matchableAmount
-        ) {
-            // success
-        } catch {
-            console.log("  SKIPPED: completeUnmatchedPair reverted (rounding overflow)");
+        if (!_approveAndMatch(p)) {
+            console.log("  SKIPPED: createMatchedPair reverted (rounding overflow)");
             return;
         }
 
-        // Read maker's position after matching to see actual matched/unmatched
-        Position memory makerPos = positionModule.getPosition(
-            specId, maker, oddsPairId, PositionType.Upper
-        );
-        Position memory takerPos = positionModule.getPosition(
-            specId, address(matchHelper), oddsPairId, PositionType.Lower
-        );
-        console.log("  Maker matchedAmount:", makerPos.matchedAmount);
-        console.log("  Maker unmatchedAmount:", makerPos.unmatchedAmount);
-        console.log("  Taker matchedAmount:", takerPos.matchedAmount);
-        console.log("  Contract balance after match:", token.balanceOf(address(positionModule)));
+        _logPositions(p);
 
         // Settle
-        _settleSpeculation(specId, 0, winUpper ? WinSide.Away : WinSide.Home);
+        WinSide winSide = winUpper ? WinSide.Away : WinSide.Home;
+        _settleSpeculation(p.specId, 0, winSide);
 
-        // Record balances before claims
-        uint256 makerBalBefore = token.balanceOf(maker);
-        uint256 takerBalBefore = token.balanceOf(address(matchHelper));
-
-        // Both sides claim
-        vm.prank(maker);
-        positionModule.claimPosition(specId, oddsPairId, PositionType.Upper);
-        vm.prank(address(matchHelper));
-        positionModule.claimPosition(specId, oddsPairId, PositionType.Lower);
-
-        uint256 remaining = token.balanceOf(address(positionModule));
-        _logClaimResults(
-            makerBalBefore, token.balanceOf(maker),
-            takerBalBefore, token.balanceOf(address(matchHelper)),
-            remaining
-        );
-
-        assertEq(remaining, 0, "INSOLVENCY: tokens stuck in contract after all claims");
+        // Claim winner and assert solvency
+        _claimWinnerAndAssert(p, winSide);
     }
 
     /**
@@ -347,36 +338,21 @@ contract SolvencyFuzzTest is Test {
             (uint256(odds) - ODDS_PRECISION)) / ODDS_PRECISION;
         vm.assume(matchableAmount >= 1_000_000);
 
-        uint256 specId = speculationModule.createSpeculation(
-            1, address(mockScorer), 1, leaderboardId
-        );
+        FuzzParams memory p = FuzzParams({
+            odds: odds,
+            invOdds: _inverseOdds(odds),
+            makerDeposit: amount,
+            takerDeposit: matchableAmount,
+            oddsPairId: _getOddsPairId(odds, PositionType.Upper),
+            specId: speculationModule.createSpeculation(1, address(mockScorer), 1, leaderboardId)
+        });
 
-        vm.startPrank(maker);
-        token.approve(address(positionModule), amount);
-        positionModule.createUnmatchedPair(
-            specId, odds, 0, PositionType.Upper, amount, 0
-        );
-        vm.stopPrank();
-
-        uint128 oddsPairId = _getOddsPairId(odds, PositionType.Upper);
-
-        try matchHelper.doMatch(
-            specId, maker, oddsPairId, PositionType.Upper, matchableAmount
-        ) {
-            // success
-        } catch {
+        if (!_approveAndMatch(p)) {
             return;
         }
 
-        _settleSpeculation(specId, 1, WinSide.Push);
-
-        vm.prank(maker);
-        positionModule.claimPosition(specId, oddsPairId, PositionType.Upper);
-        vm.prank(address(matchHelper));
-        positionModule.claimPosition(specId, oddsPairId, PositionType.Lower);
-
-        uint256 remaining = token.balanceOf(address(positionModule));
-        assertEq(remaining, 0, "INSOLVENCY on Push: tokens stuck in contract");
+        _settleSpeculation(p.specId, 1, WinSide.Push);
+        _claimWinnerAndAssert(p, WinSide.Push);
     }
 
     /**
@@ -391,7 +367,6 @@ contract SolvencyFuzzTest is Test {
         uint256 oddsIndex = bound(oddsIndexRaw, 0, MAX_ODDS_INDEX);
         uint64 odds = _oddsFromIndex(oddsIndex);
         uint256 makerAmount = bound(makerAmountRaw, 2_000_000, 100_000_000);
-        uint64 invOdds = _inverseOdds(odds);
 
         uint256 fullMatchable = (makerAmount *
             (uint256(odds) - ODDS_PRECISION)) / ODDS_PRECISION;
@@ -401,64 +376,31 @@ contract SolvencyFuzzTest is Test {
         uint256 takerAmount = (fullMatchable * takerPct) / 100;
         vm.assume(takerAmount >= 1_000_000);
 
-        _logMatchSetup(odds, invOdds, makerAmount, takerAmount, winUpper);
+        FuzzParams memory p = FuzzParams({
+            odds: odds,
+            invOdds: _inverseOdds(odds),
+            makerDeposit: makerAmount,
+            takerDeposit: takerAmount,
+            oddsPairId: _getOddsPairId(odds, PositionType.Upper),
+            specId: speculationModule.createSpeculation(1, address(mockScorer), 2, leaderboardId)
+        });
+
+        _logMatchSetup(p, winUpper);
         console.log("  Taker fill pct:", takerPct);
         console.log("  Full matchable:", fullMatchable);
 
-        uint256 specId = speculationModule.createSpeculation(
-            1, address(mockScorer), 2, leaderboardId
-        );
-
-        vm.startPrank(maker);
-        token.approve(address(positionModule), makerAmount);
-        positionModule.createUnmatchedPair(
-            specId, odds, 0, PositionType.Upper, makerAmount, 0
-        );
-        vm.stopPrank();
-
-        uint128 oddsPairId = _getOddsPairId(odds, PositionType.Upper);
-
-        try matchHelper.doMatch(
-            specId, maker, oddsPairId, PositionType.Upper, takerAmount
-        ) {
-            // success
-        } catch {
-            console.log("  SKIPPED: completeUnmatchedPair reverted");
+        if (!_approveAndMatch(p)) {
+            console.log("  SKIPPED: createMatchedPair reverted");
             return;
         }
 
-        // Read positions after matching
-        Position memory makerPos = positionModule.getPosition(
-            specId, maker, oddsPairId, PositionType.Upper
-        );
-        Position memory takerPos = positionModule.getPosition(
-            specId, address(matchHelper), oddsPairId, PositionType.Lower
-        );
-        console.log("  Maker matchedAmount:", makerPos.matchedAmount);
-        console.log("  Maker unmatchedAmount:", makerPos.unmatchedAmount);
-        console.log("  Taker matchedAmount:", takerPos.matchedAmount);
-        console.log("  Contract balance after match:", token.balanceOf(address(positionModule)));
+        _logPositions(p);
 
         // Settle
-        _settleSpeculation(specId, 2, winUpper ? WinSide.Away : WinSide.Home);
+        WinSide winSide = winUpper ? WinSide.Away : WinSide.Home;
+        _settleSpeculation(p.specId, 2, winSide);
 
-        // Record balances before claims
-        uint256 makerBalBefore = token.balanceOf(maker);
-        uint256 takerBalBefore = token.balanceOf(address(matchHelper));
-
-        // Both claim
-        vm.prank(maker);
-        positionModule.claimPosition(specId, oddsPairId, PositionType.Upper);
-        vm.prank(address(matchHelper));
-        positionModule.claimPosition(specId, oddsPairId, PositionType.Lower);
-
-        uint256 remaining = token.balanceOf(address(positionModule));
-        _logClaimResults(
-            makerBalBefore, token.balanceOf(maker),
-            takerBalBefore, token.balanceOf(address(matchHelper)),
-            remaining
-        );
-
-        assertEq(remaining, 0, "INSOLVENCY: tokens stuck in contract after all claims");
+        // Claim winner and assert solvency
+        _claimWinnerAndAssert(p, winSide);
     }
 }

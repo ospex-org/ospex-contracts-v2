@@ -18,96 +18,60 @@ interface IPositionModule is IModule {
     function ODDS_PRECISION() external view returns (uint64);
 
     /**
-     * @notice Creates an unmatched pair at specified odds
-     * @param speculationId The speculation to bet on
-     * @param odds Desired odds (fixed-point, 1e7 precision)
-     * @param unmatchedExpiry The expiry of the unmatched position
-     * @param positionType Upper/Lower position
-     * @param amount Amount to bet
-     * @param contributionAmount Amount to contribute (for front-end queueing)
+     * @notice Creates a fully matched pair atomically — both sides in a single call
+     * @param speculationId The ID of the speculation
+     * @param odds The odds for the maker's position
+     * @param makerPositionType The position type of the maker (Upper or Lower)
+     * @param maker The address of the maker
+     * @param makerAmountRemaining The amount the maker has remaining
+     * @param taker The address of the taker
+     * @param takerAmount The amount the taker is putting up
+     * @param makerContributionAmount The amount of the contribution for the maker
+     * @param takerContributionAmount The amount of the contribution for the taker
+     * @return makerAmountConsumed The amount that is consumed by the match
      */
-    function createUnmatchedPair(
+    function createMatchedPair(
         uint256 speculationId,
         uint64 odds,
-        uint32 unmatchedExpiry,
-        PositionType positionType,
-        uint256 amount,
-        uint256 contributionAmount
-    ) external;
+        PositionType makerPositionType,
+        address maker,
+        uint256 makerAmountRemaining,
+        address taker,
+        uint256 takerAmount,
+        uint256 makerContributionAmount,
+        uint256 takerContributionAmount
+    ) external returns (uint256);
 
     /**
-     * @notice Creates both a new speculation and unmatched pair
+     * @notice Creates a fully matched pair atomically — both sides in a single call with a speculation
      * @param contestId The ID of the contest
      * @param scorer The scorer of the speculation
      * @param theNumber The line/spread/total number
      * @param leaderboardId The leaderboard ID (where the fee will be allocated)
-     * @param odds The odds of the position
-     * @param unmatchedExpiry The expiry of the unmatched position
-     * @param positionType The type of position
-     * @param amount The amount of the position
-     * @param contributionAmount The amount of the contribution
+     * @param odds The odds for the maker's position
+     * @param makerPositionType The position type of the maker (Upper or Lower)
+     * @param maker The address of the maker
+     * @param makerAmountRemaining The amount the maker has remaining
+     * @param taker The address of the taker
+     * @param takerAmount The amount the taker is putting up
+     * @param makerContributionAmount The amount of the contribution for the maker
+     * @param takerContributionAmount The amount of the contribution for the taker
+     * @return makerAmountConsumed The amount that is consumed by the match
      */
-    function createUnmatchedPairWithSpeculation(
+    function createMatchedPairWithSpeculation(
         uint256 contestId,
         address scorer,
         int32 theNumber,
         uint256 leaderboardId,
         uint64 odds,
-        uint32 unmatchedExpiry,
-        PositionType positionType,
-        uint256 amount,
-        uint256 contributionAmount
-    ) external;
-
-    /**
-     * @notice Adjusts the amount of an existing unmatched pair
-     * @param speculationId Speculation ID
-     * @param oddsPairId ID of the odds pair
-     * @param newUnmatchedExpiry The new expiry of the unmatched position
-     * @param positionType Position type
-     * @param amount Amount to adjust (positive to add, negative to reduce)
-     * @param contributionAmount Optional amount to contribute
-     */
-    function adjustUnmatchedPair(
-        uint256 speculationId,
-        uint128 oddsPairId,
-        uint32 newUnmatchedExpiry,
-        PositionType positionType,
-        int256 amount,
-        uint256 contributionAmount
-    ) external;
-
-    /**
-     * @notice Completes an unmatched pair by matching with a specific position
-     * @param speculationId Speculation to bet on
-     * @param maker Address of the position creator
-     * @param oddsPairId ID of the odds pair to match with
-     * @param makerPositionType Upper/Lower position
-     * @param amount Amount to bet
-     */
-    function completeUnmatchedPair(
-        uint256 speculationId,
-        address maker,
-        uint128 oddsPairId,
         PositionType makerPositionType,
-        uint256 amount
-    ) external;
-
-    /**
-     * @notice Completes multiple unmatched pairs by matching with specific positions
-     * @param speculationId Speculation to bet on
-     * @param makers Array of position creators
-     * @param oddsPairIds Array of odds pair IDs
-     * @param makerPositionTypes Array of position types
-     * @param amounts Array of amounts to bet
-     */
-    function completeUnmatchedPairBatch(
-        uint256 speculationId,
-        address[] calldata makers,
-        uint128[] calldata oddsPairIds,
-        PositionType[] calldata makerPositionTypes,
-        uint256[] calldata amounts
-    ) external;
+        address maker,
+        uint256 makerAmountRemaining,
+        address taker,
+        uint256 takerAmount,
+        uint256 makerContributionAmount,
+        uint256 takerContributionAmount
+    ) external returns (uint256);
 
     /**
      * @notice Transfers position ownership
@@ -128,7 +92,7 @@ interface IPositionModule is IModule {
     ) external;
 
     /**
-     * @notice Claims winnings and/or unmatched amounts for a position
+     * @notice Claims winnings from a position
      * @param speculationId Speculation ID
      * @param oddsPairId Odds pair ID
      * @param positionType Type of position

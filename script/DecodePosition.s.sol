@@ -55,27 +55,10 @@ contract DecodePosition is Script {
         // Amounts
         console.log("\n-- Amounts --");
         console.log("Matched Amount:", position.matchedAmount);
-        console.log("Unmatched Amount:", position.unmatchedAmount);
-        console.log("Total Amount:", position.matchedAmount + position.unmatchedAmount);
         
         // In USDC (6 decimals) - uncomment if you want to see USD values
         console.log("\n-- Amounts (in USDC) --");
         console.log("Matched Amount (USDC):", position.matchedAmount / 1e6);
-        console.log("Unmatched Amount (USDC):", position.unmatchedAmount / 1e6);
-        console.log("Total Amount (USDC):", (position.matchedAmount + position.unmatchedAmount) / 1e6);
-        
-        // Expiry and flags
-        console.log("\n-- Timing & Flags --");
-        console.log("Unmatched Expiry:", position.unmatchedExpiry);
-        if (position.unmatchedExpiry > 0) {
-            if (position.unmatchedExpiry < block.timestamp) {
-                console.log("Status: EXPIRED");
-            } else {
-                console.log("Status: Active");
-                console.log("Expires in:", position.unmatchedExpiry - block.timestamp, "seconds");
-            }
-        }
-        console.log("Claimed:", position.claimed);
         
         // Get associated odds
         try positionManager.getOddsPair(position.poolId) returns (OddsPair memory oddsPair) {
@@ -161,10 +144,5 @@ contract DecodePosition is Script {
             console.log("- Position Type:", opposingTypeStr);
         }
         
-        if (position.unmatchedAmount > 0) {
-            console.log("\n-- Unmatched Information --");
-            console.log("This position has", position.unmatchedAmount / 1e6, "USDC unmatched");
-            console.log("Unmatched amount is available for others to match");
-        }
     }
 } 

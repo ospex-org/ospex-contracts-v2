@@ -567,7 +567,7 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint128,uint8)"),
-            abi.encode(0, 0, 0, 0, 0, 0, false) // matchedAmount = 0
+            abi.encode(0, 0, 0, 0, false) // matchedAmount = 0
         );
         
         uint256[] memory leaderboardIds = new uint256[](1);
@@ -653,7 +653,7 @@ contract LeaderboardModuleTest is Test {
             abi.encodeWithSignature("getPosition(uint256,address,uint128,uint8)"),
             abi.encode(
                 100_000_000, // increased matched amount
-                0, 0, 0, 0, 0, false
+                0, 0, 0, false
             )
         );
         
@@ -762,7 +762,7 @@ contract LeaderboardModuleTest is Test {
             abi.encodeWithSignature("getPosition(uint256,address,uint128,uint8)"),
             abi.encode(
                 50_000_000, // matchedAmount
-                0, 0, 0, 0, 0, false
+                0, 0, 0, false
             )
         );
         
@@ -1194,7 +1194,7 @@ contract LeaderboardModuleTest is Test {
             abi.encodeWithSignature("getPosition(uint256,address,uint128,uint8)"),
             abi.encode(
                 500_000_000, // 500 USDC - high amount
-                0, 0, 0, 0, 0, false
+                0, 0, 0, false
             )
         );
         
@@ -1400,7 +1400,7 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint128,uint8)", speculationId2, user2, 1, 0),
-            abi.encode(50_000_000, 0, 0, 0, 0, 0, false)
+            abi.encode(50_000_000, 0, 0, 0, false)
         );
         
         vm.mockCall(
@@ -1453,9 +1453,8 @@ contract LeaderboardModuleTest is Test {
             abi.encodeWithSignature("getPosition(uint256,address,uint128,uint8)", 2, user2, 1, 0),
             abi.encode(
                 100_000_000, // 100M matched amount (double user1's 50M)
-                0, // unmatchedAmount
+                0, // takerAmount
                 0, // poolId
-                0, // unmatchedExpiry
                 0, // positionType = Upper
                 false // claimed
             )

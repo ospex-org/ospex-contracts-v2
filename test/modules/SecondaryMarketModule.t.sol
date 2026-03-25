@@ -125,17 +125,18 @@ contract SecondaryMarketModuleTest is Test {
             address(market)
         );
         core.setMarketRole(address(market), true);
-        
+        core.setMarketRole(address(this), true); // Allow test to call createMatchedPair
+
         // Fund seller and buyer
         token.mint(seller, 1000e6);
         token.mint(buyer, 1000e6);
-        
+
         // Give accounts some ETH
         vm.deal(admin, 10 ether);
         vm.deal(seller, 10 ether);
         vm.deal(buyer, 10 ether);
-        
-        // Seller creates a speculation (need to call as oracle module)
+
+        // Create the speculation (need to call as oracle module)
         vm.startPrank(address(oracleModule));
         speculationId = speculationModule.createSpeculation(
             1, // contestId
@@ -144,33 +145,31 @@ contract SecondaryMarketModuleTest is Test {
             leaderboardId
         );
         vm.stopPrank();
-        
-        // Seller creates an unmatched pair (position)
-        vm.startPrank(seller);
+
+        // Set up oddsPairId by computing it deterministically
+        // odds=11_000_000, Upper: oddsPairId = (11_000_000 - 10_100_000) / 100_000 = 9
         uint64 odds = 11_000_000; // 1.10 odds
-        (oddsPairId, , ) = positionModule.getOrCreateOddsPairId(odds, positionType);
-        token.approve(address(positionModule), 10e6);
-        positionModule.createUnmatchedPair(
+        oddsPairId = 9;
+
+        // Seller and buyer approve PositionModule
+        vm.prank(seller);
+        token.approve(address(positionModule), type(uint256).max);
+        vm.prank(buyer);
+        token.approve(address(positionModule), type(uint256).max);
+
+        // Create matched pair: seller is maker (Upper), buyer is taker (Lower)
+        // makerAmountRemaining=10e6, takerAmount=1e6 at 1.10 odds
+        positionModule.createMatchedPair(
             speculationId,
             odds,
-            0, // unmatchedExpiry
-            positionType,
-            10e6, // 10 USDC
-            0
+            positionType,    // Upper
+            seller,          // maker
+            10e6,            // makerAmountRemaining
+            buyer,           // taker
+            1e6,             // takerAmount
+            0,               // makerContributionAmount
+            0                // takerContributionAmount
         );
-        // Buyer matches the position (completes the pair)
-        token.transfer(buyer, 10e6); // ensure buyer has enough
-        vm.stopPrank();
-        vm.startPrank(buyer);
-        token.approve(address(positionModule), 10e6);
-        positionModule.completeUnmatchedPair(
-            speculationId,
-            seller,
-            oddsPairId,
-            positionType,
-            1e6 // match full amount
-        );
-        vm.stopPrank();
     }
 
     function testListPositionForSale() public {
@@ -431,32 +430,20 @@ contract SecondaryMarketModuleTest is Test {
         );
         vm.stopPrank();
         
-        // Create a position and list it for sale
-        vm.startPrank(seller);
-        token.approve(address(positionModule), 10e6);
+        // Create a matched pair for this speculation
         uint64 odds = 11_000_000;
-        (uint128 testOddsPairId, , ) = positionModule.getOrCreateOddsPairId(odds, positionType);
-        positionModule.createUnmatchedPair(
+        uint128 testOddsPairId = oddsPairId; // Same odds = same oddsPairId
+        positionModule.createMatchedPair(
             testSpecId,
             odds,
-            0,
-            positionType,
-            10e6,
-            0
+            positionType,    // Upper
+            seller,          // maker
+            10e6,            // makerAmountRemaining
+            buyer,           // taker
+            1e6,             // takerAmount
+            0,               // makerContributionAmount
+            0                // takerContributionAmount
         );
-        
-        // Have the buyer match with the position to create a matched amount
-        vm.stopPrank();
-        vm.startPrank(buyer);
-        token.approve(address(positionModule), 1e6);
-        positionModule.completeUnmatchedPair(
-            testSpecId,
-            seller,
-            testOddsPairId,
-            positionType,
-            1e6 // match only the available amount (1e6)
-        );
-        vm.stopPrank();
         
         // Now seller can list the position with the matched amount
         vm.startPrank(seller);

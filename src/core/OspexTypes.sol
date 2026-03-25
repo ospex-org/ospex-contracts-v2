@@ -84,10 +84,8 @@ enum WinSide {
 /// @notice User's position in a speculation
 struct Position {
     uint256 matchedAmount;
-    uint256 unmatchedAmount;
     uint256 takerAmount;
     uint128 poolId;
-    uint32 unmatchedExpiry;
     PositionType positionType;
     bool claimed;
 }
