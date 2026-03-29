@@ -90,23 +90,23 @@ interface IContestModule is IModule {
 
     /// @notice Updates all market data for a contest from oracle response
     /// @param contestId The contest identifier
-    /// @param moneylineAway Scaled decimal odds for away team moneyline
-    /// @param moneylineHome Scaled decimal odds for home team moneyline
+    /// @param moneylineAway Odds tick for away team moneyline
+    /// @param moneylineHome Odds tick for home team moneyline
     /// @param spread The point spread
-    /// @param spreadAwayLine Scaled decimal odds for away spread
-    /// @param spreadHomeLine Scaled decimal odds for home spread
+    /// @param spreadAwayLine Odds tick for away spread
+    /// @param spreadHomeLine Odds tick for home spread
     /// @param total The total points
-    /// @param overLine Scaled decimal odds for over
-    /// @param underLine Scaled decimal odds for under
+    /// @param overLine Odds tick for over
+    /// @param underLine Odds tick for under
     function updateContestMarkets(
         uint256 contestId,
-        uint64 moneylineAway,
-        uint64 moneylineHome,
+        uint16 moneylineAway,
+        uint16 moneylineHome,
         int32 spread,
-        uint64 spreadAwayLine,
-        uint64 spreadHomeLine,
+        uint16 spreadAwayLine,
+        uint16 spreadHomeLine,
         int32 total,
-        uint64 overLine,
-        uint64 underLine
+        uint16 overLine,
+        uint16 underLine
     ) external;
 }

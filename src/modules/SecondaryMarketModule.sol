@@ -33,17 +33,13 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
     /// @notice Error for not admin
     error SecondaryMarketModule__NotAdmin(address admin);
     /// @notice Error for sale amount below minimum
-    error SecondaryMarketModule__SaleAmountBelowMinimum(uint256 amount);
+    error SecondaryMarketModule__SaleAmountBelowMinimum();
     /// @notice Error for sale amount above maximum
-    error SecondaryMarketModule__SaleAmountAboveMaximum(uint256 amount);
+    error SecondaryMarketModule__SaleAmountAboveMaximum();
     /// @notice Error for listing not active
     error SecondaryMarketModule__ListingNotActive();
     /// @notice Error for cannot buy own position
     error SecondaryMarketModule__CannotBuyOwnPosition();
-    /// @notice Error for position does not exist
-    error SecondaryMarketModule__PositionDoesNotExist();
-    /// @notice Error for no matched amount
-    error SecondaryMarketModule__NoMatchedAmount();
     /// @notice Error for no proceeds available
     error SecondaryMarketModule__NoProceedsAvailable();
     /// @notice Error for amount above maximum
@@ -56,8 +52,8 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
     error SecondaryMarketModule__InvalidMaxSaleAmount();
     /// @notice Error for invalid address
     error SecondaryMarketModule__InvalidAddress();
-    /// @notice Error for invalid price
-    error SecondaryMarketModule__InvalidPrice();
+    /// @notice Error for invalid amount
+    error SecondaryMarketModule__InvalidAmount();
     /// @notice Error for position already claimed
     error SecondaryMarketModule__PositionAlreadyClaimed();
     /// @notice Error for module not set
@@ -73,8 +69,8 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
     /// @notice The maximum sale amount
     uint256 public s_maxSaleAmount;
 
-    // speculationId => seller => oddsPairId => positionType => SaleListing
-    mapping(uint256 => mapping(address => mapping(uint128 => mapping(PositionType => SaleListing))))
+    // speculationId => seller => positionType => SaleListing
+    mapping(uint256 => mapping(address => mapping(PositionType => SaleListing)))
         public s_saleListings;
     // seller => amount
     mapping(address => uint256) public s_pendingSaleProceeds;
@@ -84,70 +80,72 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
      * @notice Emitted when a matched position is listed for sale
      * @param speculationId The ID of the speculation
      * @param seller The address of the seller
-     * @param oddsPairId The ID of the odds pair
      * @param positionType The type of position
-     * @param amount The amount of the position
      * @param price The price of the position
+     * @param riskAmount The risk amount of the position
+     * @param profitAmount The profit amount of the position
      * @param timestamp The timestamp of the listing
      */
     event PositionListed(
         uint256 indexed speculationId,
         address indexed seller,
-        uint128 oddsPairId,
         PositionType positionType,
-        uint256 amount,
         uint256 price,
+        uint256 riskAmount,
+        uint256 profitAmount,
         uint32 timestamp
     );
     /**
      * @notice Emitted when a listing is updated
      * @param speculationId The ID of the speculation
      * @param seller The address of the seller
-     * @param oddsPairId The ID of the odds pair
      * @param positionType The type of position
-     * @param oldPrice The old price of the position
+     * @param oldPrice The original price of the position
      * @param newPrice The new price of the position
-     * @param oldAmount The old amount of the position
-     * @param newAmount The new amount of the position
+     * @param oldRiskAmount The original risk amount of the position
+     * @param newRiskAmount The new risk amount of the position
+     * @param oldProfitAmount The original profit amount of the position
+     * @param newProfitAmount The new profit amount of the position
      */
     event ListingUpdated(
         uint256 indexed speculationId,
         address indexed seller,
-        uint128 oddsPairId,
         PositionType positionType,
         uint256 oldPrice,
         uint256 newPrice,
-        uint256 oldAmount,
-        uint256 newAmount
+        uint256 oldRiskAmount,
+        uint256 newRiskAmount,
+        uint256 oldProfitAmount,
+        uint256 newProfitAmount
     );
     /**
      * @notice Emitted when a position is sold
      * @param speculationId The ID of the speculation
      * @param seller The address of the seller
-     * @param oddsPairId The ID of the odds pair
      * @param positionType The type of position
      * @param buyer The address of the buyer
-     * @param amount The amount of the position
+     * @param riskAmount The risk amount of the position
+     * @param profitAmount The profit amount of the position
+     * @param purchasePrice The amount of the purchase
      */
     event PositionSold(
         uint256 indexed speculationId,
         address indexed seller,
-        uint128 oddsPairId,
         PositionType positionType,
         address indexed buyer,
-        uint256 amount
+        uint256 riskAmount,
+        uint256 profitAmount,
+        uint256 purchasePrice
     );
     /**
      * @notice Emitted when a listing is cancelled
      * @param speculationId The ID of the speculation
      * @param seller The address of the seller
-     * @param oddsPairId The ID of the odds pair
      * @param positionType The type of position
      */
     event ListingCancelled(
         uint256 indexed speculationId,
         address indexed seller,
-        uint128 oddsPairId,
         PositionType positionType
     );
     /**
@@ -219,63 +217,67 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
     /**
      * @notice Lists a position for sale
      * @param speculationId The ID of the speculation
-     * @param oddsPairId The ID of the odds pair
      * @param positionType The type of position
      * @param price The price of the position
-     * @param amount The amount of the position
+     * @param riskAmount The risk amount of the position
+     * @param profitAmount The profit amount of the position
      * @param contributionAmount The amount of contribution
      */
     function listPositionForSale(
         uint256 speculationId,
-        uint128 oddsPairId,
         PositionType positionType,
         uint256 price,
-        uint256 amount,
+        uint256 riskAmount,
+        uint256 profitAmount,
         uint256 contributionAmount
     ) external override nonReentrant {
-        if (price == 0) revert SecondaryMarketModule__InvalidPrice();
+        if (price == 0 || riskAmount == 0 || profitAmount == 0)
+            revert SecondaryMarketModule__InvalidAmount();
+
         Speculation memory spec = ISpeculationModule(
             _getModule(keccak256("SPECULATION_MODULE"))
         ).getSpeculation(speculationId);
+
         if (spec.speculationStatus != SpeculationStatus.Open)
             revert SecondaryMarketModule__SpeculationNotActive();
+
         Position memory position = IPositionModule(
             _getModule(keccak256("POSITION_MODULE"))
-        ).getPosition(speculationId, msg.sender, oddsPairId, positionType);
-        if (position.matchedAmount == 0)
-            revert SecondaryMarketModule__NoMatchedAmount();
-        // If amount is 0, set sale amount to matched amount
-        uint256 saleAmount = amount == 0 ? position.matchedAmount : amount;
+        ).getPosition(speculationId, msg.sender, positionType);
 
-        if (saleAmount < s_minSaleAmount)
-            revert SecondaryMarketModule__SaleAmountBelowMinimum(saleAmount);
-        if (saleAmount > s_maxSaleAmount)
-            revert SecondaryMarketModule__SaleAmountAboveMaximum(saleAmount);
-        if (saleAmount > position.matchedAmount)
-            revert SecondaryMarketModule__AmountAboveMaximum(saleAmount);
+        if (riskAmount > position.riskAmount)
+            revert SecondaryMarketModule__AmountAboveMaximum(riskAmount);
+        if (profitAmount > position.profitAmount)
+            revert SecondaryMarketModule__AmountAboveMaximum(profitAmount);
+
+        if (riskAmount < s_minSaleAmount)
+            revert SecondaryMarketModule__SaleAmountBelowMinimum();
+        if (riskAmount > s_maxSaleAmount)
+            revert SecondaryMarketModule__SaleAmountAboveMaximum();
 
         if (contributionAmount > 0) {
             IContributionModule(_getModule(keccak256("CONTRIBUTION_MODULE")))
                 .handleContribution(
                     speculationId,
                     msg.sender,
-                    oddsPairId,
                     positionType,
                     contributionAmount
                 );
         }
 
-        s_saleListings[speculationId][msg.sender][oddsPairId][
-            positionType
-        ] = SaleListing({price: price, amount: saleAmount});
+        s_saleListings[speculationId][msg.sender][positionType] = SaleListing({
+            price: price,
+            riskAmount: riskAmount,
+            profitAmount: profitAmount
+        });
 
         emit PositionListed(
             speculationId,
             msg.sender,
-            oddsPairId,
             positionType,
-            saleAmount,
             price,
+            riskAmount,
+            profitAmount,
             uint32(block.timestamp)
         );
         i_ospexCore.emitCoreEvent(
@@ -283,35 +285,35 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
             abi.encode(
                 speculationId,
                 msg.sender,
-                oddsPairId,
                 positionType,
-                saleAmount,
                 price,
+                riskAmount,
+                profitAmount,
                 uint32(block.timestamp)
             )
         );
     }
 
     /**
-     * @notice Buys a position from a seller
+     * @notice Buys a portion (or all) of a listed position
+     * @dev Buyer specifies only the riskAmount they want. profitAmount and
+     *      purchasePrice are derived proportionally from the listing.
+     *      The listing's ratio is preserved on partial buys.
      * @param speculationId The ID of the speculation
      * @param seller The address of the seller
-     * @param oddsPairId The ID of the odds pair
      * @param positionType The type of position
-     * @param amount The amount of the position
+     * @param riskAmount The risk amount the buyer wants to purchase
      */
     function buyPosition(
         uint256 speculationId,
         address seller,
-        uint128 oddsPairId,
         PositionType positionType,
-        uint256 amount
+        uint256 riskAmount
     ) external override nonReentrant {
         if (msg.sender == seller)
             revert SecondaryMarketModule__CannotBuyOwnPosition();
 
-        if (amount == 0)
-            revert SecondaryMarketModule__SaleAmountBelowMinimum(amount);
+        if (riskAmount == 0) revert SecondaryMarketModule__InvalidAmount();
 
         Speculation memory spec = ISpeculationModule(
             _getModule(keccak256("SPECULATION_MODULE"))
@@ -321,16 +323,21 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
             revert SecondaryMarketModule__SpeculationNotActive();
 
         SaleListing storage listing = s_saleListings[speculationId][seller][
-            oddsPairId
-        ][positionType];
+            positionType
+        ];
 
-        if (listing.amount < s_minSaleAmount)
+        if (listing.riskAmount == 0)
             revert SecondaryMarketModule__ListingNotActive();
+        if (riskAmount > listing.riskAmount)
+            revert SecondaryMarketModule__AmountAboveMaximum(riskAmount);
 
-        if (amount > listing.amount)
-            revert SecondaryMarketModule__AmountAboveMaximum(amount);
+        // Derive profitAmount and price proportionally from the listing
+        uint256 profitAmount = (listing.profitAmount * riskAmount) /
+            listing.riskAmount;
+        uint256 purchasePrice = (listing.price * riskAmount) /
+            listing.riskAmount;
 
-        uint256 purchasePrice = (listing.price * amount) / listing.amount;
+        // Transfer payment from buyer to contract (seller claims later)
         i_token.safeTransferFrom(msg.sender, address(this), purchasePrice);
         s_pendingSaleProceeds[seller] += purchasePrice;
 
@@ -338,38 +345,40 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
             .transferPosition(
                 speculationId,
                 seller,
-                oddsPairId,
                 positionType,
                 msg.sender,
-                amount
+                riskAmount,
+                profitAmount
             );
 
-        if (amount == listing.amount) {
-            delete s_saleListings[speculationId][seller][oddsPairId][
-                positionType
-            ];
+        // Update or delete the listing
+        if (riskAmount == listing.riskAmount) {
+            delete s_saleListings[speculationId][seller][positionType];
         } else {
-            listing.amount -= amount;
+            listing.riskAmount -= riskAmount;
+            listing.profitAmount -= profitAmount;
             listing.price -= purchasePrice;
         }
 
         emit PositionSold(
             speculationId,
             seller,
-            oddsPairId,
             positionType,
             msg.sender,
-            amount
+            riskAmount,
+            profitAmount,
+            purchasePrice
         );
         i_ospexCore.emitCoreEvent(
             keccak256("POSITION_SOLD"),
             abi.encode(
                 speculationId,
                 seller,
-                oddsPairId,
                 positionType,
                 msg.sender,
-                amount
+                riskAmount,
+                profitAmount,
+                purchasePrice
             )
         );
     }
@@ -392,59 +401,48 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
     /**
      * @notice Cancels a listing
      * @param speculationId The ID of the speculation
-     * @param oddsPairId The ID of the odds pair
      * @param positionType The type of position
      */
     function cancelListing(
         uint256 speculationId,
-        uint128 oddsPairId,
         PositionType positionType
     ) external override nonReentrant {
         SaleListing storage listing = s_saleListings[speculationId][msg.sender][
-            oddsPairId
-        ][positionType];
+            positionType
+        ];
 
-        if (listing.amount < s_minSaleAmount)
+        if (listing.riskAmount == 0)
             revert SecondaryMarketModule__ListingNotActive();
 
         Position memory position = IPositionModule(
             _getModule(keccak256("POSITION_MODULE"))
-        ).getPosition(speculationId, msg.sender, oddsPairId, positionType);
-        if (position.poolId == 0)
-            revert SecondaryMarketModule__PositionDoesNotExist();
+        ).getPosition(speculationId, msg.sender, positionType);
         if (position.claimed)
             revert SecondaryMarketModule__PositionAlreadyClaimed();
 
-        delete s_saleListings[speculationId][msg.sender][oddsPairId][
-            positionType
-        ];
+        delete s_saleListings[speculationId][msg.sender][positionType];
 
-        emit ListingCancelled(
-            speculationId,
-            msg.sender,
-            oddsPairId,
-            positionType
-        );
+        emit ListingCancelled(speculationId, msg.sender, positionType);
         i_ospexCore.emitCoreEvent(
             keccak256("LISTING_CANCELLED"),
-            abi.encode(speculationId, msg.sender, oddsPairId, positionType)
+            abi.encode(speculationId, msg.sender, positionType)
         );
     }
 
     /**
-     * @notice Updates a listing
+     * @notice Updates a listing with new price and/or amounts
      * @param speculationId The ID of the speculation
-     * @param oddsPairId The ID of the odds pair
      * @param positionType The type of position
-     * @param newPrice The new price of the position
-     * @param newAmount The new amount of the position
+     * @param newPrice The new price (0 to keep current)
+     * @param newRiskAmount The new risk amount (0 to keep current)
+     * @param newProfitAmount The new profit amount (0 to keep current)
      */
     function updateListing(
         uint256 speculationId,
-        uint128 oddsPairId,
         PositionType positionType,
         uint256 newPrice,
-        uint256 newAmount
+        uint256 newRiskAmount,
+        uint256 newProfitAmount
     ) external override nonReentrant {
         Speculation memory spec = ISpeculationModule(
             _getModule(keccak256("SPECULATION_MODULE"))
@@ -454,58 +452,65 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
             revert SecondaryMarketModule__SpeculationNotActive();
 
         SaleListing storage listing = s_saleListings[speculationId][msg.sender][
-            oddsPairId
-        ][positionType];
+            positionType
+        ];
 
-        if (listing.amount < s_minSaleAmount)
+        if (listing.riskAmount == 0)
             revert SecondaryMarketModule__ListingNotActive();
 
         Position memory position = IPositionModule(
             _getModule(keccak256("POSITION_MODULE"))
-        ).getPosition(speculationId, msg.sender, oddsPairId, positionType);
-        if (position.poolId == 0)
-            revert SecondaryMarketModule__PositionDoesNotExist();
+        ).getPosition(speculationId, msg.sender, positionType);
         if (position.claimed)
             revert SecondaryMarketModule__PositionAlreadyClaimed();
 
         uint256 oldPrice = listing.price;
-        uint256 oldAmount = listing.amount;
+        uint256 oldRiskAmount = listing.riskAmount;
+        uint256 oldProfitAmount = listing.profitAmount;
 
         if (newPrice > 0) {
             listing.price = newPrice;
         }
-
-        if (newAmount > 0) {
-            if (newAmount > position.matchedAmount)
-                revert SecondaryMarketModule__AmountAboveMaximum(newAmount);
-            if (newAmount < s_minSaleAmount)
-                revert SecondaryMarketModule__SaleAmountBelowMinimum(newAmount);
-            if (newAmount > s_maxSaleAmount)
-                revert SecondaryMarketModule__SaleAmountAboveMaximum(newAmount);
-            listing.amount = newAmount;
+        if (newRiskAmount > 0) {
+            if (newRiskAmount > position.riskAmount)
+                revert SecondaryMarketModule__AmountAboveMaximum(newRiskAmount);
+            if (newRiskAmount < s_minSaleAmount)
+                revert SecondaryMarketModule__SaleAmountBelowMinimum();
+            if (newRiskAmount > s_maxSaleAmount)
+                revert SecondaryMarketModule__SaleAmountAboveMaximum();
+            listing.riskAmount = newRiskAmount;
+        }
+        if (newProfitAmount > 0) {
+            if (newProfitAmount > position.profitAmount)
+                revert SecondaryMarketModule__AmountAboveMaximum(
+                    newProfitAmount
+                );
+            listing.profitAmount = newProfitAmount;
         }
 
         emit ListingUpdated(
             speculationId,
             msg.sender,
-            oddsPairId,
             positionType,
             oldPrice,
             listing.price,
-            oldAmount,
-            listing.amount
+            oldRiskAmount,
+            listing.riskAmount,
+            oldProfitAmount,
+            listing.profitAmount
         );
         i_ospexCore.emitCoreEvent(
             keccak256("LISTING_UPDATED"),
             abi.encode(
                 speculationId,
                 msg.sender,
-                oddsPairId,
                 positionType,
                 oldPrice,
                 listing.price,
-                oldAmount,
-                listing.amount
+                oldRiskAmount,
+                listing.riskAmount,
+                oldProfitAmount,
+                listing.profitAmount
             )
         );
     }
@@ -549,16 +554,14 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
      * @notice Gets a sale listing
      * @param speculationId The ID of the speculation
      * @param seller The address of the seller
-     * @param oddsPairId The ID of the odds pair
      * @param positionType The type of position
      */
     function getSaleListing(
         uint256 speculationId,
         address seller,
-        uint128 oddsPairId,
         PositionType positionType
     ) external view override returns (SaleListing memory listing) {
-        return s_saleListings[speculationId][seller][oddsPairId][positionType];
+        return s_saleListings[speculationId][seller][positionType];
     }
 
     /**

@@ -70,8 +70,8 @@ contract SpeculationModuleTest is Test {
         mockLeaderboardModule = new MockLeaderboardModule();
         core.registerModule(keccak256("LEADERBOARD_MODULE"), address(mockLeaderboardModule));
 
-        // Register this test contract as ORACLE_MODULE so it can call createSpeculation
-        core.registerModule(keccak256("ORACLE_MODULE"), address(this));
+        // Register this test contract as POSITION_MODULE so it can call createSpeculation
+        core.registerModule(keccak256("POSITION_MODULE"), address(this));
 
         // Grant SPECULATION_MANAGER_ROLE to this contract for forfeitSpeculation tests
         bytes32 SPECULATION_MANAGER_ROLE = keccak256(
@@ -114,6 +114,7 @@ contract SpeculationModuleTest is Test {
             1,
             address(0xBEEF),
             42,
+            address(this),
             leaderboardId
         );
         Speculation memory s = speculationModule.getSpeculation(id);
@@ -134,6 +135,7 @@ contract SpeculationModuleTest is Test {
             1,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -167,6 +169,7 @@ contract SpeculationModuleTest is Test {
             1,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -199,6 +202,7 @@ contract SpeculationModuleTest is Test {
             1,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -234,6 +238,7 @@ contract SpeculationModuleTest is Test {
             1,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -269,6 +274,7 @@ contract SpeculationModuleTest is Test {
             1,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -302,6 +308,7 @@ contract SpeculationModuleTest is Test {
             1,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -335,6 +342,7 @@ contract SpeculationModuleTest is Test {
             1,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -376,6 +384,7 @@ contract SpeculationModuleTest is Test {
             1,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -422,6 +431,7 @@ contract SpeculationModuleTest is Test {
             1,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -515,6 +525,7 @@ contract SpeculationModuleTest is Test {
             1,
             address(0xBEEF),
             42,
+            address(this),
             leaderboardId
         );
         Speculation memory s = speculationModule.getSpeculation(id);
@@ -540,7 +551,7 @@ contract SpeculationModuleTest is Test {
 
         // Check initial balance of test contract (it gets all tokens from MockERC20 constructor)
         uint256 initialBalance = mockToken.balanceOf(address(this));
-        
+
         // Approve the TreasuryModule to spend the test contract's tokens
         mockToken.approve(address(treasuryModule), fee);
 
@@ -549,18 +560,19 @@ contract SpeculationModuleTest is Test {
             address(treasuryModule),
             abi.encodeWithSelector(
                 treasuryModule.processFee.selector,
-                address(this), // The test contract (ORACLE_MODULE) pays the fee
+                address(this), // The test contract (POSITION_MODULE) pays the fee via speculationCreator
                 fee,
                 FeeType.SpeculationCreation,
                 leaderboardId
             )
         );
 
-        // Call createSpeculation as the ORACLE_MODULE (test contract)
+        // Call createSpeculation as the POSITION_MODULE (test contract)
         uint256 speculationId = speculationModule.createSpeculation(
             1,
             address(0xBEEF),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -582,19 +594,19 @@ contract SpeculationModuleTest is Test {
             address(newCore),
             TOKEN_DECIMALS
         );
-        
-        // Register the speculation module itself and oracle module but NOT the treasury module
+
+        // Register the speculation module itself and POSITION_MODULE but NOT the treasury module
         newCore.registerModule(
             keccak256("SPECULATION_MODULE"),
             address(newSpeculationModule)
         );
-        newCore.registerModule(keccak256("ORACLE_MODULE"), address(this));
-        
+        newCore.registerModule(keccak256("POSITION_MODULE"), address(this));
+
         // Register a mock contest module so we can get past the contest validation
         // This allows us to test the TREASURY_MODULE check specifically
         MockContestModule mockContest = new MockContestModule();
         newCore.registerModule(keccak256("CONTEST_MODULE"), address(mockContest));
-        
+
         // Set up a verified contest
         Contest memory testContest = Contest({
             awayScore: 0,
@@ -608,7 +620,7 @@ contract SpeculationModuleTest is Test {
             jsonoddsId: ""
         });
         mockContest.setContest(1, testContest);
-        
+
         // Try to create a speculation - this will call _getModule for TREASURY_MODULE
         // which won't be registered, causing the revert
         vm.expectRevert(
@@ -621,16 +633,13 @@ contract SpeculationModuleTest is Test {
             1, // contestId
             address(0xBEEF), // scorer
             42, // theNumber
+            address(this), // speculationCreator
             leaderboardId // leaderboardId
         );
     }
 
-    function testCreateSpeculationWithUnmatchedPair_RevertsWhenCalledByNonPositionModule() public {
-        // First register a mock PositionModule so the authorization check can work
-        address mockPositionModule = address(0x7777);
-        core.registerModule(keccak256("POSITION_MODULE"), mockPositionModule);
-        
-        // Try to call createSpeculationWithUnmatchedPair from a different address (not the PositionModule)
+    function testCreateSpeculation_RevertsWhenCalledByNonPositionModule() public {
+        // Try to call createSpeculation from a different address (not the POSITION_MODULE)
         address nonPositionModule = address(0x999);
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -639,7 +648,7 @@ contract SpeculationModuleTest is Test {
             )
         );
         vm.prank(nonPositionModule);
-        speculationModule.createSpeculationWithUnmatchedPair(
+        speculationModule.createSpeculation(
             1, // contestId
             address(0xBEEF), // scorer
             42, // theNumber
@@ -648,18 +657,9 @@ contract SpeculationModuleTest is Test {
         );
     }
 
-    function testCreateSpeculationWithUnmatchedPair_SuccessWhenCalledByPositionModule() public {
-        // Get the PositionModule address
-        address positionModuleAddr = core.getModule(keccak256("POSITION_MODULE"));
-        
-        // Register a mock PositionModule if not already registered
-        if (positionModuleAddr == address(0)) {
-            positionModuleAddr = address(0x7777);
-            core.registerModule(keccak256("POSITION_MODULE"), positionModuleAddr);
-        }
-        
+    function testCreateSpeculation_SuccessWhenCalledByPositionModule() public {
         address creator = address(0x456);
-        
+
         // Approve fee payment from creator
         uint256 fee = treasuryModule.getFeeRate(FeeType.SpeculationCreation);
         if (fee > 0) {
@@ -667,17 +667,16 @@ contract SpeculationModuleTest is Test {
             vm.prank(creator);
             mockToken.approve(address(treasuryModule), fee);
         }
-        
-        // Call from PositionModule
-        vm.prank(positionModuleAddr);
-        uint256 id = speculationModule.createSpeculationWithUnmatchedPair(
+
+        // Call from POSITION_MODULE (this test contract)
+        uint256 id = speculationModule.createSpeculation(
             1, // contestId
             address(0xBEEF), // scorer
             42, // theNumber
             creator, // speculationCreator
             leaderboardId
         );
-        
+
         // Verify speculation was created with correct creator
         Speculation memory s = speculationModule.getSpeculation(id);
         assertEq(s.contestId, 1);

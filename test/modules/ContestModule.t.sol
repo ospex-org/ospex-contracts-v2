@@ -343,7 +343,13 @@ contract ContestModuleTest is Test {
         bytes32 scoreManagerRole = keccak256("SCORE_MANAGER_ROLE");
         vm.prank(address(this));
         core.grantRole(scoreManagerRole, scoreManager);
-        vm.expectRevert(); // Just check for any revert for now
+        // setScores uses the onlyOracleModule modifier, so scoreManager is rejected
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ContestModule.ContestModule__NotOracleModule.selector,
+                scoreManager
+            )
+        );
         vm.prank(scoreManager);
         contestModule.setScores(contestId, 33, 44);
     }
@@ -448,17 +454,17 @@ contract ContestModuleTest is Test {
     // --- Update Contest Markets Tests ---
     function testUpdateContestMarkets_Success() public {
         uint256 contestId = 1;
-        
-        // Test values for all three markets
-        uint64 moneylineAwayOdds = 15_000_000; // 1.5
-        uint64 moneylineHomeOdds = 25_000_000; // 2.5
-        int32 spreadNumber = -350; // -3.5 point spread
-        uint64 spreadAwayOdds = 18_000_000; // 1.8
-        uint64 spreadHomeOdds = 22_000_000; // 2.2
-        int32 totalNumber = 22500; // 225.0 total points
-        uint64 overOdds = 19_000_000; // 1.9
-        uint64 underOdds = 21_000_000; // 2.1
-        
+
+        // Test values for all three markets (uint16 tick format)
+        uint16 moneylineAwayOdds = 150; // 1.50
+        uint16 moneylineHomeOdds = 250; // 2.50
+        int32 spreadNumber = -35; // -3.5 point spread (10x)
+        uint16 spreadAwayOdds = 180; // 1.80
+        uint16 spreadHomeOdds = 220; // 2.20
+        int32 totalNumber = 2250; // 225.0 total points (10x)
+        uint16 overOdds = 190; // 1.90
+        uint16 underOdds = 210; // 2.10
+
         // Expect the ContestMarketsUpdated event
         vm.expectEmit(true, true, true, true);
         emit ContestModule.ContestMarketsUpdated(
@@ -473,7 +479,7 @@ contract ContestModuleTest is Test {
             overOdds,
             underOdds
         );
-        
+
         // Call from oracle module
         vm.prank(oracleModule);
         contestModule.updateContestMarkets(
@@ -487,20 +493,20 @@ contract ContestModuleTest is Test {
             overOdds,
             underOdds
         );
-        
+
         // Verify all three markets were updated correctly
         ContestMarket memory moneylineMarket = contestModule.getContestMarket(contestId, moneylineScorer);
         assertEq(moneylineMarket.theNumber, 0); // Moneyline always has theNumber = 0
         assertEq(moneylineMarket.upperOdds, moneylineAwayOdds);
         assertEq(moneylineMarket.lowerOdds, moneylineHomeOdds);
         assertEq(moneylineMarket.lastUpdated, uint32(block.timestamp));
-        
+
         ContestMarket memory spreadMarket = contestModule.getContestMarket(contestId, spreadScorer);
         assertEq(spreadMarket.theNumber, spreadNumber);
         assertEq(spreadMarket.upperOdds, spreadAwayOdds);
         assertEq(spreadMarket.lowerOdds, spreadHomeOdds);
         assertEq(spreadMarket.lastUpdated, uint32(block.timestamp));
-        
+
         ContestMarket memory totalMarket = contestModule.getContestMarket(contestId, totalScorer);
         assertEq(totalMarket.theNumber, totalNumber);
         assertEq(totalMarket.upperOdds, overOdds);
@@ -519,26 +525,26 @@ contract ContestModuleTest is Test {
         vm.prank(notOracle);
         contestModule.updateContestMarkets(
             1,
-            15_000_000, // moneylineAwayOdds
-            25_000_000, // moneylineHomeOdds
-            -350,       // spreadNumber
-            18_000_000, // spreadAwayOdds
-            22_000_000, // spreadHomeOdds
-            22500,      // totalNumber
-            19_000_000, // overOdds
-            21_000_000  // underOdds
+            150,   // moneylineAwayOdds (tick)
+            250,   // moneylineHomeOdds (tick)
+            -35,   // spreadNumber (10x)
+            180,   // spreadAwayOdds (tick)
+            220,   // spreadHomeOdds (tick)
+            2250,  // totalNumber (10x)
+            190,   // overOdds (tick)
+            210    // underOdds (tick)
         );
     }
     
     function testUpdateContestMarkets_HandlesEdgeCaseValues() public {
         uint256 contestId = 2;
-        
-        // Test with edge case values
-        uint64 veryLowOdds = 10_500_000; // 1.05 (very low)
-        uint64 veryHighOdds = 50_000_000; // 5.0 (high)
-        int32 negativeSpread = -1500; // -15.0 points
-        int32 highTotal = 50000; // 500.0 points
-        
+
+        // Test with edge case values (uint16 tick format)
+        uint16 veryLowOdds = 105; // 1.05 (very low)
+        uint16 veryHighOdds = 500; // 5.00 (high)
+        int32 negativeSpread = -150; // -15.0 points (10x)
+        int32 highTotal = 5000; // 500.0 points (10x)
+
         vm.prank(oracleModule);
         contestModule.updateContestMarkets(
             contestId,
@@ -551,13 +557,13 @@ contract ContestModuleTest is Test {
             veryLowOdds,    // overOdds
             veryHighOdds    // underOdds
         );
-        
+
         // Verify edge case values were stored correctly
         ContestMarket memory spreadMarket = contestModule.getContestMarket(contestId, spreadScorer);
         assertEq(spreadMarket.theNumber, negativeSpread);
         assertEq(spreadMarket.upperOdds, veryLowOdds);
         assertEq(spreadMarket.lowerOdds, veryHighOdds);
-        
+
         ContestMarket memory totalMarket = contestModule.getContestMarket(contestId, totalScorer);
         assertEq(totalMarket.theNumber, highTotal);
     }
@@ -607,38 +613,38 @@ contract ContestModuleTest is Test {
     // --- Get Contest Market Tests ---
     function testGetContestMarket_ReturnsCorrectData() public {
         uint256 contestId = 1;
-        
-        // First update markets with known values
+
+        // First update markets with known values (uint16 tick format)
         vm.prank(oracleModule);
         contestModule.updateContestMarkets(
             contestId,
-            16_000_000, // moneylineAwayOdds
-            24_000_000, // moneylineHomeOdds
-            -250,       // spreadNumber (-2.5)
-            17_000_000, // spreadAwayOdds
-            23_000_000, // spreadHomeOdds
-            21000,      // totalNumber (210.0)
-            18_000_000, // overOdds
-            22_000_000  // underOdds
+            160,   // moneylineAwayOdds (tick)
+            240,   // moneylineHomeOdds (tick)
+            -25,   // spreadNumber (-2.5, 10x)
+            170,   // spreadAwayOdds (tick)
+            230,   // spreadHomeOdds (tick)
+            2100,  // totalNumber (210.0, 10x)
+            180,   // overOdds (tick)
+            220    // underOdds (tick)
         );
-        
+
         // Test all three market retrievals
         ContestMarket memory moneylineMarket = contestModule.getContestMarket(contestId, moneylineScorer);
         assertEq(moneylineMarket.theNumber, 0); // Moneyline always 0
-        assertEq(moneylineMarket.upperOdds, 16_000_000);
-        assertEq(moneylineMarket.lowerOdds, 24_000_000);
+        assertEq(moneylineMarket.upperOdds, 160);
+        assertEq(moneylineMarket.lowerOdds, 240);
         assertEq(moneylineMarket.lastUpdated, uint32(block.timestamp));
-        
+
         ContestMarket memory spreadMarket = contestModule.getContestMarket(contestId, spreadScorer);
-        assertEq(spreadMarket.theNumber, -250);
-        assertEq(spreadMarket.upperOdds, 17_000_000);
-        assertEq(spreadMarket.lowerOdds, 23_000_000);
+        assertEq(spreadMarket.theNumber, -25);
+        assertEq(spreadMarket.upperOdds, 170);
+        assertEq(spreadMarket.lowerOdds, 230);
         assertEq(spreadMarket.lastUpdated, uint32(block.timestamp));
-        
+
         ContestMarket memory totalMarket = contestModule.getContestMarket(contestId, totalScorer);
-        assertEq(totalMarket.theNumber, 21000);
-        assertEq(totalMarket.upperOdds, 18_000_000);
-        assertEq(totalMarket.lowerOdds, 22_000_000);
+        assertEq(totalMarket.theNumber, 2100);
+        assertEq(totalMarket.upperOdds, 180);
+        assertEq(totalMarket.lowerOdds, 220);
         assertEq(totalMarket.lastUpdated, uint32(block.timestamp));
     }
 

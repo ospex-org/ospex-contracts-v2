@@ -15,8 +15,6 @@ import {OspexCore} from "../core/OspexCore.sol";
 contract SpreadScorerModule is IScorerModule {
     /// @notice Error for not a speculation module
     error SpreadScorerModule__NotSpeculationModule(address caller);
-    /// @notice Error for score not finalized
-    error SpreadScorerModule__ScoreNotFinalized(uint256 contestId);
     /// @notice Error for module not set
     error SpreadScorerModule__ModuleNotSet(bytes32 moduleType);
 
@@ -42,7 +40,7 @@ contract SpreadScorerModule is IScorerModule {
     /**
      * @notice Determines the winning side for a spread speculation
      * @param contestId The ID of the contest to score
-     * @param theNumber The spread value (positive: home favored, negative: away favored)
+     * @param theNumber The spread value stored as 10x (e.g., -3.5 = -35)
      * @return WinSide The winning side
      */
     function determineWinSide(
@@ -58,14 +56,12 @@ contract SpreadScorerModule is IScorerModule {
 
     /**
      * @notice Scores a spread speculation
-     * @param _awayScore Away team score
-     * @param _homeScore Home team score
-     * @param _theNumber Point spread value. Positive means home team is favored, negative means away team is favored
-     *                   Positive values indicate the home team is favored and must win by more than this value to cover the spread.
-     *                   Negative values indicate the away team is favored and the home team must either win outright or lose by less than the absolute value of the spread to cover.
-     *                   For example:
-     *                   - If _theNumber is 3, the home team must win by more than 3 points/goals/runs to cover.
-     *                   - If _theNumber is -4, the home team covers the spread by either winning outright or losing by less than 4 points/goals/runs.
+     * @param _awayScore Away team score (raw game score, not scaled)
+     * @param _homeScore Home team score (raw game score, not scaled)
+     * @param _theNumber Point spread value, stored as 10x (e.g., -3.5 = -35).
+     *                   Positive means home team is favored, negative means away team is favored.
+     *                   Scores are scaled to 10x internally to match theNumber's representation.
+     *                   Away side covers when awayScore * 10 + theNumber >= homeScore * 10.
      * @return WinSide The winning side of the speculation
      */
     function scoreSpread(
@@ -73,10 +69,21 @@ contract SpreadScorerModule is IScorerModule {
         uint32 _homeScore,
         int32 _theNumber
     ) private pure returns (WinSide) {
-        if (int32(_awayScore) + _theNumber >= int32(_homeScore)) {
+        // casting to 'int32' is safe because sports scores * 10 never exceed int32 max
+        // forge-lint: disable-next-line(unsafe-typecast)
+        int32 scaledAway = int32(_awayScore) * 10;
+        // forge-lint: disable-next-line(unsafe-typecast)
+        int32 scaledHome = int32(_homeScore) * 10;
+
+        // add theNumber to away
+        int32 adjustedAway = scaledAway + _theNumber;
+
+        if (adjustedAway > scaledHome) {
             return WinSide.Away;
-        } else {
+        } else if (adjustedAway < scaledHome) {
             return WinSide.Home;
+        } else {
+            return WinSide.Push;
         }
     }
 

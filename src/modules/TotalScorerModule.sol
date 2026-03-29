@@ -15,8 +15,6 @@ import {OspexCore} from "../core/OspexCore.sol";
 contract TotalScorerModule is IScorerModule {
     /// @notice Error for not a speculation module
     error TotalScorerModule__NotSpeculationModule(address caller);
-    /// @notice Error for score not finalized
-    error TotalScorerModule__ScoreNotFinalized(uint256 contestId);
     /// @notice Error for module not set
     error TotalScorerModule__ModuleNotSet(bytes32 moduleType);
 
@@ -42,7 +40,7 @@ contract TotalScorerModule is IScorerModule {
     /**
      * @notice Determines the winning side for a total (over/under) speculation
      * @param contestId The ID of the contest to score
-     * @param theNumber The predicted total combined score
+     * @param theNumber The total line, stored as 10x (e.g., 220.5 = 2205)
      * @return WinSide The winning side
      */
     function determineWinSide(
@@ -58,13 +56,13 @@ contract TotalScorerModule is IScorerModule {
 
     /**
      * @notice Scores a total points speculation
-     * @param _awayScore Away team score
-     * @param _homeScore Home team score
-     * @param _theNumber Predicted total combined score for the speculation
+     * @param _awayScore Away team score (raw game score, not scaled)
+     * @param _homeScore Home team score (raw game score, not scaled)
+     * @param _theNumber Total line, stored as 10x (e.g., 220.5 = 2205).
+     *                   Over wins when (awayScore + homeScore) * 10 >= theNumber.
      *                   For example:
-     *                   - If _theNumber is 195 and the combined score is 196, the result is Over
-     *                   - If _theNumber is 195 and the combined score is 194, the result is Under
-     *                   - If the combined score equals _theNumber, the result is Over
+     *                   - If _theNumber is 2205 (220.5) and combined score is 221, scaled to 2210: Over
+     *                   - If _theNumber is 2205 (220.5) and combined score is 220, scaled to 2200: Under
      * @return WinSide The winning side of the speculation
      */
     function scoreTotal(
@@ -72,7 +70,11 @@ contract TotalScorerModule is IScorerModule {
         uint32 _homeScore,
         int32 _theNumber
     ) private pure returns (WinSide) {
-        if (int32(_awayScore + _homeScore) >= _theNumber) {
+        // casting to 'int32' is safe because combined sports scores * 10 never exceed int32 max
+        // forge-lint: disable-next-line(unsafe-typecast)
+        int32 scaledTotal = int32(_awayScore + _homeScore) * 10;
+
+        if (scaledTotal >= _theNumber) {
             return WinSide.Over;
         } else {
             return WinSide.Under;

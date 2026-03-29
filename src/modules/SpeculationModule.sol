@@ -196,36 +196,11 @@ contract SpeculationModule is ISpeculationModule {
      * @param contestId The ID of the contest
      * @param scorer The scorer of the speculation
      * @param theNumber The number of the speculation
+     * @param speculationCreator The address of the speculation creator
      * @param leaderboardId The leaderboard ID (where the fee will be allocated)
      * @return speculationId The ID of the speculation
      */
     function createSpeculation(
-        uint256 contestId,
-        address scorer,
-        int32 theNumber,
-        uint256 leaderboardId
-    ) external override returns (uint256) {
-        return
-            _createSpeculation(
-                contestId,
-                scorer,
-                theNumber,
-                msg.sender,
-                leaderboardId
-            );
-    }
-
-    // --- ISpeculationModule ---
-    /**
-     * @notice Creates a speculation, called from Position Module when creating an unmatched pair
-     * @param contestId The ID of the contest
-     * @param scorer The scorer of the speculation
-     * @param theNumber The number of the speculation
-     * @param speculationCreator The creator of the speculation
-     * @param leaderboardId The leaderboard ID (where the fee will be allocated)
-     * @return speculationId The ID of the speculation
-     */
-    function createSpeculationWithUnmatchedPair(
         uint256 contestId,
         address scorer,
         int32 theNumber,
@@ -235,15 +210,17 @@ contract SpeculationModule is ISpeculationModule {
         if (msg.sender != _getModule(keccak256("POSITION_MODULE"))) {
             revert SpeculationModule__NotAuthorized(msg.sender);
         }
-        return _createSpeculation(
-            contestId,
-            scorer,
-            theNumber,
-            speculationCreator,
-            leaderboardId
-        );
+        return
+            _createSpeculation(
+                contestId,
+                scorer,
+                theNumber,
+                speculationCreator,
+                leaderboardId
+            );
     }
 
+    // --- ISpeculationModule ---
     /**
      * @notice Settles a speculation
      * @param speculationId The ID of the speculation

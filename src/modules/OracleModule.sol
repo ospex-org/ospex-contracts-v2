@@ -17,18 +17,12 @@ import {
 import {
     Contest,
     ContestStatus,
-    ContestMarket,
     LeagueId,
     OracleRequestContext,
-    OracleRequestType,
-    Speculation,
-    SpeculationStatus
+    OracleRequestType
 } from "../core/OspexTypes.sol";
 import {OspexCore} from "../core/OspexCore.sol";
 import {IContestModule} from "../interfaces/IContestModule.sol";
-import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
-import {IPositionModule} from "../interfaces/IPositionModule.sol";
-import {ILeaderboardModule} from "../interfaces/ILeaderboardModule.sol";
 
 /// @notice Minimal interface for LINK token's transferAndCall (ERC677)
 interface ILinkToken {
@@ -89,6 +83,8 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
     uint256 internal constant LINK_DIVISIBILITY = 10 ** 18;
     /// @notice LINK payment denominator
     uint256 public s_linkDenominator = 250;
+    /// @notice The odds scale factor (1.91 odds = 191 ticks)
+    uint16 public constant ODDS_SCALE = 100;
 
     // Chainlink Functions config
     bytes32 public immutable i_donId;
@@ -478,14 +474,14 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         // 1. Extract market data (all odds and numbers)
         uint256 marketData = bytesToUint256(response);
         (
-            uint64 moneylineAwayOdds,
-            uint64 moneylineHomeOdds,
+            uint16 moneylineAwayOdds,
+            uint16 moneylineHomeOdds,
             int32 spreadNumber,
-            uint64 spreadAwayOdds,
-            uint64 spreadHomeOdds,
+            uint16 spreadAwayOdds,
+            uint16 spreadHomeOdds,
             int32 totalNumber,
-            uint64 overOdds,
-            uint64 underOdds
+            uint16 overOdds,
+            uint16 underOdds
         ) = extractContestMarketData(marketData);
 
         // 3. Update all contest markets with the extracted data
@@ -570,8 +566,12 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
     function extractLeagueIdAndStartTime(
         uint256 _uint
     ) internal pure returns (LeagueId leagueId, uint32 startTime) {
+        // casting to 'uint8' is safe because LeagueId enum has fewer than 256 values
+        // forge-lint: disable-next-line(unsafe-typecast)
         leagueId = LeagueId(uint8(_uint / 1e18));
         // Get last 10 digits (event time)
+        // casting to 'uint32' is safe because modulo 1e10 always fits in uint32 (max 4.29e9)
+        // forge-lint: disable-next-line(unsafe-typecast)
         startTime = uint32(_uint % 1e10);
         return (leagueId, startTime);
     }
@@ -594,58 +594,59 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
      * @notice Extracts contest market data from a packed uint256.
      * @dev The _uint parameter contains data encoded in the following format (38 digits total):
      *      [moneylineAway(5)][moneylineHome(5)][spread(4)][spreadAwayLine(5)][spreadHomeLine(5)][total(4)][overLine(5)][underLine(5)]
-     *      - moneylineAway: ((_uint / 1e33) % 1e5) - 10000, then converted via americanToScaledDecimalOdds
-     *      - moneylineHome: ((_uint / 1e28) % 1e5) - 10000, then converted via americanToScaledDecimalOdds
-     *      - spread: ((_uint / 1e24) % 1e4) - 1000 (offset to handle negatives)
-     *      - spreadAwayLine: ((_uint / 1e19) % 1e5) - 10000, then converted via americanToScaledDecimalOdds
-     *      - spreadHomeLine: ((_uint / 1e14) % 1e5) - 10000, then converted via americanToScaledDecimalOdds
-     *      - total: ((_uint / 1e10) % 1e4) - 1000 (offset to handle negatives)
-     *      - overLine: ((_uint / 1e5) % 1e5) - 10000, then converted via americanToScaledDecimalOdds
-     *      - underLine: (_uint % 1e5) - 10000, then converted via americanToScaledDecimalOdds
-     *      Odds are normalized in JavaScript by adding 10000 to handle negatives, then converted to scaled decimal format.
+     *      - moneylineAway: ((_uint / 1e33) % 1e5), converted via americanToOddsTick
+     *      - moneylineHome: ((_uint / 1e28) % 1e5), converted via americanToOddsTick
+     *      - spread: ((_uint / 1e24) % 1e4) - 1000, stored as 10x (e.g., -3.5 = -35)
+     *      - spreadAwayLine: ((_uint / 1e19) % 1e5), converted via americanToOddsTick
+     *      - spreadHomeLine: ((_uint / 1e14) % 1e5), converted via americanToOddsTick
+     *      - total: ((_uint / 1e10) % 1e4) - 1000, stored as 10x (e.g., 220.5 = 2205)
+     *      - overLine: ((_uint / 1e5) % 1e5), converted via americanToOddsTick
+     *      - underLine: (_uint % 1e5), converted via americanToOddsTick
+     *      American odds are offset by +10000 in JavaScript to handle negatives before packing.
+     *      Numbers (spread/total) are offset by +1000 and stored as 10x for half-point precision.
      * @param _uint The packed uint256 containing all contest market data.
-     * @return moneylineAwayOdds Scaled decimal odds for away team moneyline
-     * @return moneylineHomeOdds Scaled decimal odds for home team moneyline
-     * @return spreadNumber The point spread
-     * @return spreadAwayOdds Scaled decimal odds for away spread
-     * @return spreadHomeOdds Scaled decimal odds for home spread
-     * @return totalNumber The total points
-     * @return overOdds Scaled decimal odds for over
-     * @return underOdds Scaled decimal odds for under
+     * @return moneylineAwayOdds Odds tick for away team moneyline (e.g., 191 = 1.91)
+     * @return moneylineHomeOdds Odds tick for home team moneyline
+     * @return spreadNumber The point spread, stored as 10x (e.g., -35 = -3.5)
+     * @return spreadAwayOdds Odds tick for away spread
+     * @return spreadHomeOdds Odds tick for home spread
+     * @return totalNumber The total points line, stored as 10x (e.g., 2205 = 220.5)
+     * @return overOdds Odds tick for over
+     * @return underOdds Odds tick for under
      */
     function extractContestMarketData(
         uint256 _uint
     )
         internal
-        view
+        pure
         returns (
-            uint64 moneylineAwayOdds,
-            uint64 moneylineHomeOdds,
+            uint16 moneylineAwayOdds,
+            uint16 moneylineHomeOdds,
             int32 spreadNumber,
-            uint64 spreadAwayOdds,
-            uint64 spreadHomeOdds,
+            uint16 spreadAwayOdds,
+            uint16 spreadHomeOdds,
             int32 totalNumber,
-            uint64 overOdds,
-            uint64 underOdds
+            uint16 overOdds,
+            uint16 underOdds
         )
     {
         // Extract moneyline odds (5 digits each, offset back from +10000, then convert to scaled decimal)
-        moneylineAwayOdds = americanToScaledDecimalOdds(((_uint / 1e33) % 1e5));
-        moneylineHomeOdds = americanToScaledDecimalOdds(((_uint / 1e28) % 1e5));
+        moneylineAwayOdds = americanToOddsTick(((_uint / 1e33) % 1e5));
+        moneylineHomeOdds = americanToOddsTick(((_uint / 1e28) % 1e5));
 
         // Extract spread (4 digits, offset back from +1000)
         spreadNumber = int32(int256((_uint / 1e24) % 1e4)) - 1000;
 
         // Extract spread odds (5 digits each, offset back from +10000, then convert to scaled decimal)
-        spreadAwayOdds = americanToScaledDecimalOdds(((_uint / 1e19) % 1e5));
-        spreadHomeOdds = americanToScaledDecimalOdds(((_uint / 1e14) % 1e5));
+        spreadAwayOdds = americanToOddsTick(((_uint / 1e19) % 1e5));
+        spreadHomeOdds = americanToOddsTick(((_uint / 1e14) % 1e5));
 
         // Extract total (4 digits, offset back from +1000)
         totalNumber = int32(int256((_uint / 1e10) % 1e4)) - 1000;
 
         // Extract total odds (5 digits each, offset back from +10000, then convert to scaled decimal)
-        overOdds = americanToScaledDecimalOdds(((_uint / 1e5) % 1e5));
-        underOdds = americanToScaledDecimalOdds((_uint % 1e5));
+        overOdds = americanToOddsTick(((_uint / 1e5) % 1e5));
+        underOdds = americanToOddsTick((_uint % 1e5));
 
         return (
             moneylineAwayOdds,
@@ -660,40 +661,37 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
     }
 
     /**
-     * @notice Converts American odds to a scaled decimal odds value.
-     * @dev Uses ODDS_PRECISION (likely 1e7) as the scaling factor, matching the protocol's odds precision.
-     *      - For positive American odds: decimalOdds = 1 + (americanOdds / 100)
-     *      - For negative American odds: decimalOdds = 1 + (100 / abs(americanOdds))
-     *      The +10000 offset is removed to allow for negative values.
-     * @param americanOdds American odds format (e.g., +150, -110), offset by +10000 in the packed data.
-     * @return uint64 Scaled decimal odds (e.g., 1.50 = 1.5e7).
+     * @notice Converts American odds to a tick value (uint16).
+     * @dev - For positive American odds: tick = 100 + (american)
+     *      - For negative American odds: tick = 100 + round(10000 / abs(american))
+     *      Uses round-to-nearest so -110 becomes 191 (1.91), not 190 (1.90).
+     * @param americanOdds American odds offset by +10000 in the packed data.
+     * @return uint16 Odds tick (e.g., 1.91 = 191, 2.50 = 250).
      */
-    function americanToScaledDecimalOdds(
+    function americanToOddsTick(
         uint256 americanOdds
-    ) internal view returns (uint64) {
-        // --- Fetch the odds precision ---
-        uint64 oddsPrecision = uint64(
-            IPositionModule(_getModule(keccak256("POSITION_MODULE")))
-                .ODDS_PRECISION()
-        );
+    ) internal pure returns (uint16) {
+        if (americanOdds == 10000) return 0; // invalid odds, return 0 to signal no data
+        // casting to 'int256' is safe because americanOdds is a 5-digit packed value (max 99999)
+        // forge-lint: disable-next-line(unsafe-typecast)
+        int256 american = int256(americanOdds) - 10000;
 
-        // Remove the +10000 offset to get the actual American odds (which can be negative)
-        int256 americanOddsReversedOffset = int256(americanOdds) - 10000;
-        if (americanOddsReversedOffset > 0) {
-            return
-                uint64(
-                    (oddsPrecision) +
-                        (uint64(uint256(americanOddsReversedOffset)) *
-                            oddsPrecision) /
-                        100
-                );
+        if (american > 0) {
+            // +150 → 100 + 150 = 250 (2.50) — always exact, no rounding needed
+            // casting to 'uint256' is safe because american is positive in this branch
+            // casting to 'uint16' is safe because MAX_ODDS (10100) fits in uint16
+            // forge-lint: disable-next-line(unsafe-typecast)
+            return uint16(ODDS_SCALE + uint256(american));
         } else {
-            return
-                uint64(
-                    (oddsPrecision) +
-                        (oddsPrecision * 100) /
-                        uint64(uint256(-americanOddsReversedOffset))
-                );
+            // -110 → 100 + round(10000 / 110) = 100 + round(90.909...) = 100 + 91 = 191
+            // casting to 'uint256' is safe because -american is positive in this branch
+            // forge-lint: disable-next-line(unsafe-typecast)
+            uint256 absAmerican = uint256(-american);
+            uint256 profit = (uint256(ODDS_SCALE) * 100 + absAmerican / 2) /
+                absAmerican;
+            // casting to 'uint16' is safe because result is bounded by MAX_ODDS
+            // forge-lint: disable-next-line(unsafe-typecast)
+            return uint16(ODDS_SCALE + profit);
         }
     }
 

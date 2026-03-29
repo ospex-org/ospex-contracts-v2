@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.20;
 
-import {Contest, ContestStatus, ContestMarket, FeeType, LeagueId} from "../core/OspexTypes.sol";
+import {
+    Contest,
+    ContestStatus,
+    ContestMarket,
+    FeeType,
+    LeagueId
+} from "../core/OspexTypes.sol";
 import {OspexCore} from "../core/OspexCore.sol";
 import {IContestModule} from "../interfaces/IContestModule.sol";
 import {ITreasuryModule} from "../interfaces/ITreasuryModule.sol";
@@ -110,12 +116,12 @@ contract ContestModule is IContestModule {
         uint32 lastUpdated,
         int32 spreadNumber,
         int32 totalNumber,
-        uint64 moneylineAwayOdds,
-        uint64 moneylineHomeOdds,
-        uint64 spreadAwayOdds,
-        uint64 spreadHomeOdds,
-        uint64 overOdds,
-        uint64 underOdds
+        uint16 moneylineAwayOdds,
+        uint16 moneylineHomeOdds,
+        uint16 spreadAwayOdds,
+        uint16 spreadHomeOdds,
+        uint16 overOdds,
+        uint16 underOdds
     );
 
     /**
@@ -286,25 +292,25 @@ contract ContestModule is IContestModule {
      * @notice Updates all market data for a contest from oracle response
      * @dev Updates moneyline, spread, and total markets for all known scorers
      * @param contestId The contest identifier
-     * @param moneylineAwayOdds Scaled decimal odds for away team moneyline
-     * @param moneylineHomeOdds Scaled decimal odds for home team moneyline
+     * @param moneylineAwayOdds Odds tick for away team moneyline
+     * @param moneylineHomeOdds Odds tick for home team moneyline
      * @param spreadNumber The point spread
-     * @param spreadAwayOdds Scaled decimal odds for away spread
-     * @param spreadHomeOdds Scaled decimal odds for home spread
+     * @param spreadAwayOdds Odds tick for away spread
+     * @param spreadHomeOdds Odds tick for home spread
      * @param totalNumber The total points
-     * @param overOdds Scaled decimal odds for over
-     * @param underOdds Scaled decimal odds for under
+     * @param overOdds Odds tick for over
+     * @param underOdds Odds tick for under
      */
     function updateContestMarkets(
         uint256 contestId,
-        uint64 moneylineAwayOdds,
-        uint64 moneylineHomeOdds,
+        uint16 moneylineAwayOdds,
+        uint16 moneylineHomeOdds,
         int32 spreadNumber,
-        uint64 spreadAwayOdds,
-        uint64 spreadHomeOdds,
+        uint16 spreadAwayOdds,
+        uint16 spreadHomeOdds,
         int32 totalNumber,
-        uint64 overOdds,
-        uint64 underOdds
+        uint16 overOdds,
+        uint16 underOdds
     ) external override onlyOracleModule {
         uint32 timestamp = uint32(block.timestamp);
 

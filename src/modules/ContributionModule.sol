@@ -28,8 +28,6 @@ contract ContributionModule is IContributionModule, IModule, ReentrancyGuard {
     error ContributionModule__NotAdmin(address admin);
     /// @notice Error for not authorized
     error ContributionModule__NotAuthorized(address caller);
-    /// @notice Error for invalid amount
-    error ContributionModule__InvalidAmount();
 
     // --- Storage ---
     /// @notice The Ospex core contract
@@ -44,14 +42,12 @@ contract ContributionModule is IContributionModule, IModule, ReentrancyGuard {
      * @notice Emitted when a contribution is made
      * @param speculationId The ID of the speculation
      * @param user The address of the user
-     * @param oddsPairId The ID of the odds pair
      * @param positionType The type of position
      * @param contributionAmount The amount of the contribution
      */
     event ContributionMade(
         uint256 indexed speculationId,
         address indexed user,
-        uint128 oddsPairId,
         PositionType positionType,
         uint256 contributionAmount
     );
@@ -145,14 +141,12 @@ contract ContributionModule is IContributionModule, IModule, ReentrancyGuard {
      * @notice Handles a contribution
      * @param speculationId The ID of the speculation
      * @param contributor The address of the contributor
-     * @param oddsPairId The ID of the odds pair
      * @param positionType The type of position
      * @param contributionAmount The amount of the contribution
      */
     function handleContribution(
         uint256 speculationId,
         address contributor,
-        uint128 oddsPairId,
         PositionType positionType,
         uint256 contributionAmount
     ) external override onlyAuthorizedCaller nonReentrant {
@@ -171,7 +165,6 @@ contract ContributionModule is IContributionModule, IModule, ReentrancyGuard {
             emit ContributionMade(
                 speculationId,
                 contributor,
-                oddsPairId,
                 positionType,
                 contributionAmount
             );
@@ -181,7 +174,6 @@ contract ContributionModule is IContributionModule, IModule, ReentrancyGuard {
                 abi.encode(
                     speculationId,
                     contributor,
-                    oddsPairId,
                     positionType,
                     contributionAmount
                 )

@@ -3,6 +3,7 @@ pragma solidity ^0.8.19;
 
 import "forge-std/Test.sol";
 import "../../src/core/OspexCore.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
 contract OspexCoreTest is Test {
     OspexCore core;
@@ -33,8 +34,14 @@ contract OspexCoreTest is Test {
     }
 
     function testRegisterModule_RevertsIfNotModuleAdmin() public {
+        // Pre-compute role to avoid vm.prank being consumed by the view call
+        bytes32 role = core.MODULE_ADMIN_ROLE();
+        vm.expectRevert(abi.encodeWithSelector(
+            IAccessControl.AccessControlUnauthorizedAccount.selector,
+            address(0xBAD),
+            role
+        ));
         vm.prank(address(0xBAD));
-        vm.expectRevert();
         core.registerModule(MODULE_TYPE, dummyModule1);
     }
 
@@ -104,8 +111,13 @@ contract OspexCoreTest is Test {
      */
     function testProposeAdmin_RevertsIfNotAdmin() public {
         address newAdmin = address(0xB0B);
+        bytes32 role = core.DEFAULT_ADMIN_ROLE();
+        vm.expectRevert(abi.encodeWithSelector(
+            IAccessControl.AccessControlUnauthorizedAccount.selector,
+            address(0xBAD),
+            role
+        ));
         vm.prank(address(0xBAD));
-        vm.expectRevert();
         core.proposeAdmin(newAdmin);
     }
 
@@ -245,8 +257,13 @@ contract OspexCoreTest is Test {
         core.acceptAdmin();
 
         // Old admin cannot propose anymore
+        bytes32 role = core.DEFAULT_ADMIN_ROLE();
+        vm.expectRevert(abi.encodeWithSelector(
+            IAccessControl.AccessControlUnauthorizedAccount.selector,
+            admin,
+            role
+        ));
         vm.prank(admin);
-        vm.expectRevert();
         core.proposeAdmin(address(0xD0D));
     }
 
@@ -327,8 +344,13 @@ contract OspexCoreTest is Test {
 
     function testSetMarketRole_RevertsIfNotAdmin() public {
         address market = address(0xCAFE);
+        bytes32 role = core.DEFAULT_ADMIN_ROLE();
+        vm.expectRevert(abi.encodeWithSelector(
+            IAccessControl.AccessControlUnauthorizedAccount.selector,
+            address(0xBAD),
+            role
+        ));
         vm.prank(address(0xBAD));
-        vm.expectRevert();
         core.setMarketRole(market, true);
     }
 

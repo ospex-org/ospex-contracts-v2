@@ -15,8 +15,6 @@ import {OspexCore} from "../core/OspexCore.sol";
 contract MoneylineScorerModule is IScorerModule {
     /// @notice Error for not a score manager
     error MoneylineScorerModule__NotSpeculationModule(address caller);
-    /// @notice Error for score not finalized
-    error MoneylineScorerModule__ScoreNotFinalized(uint256 contestId);
     /// @notice Error for module not set
     error MoneylineScorerModule__ModuleNotSet(bytes32 moduleType);
 

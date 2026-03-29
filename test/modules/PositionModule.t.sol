@@ -2,7 +2,7 @@
 pragma solidity ^0.8.19;
 
 // [NOTE] All test amounts in this file use 6 decimals (USDC-style): 1 USDC = 1_000_000
-// [NOTE] All odds in this file use 1e7 precision: 1.10 = 11_000_000, 1.80 = 18_000_000, etc. (MIN_ODDS = 10_100_000)
+// [NOTE] OddsPair system has been removed. Positions use riskAmount/profitAmount directly.
 
 import "forge-std/Test.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -11,7 +11,7 @@ import {OspexCore} from "../../src/core/OspexCore.sol";
 import {ContributionModule} from "../../src/modules/ContributionModule.sol";
 import {SpeculationModule} from "../../src/modules/SpeculationModule.sol";
 import {TreasuryModule} from "../../src/modules/TreasuryModule.sol";
-import {PositionType, Contest, ContestStatus, Position, WinSide, OddsPair, LeagueId, Speculation, SpeculationStatus, FeeType, Leaderboard} from "../../src/core/OspexTypes.sol";
+import {PositionType, Contest, ContestStatus, Position, WinSide, LeagueId, Speculation, SpeculationStatus, FeeType, Leaderboard} from "../../src/core/OspexTypes.sol";
 import {MockMarket} from "../mocks/MockMarket.sol";
 import {MockSpeculationModule} from "../mocks/MockSpeculationModule.sol";
 import {MockScorerModule} from "../mocks/MockScorerModule.sol";
@@ -99,11 +99,11 @@ contract PositionModuleTest is Test {
             address(mockLeaderboardModule)
         );
 
-        // Register this test contract as ORACLE_MODULE so it can call createSpeculation
-        core.registerModule(keccak256("ORACLE_MODULE"), address(this));
+        // Register this test contract as MATCHING_MODULE so it can call recordFill
+        core.registerModule(keccak256("MATCHING_MODULE"), address(this));
 
-        // Grant MARKET_ROLE to the test contract so it can call createMatchedPair
-        core.setMarketRole(address(this), true);
+        // Register this test contract as ORACLE_MODULE (kept for other module interactions)
+        core.registerModule(keccak256("ORACLE_MODULE"), address(this));
 
         // Set up default verified contests for all tests
         Contest memory defaultContest = Contest({
@@ -126,43 +126,40 @@ contract PositionModuleTest is Test {
 
     // --- Helper Functions ---
 
-    /// @notice Computes the oddsPairId deterministically (mirrors _getOrCreateOddsPairId logic).
-    ///         The internal _getOrCreateOddsPairId is not publicly exposed, so tests compute the
-    ///         expected oddsPairId using the same pure-math formula.
-    function _computeOddsPairId(
-        PositionModule pm,
-        uint64 odds,
-        PositionType positionType
-    ) internal view returns (uint128 oddsPairId, uint64 upperOdds, uint64 lowerOdds) {
-        uint64 normalizedOdds = pm.roundOddsToNearestIncrement(odds);
-        uint64 inverseOdds = pm.calculateAndRoundInverseOdds(normalizedOdds);
-        uint16 oddsIndex = uint16((normalizedOdds - pm.MIN_ODDS()) / pm.ODDS_INCREMENT());
-        uint128 baseOddsPairId = uint128(oddsIndex);
-        oddsPairId = (positionType == PositionType.Lower)
-            ? baseOddsPairId + 10000
-            : baseOddsPairId;
-        upperOdds = (positionType == PositionType.Upper)
-            ? normalizedOdds
-            : inverseOdds;
-        lowerOdds = (positionType == PositionType.Upper)
-            ? inverseOdds
-            : normalizedOdds;
-    }
-
-    /// @notice Helper to create a matched pair (test contract has MARKET_ROLE)
-    function _helperCreateMatchedPair(
-        PositionModule pm,
-        uint256 specId,
-        uint64 odds,
+    /// @notice Helper to record a fill (test contract has MATCHING_MODULE role)
+    function _helperRecordFill(
+        uint256 contestId,
+        address scorer,
+        int32 theNumber,
         PositionType makerPositionType,
         address maker,
-        uint256 makerAmountRemaining,
+        uint256 makerRisk,
         address _taker,
-        uint256 _takerAmount
-    ) internal returns (uint256 makerAmountConsumed, uint128 _oddsPairId) {
-        (_oddsPairId, , ) = _computeOddsPairId(pm, odds, makerPositionType);
-        makerAmountConsumed = pm.createMatchedPair(
-            specId, odds, makerPositionType, maker, makerAmountRemaining, _taker, _takerAmount, 0, 0
+        uint256 takerRisk
+    ) internal returns (uint256 speculationId) {
+        speculationId = positionModule.recordFill(
+            contestId, scorer, theNumber, leaderboardId,
+            makerPositionType, maker, makerRisk,
+            _taker, takerRisk, 0, 0
+        );
+    }
+
+    /// @notice Helper to record a fill on a specific PositionModule instance
+    function _helperRecordFillLocal(
+        PositionModule localPM,
+        uint256 contestId,
+        address scorer,
+        int32 theNumber,
+        PositionType makerPositionType,
+        address maker,
+        uint256 makerRisk,
+        address _taker,
+        uint256 takerRisk
+    ) internal returns (uint256 speculationId) {
+        speculationId = localPM.recordFill(
+            contestId, scorer, theNumber, leaderboardId,
+            makerPositionType, maker, makerRisk,
+            _taker, takerRisk, 0, 0
         );
     }
 
@@ -185,53 +182,41 @@ contract PositionModuleTest is Test {
         assertEq(positionModule.getModuleType(), keccak256("POSITION_MODULE"));
     }
 
-    // --- createMatchedPair TESTS ---
+    // --- recordFill TESTS ---
 
-    function testCreateMatchedPair_HappyPath() public {
-        uint256 specId = speculationModule.createSpeculation(
+    function testRecordFill_HappyPath() public {
+        // Maker = address(this), 10 USDC risk, taker 8 USDC risk (equivalent to old 1.80 odds)
+        // At 1.80 odds: maker risks 10, profit if win = 8. Taker risks 8, profit if win = 10.
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        // Approve tokens for both maker and taker
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
             1,
             address(0x1234),
             42,
-            leaderboardId
-        );
-
-        // Maker = address(this), 10 USDC at 1.80 odds Upper
-        // upperOdds = 18_000_000, lowerOdds = 22_500_000
-        // matchableAmount = 10M * (18M - 10M) / 10M = 8_000_000
-        // takerAmount = 8_000_000
-        // makerAmountConsumed = 8M * (22.5M - 10M) / 10M = 10_000_000
-        uint64 odds = 18_000_000;
-        uint256 makerAmountRemaining = 10_000_000;
-        uint256 takerAmount = 8_000_000;
-
-        // Approve tokens for both maker and taker
-        token.approve(address(positionModule), makerAmountRemaining);
-        vm.prank(taker);
-        token.approve(address(positionModule), takerAmount);
-
-        (uint256 makerAmountConsumed, uint128 oddsPairId) = _helperCreateMatchedPair(
-            positionModule,
-            specId,
-            odds,
             PositionType.Upper,
             address(this),
-            makerAmountRemaining,
+            makerRisk,
             taker,
-            takerAmount
+            takerRisk
         );
 
-        // Verify makerAmountConsumed
-        assertEq(makerAmountConsumed, 10_000_000, "makerAmountConsumed should be 10M");
+        // Verify speculation was created
+        assertGt(specId, 0, "Speculation should have been created");
 
         // Verify maker position
         Position memory makerPos = positionModule.getPosition(
             specId,
             address(this),
-            oddsPairId,
             PositionType.Upper
         );
-        assertEq(makerPos.matchedAmount, 10_000_000, "Maker matchedAmount should be 10M");
-        assertEq(makerPos.takerAmount, 8_000_000, "Maker takerAmount should be 8M");
+        assertEq(makerPos.riskAmount, 10_000_000, "Maker riskAmount should be 10M");
+        assertEq(makerPos.profitAmount, 8_000_000, "Maker profitAmount should be 8M");
         assertEq(uint(makerPos.positionType), uint(PositionType.Upper));
         assertFalse(makerPos.claimed);
 
@@ -239,33 +224,27 @@ contract PositionModuleTest is Test {
         Position memory takerPos = positionModule.getPosition(
             specId,
             taker,
-            oddsPairId,
             PositionType.Lower
         );
-        assertEq(takerPos.matchedAmount, 8_000_000, "Taker matchedAmount should be 8M");
-        assertEq(takerPos.takerAmount, 10_000_000, "Taker takerAmount should be 10M");
+        assertEq(takerPos.riskAmount, 8_000_000, "Taker riskAmount should be 8M");
+        assertEq(takerPos.profitAmount, 10_000_000, "Taker profitAmount should be 10M");
         assertEq(uint(takerPos.positionType), uint(PositionType.Lower));
         assertFalse(takerPos.claimed);
     }
 
-    function testCreateMatchedPair_RevertsWithoutMarketRole() public {
-        uint256 specId = speculationModule.createSpeculation(
-            1,
-            address(0x1234),
-            42,
-            leaderboardId
-        );
-
-        // Use an address that does NOT have MARKET_ROLE
+    function testRecordFill_RevertsWithoutMatchingModule() public {
+        // Use an address that is NOT the MATCHING_MODULE
         address unauthorized = address(0xDEAD);
 
         vm.expectRevert(
-            PositionModule.PositionModule__UnauthorizedMarket.selector
+            PositionModule.PositionModule__NotMatchingModule.selector
         );
         vm.prank(unauthorized);
-        positionModule.createMatchedPair(
-            specId,
-            18_000_000,
+        positionModule.recordFill(
+            1,
+            address(0x1234),
+            42,
+            leaderboardId,
             PositionType.Upper,
             address(this),
             10_000_000,
@@ -276,16 +255,28 @@ contract PositionModuleTest is Test {
         );
     }
 
-    function testCreateMatchedPair_RevertsIfSpeculationNotOpen() public {
+    function testRecordFill_RevertsIfSpeculationNotOpen() public {
         uint32 startTime = uint32(block.timestamp + 1 hours);
 
         MockScorerModule mockScorer = new MockScorerModule();
 
-        uint256 specId = speculationModule.createSpeculation(
+        // First create a speculation via recordFill
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
             1,
             address(mockScorer),
             42,
-            leaderboardId
+            PositionType.Upper,
+            address(this),
+            makerRisk,
+            taker,
+            takerRisk
         );
 
         // Settle the speculation
@@ -304,75 +295,41 @@ contract PositionModuleTest is Test {
         mockContestModule.setContest(1, contest);
         speculationModule.settleSpeculation(specId);
 
-        // Try to create a matched pair after speculation is closed
-        token.approve(address(positionModule), 10_000_000);
+        // Try to record a fill after speculation is closed
+        token.approve(address(positionModule), makerRisk);
         vm.prank(taker);
-        token.approve(address(positionModule), 8_000_000);
+        token.approve(address(positionModule), takerRisk);
 
+        // recordFill will find the existing speculation (which is now Closed) and revert
         vm.expectRevert(
             PositionModule.PositionModule__SpeculationNotOpen.selector
         );
-        positionModule.createMatchedPair(
-            specId,
-            18_000_000,
+        positionModule.recordFill(
+            1,
+            address(mockScorer),
+            42,
+            leaderboardId,
             PositionType.Upper,
             address(this),
-            10_000_000,
+            makerRisk,
             taker,
-            8_000_000,
+            takerRisk,
             0,
             0
         );
     }
 
-    function testCreateMatchedPair_RevertsIfOddsOutOfRange() public {
-        uint256 specId = speculationModule.createSpeculation(
-            1,
-            address(0x1234),
-            42,
-            leaderboardId
-        );
-
-        token.approve(address(positionModule), 10_000_000);
-        vm.prank(taker);
-        token.approve(address(positionModule), 8_000_000);
-
-        // Odds below MIN_ODDS
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                PositionModule.PositionModule__OddsOutOfRange.selector,
-                1_000_000
-            )
-        );
-        positionModule.createMatchedPair(
-            specId,
-            1_000_000, // Below MIN_ODDS
-            PositionType.Upper,
-            address(this),
-            10_000_000,
-            taker,
-            8_000_000,
-            0,
-            0
-        );
-    }
-
-    function testCreateMatchedPair_RevertsIfTakerAmountOutOfRange() public {
-        uint256 specId = speculationModule.createSpeculation(
-            1,
-            address(0x1234),
-            42,
-            leaderboardId
-        );
-
+    function testRecordFill_RevertsIfTakerRiskOutOfRange() public {
         token.approve(address(positionModule), 10_000_000);
         vm.prank(taker);
         token.approve(address(positionModule), 1);
 
         vm.expectRevert(PositionModule.PositionModule__InvalidAmount.selector);
-        positionModule.createMatchedPair(
-            specId,
-            18_000_000,
+        positionModule.recordFill(
+            1,
+            address(0x1234),
+            42,
+            leaderboardId,
             PositionType.Upper,
             address(this),
             10_000_000,
@@ -383,47 +340,9 @@ contract PositionModuleTest is Test {
         );
     }
 
-    function testCreateMatchedPair_RevertsIfInsufficientAmountRemaining() public {
-        uint256 specId = speculationModule.createSpeculation(
-            1,
-            address(0x1234),
-            42,
-            leaderboardId
-        );
+    // --- recordFill with auto-speculation creation TESTS ---
 
-        // At 1.80 odds Upper:
-        // matchableAmount = 1M * (18M - 10M) / 10M = 800_000
-        // But taker wants 1_000_000 which exceeds matchableAmount
-        uint256 makerAmountRemaining = 1_000_000;
-        uint256 takerAmount = 1_000_000; // Exceeds matchable 800_000
-
-        token.approve(address(positionModule), makerAmountRemaining);
-        vm.prank(taker);
-        token.approve(address(positionModule), takerAmount);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                PositionModule.PositionModule__InsufficientAmountRemaining.selector,
-                makerAmountRemaining,
-                800_000 // matchableAmount = 1M * 0.8
-            )
-        );
-        positionModule.createMatchedPair(
-            specId,
-            18_000_000,
-            PositionType.Upper,
-            address(this),
-            makerAmountRemaining,
-            taker,
-            takerAmount,
-            0,
-            0
-        );
-    }
-
-    // --- createMatchedPairWithSpeculation TESTS ---
-
-    function testCreateMatchedPairWithSpeculation_HappyPath() public {
+    function testRecordFill_CreatesSpeculationAutomatically() public {
         // Verify speculation doesn't exist yet
         uint256 existingSpecId = speculationModule.getSpeculationId(
             1, // contestId
@@ -433,87 +352,47 @@ contract PositionModuleTest is Test {
         assertEq(existingSpecId, 0, "Speculation should not exist yet");
 
         // Set up maker and taker approvals
-        uint64 odds = 18_000_000;
-        uint256 makerAmountRemaining = 10_000_000;
-        uint256 takerAmount = 8_000_000;
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
 
-        token.approve(address(positionModule), makerAmountRemaining);
+        token.approve(address(positionModule), makerRisk);
         vm.prank(taker);
-        token.approve(address(positionModule), takerAmount);
+        token.approve(address(positionModule), takerRisk);
 
-        // Call createMatchedPairWithSpeculation
-        positionModule.createMatchedPairWithSpeculation(
+        // Call recordFill — speculation should be created automatically
+        uint256 specId = _helperRecordFill(
             1, // contestId
             address(0x1234), // scorer
             42, // theNumber
-            leaderboardId,
-            odds,
             PositionType.Upper,
             address(this), // maker
-            makerAmountRemaining,
+            makerRisk,
             taker,
-            takerAmount,
-            0, // makerContributionAmount
-            0  // takerContributionAmount
+            takerRisk
         );
 
         // Verify speculation was created
-        uint256 newSpecId = speculationModule.getSpeculationId(
-            1,
-            address(0x1234),
-            42
-        );
-        assertGt(newSpecId, 0, "Speculation should have been created");
+        assertGt(specId, 0, "Speculation should have been created");
 
-        Speculation memory spec = speculationModule.getSpeculation(newSpecId);
+        Speculation memory spec = speculationModule.getSpeculation(specId);
         assertEq(spec.contestId, 1);
         assertEq(spec.speculationScorer, address(0x1234));
         assertEq(spec.theNumber, 42);
 
         // Verify positions were created
-        (uint128 oddsPairId, , ) = _computeOddsPairId(
-            positionModule,
-            odds,
-            PositionType.Upper
-        );
         Position memory makerPos = positionModule.getPosition(
-            newSpecId,
+            specId,
             address(this),
-            oddsPairId,
             PositionType.Upper
         );
-        assertGt(makerPos.matchedAmount, 0, "Maker should have matched amount");
+        assertGt(makerPos.riskAmount, 0, "Maker should have risk amount");
 
         Position memory takerPos = positionModule.getPosition(
-            newSpecId,
+            specId,
             taker,
-            oddsPairId,
             PositionType.Lower
         );
-        assertGt(takerPos.matchedAmount, 0, "Taker should have matched amount");
-    }
-
-    function testCreateMatchedPairWithSpeculation_RevertsWithoutMarketRole() public {
-        address unauthorized = address(0xDEAD);
-
-        vm.expectRevert(
-            PositionModule.PositionModule__UnauthorizedMarket.selector
-        );
-        vm.prank(unauthorized);
-        positionModule.createMatchedPairWithSpeculation(
-            1,
-            address(0x1234),
-            42,
-            leaderboardId,
-            18_000_000,
-            PositionType.Upper,
-            address(this),
-            10_000_000,
-            taker,
-            8_000_000,
-            0,
-            0
-        );
+        assertGt(takerPos.riskAmount, 0, "Taker should have risk amount");
     }
 
     // --- CLAIM POSITION TESTS ---
@@ -523,32 +402,24 @@ contract PositionModuleTest is Test {
 
         MockScorerModule mockScorer = new MockScorerModule();
 
-        uint256 specId = speculationModule.createSpeculation(
+        // Create matched pair: maker=this (Upper), taker=0xCAFE (Lower)
+        // At 1.80 odds: makerRisk=10M, takerRisk=8M
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
             1,
             address(mockScorer),
             42,
-            leaderboardId
-        );
-
-        // Create matched pair: maker=this (Upper), taker=0xCAFE (Lower)
-        // At 1.80 odds: makerAmountConsumed=10M, takerAmount=8M
-        uint64 odds = 18_000_000;
-        uint256 makerAmountRemaining = 10_000_000;
-        uint256 takerAmount = 8_000_000;
-
-        token.approve(address(positionModule), makerAmountRemaining);
-        vm.prank(taker);
-        token.approve(address(positionModule), takerAmount);
-
-        (, uint128 oddsPairId) = _helperCreateMatchedPair(
-            positionModule,
-            specId,
-            odds,
             PositionType.Upper,
             address(this),
-            makerAmountRemaining,
+            makerRisk,
             taker,
-            takerAmount
+            takerRisk
         );
 
         // Settle speculation (Away wins = Upper wins)
@@ -567,20 +438,19 @@ contract PositionModuleTest is Test {
         mockContestModule.setContest(1, contest);
         speculationModule.settleSpeculation(specId);
 
-        // Claim: winner gets matchedAmount + takerAmount = 10M + 8M = 18M
+        // Claim: winner gets riskAmount + profitAmount = 10M + 8M = 18M
         uint256 balBefore = token.balanceOf(address(this));
-        positionModule.claimPosition(specId, oddsPairId, PositionType.Upper);
+        positionModule.claimPosition(specId, PositionType.Upper);
         uint256 balAfter = token.balanceOf(address(this));
         assertEq(balAfter - balBefore, 18_000_000, "Winner payout should be 18M (10M + 8M)");
 
         Position memory pos = positionModule.getPosition(
             specId,
             address(this),
-            oddsPairId,
             PositionType.Upper
         );
         assertTrue(pos.claimed);
-        assertEq(pos.matchedAmount, 0);
+        assertEq(pos.riskAmount, 0);
     }
 
     function testGetPosition_ReturnPositionWithClaimedTrue() public {
@@ -588,29 +458,23 @@ contract PositionModuleTest is Test {
 
         MockScorerModule mockScorer = new MockScorerModule();
 
-        uint256 specId = speculationModule.createSpeculation(
+        // Create matched pair
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
             1,
             address(mockScorer),
             42,
-            leaderboardId
-        );
-
-        // Create matched pair
-        uint64 odds = 18_000_000;
-        uint256 makerAmountRemaining = 10_000_000;
-        uint256 takerAmount = 8_000_000;
-
-        token.approve(address(positionModule), makerAmountRemaining);
-        vm.prank(taker);
-        token.approve(address(positionModule), takerAmount);
-
-        (uint128 oddsPairId, , ) = _computeOddsPairId(
-            positionModule,
-            odds,
-            PositionType.Upper
-        );
-        positionModule.createMatchedPair(
-            specId, odds, PositionType.Upper, address(this), makerAmountRemaining, taker, takerAmount, 0, 0
+            PositionType.Upper,
+            address(this),
+            makerRisk,
+            taker,
+            takerRisk
         );
 
         vm.warp(futureTime + 2 hours);
@@ -628,15 +492,14 @@ contract PositionModuleTest is Test {
         mockContestModule.setContest(1, contest);
         speculationModule.settleSpeculation(specId);
 
-        positionModule.claimPosition(specId, oddsPairId, PositionType.Upper);
+        positionModule.claimPosition(specId, PositionType.Upper);
         Position memory pos = positionModule.getPosition(
             specId,
             address(this),
-            oddsPairId,
             PositionType.Upper
         );
         assertTrue(pos.claimed);
-        assertEq(pos.matchedAmount, 0);
+        assertEq(pos.riskAmount, 0);
     }
 
     // --- PAYOUT CALCULATION EDGE CASES ---
@@ -669,32 +532,24 @@ contract PositionModuleTest is Test {
         vm.warp(1672531200); // Jan 1, 2023
 
         // --- Test Push scenario ---
-        uint256 specIdPush = mockSpeculationModule.createSpeculation(
+        // At 1.80 odds: maker risks 10M, taker risks 8M
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        token.approve(address(localPositionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(localPositionModule), takerRisk);
+
+        uint256 specIdPush = _helperRecordFillLocal(
+            localPositionModule,
             1,
             address(mockScorer),
             42,
-            leaderboardId
-        );
-
-        // Create matched pair for Push test
-        // At 1.80 odds: maker puts 10M, taker puts 8M
-        uint64 odds = 18_000_000;
-        uint256 makerAmountRemaining = 10_000_000;
-        uint256 takerAmount = 8_000_000;
-
-        token.approve(address(localPositionModule), makerAmountRemaining);
-        vm.prank(taker);
-        token.approve(address(localPositionModule), takerAmount);
-
-        (, uint128 oddsPairId) = _helperCreateMatchedPair(
-            localPositionModule,
-            specIdPush,
-            odds,
             PositionType.Upper,
             address(this),
-            makerAmountRemaining,
+            makerRisk,
             taker,
-            takerAmount
+            takerRisk
         );
 
         vm.warp(futureTime + 2 hours);
@@ -714,39 +569,34 @@ contract PositionModuleTest is Test {
         mockSpeculationModule.settleSpeculation(specIdPush);
         mockSpeculationModule.setSpeculationWinSide(specIdPush, WinSide.Push);
 
-        // On Push: payout = matchedAmount (original stake back)
+        // On Push: payout = riskAmount (original stake back)
         uint256 balBefore = token.balanceOf(address(this));
         localPositionModule.claimPosition(
             specIdPush,
-            oddsPairId,
             PositionType.Upper
         );
         uint256 balAfter = token.balanceOf(address(this));
-        assertEq(balAfter - balBefore, 10_000_000, "Push should return matchedAmount (10M)");
+        assertEq(balAfter - balBefore, 10_000_000, "Push should return riskAmount (10M)");
 
         // --- Test Void scenario ---
         vm.warp(1672531200 + 1 days); // Jan 2, 2023
         futureTime2 = uint32(block.timestamp + 1 hours);
 
-        uint256 specIdVoid = mockSpeculationModule.createSpeculation(
+        // Create matched pair for Void test
+        token.approve(address(localPositionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(localPositionModule), takerRisk);
+
+        uint256 specIdVoid = _helperRecordFillLocal(
+            localPositionModule,
             2,
             address(mockScorer),
             43,
-            leaderboardId
-        );
-
-        // Create matched pair for Void test
-        token.approve(address(localPositionModule), makerAmountRemaining);
-        vm.prank(taker);
-        token.approve(address(localPositionModule), takerAmount);
-
-        (uint128 oddsPairIdVoid, , ) = _computeOddsPairId(
-            localPositionModule,
-            odds,
-            PositionType.Upper
-        );
-        localPositionModule.createMatchedPair(
-            specIdVoid, odds, PositionType.Upper, address(this), makerAmountRemaining, taker, takerAmount, 0, 0
+            PositionType.Upper,
+            address(this),
+            makerRisk,
+            taker,
+            takerRisk
         );
 
         vm.warp(futureTime2 + 2 hours);
@@ -769,11 +619,10 @@ contract PositionModuleTest is Test {
         balBefore = token.balanceOf(address(this));
         localPositionModule.claimPosition(
             specIdVoid,
-            oddsPairIdVoid,
             PositionType.Upper
         );
         balAfter = token.balanceOf(address(this));
-        assertEq(balAfter - balBefore, 10_000_000, "Void should return matchedAmount (10M)");
+        assertEq(balAfter - balBefore, 10_000_000, "Void should return riskAmount (10M)");
     }
 
     function testClaimPosition_WinLossScenarios() public {
@@ -798,63 +647,50 @@ contract PositionModuleTest is Test {
 
         MockScorerModule mockScorer = new MockScorerModule();
 
-        uint256 specId = mockSpeculationModule.createSpeculation(
-            1,
-            address(mockScorer),
-            42,
-            leaderboardId
-        );
         uint256 tokenUnit = 10_000_000; // 10 USDC
 
-        // --- Create Upper position via createMatchedPair ---
-        // At 1.10 odds Upper: upperOdds=11M, lowerOdds=inverse(~111M)
-        // matchableAmount = 10M * (11M-10M)/10M = 1_000_000
-        // takerAmount = 1_000_000, makerAmountConsumed = 1M * (lowerOdds-10M)/10M = 10_000_000
-        uint64 upperOdds = 11_000_000;
-        uint256 upperTakerAmount = (tokenUnit * (upperOdds - 10_000_000)) / 10_000_000; // 1_000_000
+        // --- Create Upper position ---
+        // At 1.10 odds: maker risks 10M, taker risks 1M (profit for maker = 1M)
+        uint256 upperTakerRisk = 1_000_000;
         address upperTaker = address(0xCAFE);
 
         token.approve(address(localPositionModule), tokenUnit);
-        token.transfer(upperTaker, upperTakerAmount);
+        token.transfer(upperTaker, upperTakerRisk);
         vm.prank(upperTaker);
-        token.approve(address(localPositionModule), upperTakerAmount);
+        token.approve(address(localPositionModule), upperTakerRisk);
 
-        (, uint128 upperOddsPairId) = _helperCreateMatchedPair(
+        uint256 specId1 = _helperRecordFillLocal(
             localPositionModule,
-            specId,
-            upperOdds,
+            1,
+            address(mockScorer),
+            42,
             PositionType.Upper,
             address(this),
             tokenUnit,
             upperTaker,
-            upperTakerAmount
+            upperTakerRisk
         );
 
-        // --- Create Lower position via createMatchedPair ---
-        // At 1.80 odds Lower: lowerOdds=18M, upperOdds=22.5M
-        // relevantOdds for Lower maker = lowerOdds = 18M
-        // matchableAmount = 10M * (18M-10M)/10M = 8_000_000
-        // takerAmount = 8_000_000
-        // oppositeOdds = upperOdds = 22.5M
-        // makerAmountConsumed = 8M * (22.5M-10M)/10M = 10_000_000
-        uint64 lowerOdds = 18_000_000;
-        uint256 lowerTakerAmount = (tokenUnit * (lowerOdds - 10_000_000)) / 10_000_000; // 8_000_000
+        // --- Create Lower position (separate speculation) ---
+        // At 1.80 odds Lower: maker risks 10M, taker risks 8M
+        uint256 lowerTakerRisk = 8_000_000;
         address lowerTaker = address(0xCAFF);
 
         token.approve(address(localPositionModule), tokenUnit);
-        token.transfer(lowerTaker, lowerTakerAmount);
+        token.transfer(lowerTaker, lowerTakerRisk);
         vm.prank(lowerTaker);
-        token.approve(address(localPositionModule), lowerTakerAmount);
+        token.approve(address(localPositionModule), lowerTakerRisk);
 
-        (, uint128 lowerOddsPairId) = _helperCreateMatchedPair(
+        uint256 specId2 = _helperRecordFillLocal(
             localPositionModule,
-            specId,
-            lowerOdds,
+            1,
+            address(mockScorer),
+            43,
             PositionType.Lower,
             address(this),
             tokenUnit,
             lowerTaker,
-            lowerTakerAmount
+            lowerTakerRisk
         );
 
         vm.warp(futureTime + 2 hours);
@@ -870,45 +706,42 @@ contract PositionModuleTest is Test {
             jsonoddsId: ""
         });
         mockContestModule.setContest(1, contest);
-        mockSpeculationModule.settleSpeculation(specId);
+        mockSpeculationModule.settleSpeculation(specId1);
+        mockSpeculationModule.settleSpeculation(specId2);
 
         // Test win for Upper (Away)
-        mockSpeculationModule.setSpeculationWinSide(specId, WinSide.Away);
+        mockSpeculationModule.setSpeculationWinSide(specId1, WinSide.Away);
         Position memory posUpper = localPositionModule.getPosition(
-            specId,
+            specId1,
             address(this),
-            upperOddsPairId,
             PositionType.Upper
         );
-        emit log_named_uint("matchedAmount (Upper win)", posUpper.matchedAmount);
+        emit log_named_uint("riskAmount (Upper win)", posUpper.riskAmount);
         emit log_named_uint("positionType (Upper win)", uint(posUpper.positionType));
 
         uint256 balBefore = token.balanceOf(address(this));
         localPositionModule.claimPosition(
-            specId,
-            upperOddsPairId,
+            specId1,
             PositionType.Upper
         );
         uint256 balAfter = token.balanceOf(address(this));
         emit log_named_uint("payout (Upper win)", balAfter - balBefore);
-        // Winner gets matchedAmount + takerAmount
+        // Winner gets riskAmount + profitAmount
         assertGt(balAfter - balBefore, tokenUnit);
 
         // Test win for Lower (Home)
-        mockSpeculationModule.setSpeculationWinSide(specId, WinSide.Home);
+        mockSpeculationModule.setSpeculationWinSide(specId2, WinSide.Home);
         Position memory posLower = localPositionModule.getPosition(
-            specId,
+            specId2,
             address(this),
-            lowerOddsPairId,
             PositionType.Lower
         );
-        emit log_named_uint("matchedAmount (Lower win)", posLower.matchedAmount);
+        emit log_named_uint("riskAmount (Lower win)", posLower.riskAmount);
         emit log_named_uint("positionType (Lower win)", uint(posLower.positionType));
 
         balBefore = token.balanceOf(address(this));
         localPositionModule.claimPosition(
-            specId,
-            lowerOddsPairId,
+            specId2,
             PositionType.Lower
         );
         balAfter = token.balanceOf(address(this));
@@ -919,38 +752,29 @@ contract PositionModuleTest is Test {
     // --- TRANSFER POSITION TESTS ---
 
     function testTransferPosition_HappyPath() public {
-        uint256 specId = speculationModule.createSpeculation(
+        // Create matched pair
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 1_000_000; // At 1.10 odds
+
+        token.approve(address(positionModule), makerRisk);
+        token.transfer(taker, takerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
             1,
             address(0x1234),
             42,
-            leaderboardId
-        );
-
-        // Create matched pair
-        uint64 odds = 11_000_000;
-        uint256 tokenUnit = 10_000_000; // 10 USDC
-        uint256 takerAmount = (tokenUnit * (odds - 10_000_000)) / 10_000_000; // 1_000_000
-
-        token.approve(address(positionModule), tokenUnit);
-        token.transfer(taker, takerAmount);
-        vm.prank(taker);
-        token.approve(address(positionModule), takerAmount);
-
-        (, uint128 oddsPairId) = _helperCreateMatchedPair(
-            positionModule,
-            specId,
-            odds,
             PositionType.Upper,
             address(this),
-            tokenUnit,
+            makerRisk,
             taker,
-            takerAmount
+            takerRisk
         );
 
         Position memory makerPos = positionModule.getPosition(
             specId,
             address(this),
-            oddsPairId,
             PositionType.Upper
         );
 
@@ -960,62 +784,51 @@ contract PositionModuleTest is Test {
         market.transferPosition(
             specId,
             address(this),
-            oddsPairId,
             PositionType.Upper,
             user,
-            makerPos.matchedAmount
+            makerPos.riskAmount,
+            makerPos.profitAmount
         );
 
         Position memory fromPos = positionModule.getPosition(
             specId,
             address(this),
-            oddsPairId,
             PositionType.Upper
         );
         Position memory toPos = positionModule.getPosition(
             specId,
             user,
-            oddsPairId,
             PositionType.Upper
         );
-        assertEq(fromPos.matchedAmount, 0);
-        assertEq(toPos.matchedAmount, makerPos.matchedAmount);
-        assertEq(toPos.poolId, oddsPairId);
+        assertEq(fromPos.riskAmount, 0);
+        assertEq(toPos.riskAmount, makerPos.riskAmount);
+        assertEq(toPos.profitAmount, makerPos.profitAmount);
         assertFalse(toPos.claimed);
     }
 
     function testTransferPosition_RevertsIfUnauthorized() public {
-        uint256 specId = speculationModule.createSpeculation(
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 1_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        token.transfer(taker, takerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
             1,
             address(0x1234),
             42,
-            leaderboardId
-        );
-
-        uint64 odds = 11_000_000;
-        uint256 tokenUnit = 10_000_000;
-        uint256 takerAmount = (tokenUnit * (odds - 10_000_000)) / 10_000_000;
-
-        token.approve(address(positionModule), tokenUnit);
-        token.transfer(taker, takerAmount);
-        vm.prank(taker);
-        token.approve(address(positionModule), takerAmount);
-
-        (, uint128 oddsPairId) = _helperCreateMatchedPair(
-            positionModule,
-            specId,
-            odds,
             PositionType.Upper,
             address(this),
-            tokenUnit,
+            makerRisk,
             taker,
-            takerAmount
+            takerRisk
         );
 
         Position memory makerPos = positionModule.getPosition(
             specId,
             address(this),
-            oddsPairId,
             PositionType.Upper
         );
 
@@ -1028,45 +841,36 @@ contract PositionModuleTest is Test {
         market.transferPosition(
             specId,
             address(this),
-            oddsPairId,
             PositionType.Upper,
             user,
-            makerPos.matchedAmount
+            makerPos.riskAmount,
+            makerPos.profitAmount
         );
     }
 
     function testTransferPosition_RevertsIfInvalidAmount() public {
-        uint256 specId = speculationModule.createSpeculation(
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 1_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        token.transfer(taker, takerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
             1,
             address(0x1234),
             42,
-            leaderboardId
-        );
-
-        uint64 odds = 11_000_000;
-        uint256 tokenUnit = 10_000_000;
-        uint256 takerAmount = (tokenUnit * (odds - 10_000_000)) / 10_000_000;
-
-        token.approve(address(positionModule), tokenUnit);
-        token.transfer(taker, takerAmount);
-        vm.prank(taker);
-        token.approve(address(positionModule), takerAmount);
-
-        (, uint128 oddsPairId) = _helperCreateMatchedPair(
-            positionModule,
-            specId,
-            odds,
             PositionType.Upper,
             address(this),
-            tokenUnit,
+            makerRisk,
             taker,
-            takerAmount
+            takerRisk
         );
 
         Position memory makerPos = positionModule.getPosition(
             specId,
             address(this),
-            oddsPairId,
             PositionType.Upper
         );
 
@@ -1077,368 +881,18 @@ contract PositionModuleTest is Test {
         market.transferPosition(
             specId,
             address(this),
-            oddsPairId,
             PositionType.Upper,
             user,
-            makerPos.matchedAmount + 1
+            makerPos.riskAmount + 1,
+            makerPos.profitAmount
         );
-    }
-
-    // --- ODDS LOGIC TESTS ---
-
-    function testRoundOddsToNearestIncrement() public view {
-        assertEq(
-            positionModule.roundOddsToNearestIncrement(9_000_000),
-            positionModule.MIN_ODDS()
-        );
-        assertEq(
-            positionModule.roundOddsToNearestIncrement(2_000_000_000),
-            positionModule.MAX_ODDS()
-        );
-        assertEq(
-            positionModule.roundOddsToNearestIncrement(10_150_000),
-            10_200_000
-        );
-        assertEq(
-            positionModule.roundOddsToNearestIncrement(10_120_000),
-            10_100_000
-        );
-    }
-
-    function testCalculateAndRoundInverseOdds() public view {
-        uint64 inv = positionModule.calculateAndRoundInverseOdds(11_000_000);
-        assertGt(inv, 100_000_000);
-        uint64 odds = 15_250_000;
-        uint64 inv2 = positionModule.calculateAndRoundInverseOdds(odds);
-        assertEq(inv2 % positionModule.ODDS_INCREMENT(), 0);
-    }
-
-    function testGetOddsPairAndOriginalInverseOdds() public {
-        // Create a matched pair to force odds pair creation, then verify via getOddsPair
-        uint256 specId = speculationModule.createSpeculation(
-            1,
-            address(0x1234),
-            42,
-            leaderboardId
-        );
-        uint64 odds = 11_000_000;
-
-        // Compute expected oddsPairId
-        (uint128 oddsPairId, , ) = _computeOddsPairId(positionModule, odds, PositionType.Upper);
-
-        // Create a matched pair to trigger odds pair creation in storage
-        // At 1.10 odds: matchable = 10M * 0.1 = 1M, takerAmount = 1M
-        token.approve(address(positionModule), 10_000_000);
-        vm.prank(taker);
-        token.approve(address(positionModule), 1_000_000);
-        positionModule.createMatchedPair(
-            specId, odds, PositionType.Upper, address(this), 10_000_000, taker, 1_000_000, 0, 0
-        );
-
-        OddsPair memory pair = positionModule.getOddsPair(oddsPairId);
-        assertEq(pair.upperOdds, odds);
-        assertEq(positionModule.getOriginalOdds(oddsPairId), odds);
-        assertEq(positionModule.getInverseOdds(oddsPairId), pair.lowerOdds);
-    }
-
-    // --- ODDSPAIR ORIENTATION FIX TESTS ---
-
-    /**
-     * @notice Test 1: Verify no collisions when different maker odds map to complementary pairs
-     * @dev This test ensures that 1.92x and 2.09x (which are inverses) create DIFFERENT oddsPairIds
-     */
-    function testGetOrCreateOddsPairId_UniqueIdsForDifferentMakerOdds() public view {
-        // Test first odds (1.92x)
-        (uint128 oddsPairId1, uint64 upper1, uint64 lower1) = _computeOddsPairId(
-            positionModule,
-            19_200_000,
-            PositionType.Upper
-        );
-        assertEq(oddsPairId1, 91, "Incorrect oddsPairId for 1.92x Upper");
-        assertEq(upper1, 19_200_000, "Upper should be maker's requested odds (1.92x)");
-        assertEq(lower1, 20_900_000, "Lower should be inverse (2.09x)");
-
-        // Test second odds (2.09x)
-        (uint128 oddsPairId2, uint64 upper2, uint64 lower2) = _computeOddsPairId(
-            positionModule,
-            20_900_000,
-            PositionType.Upper
-        );
-        assertEq(oddsPairId2, 108, "Incorrect oddsPairId for 2.09x Upper");
-        assertEq(upper2, 20_900_000, "Upper should be maker's requested odds (2.09x)");
-        assertEq(lower2, 19_200_000, "Lower should be inverse (1.92x)");
-
-        // Verify no collision
-        assertTrue(oddsPairId1 != oddsPairId2, "OddsPairIds must be unique - no collision allowed");
-
-        // Verify formula
-        uint128 expectedId1 = uint128((19_200_000 - positionModule.MIN_ODDS()) / positionModule.ODDS_INCREMENT());
-        uint128 expectedId2 = uint128((20_900_000 - positionModule.MIN_ODDS()) / positionModule.ODDS_INCREMENT());
-        assertEq(oddsPairId1, expectedId1, "Formula verification failed for 1.92x");
-        assertEq(oddsPairId2, expectedId2, "Formula verification failed for 2.09x");
-    }
-
-    /**
-     * @notice Test 2: Verify +10000 offset for Lower positions
-     * @dev Upper and Lower positions at same odds should create different oddsPairIds with correct orientation
-     */
-    function testGetOrCreateOddsPairId_UpperLowerOffsetWorksCorrectly() public view {
-        // Test Upper at 1.8x
-        (uint128 upperOddsPairId, uint64 upperUpper, ) = _computeOddsPairId(
-            positionModule,
-            18_000_000,
-            PositionType.Upper
-        );
-        assertEq(upperOddsPairId, 79, "Incorrect oddsPairId for 1.8x Upper");
-        assertEq(upperUpper, 18_000_000, "Upper position should have 1.8x as upper odds");
-
-        // Test Lower at 1.8x
-        (uint128 lowerOddsPairId, , uint64 lowerLower) = _computeOddsPairId(
-            positionModule,
-            18_000_000,
-            PositionType.Lower
-        );
-        assertEq(lowerOddsPairId, 10079, "Incorrect oddsPairId for 1.8x Lower (should be base + 10000)");
-        assertEq(lowerLower, 18_000_000, "Lower position should have 1.8x as lower odds");
-
-        // Verify offset is exactly 10000
-        assertEq(lowerOddsPairId, upperOddsPairId + 10000, "Lower offset must be exactly +10000");
-    }
-
-    /**
-     * @notice Test 3: Verify all four combinations create unique IDs with correct orientation
-     * @dev Tests Upper/Lower at 1.8x and Upper/Lower at 2.25x (inverse pair)
-     */
-    function testGetOrCreateOddsPairId_ComplementaryOddsPairs() public view {
-        // Test case 1: Upper at 1.8x
-        (uint128 id1, uint64 upper1, uint64 lower1) = _computeOddsPairId(
-            positionModule,
-            18_000_000,
-            PositionType.Upper
-        );
-        assertEq(id1, 79, "Upper at 1.8x should have oddsPairId=79");
-        assertEq(upper1, 18_000_000, "Upper at 1.8x should store 18_000_000 as upperOdds");
-        assertEq(lower1, 22_500_000, "Upper at 1.8x should store ~2.25x as lowerOdds");
-
-        // Test case 2: Lower at 1.8x
-        (uint128 id2, uint64 upper2, uint64 lower2) = _computeOddsPairId(
-            positionModule,
-            18_000_000,
-            PositionType.Lower
-        );
-        assertEq(id2, 10079, "Lower at 1.8x should have oddsPairId=10079");
-        assertEq(upper2, 22_500_000, "Lower at 1.8x should store ~2.25x as upperOdds");
-        assertEq(lower2, 18_000_000, "Lower at 1.8x should store 18_000_000 as lowerOdds");
-
-        // Test case 3: Upper at 2.25x
-        (uint128 id3, uint64 upper3, uint64 lower3) = _computeOddsPairId(
-            positionModule,
-            22_500_000,
-            PositionType.Upper
-        );
-        assertEq(id3, 124, "Upper at 2.25x should have oddsPairId=124");
-        assertEq(upper3, 22_500_000, "Upper at 2.25x should store 22_500_000 as upperOdds");
-        assertEq(lower3, 18_000_000, "Upper at 2.25x should store ~1.8x as lowerOdds");
-
-        // Test case 4: Lower at 2.25x
-        (uint128 id4, uint64 upper4, uint64 lower4) = _computeOddsPairId(
-            positionModule,
-            22_500_000,
-            PositionType.Lower
-        );
-        assertEq(id4, 10124, "Lower at 2.25x should have oddsPairId=10124");
-        assertEq(upper4, 18_000_000, "Lower at 2.25x should store ~1.8x as upperOdds");
-        assertEq(lower4, 22_500_000, "Lower at 2.25x should store 22_500_000 as lowerOdds");
-
-        // Critical assertion: all four IDs must be unique
-        assertTrue(id1 != id2 && id1 != id3 && id1 != id4, "ID1 must be unique");
-        assertTrue(id2 != id3 && id2 != id4, "ID2 must be unique");
-        assertTrue(id3 != id4, "ID3 must be unique");
-
-        // Verify inverse relationship
-        assertEq(upper1, lower3, "Upper at 1.8x inverse should match Lower at 2.25x");
-        assertEq(lower1, upper3, "Lower at 1.8x inverse should match Upper at 2.25x");
-    }
-
-    /**
-     * @notice Test 4: Verify no race condition - order doesn't affect stored odds
-     * @dev Verify that the deterministic formula produces identical results regardless of call order
-     */
-    function testGetOrCreateOddsPairId_OrderIndependence() public view {
-        // Scenario A: Compute Upper first, then Lower
-        (uint128 idA1, , ) = _computeOddsPairId(
-            positionModule,
-            19_200_000,
-            PositionType.Upper
-        );
-        assertEq(idA1, 91, "Scenario A: Upper at 1.92x should be oddsPairId=91");
-
-        (uint128 idA2, , ) = _computeOddsPairId(
-            positionModule,
-            19_200_000,
-            PositionType.Lower
-        );
-        assertEq(idA2, 10091, "Scenario A: Lower at 1.92x should be oddsPairId=10091");
-
-        // Scenario B: Compute Lower first, then Upper
-        (uint128 idB1, , ) = _computeOddsPairId(
-            positionModule,
-            19_200_000,
-            PositionType.Lower
-        );
-        assertEq(idB1, 10091, "Scenario B: Lower at 1.92x should be oddsPairId=10091");
-
-        (uint128 idB2, , ) = _computeOddsPairId(
-            positionModule,
-            19_200_000,
-            PositionType.Upper
-        );
-        assertEq(idB2, 91, "Scenario B: Upper at 1.92x should be oddsPairId=91");
-
-        // Both scenarios should result in identical IDs
-        assertEq(idA1, idB2, "Upper IDs must match regardless of computation order");
-        assertEq(idA2, idB1, "Lower IDs must match regardless of computation order");
-    }
-
-    /**
-     * @notice Test 5: Verify different maker odds that round to same inverse still create unique IDs
-     * @dev Tests that 3.37x and 3.38x (both round to ~1.42x inverse) get different oddsPairIds
-     */
-    function testGetOrCreateOddsPairId_TakerReceivesCorrectInverseOdds() public {
-        uint256 specId = speculationModule.createSpeculation(
-            1,
-            address(0x1234),
-            42,
-            leaderboardId
-        );
-
-        // Test Upper at 3.37x
-        (uint128 id1, uint64 upper1, uint64 lower1) = _computeOddsPairId(
-            positionModule,
-            33_700_000,
-            PositionType.Upper
-        );
-        uint128 expectedId1 = uint128((33_700_000 - positionModule.MIN_ODDS()) / positionModule.ODDS_INCREMENT());
-        assertEq(id1, expectedId1, "3.37x Upper should have oddsPairId=236");
-        assertEq(upper1, 33_700_000, "Upper at 3.37x should store 33_700_000");
-
-        // Test Upper at 3.38x
-        (uint128 id2, uint64 upper2, uint64 lower2) = _computeOddsPairId(
-            positionModule,
-            33_800_000,
-            PositionType.Upper
-        );
-        uint128 expectedId2 = uint128((33_800_000 - positionModule.MIN_ODDS()) / positionModule.ODDS_INCREMENT());
-        assertEq(id2, expectedId2, "3.38x Upper should have oddsPairId=237");
-        assertEq(upper2, 33_800_000, "Upper at 3.38x should store 33_800_000");
-
-        // Critical assertion: Different oddsPairIds despite similar inverse
-        assertTrue(id1 != id2, "Different maker odds must create different oddsPairIds");
-        assertEq(id2, id1 + 1, "Sequential odds should create sequential oddsPairIds");
-
-        // Verify both round to similar inverse (around 1.42x)
-        assertTrue(lower1 >= 14_100_000 && lower1 <= 14_300_000, "Inverse should be around 1.42x");
-        assertTrue(lower2 >= 14_100_000 && lower2 <= 14_300_000, "Inverse should be around 1.42x");
-
-        // Create matched pairs to verify takers receive correct positions
-        address taker1 = address(0xCAFE);
-        address taker2 = address(0xBEEF);
-        uint256 makerAmount = 10_000_000;
-
-        // Calculate taker amounts based on upper odds
-        uint256 takerAmount1 = (makerAmount * (upper1 - 10_000_000)) / 10_000_000;
-        uint256 takerAmount2 = (makerAmount * (upper2 - 10_000_000)) / 10_000_000;
-
-        // Approve for both matched pairs
-        token.approve(address(positionModule), 2 * makerAmount);
-        token.transfer(taker1, takerAmount1);
-        token.transfer(taker2, takerAmount2);
-        vm.prank(taker1);
-        token.approve(address(positionModule), takerAmount1);
-        vm.prank(taker2);
-        token.approve(address(positionModule), takerAmount2);
-
-        // Create first matched pair (3.37x)
-        positionModule.createMatchedPair(
-            specId, 33_700_000, PositionType.Upper, address(this), makerAmount, taker1, takerAmount1, 0, 0
-        );
-
-        // Create second matched pair (3.38x)
-        positionModule.createMatchedPair(
-            specId, 33_800_000, PositionType.Upper, address(this), makerAmount, taker2, takerAmount2, 0, 0
-        );
-
-        // Verify takers received Lower positions with matched amounts
-        Position memory takerPos1 = positionModule.getPosition(specId, taker1, id1, PositionType.Lower);
-        Position memory takerPos2 = positionModule.getPosition(specId, taker2, id2, PositionType.Lower);
-
-        assertGt(takerPos1.matchedAmount, 0, "Taker 1 should have matched amount");
-        assertGt(takerPos2.matchedAmount, 0, "Taker 2 should have matched amount");
-    }
-
-    /**
-     * @notice Test 6: Test boundary conditions
-     * @dev Tests MIN_ODDS, MAX_ODDS, and odds near 2.0x
-     */
-    function testGetOrCreateOddsPairId_EdgeCases() public view {
-        // Subtest 1: MIN_ODDS (1.01x)
-        (uint128 minUpperId, uint64 minUpper, ) = _computeOddsPairId(
-            positionModule,
-            positionModule.MIN_ODDS(),
-            PositionType.Upper
-        );
-        assertEq(minUpperId, 0, "MIN_ODDS Upper should have oddsPairId=0");
-        assertEq(minUpper, positionModule.MIN_ODDS(), "Upper should be MIN_ODDS");
-
-        (uint128 minLowerId, , uint64 minLowerL) = _computeOddsPairId(
-            positionModule,
-            positionModule.MIN_ODDS(),
-            PositionType.Lower
-        );
-        assertEq(minLowerId, 10000, "MIN_ODDS Lower should have oddsPairId=10000");
-        assertEq(minLowerL, positionModule.MIN_ODDS(), "Lower should be MIN_ODDS");
-
-        // Subtest 2: MAX_ODDS (101.00x)
-        (uint128 maxUpperId, uint64 maxUpper, ) = _computeOddsPairId(
-            positionModule,
-            positionModule.MAX_ODDS(),
-            PositionType.Upper
-        );
-        uint128 expectedMaxId = uint128((positionModule.MAX_ODDS() - positionModule.MIN_ODDS()) / positionModule.ODDS_INCREMENT());
-        assertEq(maxUpperId, expectedMaxId, "MAX_ODDS Upper should have correct oddsPairId");
-        assertEq(maxUpper, positionModule.MAX_ODDS(), "Upper should be MAX_ODDS");
-
-        (uint128 maxLowerId, , uint64 maxLowerL) = _computeOddsPairId(
-            positionModule,
-            positionModule.MAX_ODDS(),
-            PositionType.Lower
-        );
-        assertEq(maxLowerId, expectedMaxId + 10000, "MAX_ODDS Lower should have oddsPairId with +10000 offset");
-        assertEq(maxLowerL, positionModule.MAX_ODDS(), "Lower should be MAX_ODDS");
-
-        // Subtest 3: Near 2.0x (where inverse ~ maker odds)
-        (uint128 twoXId, uint64 twoXUpper, uint64 twoXLower) = _computeOddsPairId(
-            positionModule,
-            20_000_000,
-            PositionType.Upper
-        );
-        uint128 expectedTwoXId = uint128((20_000_000 - positionModule.MIN_ODDS()) / positionModule.ODDS_INCREMENT());
-        assertEq(twoXId, expectedTwoXId, "2.0x should have correct oddsPairId");
-        assertEq(twoXUpper, 20_000_000, "Upper should be 2.0x");
-
-        // At 2.0x, the inverse should also be very close to 2.0x
-        assertTrue(twoXLower >= 19_900_000 && twoXLower <= 20_100_000, "Inverse of 2.0x should be close to 2.0x");
-
-        // Verify the upper and lower odds are very close
-        uint256 diff = twoXUpper > twoXLower ? twoXUpper - twoXLower : twoXLower - twoXUpper;
-        assertTrue(diff < 200_000, "At 2.0x, upper and lower should be very close");
     }
 
     // --- CLAIM POSITION EDGE CASE TESTS ---
 
     /**
-     * @notice Test that claimPosition reverts with NoPayout when matchedAmount=0
-     * @dev This scenario occurs when a user transfers their entire matched position via secondary market
+     * @notice Test that claimPosition reverts with NoPayout when riskAmount=0
+     * @dev This scenario occurs when a user transfers their entire position via secondary market
      */
     function testClaimPosition_RevertsWithNoPayout_WhenBothAmountsZero() public {
         MockSpeculationModule mockSpeculationModule = new MockSpeculationModule(
@@ -1463,53 +917,44 @@ contract PositionModuleTest is Test {
 
         MockScorerModule mockScorer = new MockScorerModule();
 
-        uint256 specId = mockSpeculationModule.createSpeculation(
+        // Create matched pair: maker=this, taker=taker
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 10_000_000; // At 2.00 odds
+
+        token.approve(address(localPositionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(localPositionModule), takerRisk);
+
+        uint256 specId = _helperRecordFillLocal(
+            localPositionModule,
             1,
             address(mockScorer),
             42,
-            leaderboardId
-        );
-
-        // Create matched pair: maker=this, taker=taker
-        uint64 odds = 20_000_000; // 2.00 odds
-        uint256 makerAmountRemaining = 10_000_000;
-        uint256 takerAmount = 10_000_000; // At 2.00 odds, taker = maker
-
-        token.approve(address(localPositionModule), makerAmountRemaining);
-        vm.prank(taker);
-        token.approve(address(localPositionModule), takerAmount);
-
-        (, uint128 oddsPairId) = _helperCreateMatchedPair(
-            localPositionModule,
-            specId,
-            odds,
             PositionType.Upper,
             address(this),
-            makerAmountRemaining,
+            makerRisk,
             taker,
-            takerAmount
+            takerRisk
         );
 
-        // Transfer entire matched position to another user via secondary market
+        // Transfer entire position to another user via secondary market
         address buyer = address(0xBEEF);
         mockMarket.transferPosition(
             specId,
             address(this),
-            oddsPairId,
             PositionType.Upper,
             buyer,
+            10_000_000,
             10_000_000
         );
 
-        // Verify maker's position now has matchedAmount=0
+        // Verify maker's position now has riskAmount=0
         Position memory makerPos = localPositionModule.getPosition(
             specId,
             address(this),
-            oddsPairId,
             PositionType.Upper
         );
-        assertEq(makerPos.matchedAmount, 0, "matchedAmount should be 0 after full transfer");
-        assertTrue(makerPos.poolId != 0, "poolId should still be set");
+        assertEq(makerPos.riskAmount, 0, "riskAmount should be 0 after full transfer");
 
         // Settle speculation
         vm.warp(block.timestamp + 2 hours);
@@ -1529,7 +974,7 @@ contract PositionModuleTest is Test {
 
         // Attempt to claim should revert with NoPayout
         vm.expectRevert(PositionModule.PositionModule__NoPayout.selector);
-        localPositionModule.claimPosition(specId, oddsPairId, PositionType.Upper);
+        localPositionModule.claimPosition(specId, PositionType.Upper);
     }
 
     /**
@@ -1538,31 +983,23 @@ contract PositionModuleTest is Test {
     function testClaimPosition_RevertsWithAlreadyClaimed_OnDoubleClaim() public {
         MockScorerModule mockScorer = new MockScorerModule();
 
-        uint256 specId = speculationModule.createSpeculation(
+        // Create matched pair
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
             1,
             address(mockScorer),
             42,
-            leaderboardId
-        );
-
-        // Create matched pair
-        uint64 odds = 18_000_000;
-        uint256 makerAmountRemaining = 10_000_000;
-        uint256 takerAmount = 8_000_000;
-
-        token.approve(address(positionModule), makerAmountRemaining);
-        vm.prank(taker);
-        token.approve(address(positionModule), takerAmount);
-
-        (, uint128 oddsPairId) = _helperCreateMatchedPair(
-            positionModule,
-            specId,
-            odds,
             PositionType.Upper,
             address(this),
-            makerAmountRemaining,
+            makerRisk,
             taker,
-            takerAmount
+            takerRisk
         );
 
         // Settle speculation
@@ -1582,57 +1019,664 @@ contract PositionModuleTest is Test {
         speculationModule.settleSpeculation(specId);
 
         // First claim succeeds
-        positionModule.claimPosition(specId, oddsPairId, PositionType.Upper);
+        positionModule.claimPosition(specId, PositionType.Upper);
 
         // Second claim should revert with AlreadyClaimed
         vm.expectRevert(PositionModule.PositionModule__AlreadyClaimed.selector);
-        positionModule.claimPosition(specId, oddsPairId, PositionType.Upper);
+        positionModule.claimPosition(specId, PositionType.Upper);
     }
 
+    // --- TRANSFER POSITION ACCUMULATION TEST ---
+
     /**
-     * @notice Test that claimPosition with wrong oddsPairId reverts with PositionDoesNotExist
+     * @notice Test that transferPosition correctly accumulates riskAmount when recipient has existing position
      */
-    function testClaimPosition_RevertsWithPositionDoesNotExist_WrongOddsPairId() public {
+    function testTransferPosition_AccumulatesRiskAmount() public {
+        // Step 1: Buyer (user) creates a position (5 USDC risk, 5 USDC taker risk at 2.00 odds)
+        uint256 buyerRisk = 5_000_000;
+        uint256 buyerTakerRisk = 5_000_000;
+
+        vm.prank(user);
+        token.approve(address(positionModule), buyerRisk);
+        address taker1 = address(0xCAF1);
+        token.transfer(taker1, buyerTakerRisk);
+        vm.prank(taker1);
+        token.approve(address(positionModule), buyerTakerRisk);
+
+        uint256 specId = _helperRecordFill(
+            1,
+            address(0x1234),
+            42,
+            PositionType.Upper,
+            user,
+            buyerRisk,
+            taker1,
+            buyerTakerRisk
+        );
+
+        // Verify buyer's position
+        Position memory buyerPosBefore = positionModule.getPosition(
+            specId,
+            user,
+            PositionType.Upper
+        );
+        assertEq(buyerPosBefore.riskAmount, buyerRisk, "Buyer should have 5 USDC risk");
+
+        // Step 2: Seller creates a position (10 USDC risk)
+        address seller = address(0x5E11);
+        uint256 sellerRisk = 10_000_000;
+        uint256 sellerTakerRisk = 10_000_000;
+
+        token.transfer(seller, sellerRisk);
+        vm.prank(seller);
+        token.approve(address(positionModule), sellerRisk);
+
+        address taker2 = address(0xCAF2);
+        token.transfer(taker2, sellerTakerRisk);
+        vm.prank(taker2);
+        token.approve(address(positionModule), sellerTakerRisk);
+
+        // Use the same speculation by calling recordFill with the same contest/scorer/theNumber
+        positionModule.recordFill(
+            1, address(0x1234), 42, leaderboardId,
+            PositionType.Upper, seller, sellerRisk,
+            taker2, sellerTakerRisk, 0, 0
+        );
+
+        // Step 3: Transfer seller's position to buyer
+        MockMarket market = new MockMarket(address(positionModule));
+        core.setMarketRole(address(market), true);
+        market.transferPosition(
+            specId,
+            seller,
+            PositionType.Upper,
+            user,
+            sellerRisk,
+            sellerTakerRisk
+        );
+
+        // Step 4: Verify buyer's riskAmount is ACCUMULATED (5 + 10 = 15)
+        Position memory buyerPosAfter = positionModule.getPosition(
+            specId,
+            user,
+            PositionType.Upper
+        );
+        assertEq(
+            buyerPosAfter.riskAmount,
+            buyerRisk + sellerRisk,
+            "Buyer's riskAmount should accumulate (5 + 10 = 15)"
+        );
+    }
+
+    // =========================================================================
+    // DIRECT RISK/PROFIT TESTS
+    // Tests with various risk/profit ratios equivalent to different odds
+    // =========================================================================
+
+    /// @notice Helper: settle a speculation as Away-wins (Upper wins)
+    function _settleAsAwayWins(uint256 specId, uint256 contestId) internal {
+        vm.warp(block.timestamp + 2 hours);
+        Contest memory c = Contest({
+            awayScore: 100, homeScore: 90, leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored, contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0), rundownId: "", sportspageId: "", jsonoddsId: ""
+        });
+        mockContestModule.setContest(contestId, c);
+        speculationModule.settleSpeculation(specId);
+    }
+
+    /// @notice Helper: settle a speculation as Home-wins (Lower wins)
+    function _settleAsHomeWins(uint256 specId, uint256 contestId) internal {
+        vm.warp(block.timestamp + 2 hours);
+        Contest memory c = Contest({
+            awayScore: 90, homeScore: 100, leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored, contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0), rundownId: "", sportspageId: "", jsonoddsId: ""
+        });
+        mockContestModule.setContest(contestId, c);
+    }
+
+    // --- Individual risk/profit ratio tests ---
+
+    function testRecordFill_Odds193_Upper() public {
+        // At 1.93 odds: maker risks 5_376_345, profit = 5_000_000 (taker risk)
+        // Taker risks 5_000_000, profit = 5_376_345 (maker risk)
+        uint256 makerRisk = 5_376_345;
+        uint256 takerRisk = 5_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 makerBalBefore = token.balanceOf(address(this));
+        uint256 takerBalBefore = token.balanceOf(taker);
+
+        uint256 specId = _helperRecordFill(
+            1, address(0x1234), 200,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        assertEq(token.balanceOf(address(this)), makerBalBefore - makerRisk, "maker balance wrong");
+        assertEq(token.balanceOf(taker), takerBalBefore - takerRisk, "taker balance wrong");
+
+        // Verify both positions
+        Position memory mPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
+        Position memory tPos = positionModule.getPosition(specId, taker, PositionType.Lower);
+        assertEq(mPos.riskAmount, makerRisk);
+        assertEq(mPos.profitAmount, takerRisk);
+        assertEq(tPos.riskAmount, takerRisk);
+        assertEq(tPos.profitAmount, makerRisk);
+
+        // Pool conservation: both sides reference the same total pool
+        assertEq(mPos.riskAmount + mPos.profitAmount, makerRisk + takerRisk);
+        assertEq(tPos.riskAmount + tPos.profitAmount, makerRisk + takerRisk);
+    }
+
+    function testRecordFill_Odds187_Upper() public {
+        // At 1.87 odds: maker risks 5_747_127, profit = 5_000_000
+        uint256 makerRisk = 5_747_127;
+        uint256 takerRisk = 5_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
+            1, address(0x1234), 201,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        Position memory mPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
+        assertEq(mPos.riskAmount, makerRisk);
+        assertEq(mPos.profitAmount, takerRisk);
+    }
+
+    function testRecordFill_Odds208_Upper() public {
+        // At 2.08 odds: maker risks 4_629_630, profit = 5_000_000
+        uint256 makerRisk = 4_629_630;
+        uint256 takerRisk = 5_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
+            1, address(0x1234), 202,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        Position memory mPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
+        assertEq(mPos.riskAmount, makerRisk);
+        assertEq(mPos.profitAmount, takerRisk);
+    }
+
+    function testRecordFill_Odds215_Upper() public {
+        // At 2.15 odds: maker risks 4_347_827, profit = 5_000_000
+        uint256 makerRisk = 4_347_827;
+        uint256 takerRisk = 5_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
+            1, address(0x1234), 203,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        Position memory mPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
+        assertEq(mPos.riskAmount, makerRisk);
+        assertEq(mPos.profitAmount, takerRisk);
+    }
+
+    /// @notice Lower-side maker at 1.93 odds
+    function testRecordFill_Odds193_Lower() public {
+        // At 1.93 odds Lower: maker risks 5_376_345, taker risks 5_000_000
+        uint256 makerRisk = 5_376_345;
+        uint256 takerRisk = 5_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
+            1, address(0x1234), 204,
+            PositionType.Lower, address(this), makerRisk, taker, takerRisk
+        );
+
+        // Verify taker gets Upper position (opposite of maker)
+        Position memory tPos = positionModule.getPosition(specId, taker, PositionType.Upper);
+        assertEq(tPos.riskAmount, takerRisk);
+        assertEq(tPos.profitAmount, makerRisk);
+    }
+
+    // --- Multiple fills on same speculation ---
+
+    /// @notice Two fills on the same speculation accumulate positions
+    function testRecordFill_MultipleFillers_SameSpeculation() public {
+        uint256 makerRisk1 = 10_000_000;
+        uint256 takerRisk1 = 9_300_000; // at ~1.93 odds
+
+        token.approve(address(positionModule), makerRisk1);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk1);
+
+        uint256 specId = _helperRecordFill(
+            1, address(0x1234), 250,
+            PositionType.Upper, address(this), makerRisk1, taker, takerRisk1
+        );
+
+        // Second fill with a different taker
+        uint256 makerRisk2 = 5_000_000;
+        uint256 takerRisk2 = 4_650_000;
+        address taker2 = address(0xCAF2);
+        token.transfer(taker2, takerRisk2);
+
+        token.approve(address(positionModule), makerRisk2);
+        vm.prank(taker2);
+        token.approve(address(positionModule), takerRisk2);
+
+        // recordFill with same contest/scorer/theNumber reuses existing speculation
+        positionModule.recordFill(
+            1, address(0x1234), 250, leaderboardId,
+            PositionType.Upper, address(this), makerRisk2,
+            taker2, takerRisk2, 0, 0
+        );
+
+        // Verify maker's accumulated position
+        Position memory mPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
+        assertEq(mPos.riskAmount, makerRisk1 + makerRisk2, "maker riskAmount = total of both fills");
+
+        // Verify both takers have positions
+        Position memory t1Pos = positionModule.getPosition(specId, taker, PositionType.Lower);
+        Position memory t2Pos = positionModule.getPosition(specId, taker2, PositionType.Lower);
+        assertGt(t1Pos.riskAmount, 0, "taker1 has position");
+        assertGt(t2Pos.riskAmount, 0, "taker2 has position");
+    }
+
+    // --- Exact allowance tests ---
+
+    /// @notice Maker approves exactly the risk amount needed
+    function testRecordFill_ExactAllowance() public {
+        uint256 makerRisk = 5_376_345;
+        uint256 takerRisk = 5_000_000;
+
+        // Approve EXACTLY the amount that will be consumed
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
+            1, address(0x1234), 220,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        Position memory mPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
+        assertEq(mPos.riskAmount, makerRisk, "exact allowance should succeed");
+    }
+
+    /// @notice Maker approves 1 less than needed — should revert
+    function testRecordFill_InsufficientAllowanceReverts() public {
+        uint256 makerRisk = 5_376_345;
+        uint256 takerRisk = 5_000_000;
+
+        // Approve 1 less than needed
+        token.approve(address(positionModule), makerRisk - 1);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        // SafeERC20 reverts with "Not allowed" from MockERC20
+        vm.expectRevert("Not allowed");
+        positionModule.recordFill(
+            1, address(0x1234), 221, leaderboardId,
+            PositionType.Upper, address(this), makerRisk,
+            taker, takerRisk, 0, 0
+        );
+    }
+
+    // --- Claim payouts at various risk/profit ratios ---
+
+    /// @notice Maker (Upper) wins — verify payout = riskAmount + profitAmount
+    function testClaimPosition_MakerWins() public {
         MockScorerModule mockScorer = new MockScorerModule();
 
-        uint256 specId = speculationModule.createSpeculation(
+        uint256 makerRisk = 5_376_345;
+        uint256 takerRisk = 5_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
+            1, address(mockScorer), 230,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        _settleAsAwayWins(specId, 1); // Upper wins
+
+        uint256 balBefore = token.balanceOf(address(this));
+        positionModule.claimPosition(specId, PositionType.Upper);
+        uint256 payout = token.balanceOf(address(this)) - balBefore;
+
+        // Winner gets their stake + opponent's stake
+        assertEq(payout, makerRisk + takerRisk, "maker payout = makerRisk + takerRisk");
+    }
+
+    /// @notice Taker (Lower) wins — taker payout should equal total pool
+    function testClaimPosition_TakerWins() public {
+        MockScorerModule mockScorer = new MockScorerModule();
+        mockScorer.setDefaultWinSide(WinSide.Home); // Home = Lower wins
+
+        uint256 makerRisk = 5_376_345;
+        uint256 takerRisk = 5_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
+            1, address(mockScorer), 231,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        _settleAsHomeWins(specId, 1);
+        speculationModule.settleSpeculation(specId);
+
+        uint256 balBefore = token.balanceOf(taker);
+        vm.prank(taker);
+        positionModule.claimPosition(specId, PositionType.Lower);
+        uint256 payout = token.balanceOf(taker) - balBefore;
+
+        // Taker payout = taker stake + maker stake = same total pool
+        assertEq(payout, takerRisk + makerRisk, "taker payout = takerRisk + makerRisk");
+    }
+
+    /// @notice Claim test across multiple risk/profit ratios — winner takes pool
+    function testClaimPosition_MultipleRatios_WinnerTakesPool() public {
+        MockSpeculationModule mockSpeculationModule = new MockSpeculationModule(address(core), 6);
+        core.registerModule(keccak256("SPECULATION_MODULE"), address(mockSpeculationModule));
+        PositionModule localPM = new PositionModule(address(core), address(token));
+        core.registerModule(keccak256("POSITION_MODULE"), address(localPM));
+
+        MockScorerModule mockScorer = new MockScorerModule();
+
+        // Risk/profit ratios corresponding to various odds
+        uint256[4] memory makerRisks = [uint256(10_000_000), uint256(10_000_000), uint256(10_000_000), uint256(10_000_000)];
+        uint256[4] memory takerRisks = [uint256(9_300_000), uint256(8_700_000), uint256(10_800_000), uint256(11_500_000)];
+
+        for (uint256 i = 0; i < makerRisks.length; i++) {
+            int32 theNumber = int32(int256(240 + i));
+
+            address _taker = address(uint160(0xCA00 + i));
+            token.transfer(_taker, takerRisks[i]);
+            token.approve(address(localPM), makerRisks[i]);
+            vm.prank(_taker);
+            token.approve(address(localPM), takerRisks[i]);
+
+            uint256 specId = _helperRecordFillLocal(
+                localPM, 1, address(mockScorer), theNumber,
+                PositionType.Upper, address(this), makerRisks[i],
+                _taker, takerRisks[i]
+            );
+
+            // Settle as Away wins (Upper wins)
+            vm.warp(block.timestamp + 2 hours);
+            Contest memory c = Contest({
+                awayScore: 100, homeScore: 90, leagueId: LeagueId.NBA,
+                contestStatus: ContestStatus.Scored, contestCreator: address(this),
+                scoreContestSourceHash: bytes32(0), rundownId: "", sportspageId: "", jsonoddsId: ""
+            });
+            mockContestModule.setContest(1, c);
+            mockSpeculationModule.settleSpeculation(specId);
+
+            uint256 balBefore = token.balanceOf(address(this));
+            localPM.claimPosition(specId, PositionType.Upper);
+            uint256 payout = token.balanceOf(address(this)) - balBefore;
+
+            // Winner gets the entire pool
+            assertEq(payout, makerRisks[i] + takerRisks[i], string.concat("payout mismatch at index ", vm.toString(i)));
+
+            // Loser gets nothing
+            vm.prank(_taker);
+            vm.expectRevert(PositionModule.PositionModule__NoPayout.selector);
+            localPM.claimPosition(specId, PositionType.Lower);
+        }
+    }
+
+    // --- Self-transfer revert ---
+
+    function testTransferPosition_RevertsOnSelfTransfer() public {
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
+            1, address(0x1234), 42,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        MockMarket market = new MockMarket(address(positionModule));
+        core.setMarketRole(address(market), true);
+
+        vm.expectRevert(PositionModule.PositionModule__NoSelfTransfer.selector);
+        vm.prank(address(market));
+        market.transferPosition(
+            specId,
+            address(this),
+            PositionType.Upper,
+            address(this), // self-transfer
+            makerRisk,
+            takerRisk
+        );
+    }
+
+    // =========================================================================
+    // TASK 4: EVENT EMISSION TESTS
+    // =========================================================================
+
+    /// @notice Verify PositionFilled event is emitted with all correct fields from recordFill
+    function testRecordFill_EmitsPositionFilledEvent() public {
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        // We expect PositionFilled with all indexed + non-indexed fields.
+        // Note: the event is emitted from the internal _recordFill. The speculation ID is
+        // determined at runtime, so we check indexed topics for maker/taker and check data fields.
+        // checkTopic1=false (speculationId unknown at compile time), checkTopic2=true, checkTopic3=true, checkData=true
+        vm.expectEmit(false, true, true, true, address(positionModule));
+        emit PositionModule.PositionFilled(
+            0, // speculationId placeholder (topic1 unchecked)
+            address(this), // maker
+            taker, // taker
+            PositionType.Upper, // makerPositionType
+            PositionType.Lower, // takerPositionType
+            makerRisk, // makerRisk
+            takerRisk, // makerProfit (= takerRisk for first fill)
+            takerRisk, // takerRisk
+            makerRisk  // takerProfit (= makerRisk for first fill)
+        );
+
+        _helperRecordFill(
+            1,
+            address(0x1234),
+            42,
+            PositionType.Upper,
+            address(this),
+            makerRisk,
+            taker,
+            takerRisk
+        );
+    }
+
+    /// @notice Verify PositionClaimed event is emitted with correct fields
+    function testClaimPosition_EmitsPositionClaimedEvent() public {
+        MockScorerModule mockScorer = new MockScorerModule();
+
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
             1,
             address(mockScorer),
             42,
-            leaderboardId
+            PositionType.Upper,
+            address(this),
+            makerRisk,
+            taker,
+            takerRisk
         );
 
-        // Create matched pair at odds 1.80
-        uint64 odds = 18_000_000;
-        uint256 makerAmountRemaining = 10_000_000;
-        uint256 takerAmount = 8_000_000;
+        _settleAsAwayWins(specId, 1); // Upper wins
 
-        token.approve(address(positionModule), makerAmountRemaining);
+        // Winner payout = riskAmount + profitAmount = 10M + 8M = 18M
+        vm.expectEmit(true, true, false, true, address(positionModule));
+        emit PositionModule.PositionClaimed(
+            specId,
+            address(this),
+            PositionType.Upper,
+            makerRisk + takerRisk // payout = 18M
+        );
+
+        positionModule.claimPosition(specId, PositionType.Upper);
+    }
+
+    /// @notice Verify PositionTransferred event is emitted with correct fields
+    function testTransferPosition_EmitsPositionTransferredEvent() public {
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        token.approve(address(positionModule), makerRisk);
         vm.prank(taker);
-        token.approve(address(positionModule), takerAmount);
+        token.approve(address(positionModule), takerRisk);
 
-        (uint128 correctOddsPairId, , ) = _computeOddsPairId(
-            positionModule,
-            odds,
+        uint256 specId = _helperRecordFill(
+            1,
+            address(0x1234),
+            42,
+            PositionType.Upper,
+            address(this),
+            makerRisk,
+            taker,
+            takerRisk
+        );
+
+        Position memory makerPos = positionModule.getPosition(
+            specId,
+            address(this),
             PositionType.Upper
         );
-        positionModule.createMatchedPair(
-            specId, odds, PositionType.Upper, address(this), makerAmountRemaining, taker, takerAmount, 0, 0
+
+        MockMarket market = new MockMarket(address(positionModule));
+        core.setMarketRole(address(market), true);
+
+        vm.expectEmit(true, true, true, true, address(positionModule));
+        emit PositionModule.PositionTransferred(
+            specId,
+            address(this), // from
+            PositionType.Upper,
+            user, // to
+            makerPos.riskAmount,
+            makerPos.profitAmount
         );
 
-        // Get a different oddsPairId (for 2.00 odds)
-        (uint128 wrongOddsPairId, , ) = _computeOddsPairId(
-            positionModule,
-            20_000_000,
-            PositionType.Upper
+        vm.prank(address(market));
+        market.transferPosition(
+            specId,
+            address(this),
+            PositionType.Upper,
+            user,
+            makerPos.riskAmount,
+            makerPos.profitAmount
         );
-        assertTrue(correctOddsPairId != wrongOddsPairId, "OddsPairIds should be different");
+    }
 
-        // Settle speculation
+    // =========================================================================
+    // TASK 5: FIX testClaimPosition_WinLossScenarios — exact payout + loser revert
+    // (Original test replaced above with assertGt; new version uses exact assertEq
+    //  and adds loser claim revert path. Added as a separate test to preserve original.)
+    // =========================================================================
+
+    /// @notice Win/loss scenarios with exact payout assertions and loser revert
+    function testClaimPosition_WinLossScenarios_ExactPayout() public {
+        MockSpeculationModule mockSpeculationModule = new MockSpeculationModule(
+            address(core),
+            6
+        );
+        core.registerModule(
+            keccak256("SPECULATION_MODULE"),
+            address(mockSpeculationModule)
+        );
+        PositionModule localPositionModule = new PositionModule(
+            address(core),
+            address(token)
+        );
+        core.registerModule(
+            keccak256("POSITION_MODULE"),
+            address(localPositionModule)
+        );
+
+        MockScorerModule mockScorer = new MockScorerModule();
+
+        // --- Upper maker wins scenario ---
+        uint256 upperMakerRisk = 10_000_000;
+        uint256 upperTakerRisk = 1_000_000;
+        address upperTaker = address(0xCAFE);
+
+        token.approve(address(localPositionModule), upperMakerRisk);
+        token.transfer(upperTaker, upperTakerRisk);
+        vm.prank(upperTaker);
+        token.approve(address(localPositionModule), upperTakerRisk);
+
+        uint256 specId1 = _helperRecordFillLocal(
+            localPositionModule,
+            1,
+            address(mockScorer),
+            42,
+            PositionType.Upper,
+            address(this),
+            upperMakerRisk,
+            upperTaker,
+            upperTakerRisk
+        );
+
+        // --- Lower maker wins scenario (separate speculation) ---
+        uint256 lowerMakerRisk = 10_000_000;
+        uint256 lowerTakerRisk = 8_000_000;
+        address lowerTaker = address(0xCAFF);
+
+        token.approve(address(localPositionModule), lowerMakerRisk);
+        token.transfer(lowerTaker, lowerTakerRisk);
+        vm.prank(lowerTaker);
+        token.approve(address(localPositionModule), lowerTakerRisk);
+
+        uint256 specId2 = _helperRecordFillLocal(
+            localPositionModule,
+            1,
+            address(mockScorer),
+            43,
+            PositionType.Lower,
+            address(this),
+            lowerMakerRisk,
+            lowerTaker,
+            lowerTakerRisk
+        );
+
+        // Settle both
         vm.warp(block.timestamp + 2 hours);
         Contest memory contest = Contest({
-            awayScore: 100,
-            homeScore: 90,
+            awayScore: 1,
+            homeScore: 0,
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored,
             contestCreator: address(this),
@@ -1642,99 +1686,520 @@ contract PositionModuleTest is Test {
             jsonoddsId: ""
         });
         mockContestModule.setContest(1, contest);
-        speculationModule.settleSpeculation(specId);
+        mockSpeculationModule.settleSpeculation(specId1);
+        mockSpeculationModule.settleSpeculation(specId2);
 
-        // Attempt to claim with wrong oddsPairId should revert
-        vm.expectRevert(PositionModule.PositionModule__PositionDoesNotExist.selector);
-        positionModule.claimPosition(specId, wrongOddsPairId, PositionType.Upper);
+        // Upper wins for specId1
+        mockSpeculationModule.setSpeculationWinSide(specId1, WinSide.Away);
+
+        // Get maker positions for exact payout calculation
+        Position memory posUpper = localPositionModule.getPosition(
+            specId1,
+            address(this),
+            PositionType.Upper
+        );
+
+        // Winner gets exactly riskAmount + profitAmount
+        uint256 balBefore = token.balanceOf(address(this));
+        localPositionModule.claimPosition(specId1, PositionType.Upper);
+        uint256 balAfter = token.balanceOf(address(this));
+        assertEq(
+            balAfter - balBefore,
+            posUpper.riskAmount + posUpper.profitAmount,
+            "Upper winner payout should be riskAmount + profitAmount"
+        );
+
+        // Loser (taker) tries to claim — should revert with NoPayout
+        vm.prank(upperTaker);
+        vm.expectRevert(PositionModule.PositionModule__NoPayout.selector);
+        localPositionModule.claimPosition(specId1, PositionType.Lower);
+
+        // Home wins for specId2 (Lower maker wins)
+        mockSpeculationModule.setSpeculationWinSide(specId2, WinSide.Home);
+        Position memory posLower = localPositionModule.getPosition(
+            specId2,
+            address(this),
+            PositionType.Lower
+        );
+
+        balBefore = token.balanceOf(address(this));
+        localPositionModule.claimPosition(specId2, PositionType.Lower);
+        balAfter = token.balanceOf(address(this));
+        assertEq(
+            balAfter - balBefore,
+            posLower.riskAmount + posLower.profitAmount,
+            "Lower winner payout should be riskAmount + profitAmount"
+        );
+
+        // Loser (taker) tries to claim — should revert with NoPayout
+        vm.prank(lowerTaker);
+        vm.expectRevert(PositionModule.PositionModule__NoPayout.selector);
+        localPositionModule.claimPosition(specId2, PositionType.Upper);
     }
 
-    // --- TRANSFER POSITION ACCUMULATION TEST ---
+    // =========================================================================
+    // TASK 6: MISSING REVERT TESTS
+    // =========================================================================
 
-    /**
-     * @notice Test that transferPosition correctly accumulates matchedAmount when recipient has existing matched position
-     */
-    function testTransferPosition_AccumulatesMatchedAmount() public {
-        uint256 specId = speculationModule.createSpeculation(
+    /// @notice claimPosition reverts with NotSettled when speculation is still Open
+    function testClaimPosition_RevertsIfNotSettled() public {
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
             1,
             address(0x1234),
             42,
-            leaderboardId
-        );
-
-        uint64 odds = 20_000_000; // 2.00 odds
-        uint256 buyerAmount = 5_000_000;
-        uint256 buyerTakerAmount = 5_000_000; // At 2.00 odds, taker = maker
-
-        // Step 1: Buyer (user) creates a matched position (5 USDC)
-        vm.prank(user);
-        token.approve(address(positionModule), buyerAmount);
-        address taker1 = address(0xCAF1);
-        token.transfer(taker1, buyerTakerAmount);
-        vm.prank(taker1);
-        token.approve(address(positionModule), buyerTakerAmount);
-
-        (, uint128 oddsPairId) = _helperCreateMatchedPair(
-            positionModule,
-            specId,
-            odds,
             PositionType.Upper,
-            user,
-            buyerAmount,
-            taker1,
-            buyerTakerAmount
+            address(this),
+            makerRisk,
+            taker,
+            takerRisk
         );
 
-        // Verify buyer's matched position
-        Position memory buyerPosBefore = positionModule.getPosition(
-            specId,
-            user,
-            oddsPairId,
-            PositionType.Upper
+        // Speculation is still Open — claim should revert
+        vm.expectRevert(PositionModule.PositionModule__NotSettled.selector);
+        positionModule.claimPosition(specId, PositionType.Upper);
+    }
+
+    // Note: Double claim prevention test already exists as
+    // testClaimPosition_RevertsWithAlreadyClaimed_OnDoubleClaim — skipping duplicate.
+
+    // =========================================================================
+    // TASK 7: FORFEIT PAYOUT PATH + PUSH/VOID/FORFEIT FOR BOTH MAKER AND TAKER
+    // =========================================================================
+
+    /// @notice Push: both maker AND taker get exactly riskAmount back
+    function testClaimPosition_Push_BothMakerAndTaker() public {
+        MockSpeculationModule mockSpeculationModule = new MockSpeculationModule(
+            address(core),
+            6
         );
-        assertEq(buyerPosBefore.matchedAmount, buyerAmount, "Buyer should have 5 USDC matched");
-
-        // Step 2: Seller creates a matched position (10 USDC)
-        address seller = address(0x5E11);
-        uint256 sellerAmount = 10_000_000;
-        uint256 sellerTakerAmount = 10_000_000;
-
-        token.transfer(seller, sellerAmount);
-        vm.prank(seller);
-        token.approve(address(positionModule), sellerAmount);
-
-        address taker2 = address(0xCAF2);
-        token.transfer(taker2, sellerTakerAmount);
-        vm.prank(taker2);
-        token.approve(address(positionModule), sellerTakerAmount);
-
-        positionModule.createMatchedPair(
-            specId, odds, PositionType.Upper, seller, sellerAmount, taker2, sellerTakerAmount, 0, 0
+        core.registerModule(
+            keccak256("SPECULATION_MODULE"),
+            address(mockSpeculationModule)
+        );
+        PositionModule localPM = new PositionModule(
+            address(core),
+            address(token)
+        );
+        core.registerModule(
+            keccak256("POSITION_MODULE"),
+            address(localPM)
         );
 
-        // Step 3: Transfer seller's position to buyer
-        MockMarket market = new MockMarket(address(positionModule));
+        MockScorerModule mockScorer = new MockScorerModule();
+
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        token.approve(address(localPM), makerRisk);
+        vm.prank(taker);
+        token.approve(address(localPM), takerRisk);
+
+        uint256 specId = _helperRecordFillLocal(
+            localPM, 1, address(mockScorer), 42,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        vm.warp(block.timestamp + 2 hours);
+        Contest memory c = Contest({
+            awayScore: 1, homeScore: 0, leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored, contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0), rundownId: "", sportspageId: "", jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, c);
+        mockSpeculationModule.settleSpeculation(specId);
+        mockSpeculationModule.setSpeculationWinSide(specId, WinSide.Push);
+
+        // Maker claims — gets exactly riskAmount back
+        uint256 balBefore = token.balanceOf(address(this));
+        localPM.claimPosition(specId, PositionType.Upper);
+        uint256 balAfter = token.balanceOf(address(this));
+        assertEq(balAfter - balBefore, makerRisk, "Push: maker gets riskAmount back");
+
+        // Taker claims — gets exactly riskAmount back
+        balBefore = token.balanceOf(taker);
+        vm.prank(taker);
+        localPM.claimPosition(specId, PositionType.Lower);
+        balAfter = token.balanceOf(taker);
+        assertEq(balAfter - balBefore, takerRisk, "Push: taker gets riskAmount back");
+    }
+
+    /// @notice Void: both maker AND taker get exactly riskAmount back
+    function testClaimPosition_Void_BothMakerAndTaker() public {
+        MockSpeculationModule mockSpeculationModule = new MockSpeculationModule(
+            address(core),
+            6
+        );
+        core.registerModule(
+            keccak256("SPECULATION_MODULE"),
+            address(mockSpeculationModule)
+        );
+        PositionModule localPM = new PositionModule(
+            address(core),
+            address(token)
+        );
+        core.registerModule(
+            keccak256("POSITION_MODULE"),
+            address(localPM)
+        );
+
+        MockScorerModule mockScorer = new MockScorerModule();
+
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        token.approve(address(localPM), makerRisk);
+        vm.prank(taker);
+        token.approve(address(localPM), takerRisk);
+
+        uint256 specId = _helperRecordFillLocal(
+            localPM, 1, address(mockScorer), 50,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        vm.warp(block.timestamp + 2 hours);
+        Contest memory c = Contest({
+            awayScore: 1, homeScore: 0, leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored, contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0), rundownId: "", sportspageId: "", jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, c);
+        mockSpeculationModule.settleSpeculation(specId);
+        mockSpeculationModule.setSpeculationWinSide(specId, WinSide.Void);
+
+        // Maker claims
+        uint256 balBefore = token.balanceOf(address(this));
+        localPM.claimPosition(specId, PositionType.Upper);
+        uint256 balAfter = token.balanceOf(address(this));
+        assertEq(balAfter - balBefore, makerRisk, "Void: maker gets riskAmount back");
+
+        // Taker claims
+        balBefore = token.balanceOf(taker);
+        vm.prank(taker);
+        localPM.claimPosition(specId, PositionType.Lower);
+        balAfter = token.balanceOf(taker);
+        assertEq(balAfter - balBefore, takerRisk, "Void: taker gets riskAmount back");
+    }
+
+    /// @notice Forfeit: both maker AND taker get exactly riskAmount back
+    function testClaimPosition_Forfeit_BothMakerAndTaker() public {
+        MockSpeculationModule mockSpeculationModule = new MockSpeculationModule(
+            address(core),
+            6
+        );
+        core.registerModule(
+            keccak256("SPECULATION_MODULE"),
+            address(mockSpeculationModule)
+        );
+        PositionModule localPM = new PositionModule(
+            address(core),
+            address(token)
+        );
+        core.registerModule(
+            keccak256("POSITION_MODULE"),
+            address(localPM)
+        );
+
+        MockScorerModule mockScorer = new MockScorerModule();
+
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        token.approve(address(localPM), makerRisk);
+        vm.prank(taker);
+        token.approve(address(localPM), takerRisk);
+
+        uint256 specId = _helperRecordFillLocal(
+            localPM, 1, address(mockScorer), 51,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        vm.warp(block.timestamp + 2 hours);
+        Contest memory c = Contest({
+            awayScore: 1, homeScore: 0, leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored, contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0), rundownId: "", sportspageId: "", jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, c);
+        mockSpeculationModule.settleSpeculation(specId);
+        mockSpeculationModule.setSpeculationWinSide(specId, WinSide.Forfeit);
+
+        // Maker claims — gets exactly riskAmount back
+        uint256 balBefore = token.balanceOf(address(this));
+        localPM.claimPosition(specId, PositionType.Upper);
+        uint256 balAfter = token.balanceOf(address(this));
+        assertEq(balAfter - balBefore, makerRisk, "Forfeit: maker gets riskAmount back");
+
+        // Taker claims — gets exactly riskAmount back
+        balBefore = token.balanceOf(taker);
+        vm.prank(taker);
+        localPM.claimPosition(specId, PositionType.Lower);
+        balAfter = token.balanceOf(taker);
+        assertEq(balAfter - balBefore, takerRisk, "Forfeit: taker gets riskAmount back");
+    }
+
+    // =========================================================================
+    // TASK 9: EXERCISE CONTRIBUTION PATH
+    // =========================================================================
+
+    /// @notice recordFill with nonzero contributions transfers contribution token to receiver
+    function testRecordFill_WithContributions() public {
+        // Deploy a separate contribution token (different from the position token)
+        MockERC20 contributionToken = new MockERC20();
+        address contributionReceiver = address(0xFACE);
+
+        // Set up contribution module with token and receiver
+        contributionModule.setContributionToken(address(contributionToken));
+        contributionModule.setContributionReceiver(contributionReceiver);
+
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+        uint256 makerContribution = 500_000; // 0.5 USDC contribution
+        uint256 takerContribution = 400_000; // 0.4 USDC contribution
+
+        // Approve position token for both maker and taker
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        // Fund and approve contribution token for maker and taker
+        contributionToken.transfer(address(this), makerContribution);
+        contributionToken.approve(address(contributionModule), makerContribution);
+
+        contributionToken.transfer(taker, takerContribution);
+        vm.prank(taker);
+        contributionToken.approve(address(contributionModule), takerContribution);
+
+        // Record balances before
+        uint256 receiverBalBefore = contributionToken.balanceOf(contributionReceiver);
+
+        // Call recordFill with contributions
+        uint256 specId = positionModule.recordFill(
+            1, address(0x1234), 42, leaderboardId,
+            PositionType.Upper, address(this), makerRisk,
+            taker, takerRisk,
+            makerContribution, takerContribution
+        );
+
+        // Verify positions are correct (contributions don't affect risk/profit)
+        Position memory makerPos = positionModule.getPosition(
+            specId, address(this), PositionType.Upper
+        );
+        assertEq(makerPos.riskAmount, makerRisk, "Maker riskAmount unaffected by contribution");
+        assertEq(makerPos.profitAmount, takerRisk, "Maker profitAmount unaffected by contribution");
+
+        Position memory takerPos = positionModule.getPosition(
+            specId, taker, PositionType.Lower
+        );
+        assertEq(takerPos.riskAmount, takerRisk, "Taker riskAmount unaffected by contribution");
+        assertEq(takerPos.profitAmount, makerRisk, "Taker profitAmount unaffected by contribution");
+
+        // Verify contribution token was transferred to receiver
+        uint256 receiverBalAfter = contributionToken.balanceOf(contributionReceiver);
+        assertEq(
+            receiverBalAfter - receiverBalBefore,
+            makerContribution + takerContribution,
+            "Receiver should have received both contributions"
+        );
+    }
+
+    // =========================================================================
+    // TASK 11: PARTIAL TRANSFER TEST
+    // =========================================================================
+
+    /// @notice Partial transfer: transfer half, settle, both sender and receiver claim correctly
+    function testTransferPosition_PartialTransfer_BothClaim() public {
+        MockSpeculationModule mockSpeculationModule = new MockSpeculationModule(
+            address(core),
+            6
+        );
+        core.registerModule(
+            keccak256("SPECULATION_MODULE"),
+            address(mockSpeculationModule)
+        );
+        PositionModule localPM = new PositionModule(
+            address(core),
+            address(token)
+        );
+        core.registerModule(
+            keccak256("POSITION_MODULE"),
+            address(localPM)
+        );
+
+        MockScorerModule mockScorer = new MockScorerModule();
+
+        uint256 makerRisk = 100_000_000; // 100 USDC (100e6)
+        uint256 takerRisk = 80_000_000;  // 80 USDC (80e6)
+
+        token.approve(address(localPM), makerRisk);
+        vm.prank(taker);
+        token.approve(address(localPM), takerRisk);
+
+        uint256 specId = _helperRecordFillLocal(
+            localPM, 1, address(mockScorer), 42,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        // Verify initial position: risk=100e6, profit=80e6
+        Position memory origPos = localPM.getPosition(specId, address(this), PositionType.Upper);
+        assertEq(origPos.riskAmount, 100_000_000);
+        assertEq(origPos.profitAmount, 80_000_000);
+
+        // Transfer half to another address
+        address receiver = address(0xAAAA);
+        MockMarket market = new MockMarket(address(localPM));
         core.setMarketRole(address(market), true);
+
         market.transferPosition(
             specId,
-            seller,
-            oddsPairId,
+            address(this),
             PositionType.Upper,
-            user,
-            sellerAmount
+            receiver,
+            50_000_000, // half risk
+            40_000_000  // half profit
         );
 
-        // Step 4: Verify buyer's matchedAmount is ACCUMULATED (5 + 10 = 15)
-        Position memory buyerPosAfter = positionModule.getPosition(
-            specId,
-            user,
-            oddsPairId,
-            PositionType.Upper
+        // Verify sender has remainder: risk=50e6, profit=40e6
+        Position memory senderPos = localPM.getPosition(specId, address(this), PositionType.Upper);
+        assertEq(senderPos.riskAmount, 50_000_000, "Sender risk should be 50e6");
+        assertEq(senderPos.profitAmount, 40_000_000, "Sender profit should be 40e6");
+
+        // Verify receiver has: risk=50e6, profit=40e6
+        Position memory receiverPos = localPM.getPosition(specId, receiver, PositionType.Upper);
+        assertEq(receiverPos.riskAmount, 50_000_000, "Receiver risk should be 50e6");
+        assertEq(receiverPos.profitAmount, 40_000_000, "Receiver profit should be 40e6");
+
+        // Settle as Upper wins (Away)
+        vm.warp(block.timestamp + 2 hours);
+        Contest memory c = Contest({
+            awayScore: 100, homeScore: 90, leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored, contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0), rundownId: "", sportspageId: "", jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, c);
+        mockSpeculationModule.settleSpeculation(specId);
+        mockSpeculationModule.setSpeculationWinSide(specId, WinSide.Away);
+
+        // Sender claims: payout = 50e6 + 40e6 = 90e6
+        uint256 balBefore = token.balanceOf(address(this));
+        localPM.claimPosition(specId, PositionType.Upper);
+        uint256 balAfter = token.balanceOf(address(this));
+        assertEq(balAfter - balBefore, 90_000_000, "Sender payout should be 50e6 + 40e6 = 90e6");
+
+        // Receiver claims: payout = 50e6 + 40e6 = 90e6
+        balBefore = token.balanceOf(receiver);
+        vm.prank(receiver);
+        localPM.claimPosition(specId, PositionType.Upper);
+        balAfter = token.balanceOf(receiver);
+        assertEq(balAfter - balBefore, 90_000_000, "Receiver payout should be 50e6 + 40e6 = 90e6");
+    }
+
+    // =========================================================================
+    // TASK 19: POSITION AGGREGATION TEST
+    // =========================================================================
+
+    /// @notice Same user, same speculation, same side, three fills — positions aggregate
+    function testRecordFill_PositionAggregation_ThreeFills() public {
+        MockSpeculationModule mockSpeculationModule = new MockSpeculationModule(
+            address(core),
+            6
         );
+        core.registerModule(
+            keccak256("SPECULATION_MODULE"),
+            address(mockSpeculationModule)
+        );
+        PositionModule localPM = new PositionModule(
+            address(core),
+            address(token)
+        );
+        core.registerModule(
+            keccak256("POSITION_MODULE"),
+            address(localPM)
+        );
+
+        MockScorerModule mockScorer = new MockScorerModule();
+
+        // Three fills with different risk/profit amounts
+        uint256 makerRisk1 = 10_000_000;
+        uint256 takerRisk1 = 8_000_000;
+        uint256 makerRisk2 = 5_000_000;
+        uint256 takerRisk2 = 4_000_000;
+        uint256 makerRisk3 = 7_000_000;
+        uint256 takerRisk3 = 6_000_000;
+
+        address taker1 = address(0xCA01);
+        address taker2 = address(0xCA02);
+        address taker3 = address(0xCA03);
+
+        // Fund takers
+        token.transfer(taker1, takerRisk1);
+        token.transfer(taker2, takerRisk2);
+        token.transfer(taker3, takerRisk3);
+
+        // Fill 1
+        token.approve(address(localPM), makerRisk1);
+        vm.prank(taker1);
+        token.approve(address(localPM), takerRisk1);
+
+        uint256 specId = _helperRecordFillLocal(
+            localPM, 1, address(mockScorer), 42,
+            PositionType.Upper, address(this), makerRisk1, taker1, takerRisk1
+        );
+
+        // Fill 2 — same speculation (same contest/scorer/theNumber)
+        token.approve(address(localPM), makerRisk2);
+        vm.prank(taker2);
+        token.approve(address(localPM), takerRisk2);
+
+        localPM.recordFill(
+            1, address(mockScorer), 42, leaderboardId,
+            PositionType.Upper, address(this), makerRisk2,
+            taker2, takerRisk2, 0, 0
+        );
+
+        // Fill 3 — same speculation
+        token.approve(address(localPM), makerRisk3);
+        vm.prank(taker3);
+        token.approve(address(localPM), takerRisk3);
+
+        localPM.recordFill(
+            1, address(mockScorer), 42, leaderboardId,
+            PositionType.Upper, address(this), makerRisk3,
+            taker3, takerRisk3, 0, 0
+        );
+
+        // Verify aggregated position
+        uint256 totalMakerRisk = makerRisk1 + makerRisk2 + makerRisk3; // 22M
+        uint256 totalMakerProfit = takerRisk1 + takerRisk2 + takerRisk3; // 18M
+
+        Position memory makerPos = localPM.getPosition(specId, address(this), PositionType.Upper);
+        assertEq(makerPos.riskAmount, totalMakerRisk, "riskAmount == sum of all fills' risk");
+        assertEq(makerPos.profitAmount, totalMakerProfit, "profitAmount == sum of all fills' profit");
+
+        // Settle and claim — payout should be totalRisk + totalProfit
+        vm.warp(block.timestamp + 2 hours);
+        Contest memory c = Contest({
+            awayScore: 100, homeScore: 90, leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored, contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0), rundownId: "", sportspageId: "", jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, c);
+        mockSpeculationModule.settleSpeculation(specId);
+        mockSpeculationModule.setSpeculationWinSide(specId, WinSide.Away);
+
+        uint256 balBefore = token.balanceOf(address(this));
+        localPM.claimPosition(specId, PositionType.Upper);
+        uint256 payout = token.balanceOf(address(this)) - balBefore;
         assertEq(
-            buyerPosAfter.matchedAmount,
-            buyerAmount + sellerAmount,
-            "Buyer's matchedAmount should accumulate (5 + 10 = 15)"
+            payout,
+            totalMakerRisk + totalMakerProfit,
+            "Claim payout == totalRiskAmount + totalProfitAmount"
         );
     }
 }

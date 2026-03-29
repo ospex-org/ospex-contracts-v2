@@ -6,9 +6,20 @@ import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IPositionModule} from "../interfaces/IPositionModule.sol";
 import {ITreasuryModule} from "../interfaces/ITreasuryModule.sol";
 import {IRulesModule} from "../interfaces/IRulesModule.sol";
-import {PositionType, Leaderboard, LeaderboardPosition, Speculation, Position, OddsPair, LeaderboardScoring, WinSide, LeaderboardPositionValidationResult} from "../core/OspexTypes.sol";
+import {
+    PositionType,
+    Leaderboard,
+    LeaderboardPosition,
+    Speculation,
+    Position,
+    LeaderboardScoring,
+    WinSide,
+    LeaderboardPositionValidationResult
+} from "../core/OspexTypes.sol";
 import {OspexCore} from "../core/OspexCore.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {
+    ReentrancyGuard
+} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title LeaderboardModule
@@ -26,10 +37,8 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     error LeaderboardModule__InvalidTime();
     /// @notice Error for bankroll out of range
     error LeaderboardModule__BankrollOutOfRange();
-    /// @notice Error for no matched amount
-    error LeaderboardModule__NoMatchedAmount();
-    /// @notice Error for no additional matched amount
-    error LeaderboardModule__NoAdditionalMatchedAmount();
+    /// @notice Error for no risk amount
+    error LeaderboardModule__NoRiskAmount();
     /// @notice Error for user already registered
     error LeaderboardModule__UserAlreadyRegistered();
     /// @notice Error for user not registered for leaderboard
@@ -48,8 +57,6 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     );
     /// @notice Error for position already exists for speculation
     error LeaderboardModule__PositionAlreadyExistsForSpeculation();
-    /// @notice Error for leaderboard speculation not registered for leaderboard
-    error LeaderboardModule__LeaderboardSpeculationNotRegisteredForLeaderboard();
     /// @notice Error for module not set
     error LeaderboardModule__ModuleNotSet(bytes32 moduleType);
     /// @notice Error for not in ROI window
@@ -101,6 +108,9 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     // Stores the scoring information for each leaderboard
     // leaderboardId => LeaderboardScoring
     mapping(uint256 => LeaderboardScoring) private s_leaderboardScoring;
+
+    // Check to see if roi has been submitted, protects against repeatedly submitting ROI of 0
+    mapping(uint256 => mapping(address => bool)) private s_roiSubmitted;
 
     // Leaderboard counter
     uint256 public s_nextLeaderboardId;
@@ -158,36 +168,20 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
 
     /**
      * @notice Event for adding a position to a leaderboard
+     * @param contestId The ID of the contest
      * @param speculationId The ID of the speculation
      * @param user The address of the user
-     * @param oddsPairId The ID of the odds pair
-     * @param amount The amount of the position
+     * @param riskAmount The risk amount of the position
+     * @param profitAmount The profit amount of the position
      * @param positionType The type of the position
      * @param leaderboardId The ID of the leaderboard
      */
     event LeaderboardPositionAdded(
+        uint256 contestId,
         uint256 indexed speculationId,
         address indexed user,
-        uint128 oddsPairId,
-        uint256 amount,
-        PositionType positionType,
-        uint256 indexed leaderboardId
-    );
-
-    /**
-     * @notice Event for updating a position in a leaderboard
-     * @param speculationId The ID of the speculation
-     * @param user The address of the user
-     * @param oddsPairId The ID of the odds pair
-     * @param amount The amount of the position
-     * @param positionType The type of the position
-     * @param leaderboardId The ID of the leaderboard
-     */
-    event LeaderboardPositionUpdated(
-        uint256 indexed speculationId,
-        address indexed user,
-        uint128 oddsPairId,
-        uint256 amount,
+        uint256 riskAmount,
+        uint256 profitAmount,
         PositionType positionType,
         uint256 indexed leaderboardId
     );
@@ -410,13 +404,11 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     /**
      * @notice Registers a position for one or more leaderboards (initial registration only)
      * @param speculationId The speculation ID
-     * @param oddsPairId The odds pair ID
      * @param positionType The position type
      * @param leaderboardIds The list of leaderboard IDs (max 8)
      */
     function registerPositionForLeaderboards(
         uint256 speculationId,
-        uint128 oddsPairId,
         PositionType positionType,
         uint256[] calldata leaderboardIds
     ) external override {
@@ -425,17 +417,12 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         }
         address user = msg.sender;
         (
-            uint256 matchedAmount,
-            uint64 odds,
+            uint256 riskAmount,
+            uint256 profitAmount,
             int32 theNumber,
             uint256 contestId,
             address scorer
-        ) = _getPositionAndLeaderboardData(
-                speculationId,
-                user,
-                oddsPairId,
-                positionType
-            );
+        ) = _getPositionAndLeaderboardData(speculationId, user, positionType);
 
         for (uint256 i = 0; i < leaderboardIds.length; i++) {
             uint256 leaderboardId = leaderboardIds[i];
@@ -461,13 +448,18 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
                 leaderboardId,
                 declaredBankroll
             );
-            uint256 cappedAmount = matchedAmount > maxBet
+            uint256 cappedRiskAmount = riskAmount > maxBet
                 ? maxBet
-                : matchedAmount;
+                : riskAmount;
+
+            // Profit amount scaled proportionally to cappedRiskAmount
+            uint256 cappedProfitAmount = riskAmount > maxBet
+                ? (profitAmount * maxBet) / riskAmount
+                : profitAmount;
 
             // Confirm bet size is above minimum bet amount
             if (
-                cappedAmount <
+                cappedRiskAmount <
                 rulesModule.getMinBetAmount(leaderboardId, declaredBankroll)
             ) {
                 revert LeaderboardModule__BetSizeBelowMinimum();
@@ -480,8 +472,9 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
                     speculationId,
                     user,
                     theNumber,
-                    odds,
-                    positionType
+                    positionType,
+                    cappedRiskAmount,
+                    cappedProfitAmount
                 );
 
             if (validationResult == LeaderboardPositionValidationResult.Valid) {
@@ -495,29 +488,31 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
                 ] = LeaderboardPosition({
                     contestId: contestId,
                     speculationId: speculationId,
-                    amount: cappedAmount,
+                    riskAmount: cappedRiskAmount,
+                    profitAmount: cappedProfitAmount,
                     user: user,
-                    odds: odds,
                     positionType: positionType
                 });
                 // Track speculationId for user in this leaderboard
                 s_userSpeculationIds[leaderboardId][user].push(speculationId);
 
                 emit LeaderboardPositionAdded(
+                    contestId,
                     speculationId,
                     user,
-                    oddsPairId,
-                    cappedAmount,
+                    cappedRiskAmount,
+                    cappedProfitAmount,
                     positionType,
                     leaderboardId
                 );
                 i_ospexCore.emitCoreEvent(
                     keccak256("LEADERBOARD_POSITION_ADDED"),
                     abi.encode(
+                        contestId,
                         speculationId,
                         user,
-                        oddsPairId,
-                        cappedAmount,
+                        cappedRiskAmount,
+                        cappedProfitAmount,
                         positionType,
                         leaderboardId
                     )
@@ -529,101 +524,20 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     }
 
     /**
-     * @notice Increases the registered amount of a position for one or more leaderboards
-     * @param speculationId The speculation ID
-     * @param oddsPairId The odds pair ID
-     * @param positionType The position type
-     * @param leaderboardIds The list of leaderboard IDs (max 8)
-     */
-    function increaseLeaderboardPositionAmount(
-        uint256 speculationId,
-        uint128 oddsPairId,
-        PositionType positionType,
-        uint256[] calldata leaderboardIds
-    ) external override {
-        if (leaderboardIds.length > 8) {
-            revert LeaderboardModule__InvalidLeaderboardCount();
-        }
-        address user = msg.sender;
-        (
-            uint256 matchedAmount,
-            ,
-            ,
-            uint256 contestId,
-            address scorer
-        ) = _getPositionAndLeaderboardData(
-                speculationId,
-                user,
-                oddsPairId,
-                positionType
-            );
-
-        for (uint256 i = 0; i < leaderboardIds.length; i++) {
-            uint256 leaderboardId = leaderboardIds[i];
-            (, uint256 declaredBankroll) = _getLeaderboardAndBankroll(
-                leaderboardId,
-                user
-            );
-            // Check if the speculation is already registered for this leaderboard
-            uint256 registeredSpecId = s_registeredLeaderboardSpeculation[
-                leaderboardId
-            ][user][contestId][scorer];
-            if (registeredSpecId != speculationId) {
-                // Not registered yet, must use register function
-                revert LeaderboardModule__LeaderboardSpeculationNotRegisteredForLeaderboard();
-            }
-            LeaderboardPosition storage lbPos = s_leaderboardPositions[
-                leaderboardId
-            ][user][speculationId];
-            if (matchedAmount <= lbPos.amount) {
-                revert LeaderboardModule__NoAdditionalMatchedAmount();
-            }
-
-            // Cap at max allowed bet size
-            uint256 maxBet = IRulesModule(_getModule(keccak256("RULES_MODULE")))
-                .getMaxBetAmount(leaderboardId, declaredBankroll);
-            uint256 cappedAmount = matchedAmount > maxBet
-                ? maxBet
-                : matchedAmount;
-            if (cappedAmount > lbPos.amount) {
-                lbPos.amount = cappedAmount;
-
-                emit LeaderboardPositionUpdated(
-                    speculationId,
-                    user,
-                    oddsPairId,
-                    cappedAmount,
-                    positionType,
-                    leaderboardId
-                );
-                i_ospexCore.emitCoreEvent(
-                    keccak256("LEADERBOARD_POSITION_UPDATED"),
-                    abi.encode(
-                        speculationId,
-                        user,
-                        oddsPairId,
-                        cappedAmount,
-                        positionType,
-                        leaderboardId
-                    )
-                );
-            }
-        }
-    }
-
-    /**
      * @notice Submits a ROI to a leaderboard
      * @param leaderboardId The ID of the leaderboard
      */
     function submitLeaderboardROI(uint256 leaderboardId) external override {
         // --- Time checks ---
         Leaderboard storage leaderboard = s_leaderboards[leaderboardId];
-        uint256 claimWindowStart = leaderboard.endTime +
-            leaderboard.safetyPeriodDuration;
-        uint256 claimWindowEnd = claimWindowStart + leaderboard.claimWindow;
+        (
+            uint256 roiWindowStart,
+            uint256 roiWindowEnd,
+            ,
+
+        ) = _calculateTimeBounds(leaderboard);
         if (
-            block.timestamp < claimWindowStart ||
-            block.timestamp > claimWindowEnd
+            block.timestamp < roiWindowStart || block.timestamp > roiWindowEnd
         ) {
             revert LeaderboardModule__NotInROIWindow();
         }
@@ -638,7 +552,10 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         LeaderboardScoring storage leaderboardScoring = s_leaderboardScoring[
             leaderboardId
         ];
-        if (leaderboardScoring.userROIs[msg.sender] != 0) {
+        if (
+            leaderboardScoring.userROIs[msg.sender] != 0 ||
+            s_roiSubmitted[leaderboardId][msg.sender]
+        ) {
             revert LeaderboardModule__ROIAlreadySubmitted();
         }
 
@@ -658,6 +575,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
 
         // --- Store and compare ---
         leaderboardScoring.userROIs[msg.sender] = roi;
+        s_roiSubmitted[leaderboardId][msg.sender] = true;
 
         if (
             leaderboardScoring.winners.length == 0 ||
@@ -853,23 +771,21 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     }
 
     /**
-     * @notice Internal helper to get the full Position struct for a user/speculation/oddsPair/positionType
+     * @notice Internal helper to get the full Position struct for a user/speculation/positionType
      * @param speculationId The ID of the speculation
      * @param user The address of the user
-     * @param oddsPairId The ID of the odds pair
      * @param positionType The type of the position
      */
     function _getPositionAndLeaderboardData(
         uint256 speculationId,
         address user,
-        uint128 oddsPairId,
         PositionType positionType
     )
         internal
         view
         returns (
-            uint256 matchedAmount,
-            uint64 odds,
+            uint256 riskAmount,
+            uint256 profitAmount,
             int32 theNumber,
             uint256 contestId,
             address scorer
@@ -881,24 +797,20 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         Position memory pos = posModule.getPosition(
             speculationId,
             user,
-            oddsPairId,
             positionType
         );
-        matchedAmount = pos.matchedAmount;
-        if (matchedAmount == 0) {
-            revert LeaderboardModule__NoMatchedAmount();
+        riskAmount = pos.riskAmount;
+        profitAmount = pos.profitAmount;
+        if (riskAmount == 0) {
+            revert LeaderboardModule__NoRiskAmount();
         }
-        OddsPair memory oddsPair = posModule.getOddsPair(oddsPairId);
-        odds = positionType == PositionType.Upper
-            ? oddsPair.upperOdds
-            : oddsPair.lowerOdds;
         Speculation memory spec = ISpeculationModule(
             _getModule(keccak256("SPECULATION_MODULE"))
         ).getSpeculation(speculationId);
         theNumber = spec.theNumber;
         contestId = spec.contestId;
         scorer = spec.speculationScorer;
-        return (matchedAmount, odds, theNumber, contestId, scorer);
+        return (riskAmount, profitAmount, theNumber, contestId, scorer);
     }
 
     /**
@@ -925,6 +837,9 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             net += _calculatePositionNet(lbPos);
         }
         // --- ROI = net / declaredBankroll ---
+        // casting to 'int256' is safe because ROI_PRECISION and declaredBankroll are uint256 values
+        // that represent USDC amounts or precision multipliers, well within int256 max
+        // forge-lint: disable-next-line(unsafe-typecast)
         roi = (net * int256(ROI_PRECISION)) / int256(declaredBankroll);
         return roi;
     }
@@ -942,29 +857,28 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             _getModule(keccak256("SPECULATION_MODULE"))
         ).getSpeculation(lbPos.speculationId);
 
-        // --- Fetch the odds precision ---
-        uint256 oddsPrecision = uint256(
-            IPositionModule(_getModule(keccak256("POSITION_MODULE")))
-                .ODDS_PRECISION()
-        );
-
         // --- Retrieve outcome ---
         bool isWinner = _isLeaderboardPositionWinner(lbPos, spec);
         bool isPushOrVoid = (spec.winSide == WinSide.Push ||
             spec.winSide == WinSide.Void ||
-            spec.winSide == WinSide.Forfeit);
+            spec.winSide == WinSide.Forfeit ||
+            // adding TBD in case something isn't scored
+            spec.winSide == WinSide.TBD);
 
         uint256 payout;
         if (isPushOrVoid) {
-            payout = lbPos.amount;
+            payout = lbPos.riskAmount;
         } else if (isWinner) {
-            payout = (lbPos.amount * lbPos.odds) / oddsPrecision;
+            payout = lbPos.riskAmount + lbPos.profitAmount;
         } else {
             payout = 0;
         }
 
-        // --- Net = payout - amount ---
-        return int256(payout) - int256(lbPos.amount);
+        // --- Net = payout - riskAmount ---
+        // casting to 'int256' is safe because payout and riskAmount are USDC amounts (6 decimals),
+        // far below int256 max. Result can be negative (loss), which is why int256 is needed.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return int256(payout) - int256(lbPos.riskAmount);
     }
 
     /**

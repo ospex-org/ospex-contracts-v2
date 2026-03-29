@@ -7,7 +7,15 @@ import {IContestModule} from "../interfaces/IContestModule.sol";
 import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IPositionModule} from "../interfaces/IPositionModule.sol";
 import {OspexCore} from "../core/OspexCore.sol";
-import {LeagueId, Leaderboard, Contest, Speculation, PositionType, ContestMarket, LeaderboardPositionValidationResult} from "../core/OspexTypes.sol";
+import {
+    LeagueId,
+    Leaderboard,
+    Contest,
+    Speculation,
+    PositionType,
+    ContestMarket,
+    LeaderboardPositionValidationResult
+} from "../core/OspexTypes.sol";
 
 /**
  * @title RulesModule
@@ -54,6 +62,8 @@ contract RulesModule is IRulesModule {
 
     // --- Constants ---
     uint16 public constant MAX_BPS = 10000; // 100%
+    /// @notice The odds scale factor (1.91 odds = 191 ticks)
+    uint16 public constant ODDS_SCALE = 100;
 
     // --- Events ---
     /**
@@ -114,10 +124,10 @@ contract RulesModule is IRulesModule {
     }
 
     /**
-     * @notice Modifier to ensure the value is greater than the maximum BPS
+     * @notice Modifier to ensure the value is not greater than the maximum BPS
      * @param value The value to check
      */
-    modifier valueGreaterThanMaxBps(uint256 value) {
+    modifier valueNotExceedingMaxBps(uint256 value) {
         if (value > MAX_BPS) revert RulesModule__InvalidBps();
         _;
     }
@@ -189,7 +199,7 @@ contract RulesModule is IRulesModule {
         override
         onlyAdmin
         leaderboardNotStarted(leaderboardId)
-        valueGreaterThanMaxBps(value)
+        valueNotExceedingMaxBps(value)
     {
         s_minBetPercentage[leaderboardId] = value;
         emit RuleSet(leaderboardId, "minBetPercentage", value);
@@ -212,7 +222,7 @@ contract RulesModule is IRulesModule {
         override
         onlyAdmin
         leaderboardNotStarted(leaderboardId)
-        valueGreaterThanMaxBps(value)
+        valueNotExceedingMaxBps(value)
     {
         s_maxBetPercentage[leaderboardId] = value;
         emit RuleSet(leaderboardId, "maxBetPercentage", value);
@@ -252,7 +262,7 @@ contract RulesModule is IRulesModule {
         override
         onlyAdmin
         leaderboardNotStarted(leaderboardId)
-        valueGreaterThanMaxBps(value)
+        valueNotExceedingMaxBps(value)
     {
         s_oddsEnforcementBps[leaderboardId] = value;
         emit RuleSet(leaderboardId, "oddsEnforcementBps", value);
@@ -369,35 +379,35 @@ contract RulesModule is IRulesModule {
     /**
      * @notice Validates if odds are within enforcement limits
      * @param leaderboardId The leaderboard ID
-     * @param userOdds The odds the user is getting
-     * @param marketOdds The current market odds
+     * @param riskAmount Risk amount from the LB position
+     * @param profitAmount Profit amount from the LB position
+     * @param marketOddsTick The current market odds
      * @return bool True if odds are valid (within enforcement or worse than market)
      * @dev Worse odds than market are always allowed, better odds are limited by enforcement BPS
      */
     function validateOdds(
         uint256 leaderboardId,
-        uint64 userOdds,
-        uint64 marketOdds
+        uint256 riskAmount,
+        uint256 profitAmount,
+        uint16 marketOddsTick
     ) external view override returns (bool) {
         uint16 enforcementBps = s_oddsEnforcementBps[leaderboardId];
 
         // If no enforcement set, all odds are valid
         if (enforcementBps == 0) return true;
 
-        // If user odds are worse than or equal to market, always allowed
-        if (userOdds <= marketOdds) return true;
+        // If effective odds <= market odds, always allowed (worse or equal odds)
+        // Exact check: (risk + profit) * ODDS_SCALE <= risk * marketOdds
+        // No division, no rounding
+        uint256 lhs = (riskAmount + profitAmount) * ODDS_SCALE;
+        uint256 rhs = riskAmount * uint256(marketOddsTick);
+        if (lhs <= rhs) return true;
 
-        // Calculate maximum allowed odds (market + enforcement percentage)
-        // Example: market 2.25, enforcement 25% -> max = 2.25 + (2.25-1)*0.25 = 2.25 + 0.3125 = 2.5625
-        uint256 oddsPrecision = IPositionModule(
-            _getModule(keccak256("POSITION_MODULE"))
-        ).ODDS_PRECISION();
-
-        uint256 marketProfit = uint256(marketOdds) - oddsPrecision;
-        uint256 maxAdditionalProfit = (marketProfit * enforcementBps) / MAX_BPS;
-        uint256 maxAllowedOdds = uint256(marketOdds) + maxAdditionalProfit;
-
-        return uint256(userOdds) <= maxAllowedOdds;
+        // Check if within enforcement threshold
+        // effective odds <= marketOdds * (10000 + maxAboveBps) / 10000
+        // Cross-multiplied to avoid division:
+        // (risk + profit) * ODDS_SCALE * 10000 <= risk * marketOdds * (10000 + maxAboveBps)
+        return lhs * MAX_BPS <= rhs * (MAX_BPS + uint256(enforcementBps));
     }
 
     /**
@@ -443,8 +453,9 @@ contract RulesModule is IRulesModule {
      * @param speculationId The speculation ID
      * @param user The user address
      * @param userNumber The number the user is betting on (for spreads/totals)
-     * @param userOdds The odds the user is getting
      * @param positionType The position type (Upper/Lower)
+     * @param riskAmount The amount of risk associated with the position
+     * @param profitAmount The amount of profit associated with the position
      * @return bool True if position passes all validation rules
      */
     function validateLeaderboardPosition(
@@ -452,8 +463,9 @@ contract RulesModule is IRulesModule {
         uint256 speculationId,
         address user,
         int32 userNumber,
-        uint64 userOdds,
-        PositionType positionType
+        PositionType positionType,
+        uint256 riskAmount,
+        uint256 profitAmount
     ) external view override returns (LeaderboardPositionValidationResult) {
         // Get leaderboard to ensure it exists and is active
         ILeaderboardModule leaderboardModule = ILeaderboardModule(
@@ -528,18 +540,23 @@ contract RulesModule is IRulesModule {
         }
 
         // Validate odds enforcement - compare against current market odds
-        uint64 marketOdds = positionType == PositionType.Upper
+        uint16 marketOddsTick = positionType == PositionType.Upper
             ? contestMarket.upperOdds
             : contestMarket.lowerOdds;
 
-        if (!this.validateOdds(leaderboardId, userOdds, marketOdds)) {
+        if (
+            !this.validateOdds(
+                leaderboardId,
+                riskAmount,
+                profitAmount,
+                marketOddsTick
+            )
+        ) {
             return LeaderboardPositionValidationResult.OddsTooFavorable;
         }
 
         // Validate directional position conflict
-        address moneylineScorer = _getModule(
-            keccak256("MONEYLINE_SCORER")
-        );
+        address moneylineScorer = _getModule(keccak256("MONEYLINE_SCORER"));
         address spreadScorer = _getModule(keccak256("SPREAD_SCORER"));
 
         if (speculation.speculationScorer == moneylineScorer) {

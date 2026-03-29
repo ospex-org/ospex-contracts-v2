@@ -13,18 +13,18 @@ interface ISecondaryMarketModule is IModule {
     /**
      * @notice Lists a portion of a matched position for sale
      * @param speculationId Speculation ID
-     * @param oddsPairId ID of the odds pair
      * @param positionType Position type
      * @param price Price in token
-     * @param amount Amount of position to sell (0 for full amount)
+     * @param riskAmount Amount of risk of position for sale
+     * @param profitAmount Amount of profit of position for sale
      * @param contributionAmount Amount to contribute for listing priority
      */
     function listPositionForSale(
         uint256 speculationId,
-        uint128 oddsPairId,
         PositionType positionType,
         uint256 price,
-        uint256 amount,
+        uint256 riskAmount,
+        uint256 profitAmount,
         uint256 contributionAmount
     ) external;
 
@@ -32,16 +32,14 @@ interface ISecondaryMarketModule is IModule {
      * @notice Buys a listed position from another user
      * @param speculationId Speculation ID
      * @param seller Address of the position seller
-     * @param oddsPairId ID of the odds pair
      * @param positionType Position type
-     * @param amount Amount of position to buy
+     * @param riskAmount Risk amount of position to buy
      */
     function buyPosition(
         uint256 speculationId,
         address seller,
-        uint128 oddsPairId,
         PositionType positionType,
-        uint256 amount
+        uint256 riskAmount
     ) external;
 
     /**
@@ -52,29 +50,27 @@ interface ISecondaryMarketModule is IModule {
     /**
      * @notice Cancels an active sale listing
      * @param speculationId Speculation ID
-     * @param oddsPairId ID of the odds pair
      * @param positionType Position type
      */
     function cancelListing(
         uint256 speculationId,
-        uint128 oddsPairId,
         PositionType positionType
     ) external;
 
     /**
      * @notice Updates an existing sale listing
      * @param speculationId Speculation ID
-     * @param oddsPairId Odds pair ID
      * @param positionType Position type
-     * @param newPrice New price for the listing (0 to keep current)
-     * @param newAmount New amount for sale (0 to keep current)
+     * @param newPrice New price for the listing
+     * @param newRiskAmount New risk amount for sale
+     * @param newProfitAmount New profit amount for sale
      */
     function updateListing(
         uint256 speculationId,
-        uint128 oddsPairId,
         PositionType positionType,
         uint256 newPrice,
-        uint256 newAmount
+        uint256 newRiskAmount,
+        uint256 newProfitAmount
     ) external;
 
     /**
@@ -93,14 +89,12 @@ interface ISecondaryMarketModule is IModule {
      * @notice Returns the sale listing for a given position
      * @param speculationId Speculation ID
      * @param seller Seller address
-     * @param oddsPairId Odds pair ID
      * @param positionType Position type
      * @return listing The SaleListing struct
      */
     function getSaleListing(
         uint256 speculationId,
         address seller,
-        uint128 oddsPairId,
         PositionType positionType
     ) external view returns (SaleListing memory listing);
 

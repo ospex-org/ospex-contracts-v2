@@ -7,9 +7,9 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {
     ReentrancyGuard
 } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IPositionModule} from "../interfaces/IPositionModule.sol";
 import {PositionType} from "../core/OspexTypes.sol";
+import {IModule} from "../interfaces/IModule.sol";
 
 /**
  * @title MatchingModule
@@ -18,23 +18,29 @@ import {PositionType} from "../core/OspexTypes.sol";
  *      to the PositionModule via safeTransferFrom. Both parties must approve the PositionModule
  *      contract for USDC spending, NOT this contract.
  *
- *      The MatchingModule must be granted MARKET_ROLE on OspexCore to call
- *      createMatchedPair / createMatchedPairWithSpeculation on the PositionModule.
+ *      The MatchingModule must be registered as MATCHING_MODULE in OspexCore.
+ *      PositionModule.recordFill restricts callers to the registered MATCHING_MODULE address.
  */
-contract MatchingModule is EIP712, ReentrancyGuard {
+contract MatchingModule is IModule, EIP712, ReentrancyGuard {
     // --- Errors ---
     /// @notice Commitment signature is invalid
     error MatchingModule__InvalidSignature();
+    /// @notice Commitment odds are out of range
+    error MatchingModule__OddsOutOfRange(uint16 oddsTick);
     /// @notice Commitment has expired
     error MatchingModule__CommitmentExpired();
     /// @notice Commitment nonce is below the minimum valid nonce for this speculation
     error MatchingModule__NonceTooLow();
     /// @notice Commitment has been individually cancelled
     error MatchingModule__CommitmentCancelled();
+    /// @notice Lot size leaves remainder which makes it invalid
+    error MatchingModule__InvalidLotSize();
     /// @notice Maker address cannot be zero
     error MatchingModule__InvalidMakerAddress();
     /// @notice Taker amount is zero
-    error MatchingModule__InvalidTakerAmount();
+    error MatchingModule__InvalidTakerDesiredRisk();
+    /// @notice Maker does not have adequate risk available for taker
+    error MatchingModule__InvalidFillMakerRisk();
     /// @notice Only the commitment maker can cancel their own commitment
     error MatchingModule__NotCommitmentMaker();
     /// @notice New minimum nonce must be higher than current
@@ -54,10 +60,10 @@ contract MatchingModule is EIP712, ReentrancyGuard {
         address indexed taker,
         uint256 contestId,
         uint256 speculationId,
-        PositionType positionType,
-        uint64 odds,
-        uint256 makerFillAmount,
-        uint256 takerFillAmount
+        PositionType makerPositionType,
+        uint16 oddsTick,
+        uint256 makerProfitAmount,
+        uint256 takerProfitAmount
     );
 
     /// @notice Emitted when a single commitment is cancelled by its maker
@@ -83,8 +89,9 @@ contract MatchingModule is EIP712, ReentrancyGuard {
             "address scorer,"
             "int32 theNumber,"
             "uint8 positionType,"
-            "uint64 odds,"
-            "uint256 maxAmount,"
+            "uint16 oddsTick,"
+            "uint256 riskAmount,"
+            "uint256 contributionAmount,"
             "uint256 nonce,"
             "uint256 expiry"
             ")"
@@ -93,13 +100,19 @@ contract MatchingModule is EIP712, ReentrancyGuard {
     // --- Immutables ---
     /// @notice The OspexCore contract
     OspexCore public immutable i_ospexCore;
+    /// @notice The odds precision
+    uint16 public constant ODDS_SCALE = 100;
+    /// @notice The minimum odds
+    uint16 public constant MIN_ODDS = 101; // 1.01
+    /// @notice The maximum odds
+    uint16 public constant MAX_ODDS = 10100; // 101.00
 
     // --- Storage ---
     /// @notice Per-speculation minimum valid nonce: maker => speculationKey => minNonce
     mapping(address => mapping(bytes32 => uint256)) public s_minNonces;
 
-    /// @notice Filled amount per commitment hash (for partial fills)
-    mapping(bytes32 => uint256) public s_filledAmounts;
+    /// @notice Filled risk per commitment hash (for partial fills)
+    mapping(bytes32 => uint256) public s_filledRisk;
 
     /// @notice Individually cancelled commitment hashes
     mapping(bytes32 => bool) public s_cancelledCommitments;
@@ -112,8 +125,9 @@ contract MatchingModule is EIP712, ReentrancyGuard {
      * @param scorer The scorer of the speculation
      * @param theNumber The line/spread/total number
      * @param positionType 0 = Upper (away/over), 1 = Lower (home/under)
-     * @param odds Decimal odds in fixed point (1e7 precision, e.g., 1.91 = 19100000)
-     * @param maxAmount Maximum USDC the maker will commit (6 decimals)
+     * @param oddsTick Maker's quoted price, as an integer (193 = 1.93 odds)
+     * @param riskAmount Risk amount in USDC maker will commit (6 decimals)
+     * @param contributionAmount The amount of the optional contribution (USDC, 6 decimals)
      * @param nonce Per-speculation nonce for cancellation/replay prevention
      * @param expiry Unix timestamp after which this commitment is invalid
      */
@@ -123,10 +137,22 @@ contract MatchingModule is EIP712, ReentrancyGuard {
         address scorer;
         int32 theNumber;
         PositionType positionType;
-        uint64 odds;
-        uint256 maxAmount;
+        uint16 oddsTick;
+        uint256 riskAmount;
+        uint256 contributionAmount;
         uint256 nonce;
         uint256 expiry;
+    }
+
+    /**
+     * @notice Modifier to ensure the odds are in range
+     * @param oddsTick The odds of the position
+     */
+    modifier oddsInRange(uint16 oddsTick) {
+        if (oddsTick < MIN_ODDS || oddsTick > MAX_ODDS) {
+            revert MatchingModule__OddsOutOfRange(oddsTick);
+        }
+        _;
     }
 
     // --- Constructor ---
@@ -141,110 +167,81 @@ contract MatchingModule is EIP712, ReentrancyGuard {
         i_ospexCore = OspexCore(_ospexCore);
     }
 
+    // --- IModule ---
+    function getModuleType() external pure override returns (bytes32) {
+        return keccak256("MATCHING_MODULE");
+    }
+
     // --- External Functions ---
 
     /**
      * @notice Match against a signed commitment, creating the speculation if it doesn't exist
      * @dev The taker is msg.sender. Both maker and taker must have approved the
      *      PositionModule contract for USDC spending.
-     *
-     *      Fill accounting — why makerAmountRemaining != makerAmountFilled:
-     *      `makerAmountRemaining` is passed to PositionModule as a CEILING, not as a
-     *      fill request. PositionModule determines the actual amount consumed
-     *      (`makerAmountConsumed`) from `takerAmount` and the odds-derived inverse
-     *      calculation. The return value will always be <= makerAmountRemaining.
-     *
-     *      `s_filledAmounts` accumulates the actual return values, not the passed-in
-     *      remaining. This means a commitment with maxAmount = 100 USDC can be filled
-     *      in multiple taker-sized increments until cumulative fills equal maxAmount.
-     *
-     *      PositionModule enforces that takerAmount does not exceed what
-     *      makerAmountRemaining can support at the given odds (reverts with
-     *      InsufficientAmountRemaining if so). MatchingModule does NOT pre-cap
-     *      takerAmount — it delegates that validation entirely to PositionModule.
-     *
      * @param commitment The maker's signed commitment
      * @param signature The EIP-712 signature over the commitment
-     * @param takerAmount The amount the taker wants to fill (in USDC, 6 decimals)
+     * @param takerDesiredRisk The amount of risk the taker wants to fill (in USDC, 6 decimals)
+     *                         Actual fill may be slightly less due to lot-size rounding on the maker side
      * @param leaderboardId The leaderboard ID (where the fee will be allocated)
      * @param takerContributionAmount The taker's contribution amount
-     * @param makerContributionAmount The maker's contribution amount
      */
     function matchCommitment(
         OspexCommitment calldata commitment,
         bytes calldata signature,
-        uint256 takerAmount,
+        uint256 takerDesiredRisk,
         uint256 leaderboardId,
-        uint256 takerContributionAmount,
-        uint256 makerContributionAmount
-    ) external nonReentrant {
-        // --- Validate commitment ---
-        bytes32 commitmentHash = _validateCommitment(
-            commitment,
-            signature,
-            takerAmount
-        );
+        uint256 takerContributionAmount
+    ) external nonReentrant oddsInRange(commitment.oddsTick) {
+        // --- Validate amount ---
+        if (takerDesiredRisk == 0) {
+            revert MatchingModule__InvalidTakerDesiredRisk();
+        }
 
-        // --- Calculate maker amount remaining (if any) ---
-        uint256 makerAmountRemaining = commitment.maxAmount -
-            s_filledAmounts[commitmentHash];
-        if (makerAmountRemaining == 0) {
+        // --- Validate commitment ---
+        bytes32 commitmentHash = _validateCommitment(commitment, signature);
+
+        // --- Calculate maker amount of risk remaining ---
+        uint256 makerRiskRemaining = commitment.riskAmount -
+            s_filledRisk[commitmentHash];
+        if (makerRiskRemaining == 0) {
             revert MatchingModule__CommitmentFullyFilled();
         }
 
-        ISpeculationModule specModule = ISpeculationModule(
-            _getModule(keccak256("SPECULATION_MODULE"))
-        );
+        uint256 profitTicks = uint256(commitment.oddsTick - ODDS_SCALE);
+        uint256 rawFillMakerRisk = (takerDesiredRisk *
+            uint256(ODDS_SCALE) +
+            profitTicks -
+            1) / profitTicks;
+        uint256 fillMakerRisk = rawFillMakerRisk -
+            (rawFillMakerRisk % ODDS_SCALE);
+
+        if (fillMakerRisk == 0 || fillMakerRisk > makerRiskRemaining) {
+            revert MatchingModule__InvalidFillMakerRisk();
+        }
+
+        uint256 makerProfit = (fillMakerRisk * profitTicks) / ODDS_SCALE;
+
+        // --- Record fill ---
+        s_filledRisk[commitmentHash] += fillMakerRisk;
+
         IPositionModule posModule = IPositionModule(
             _getModule(keccak256("POSITION_MODULE"))
         );
 
-        // --- Get speculation ID (if exists) ---
-        uint256 speculationId = specModule.getSpeculationId(
+        // --- Return speculation id ---
+        uint256 speculationId = posModule.recordFill(
             commitment.contestId,
             commitment.scorer,
-            commitment.theNumber
+            commitment.theNumber,
+            leaderboardId,
+            commitment.positionType,
+            commitment.maker,
+            fillMakerRisk,
+            msg.sender,
+            makerProfit,
+            commitment.contributionAmount,
+            takerContributionAmount
         );
-
-        uint256 makerAmountFilled;
-
-        // --- Create speculation if it doesn't exist ---
-        if (speculationId == 0) {
-            makerAmountFilled = posModule.createMatchedPairWithSpeculation(
-                commitment.contestId,
-                commitment.scorer,
-                commitment.theNumber,
-                leaderboardId,
-                commitment.odds,
-                commitment.positionType,
-                commitment.maker,
-                makerAmountRemaining,
-                msg.sender,
-                takerAmount,
-                makerContributionAmount,
-                takerContributionAmount
-            );
-            speculationId = specModule.getSpeculationId(
-                commitment.contestId,
-                commitment.scorer,
-                commitment.theNumber
-            );
-        } else {
-            makerAmountFilled = posModule.createMatchedPair(
-                speculationId,
-                commitment.odds,
-                commitment.positionType,
-                commitment.maker,
-                makerAmountRemaining,
-                msg.sender,
-                takerAmount,
-                makerContributionAmount,
-                takerContributionAmount
-            );
-        }
-
-        // --- Record fill ---
-        s_filledAmounts[commitmentHash] += makerAmountFilled;
 
         // --- Event ---
         emit CommitmentMatched(
@@ -254,9 +251,9 @@ contract MatchingModule is EIP712, ReentrancyGuard {
             commitment.contestId,
             speculationId,
             commitment.positionType,
-            commitment.odds,
-            makerAmountFilled,
-            takerAmount
+            commitment.oddsTick,
+            makerProfit,
+            fillMakerRisk
         );
         // Emit core event
         i_ospexCore.emitCoreEvent(
@@ -268,9 +265,9 @@ contract MatchingModule is EIP712, ReentrancyGuard {
                 commitment.contestId,
                 speculationId,
                 commitment.positionType,
-                commitment.odds,
-                makerAmountFilled,
-                takerAmount
+                commitment.oddsTick,
+                makerProfit,
+                fillMakerRisk
             )
         );
     }
@@ -312,7 +309,10 @@ contract MatchingModule is EIP712, ReentrancyGuard {
         bytes32 speculationKey = keccak256(
             abi.encode(contestId, scorer, theNumber)
         );
-        if (newMinNonce <= s_minNonces[msg.sender][speculationKey]) {
+        if (
+            newMinNonce == type(uint256).max ||
+            newMinNonce <= s_minNonces[msg.sender][speculationKey]
+        ) {
             revert MatchingModule__NonceMustIncrease();
         }
         s_minNonces[msg.sender][speculationKey] = newMinNonce;
@@ -326,15 +326,15 @@ contract MatchingModule is EIP712, ReentrancyGuard {
     // --- View Functions ---
 
     /**
-     * @notice Returns the remaining fillable amount for a commitment
+     * @notice Returns the remaining risk amount for a commitment
      * @param commitment The commitment to check
-     * @return remaining The amount still available to fill
+     * @return remaining The risk amount still available to fill
      */
-    function getRemainingAmount(
+    function getRemainingRisk(
         OspexCommitment calldata commitment
     ) external view returns (uint256 remaining) {
         bytes32 commitmentHash = _hashCommitment(commitment);
-        remaining = commitment.maxAmount - s_filledAmounts[commitmentHash];
+        remaining = commitment.riskAmount - s_filledRisk[commitmentHash];
     }
 
     /**
@@ -391,25 +391,25 @@ contract MatchingModule is EIP712, ReentrancyGuard {
      * @notice Validates a commitment signature, checks all preconditions
      * @param commitment The signed commitment from the maker
      * @param signature The EIP-712 signature
-     * @param takerAmount The amount the taker wants to put up
      * @return commitmentHash The EIP-712 hash of the commitment
      */
     function _validateCommitment(
         OspexCommitment calldata commitment,
-        bytes calldata signature,
-        uint256 takerAmount
+        bytes calldata signature
     ) internal view returns (bytes32 commitmentHash) {
-        // --- Zero address check (fails fast before any other work) ---
+        // --- Zero address check ---
         if (commitment.maker == address(0)) {
             revert MatchingModule__InvalidMakerAddress();
-        }
-        if (takerAmount == 0) {
-            revert MatchingModule__InvalidTakerAmount();
         }
 
         // --- Check expiry ---
         if (block.timestamp > commitment.expiry) {
             revert MatchingModule__CommitmentExpired();
+        }
+
+        // --- Check riskAmount sizing ---
+        if (commitment.riskAmount % ODDS_SCALE != 0) {
+            revert MatchingModule__InvalidLotSize();
         }
 
         // --- Check nonce ---
@@ -456,8 +456,9 @@ contract MatchingModule is EIP712, ReentrancyGuard {
                         commitment.scorer,
                         commitment.theNumber,
                         uint8(commitment.positionType),
-                        commitment.odds,
-                        commitment.maxAmount,
+                        commitment.oddsTick,
+                        commitment.riskAmount,
+                        commitment.contributionAmount,
                         commitment.nonce,
                         commitment.expiry
                     )
