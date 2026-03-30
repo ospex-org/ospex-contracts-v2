@@ -44,7 +44,7 @@ contract MoneylineScorerModule is IScorerModule {
      */
     function determineWinSide(
         uint256 contestId,
-        int32 /*theNumber*/
+        int32 /*lineTicks*/
     ) external view override onlySpeculationModule returns (WinSide) {
         Contest memory contest = IContestModule(
             _getModule(keccak256("CONTEST_MODULE"))

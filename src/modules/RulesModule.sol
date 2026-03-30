@@ -533,7 +533,7 @@ contract RulesModule is IRulesModule {
                 speculation.speculationScorer,
                 positionType,
                 userNumber,
-                contestMarket.theNumber
+                contestMarket.lineTicks
             )
         ) {
             return LeaderboardPositionValidationResult.NumberDeviationTooLarge;

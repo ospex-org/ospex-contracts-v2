@@ -47,7 +47,7 @@ contract MockPositionModuleForMatching {
     uint256 public recordFillCallCount;
     uint256 public lastContestId;
     address public lastScorer;
-    int32 public lastTheNumber;
+    int32 public lastLineTicks;
     uint256 public lastLeaderboardId;
     PositionType public lastMakerPositionType;
     address public lastMaker;
@@ -64,7 +64,7 @@ contract MockPositionModuleForMatching {
     function recordFill(
         uint256 contestId,
         address scorer,
-        int32 theNumber,
+        int32 lineTicks,
         uint256 leaderboardId,
         PositionType makerPositionType,
         address maker,
@@ -77,7 +77,7 @@ contract MockPositionModuleForMatching {
         recordFillCallCount++;
         lastContestId = contestId;
         lastScorer = scorer;
-        lastTheNumber = theNumber;
+        lastLineTicks = lineTicks;
         lastLeaderboardId = leaderboardId;
         lastMakerPositionType = makerPositionType;
         lastMaker = maker;
@@ -114,7 +114,7 @@ contract ReentrantMockPositionModule {
                 maker: address(1),
                 contestId: 1,
                 scorer: address(2),
-                theNumber: 0,
+                lineTicks: 0,
                 positionType: PositionType.Upper,
                 oddsTick: 191,
                 riskAmount: 1_000_000,
@@ -149,7 +149,7 @@ contract MatchingModuleTest is Test {
     uint256 constant DEFAULT_TAKER_DESIRED_RISK = 10_000_000; // 10 USDC
     uint16 constant DEFAULT_ODDS_TICK = 191; // 1.91
     uint256 constant DEFAULT_CONTEST_ID = 1;
-    int32 constant DEFAULT_THE_NUMBER = 0;
+    int32 constant DEFAULT_LINE_TICKS = 0;
     uint16 constant ODDS_SCALE = 100;
 
     function setUp() public {
@@ -173,7 +173,7 @@ contract MatchingModuleTest is Test {
             maker: maker,
             contestId: DEFAULT_CONTEST_ID,
             scorer: defaultScorer,
-            theNumber: DEFAULT_THE_NUMBER,
+            lineTicks: DEFAULT_LINE_TICKS,
             positionType: PositionType.Upper,
             oddsTick: DEFAULT_ODDS_TICK,
             riskAmount: DEFAULT_RISK_AMOUNT,
@@ -268,9 +268,9 @@ contract MatchingModuleTest is Test {
         _expectSignatureRevert(c, sig);
     }
 
-    function test_TamperedField_TheNumber() public {
+    function test_TamperedField_LineTicks() public {
         (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
-        c.theNumber = 5;
+        c.lineTicks = 5;
         _expectSignatureRevert(c, sig);
     }
 
@@ -580,7 +580,7 @@ contract MatchingModuleTest is Test {
     function test_RaiseMinNonceInvalidatesLowerNonces() public {
         (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
         vm.prank(maker);
-        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_THE_NUMBER, 5);
+        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS, 5);
         vm.prank(taker);
         vm.expectRevert(MatchingModule.MatchingModule__NonceTooLow.selector);
         matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK, 0, 0);
@@ -588,7 +588,7 @@ contract MatchingModuleTest is Test {
 
     function test_RaiseMinNoncePerMakerPerSpeculation() public {
         vm.prank(maker);
-        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_THE_NUMBER, 5);
+        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS, 5);
 
         MatchingModule.OspexCommitment memory c = _defaultCommitment();
         c.maker = otherSigner;
@@ -602,10 +602,10 @@ contract MatchingModuleTest is Test {
 
     function test_RaiseMinNoncePerSpeculation() public {
         vm.prank(maker);
-        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_THE_NUMBER, 5);
+        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS, 5);
 
         MatchingModule.OspexCommitment memory c = _defaultCommitment();
-        c.theNumber = 99;
+        c.lineTicks = 99;
         c.nonce = 1;
         bytes memory sig = _signCommitment(c, MAKER_PK);
 
@@ -641,20 +641,20 @@ contract MatchingModuleTest is Test {
 
     function test_NonceMustStrictlyIncrease() public {
         vm.prank(maker);
-        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_THE_NUMBER, 5);
+        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS, 5);
 
         vm.prank(maker);
         vm.expectRevert(MatchingModule.MatchingModule__NonceMustIncrease.selector);
-        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_THE_NUMBER, 5);
+        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS, 5);
 
         vm.prank(maker);
         vm.expectRevert(MatchingModule.MatchingModule__NonceMustIncrease.selector);
-        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_THE_NUMBER, 4);
+        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS, 4);
 
         vm.prank(maker);
-        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_THE_NUMBER, 6);
+        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS, 6);
         assertEq(
-            matchingModule.getMinNonce(maker, DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_THE_NUMBER),
+            matchingModule.getMinNonce(maker, DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS),
             6
         );
     }
@@ -684,7 +684,7 @@ contract MatchingModuleTest is Test {
     function test_CorrectParamsFlowToRecordFill() public {
         uint256 contestId = 77;
         address scorer = address(0x7777);
-        int32 theNumber = -3;
+        int32 lineTicks = -3;
         uint16 oddsTick = 250;
         uint256 riskAmount = 50_000_000;
 
@@ -695,7 +695,7 @@ contract MatchingModuleTest is Test {
             maker: maker,
             contestId: contestId,
             scorer: scorer,
-            theNumber: theNumber,
+            lineTicks: lineTicks,
             positionType: PositionType.Lower,
             oddsTick: oddsTick,
             riskAmount: riskAmount,
@@ -717,7 +717,7 @@ contract MatchingModuleTest is Test {
         assertEq(mockPosition.lastTaker(), taker);
         assertEq(mockPosition.lastContestId(), contestId);
         assertEq(mockPosition.lastScorer(), scorer);
-        assertEq(mockPosition.lastTheNumber(), theNumber);
+        assertEq(mockPosition.lastLineTicks(), lineTicks);
         assertEq(mockPosition.lastLeaderboardId(), leaderboardId);
 
         // Independent calc: oddsTick=250, takerDesiredRisk=5_000_000
@@ -750,13 +750,13 @@ contract MatchingModuleTest is Test {
 
         uint256 newContestId = 99;
         address newScorer = address(0xBBBB);
-        int32 newTheNumber = 10;
+        int32 newLineTicks = 10;
 
         MatchingModule.OspexCommitment memory c = MatchingModule.OspexCommitment({
             maker: maker,
             contestId: newContestId,
             scorer: newScorer,
-            theNumber: newTheNumber,
+            lineTicks: newLineTicks,
             positionType: PositionType.Upper,
             oddsTick: DEFAULT_ODDS_TICK,
             riskAmount: DEFAULT_RISK_AMOUNT,
@@ -842,14 +842,14 @@ contract MatchingModuleTest is Test {
 
     function test_MinNonceUpdatedEventEmitted() public {
         bytes32 expectedKey = keccak256(
-            abi.encode(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_THE_NUMBER)
+            abi.encode(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS)
         );
 
         vm.expectEmit(true, true, false, true);
         emit MatchingModule.MinNonceUpdated(maker, expectedKey, 5);
 
         vm.prank(maker);
-        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_THE_NUMBER, 5);
+        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS, 5);
     }
 
     function test_ReentrancyProtection() public {
@@ -864,7 +864,7 @@ contract MatchingModuleTest is Test {
             maker: maker,
             contestId: DEFAULT_CONTEST_ID,
             scorer: defaultScorer,
-            theNumber: DEFAULT_THE_NUMBER,
+            lineTicks: DEFAULT_LINE_TICKS,
             positionType: PositionType.Upper,
             oddsTick: DEFAULT_ODDS_TICK,
             riskAmount: DEFAULT_RISK_AMOUNT,
@@ -1025,7 +1025,7 @@ contract MatchingModuleTest is Test {
             "address maker,"
             "uint256 contestId,"
             "address scorer,"
-            "int32 theNumber,"
+            "int32 lineTicks,"
             "uint8 positionType,"
             "uint16 oddsTick,"
             "uint256 riskAmount,"
@@ -1135,14 +1135,14 @@ contract MatchingModuleIntegrationTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function _makeCommitment(uint16 oddsTick, int32 theNumber, uint256 riskAmount, uint256 contrib)
+    function _makeCommitment(uint16 oddsTick, int32 lineTicks, uint256 riskAmount, uint256 contrib)
         internal view returns (MatchingModule.OspexCommitment memory)
     {
         return MatchingModule.OspexCommitment({
             maker: maker,
             contestId: 1,
             scorer: address(0x1234),
-            theNumber: theNumber,
+            lineTicks: lineTicks,
             positionType: PositionType.Upper,
             oddsTick: oddsTick,
             riskAmount: riskAmount,
@@ -1369,7 +1369,7 @@ contract MatchingModuleIntegrationTest is Test {
             maker: maker,
             contestId: 1,
             scorer: address(0x1234),
-            theNumber: 70,
+            lineTicks: 70,
             positionType: PositionType.Upper,
             oddsTick: oddsTick,
             riskAmount: 10_000_000,

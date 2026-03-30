@@ -458,10 +458,10 @@ contract ContestModuleTest is Test {
         // Test values for all three markets (uint16 tick format)
         uint16 moneylineAwayOdds = 150; // 1.50
         uint16 moneylineHomeOdds = 250; // 2.50
-        int32 spreadNumber = -35; // -3.5 point spread (10x)
+        int32 spreadLineTicks = -35; // -3.5 point spread (10x)
         uint16 spreadAwayOdds = 180; // 1.80
         uint16 spreadHomeOdds = 220; // 2.20
-        int32 totalNumber = 2250; // 225.0 total points (10x)
+        int32 totalLineTicks = 2250; // 225.0 total points (10x)
         uint16 overOdds = 190; // 1.90
         uint16 underOdds = 210; // 2.10
 
@@ -470,8 +470,8 @@ contract ContestModuleTest is Test {
         emit ContestModule.ContestMarketsUpdated(
             contestId,
             uint32(block.timestamp),
-            spreadNumber,
-            totalNumber,
+            spreadLineTicks,
+            totalLineTicks,
             moneylineAwayOdds,
             moneylineHomeOdds,
             spreadAwayOdds,
@@ -486,29 +486,29 @@ contract ContestModuleTest is Test {
             contestId,
             moneylineAwayOdds,
             moneylineHomeOdds,
-            spreadNumber,
+            spreadLineTicks,
             spreadAwayOdds,
             spreadHomeOdds,
-            totalNumber,
+            totalLineTicks,
             overOdds,
             underOdds
         );
 
         // Verify all three markets were updated correctly
         ContestMarket memory moneylineMarket = contestModule.getContestMarket(contestId, moneylineScorer);
-        assertEq(moneylineMarket.theNumber, 0); // Moneyline always has theNumber = 0
+        assertEq(moneylineMarket.lineTicks, 0); // Moneyline always has lineTicks = 0
         assertEq(moneylineMarket.upperOdds, moneylineAwayOdds);
         assertEq(moneylineMarket.lowerOdds, moneylineHomeOdds);
         assertEq(moneylineMarket.lastUpdated, uint32(block.timestamp));
 
         ContestMarket memory spreadMarket = contestModule.getContestMarket(contestId, spreadScorer);
-        assertEq(spreadMarket.theNumber, spreadNumber);
+        assertEq(spreadMarket.lineTicks, spreadLineTicks);
         assertEq(spreadMarket.upperOdds, spreadAwayOdds);
         assertEq(spreadMarket.lowerOdds, spreadHomeOdds);
         assertEq(spreadMarket.lastUpdated, uint32(block.timestamp));
 
         ContestMarket memory totalMarket = contestModule.getContestMarket(contestId, totalScorer);
-        assertEq(totalMarket.theNumber, totalNumber);
+        assertEq(totalMarket.lineTicks, totalLineTicks);
         assertEq(totalMarket.upperOdds, overOdds);
         assertEq(totalMarket.lowerOdds, underOdds);
         assertEq(totalMarket.lastUpdated, uint32(block.timestamp));
@@ -527,10 +527,10 @@ contract ContestModuleTest is Test {
             1,
             150,   // moneylineAwayOdds (tick)
             250,   // moneylineHomeOdds (tick)
-            -35,   // spreadNumber (10x)
+            -35,   // spreadLineTicks (10x)
             180,   // spreadAwayOdds (tick)
             220,   // spreadHomeOdds (tick)
-            2250,  // totalNumber (10x)
+            2250,  // totalLineTicks (10x)
             190,   // overOdds (tick)
             210    // underOdds (tick)
         );
@@ -550,22 +550,22 @@ contract ContestModuleTest is Test {
             contestId,
             veryLowOdds,    // moneylineAwayOdds
             veryHighOdds,   // moneylineHomeOdds
-            negativeSpread, // spreadNumber
+            negativeSpread, // spreadLineTicks
             veryLowOdds,    // spreadAwayOdds
             veryHighOdds,   // spreadHomeOdds
-            highTotal,      // totalNumber
+            highTotal,      // totalLineTicks
             veryLowOdds,    // overOdds
             veryHighOdds    // underOdds
         );
 
         // Verify edge case values were stored correctly
         ContestMarket memory spreadMarket = contestModule.getContestMarket(contestId, spreadScorer);
-        assertEq(spreadMarket.theNumber, negativeSpread);
+        assertEq(spreadMarket.lineTicks, negativeSpread);
         assertEq(spreadMarket.upperOdds, veryLowOdds);
         assertEq(spreadMarket.lowerOdds, veryHighOdds);
 
         ContestMarket memory totalMarket = contestModule.getContestMarket(contestId, totalScorer);
-        assertEq(totalMarket.theNumber, highTotal);
+        assertEq(totalMarket.lineTicks, highTotal);
     }
 
     // --- Set Update Contest Markets Source Hash Tests ---
@@ -620,29 +620,29 @@ contract ContestModuleTest is Test {
             contestId,
             160,   // moneylineAwayOdds (tick)
             240,   // moneylineHomeOdds (tick)
-            -25,   // spreadNumber (-2.5, 10x)
+            -25,   // spreadLineTicks (-2.5, 10x)
             170,   // spreadAwayOdds (tick)
             230,   // spreadHomeOdds (tick)
-            2100,  // totalNumber (210.0, 10x)
+            2100,  // totalLineTicks (210.0, 10x)
             180,   // overOdds (tick)
             220    // underOdds (tick)
         );
 
         // Test all three market retrievals
         ContestMarket memory moneylineMarket = contestModule.getContestMarket(contestId, moneylineScorer);
-        assertEq(moneylineMarket.theNumber, 0); // Moneyline always 0
+        assertEq(moneylineMarket.lineTicks, 0); // Moneyline always 0
         assertEq(moneylineMarket.upperOdds, 160);
         assertEq(moneylineMarket.lowerOdds, 240);
         assertEq(moneylineMarket.lastUpdated, uint32(block.timestamp));
 
         ContestMarket memory spreadMarket = contestModule.getContestMarket(contestId, spreadScorer);
-        assertEq(spreadMarket.theNumber, -25);
+        assertEq(spreadMarket.lineTicks, -25);
         assertEq(spreadMarket.upperOdds, 170);
         assertEq(spreadMarket.lowerOdds, 230);
         assertEq(spreadMarket.lastUpdated, uint32(block.timestamp));
 
         ContestMarket memory totalMarket = contestModule.getContestMarket(contestId, totalScorer);
-        assertEq(totalMarket.theNumber, 2100);
+        assertEq(totalMarket.lineTicks, 2100);
         assertEq(totalMarket.upperOdds, 180);
         assertEq(totalMarket.lowerOdds, 220);
         assertEq(totalMarket.lastUpdated, uint32(block.timestamp));
@@ -654,7 +654,7 @@ contract ContestModuleTest is Test {
         
         // Should return empty ContestMarket struct
         ContestMarket memory market = contestModule.getContestMarket(nonExistentContestId, unknownScorer);
-        assertEq(market.theNumber, 0);
+        assertEq(market.lineTicks, 0);
         assertEq(market.upperOdds, 0);
         assertEq(market.lowerOdds, 0);
         assertEq(market.lastUpdated, 0);
@@ -665,7 +665,7 @@ contract ContestModuleTest is Test {
         
         // Get market before any updates (should be empty)
         ContestMarket memory market = contestModule.getContestMarket(contestId, spreadScorer);
-        assertEq(market.theNumber, 0);
+        assertEq(market.lineTicks, 0);
         assertEq(market.upperOdds, 0);
         assertEq(market.lowerOdds, 0);
         assertEq(market.lastUpdated, 0);

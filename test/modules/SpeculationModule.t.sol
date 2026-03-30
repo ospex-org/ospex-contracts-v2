@@ -121,7 +121,7 @@ contract SpeculationModuleTest is Test {
         assertEq(s.contestId, 1);
         // Note: startTimestamp field removed from Speculation struct
         assertEq(s.speculationScorer, address(0xBEEF));
-        assertEq(s.theNumber, 42);
+        assertEq(s.lineTicks, 42);
         assertEq(s.speculationCreator, address(this));
         assertEq(uint(s.speculationStatus), uint(SpeculationStatus.Open));
         assertEq(uint(s.winSide), uint(WinSide.TBD));
@@ -532,7 +532,7 @@ contract SpeculationModuleTest is Test {
         assertEq(s.contestId, 1);
         // Note: startTimestamp field removed from Speculation struct
         assertEq(s.speculationScorer, address(0xBEEF));
-        assertEq(s.theNumber, 42);
+        assertEq(s.lineTicks, 42);
         assertEq(s.speculationCreator, address(this));
         assertEq(uint(s.speculationStatus), uint(SpeculationStatus.Open));
         assertEq(uint(s.winSide), uint(WinSide.TBD));
@@ -632,7 +632,7 @@ contract SpeculationModuleTest is Test {
         newSpeculationModule.createSpeculation(
             1, // contestId
             address(0xBEEF), // scorer
-            42, // theNumber
+            42, // lineTicks
             address(this), // speculationCreator
             leaderboardId // leaderboardId
         );
@@ -651,7 +651,7 @@ contract SpeculationModuleTest is Test {
         speculationModule.createSpeculation(
             1, // contestId
             address(0xBEEF), // scorer
-            42, // theNumber
+            42, // lineTicks
             address(0x123), // speculationCreator
             leaderboardId
         );
@@ -672,7 +672,7 @@ contract SpeculationModuleTest is Test {
         uint256 id = speculationModule.createSpeculation(
             1, // contestId
             address(0xBEEF), // scorer
-            42, // theNumber
+            42, // lineTicks
             creator, // speculationCreator
             leaderboardId
         );
@@ -681,7 +681,7 @@ contract SpeculationModuleTest is Test {
         Speculation memory s = speculationModule.getSpeculation(id);
         assertEq(s.contestId, 1);
         assertEq(s.speculationScorer, address(0xBEEF));
-        assertEq(s.theNumber, 42);
+        assertEq(s.lineTicks, 42);
         assertEq(s.speculationCreator, creator);
         assertEq(uint(s.speculationStatus), uint(SpeculationStatus.Open));
         assertEq(uint(s.winSide), uint(WinSide.TBD));

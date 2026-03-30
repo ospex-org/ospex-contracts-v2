@@ -3,7 +3,7 @@ pragma solidity ^0.8.19;
 
 // [NOTE] All test amounts in this file use 6 decimals (USDC-style): 1 USDC = 1_000_000
 // [NOTE] All odds in this file use uint16 ticks: 1.80 = 180, 1.20 = 120, etc.
-// [NOTE] theNumber is in 10x format: 1.5 = 15, -3.5 = -35
+// [NOTE] lineTicks is in 10x format: 1.5 = 15, -3.5 = -35
 
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
@@ -664,7 +664,7 @@ contract LeaderboardModuleTest is Test {
             abi.encode(
                 contestId,          // contestId
                 admin,              // speculationScorer
-                int32(0),           // theNumber
+                int32(0),           // lineTicks
                 address(0),         // speculationCreator
                 uint8(0),           // speculationStatus = Open
                 uint8(0)            // winSide = TBD
@@ -781,7 +781,7 @@ contract LeaderboardModuleTest is Test {
             abi.encode(
                 contestId,          // contestId
                 admin,              // speculationScorer
-                int32(0),           // theNumber
+                int32(0),           // lineTicks
                 address(0),         // speculationCreator
                 uint8(1),           // speculationStatus = Closed
                 uint8(5)            // winSide = Push (for 0 ROI)
@@ -1077,7 +1077,7 @@ contract LeaderboardModuleTest is Test {
             abi.encode(
                 contestId,          // contestId
                 admin,              // speculationScorer
-                int32(0),           // theNumber
+                int32(0),           // lineTicks
                 address(0),         // speculationCreator
                 uint8(0),           // speculationStatus = Open
                 uint8(0)            // winSide = TBD
@@ -1264,7 +1264,7 @@ contract LeaderboardModuleTest is Test {
             abi.encode(
                 contestId,          // contestId
                 admin,              // speculationScorer
-                int32(0),           // theNumber
+                int32(0),           // lineTicks
                 address(0),         // speculationCreator
                 uint8(0),           // speculationStatus = Open
                 uint8(0)            // winSide = TBD
@@ -1314,7 +1314,7 @@ contract LeaderboardModuleTest is Test {
             abi.encode(
                 contestId,          // contestId
                 admin,              // speculationScorer
-                int32(0),           // theNumber
+                int32(0),           // lineTicks
                 address(0),         // speculationCreator
                 uint8(1),           // speculationStatus = Closed
                 uint8(1)            // winSide = Away (user2 wins since they have Upper position)
@@ -1337,7 +1337,7 @@ contract LeaderboardModuleTest is Test {
             abi.encode(
                 contestId,          // contestId
                 admin,              // speculationScorer
-                int32(0),           // theNumber
+                int32(0),           // lineTicks
                 address(0),         // speculationCreator
                 uint8(1),           // speculationStatus = Closed
                 uint8(2)            // winSide = Home (user1 has Upper, so loses)
@@ -1351,7 +1351,7 @@ contract LeaderboardModuleTest is Test {
             abi.encode(
                 contestId,          // contestId
                 admin,              // speculationScorer
-                int32(0),           // theNumber
+                int32(0),           // lineTicks
                 address(0),         // speculationCreator
                 uint8(1),           // speculationStatus = Closed
                 uint8(2)            // winSide = Home (user2 has Upper, so loses)

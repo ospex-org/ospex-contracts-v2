@@ -153,7 +153,7 @@ contract SecondaryMarketModuleTest is Test {
         speculationId = positionModule.recordFill(
             1,                  // contestId
             address(0xBEEF),    // scorer
-            42,                 // theNumber
+            42,                 // lineTicks
             leaderboardId,
             positionType,       // makerPositionType = Upper
             seller,             // maker
@@ -421,7 +421,7 @@ contract SecondaryMarketModuleTest is Test {
         uint256 testSpecId = positionModule.recordFill(
             1,                  // contestId
             address(mockScorer),// scorer
-            42,                 // theNumber
+            42,                 // lineTicks
             leaderboardId,
             positionType,       // makerPositionType = Upper
             seller,             // maker
@@ -740,7 +740,7 @@ contract SecondaryMarketModuleTest is Test {
         uint256 testSpecId = positionModule.recordFill(
             1,                   // contestId
             address(mockScorer), // scorer (MockScorerModule defaults to Away = Upper wins)
-            42,                  // theNumber
+            42,                  // lineTicks
             leaderboardId,
             positionType,        // makerPositionType = Upper
             seller,              // maker

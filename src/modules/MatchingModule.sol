@@ -87,7 +87,7 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
             "address maker,"
             "uint256 contestId,"
             "address scorer,"
-            "int32 theNumber,"
+            "int32 lineTicks,"
             "uint8 positionType,"
             "uint16 oddsTick,"
             "uint256 riskAmount,"
@@ -123,7 +123,7 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
      * @param maker The maker's wallet address (recovered from signature)
      * @param contestId The contest to bet on
      * @param scorer The scorer of the speculation
-     * @param theNumber The line/spread/total number
+     * @param lineTicks The line/spread/total number (10x)
      * @param positionType 0 = Upper (away/over), 1 = Lower (home/under)
      * @param oddsTick Maker's quoted price, as an integer (193 = 1.93 odds)
      * @param riskAmount Risk amount in USDC maker will commit (6 decimals)
@@ -135,7 +135,7 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
         address maker;
         uint256 contestId;
         address scorer;
-        int32 theNumber;
+        int32 lineTicks;
         PositionType positionType;
         uint16 oddsTick;
         uint256 riskAmount;
@@ -232,7 +232,7 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
         uint256 speculationId = posModule.recordFill(
             commitment.contestId,
             commitment.scorer,
-            commitment.theNumber,
+            commitment.lineTicks,
             leaderboardId,
             commitment.positionType,
             commitment.maker,
@@ -292,22 +292,27 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
     }
 
     /**
-     * @notice Raise the minimum valid nonce for a speculation, invalidating all
-     *         commitments with a lower nonce
-     * @dev Only affects the caller's own commitments on the specified speculation
+     * @notice Raise the minimum valid nonce for a speculation, invalidating all                                                                                                                                  *         commitments with a lower nonce.
+     * @dev The scope is deliberately per-speculation, not per-commitment. When a user
+     *      decides to withdraw from a speculation, they withdraw entirely — all of their
+     *      unmatched commitments on that speculation are invalidated in a single call.
+     *      There is no partial opt-out. This is an intentional design choice: pulling out
+     *      of a speculation is all-or-nothing.
+     *
+     *      Per-commitment cancellation is available separately via cancelCommitment().
      * @param contestId The contest to bet on
      * @param scorer The scorer of the speculation
-     * @param theNumber The line/spread/total number
+     * @param lineTicks The line/spread/total number (10x)
      * @param newMinNonce The new minimum valid nonce (must be higher than current)
      */
     function raiseMinNonce(
         uint256 contestId,
         address scorer,
-        int32 theNumber,
+        int32 lineTicks,
         uint256 newMinNonce
     ) external {
         bytes32 speculationKey = keccak256(
-            abi.encode(contestId, scorer, theNumber)
+            abi.encode(contestId, scorer, lineTicks)
         );
         if (
             newMinNonce == type(uint256).max ||
@@ -342,17 +347,17 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
      * @param maker The maker address
      * @param contestId The contest to bet on
      * @param scorer The scorer of the speculation
-     * @param theNumber The line/spread/total number
+     * @param lineTicks The line/spread/total number (10x)
      * @return The minimum valid nonce
      */
     function getMinNonce(
         address maker,
         uint256 contestId,
         address scorer,
-        int32 theNumber
+        int32 lineTicks
     ) external view returns (uint256) {
         bytes32 speculationKey = keccak256(
-            abi.encode(contestId, scorer, theNumber)
+            abi.encode(contestId, scorer, lineTicks)
         );
         return s_minNonces[maker][speculationKey];
     }
@@ -417,7 +422,7 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
             abi.encode(
                 commitment.contestId,
                 commitment.scorer,
-                commitment.theNumber
+                commitment.lineTicks
             )
         );
         if (commitment.nonce < s_minNonces[commitment.maker][speculationKey]) {
@@ -454,7 +459,7 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
                         commitment.maker,
                         commitment.contestId,
                         commitment.scorer,
-                        commitment.theNumber,
+                        commitment.lineTicks,
                         uint8(commitment.positionType),
                         commitment.oddsTick,
                         commitment.riskAmount,

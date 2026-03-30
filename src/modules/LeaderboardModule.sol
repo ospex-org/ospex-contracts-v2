@@ -419,7 +419,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         (
             uint256 riskAmount,
             uint256 profitAmount,
-            int32 theNumber,
+            int32 lineTicks,
             uint256 contestId,
             address scorer
         ) = _getPositionAndLeaderboardData(speculationId, user, positionType);
@@ -471,7 +471,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
                     leaderboardId,
                     speculationId,
                     user,
-                    theNumber,
+                    lineTicks,
                     positionType,
                     cappedRiskAmount,
                     cappedProfitAmount
@@ -786,7 +786,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         returns (
             uint256 riskAmount,
             uint256 profitAmount,
-            int32 theNumber,
+            int32 lineTicks,
             uint256 contestId,
             address scorer
         )
@@ -807,10 +807,10 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         Speculation memory spec = ISpeculationModule(
             _getModule(keccak256("SPECULATION_MODULE"))
         ).getSpeculation(speculationId);
-        theNumber = spec.theNumber;
+        lineTicks = spec.lineTicks;
         contestId = spec.contestId;
         scorer = spec.speculationScorer;
-        return (riskAmount, profitAmount, theNumber, contestId, scorer);
+        return (riskAmount, profitAmount, lineTicks, contestId, scorer);
     }
 
     /**

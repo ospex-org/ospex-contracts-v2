@@ -102,8 +102,8 @@ contract ContestModule is IContestModule {
      * @notice Emitted when a contest's market is updated
      * @param contestId The ID of the contest
      * @param lastUpdated Timestamp of the last update
-     * @param spreadNumber The current spread number
-     * @param totalNumber The current total number
+     * @param spreadLineTicks The current spread line ticks (10x)
+     * @param totalLineTicks The current total line ticks (10x)
      * @param moneylineAwayOdds The current moneyline odds for the away team
      * @param moneylineHomeOdds The current moneyline odds for the home team
      * @param spreadAwayOdds The current spread odds for the away team
@@ -114,8 +114,8 @@ contract ContestModule is IContestModule {
     event ContestMarketsUpdated(
         uint256 indexed contestId,
         uint32 lastUpdated,
-        int32 spreadNumber,
-        int32 totalNumber,
+        int32 spreadLineTicks,
+        int32 totalLineTicks,
         uint16 moneylineAwayOdds,
         uint16 moneylineHomeOdds,
         uint16 spreadAwayOdds,
@@ -294,10 +294,10 @@ contract ContestModule is IContestModule {
      * @param contestId The contest identifier
      * @param moneylineAwayOdds Odds tick for away team moneyline
      * @param moneylineHomeOdds Odds tick for home team moneyline
-     * @param spreadNumber The point spread
+     * @param spreadLineTicks The point spread (10x)
      * @param spreadAwayOdds Odds tick for away spread
      * @param spreadHomeOdds Odds tick for home spread
-     * @param totalNumber The total points
+     * @param totalLineTicks The total points (10x)
      * @param overOdds Odds tick for over
      * @param underOdds Odds tick for under
      */
@@ -305,10 +305,10 @@ contract ContestModule is IContestModule {
         uint256 contestId,
         uint16 moneylineAwayOdds,
         uint16 moneylineHomeOdds,
-        int32 spreadNumber,
+        int32 spreadLineTicks,
         uint16 spreadAwayOdds,
         uint16 spreadHomeOdds,
-        int32 totalNumber,
+        int32 totalLineTicks,
         uint16 overOdds,
         uint16 underOdds
     ) external override onlyOracleModule {
@@ -319,9 +319,9 @@ contract ContestModule is IContestModule {
         address spreadScorer = _getModule(keccak256("SPREAD_SCORER"));
         address totalScorer = _getModule(keccak256("TOTAL_SCORER"));
 
-        // Update moneyline market (theNumber = 0 for moneylines)
+        // Update moneyline market (lineTicks = 0 for moneylines)
         s_contestMarket[contestId][moneylineScorer] = ContestMarket({
-            theNumber: 0,
+            lineTicks: 0,
             upperOdds: moneylineAwayOdds,
             lowerOdds: moneylineHomeOdds,
             lastUpdated: timestamp
@@ -329,7 +329,7 @@ contract ContestModule is IContestModule {
 
         // Update spread market
         s_contestMarket[contestId][spreadScorer] = ContestMarket({
-            theNumber: spreadNumber,
+            lineTicks: spreadLineTicks,
             upperOdds: spreadAwayOdds,
             lowerOdds: spreadHomeOdds,
             lastUpdated: timestamp
@@ -337,7 +337,7 @@ contract ContestModule is IContestModule {
 
         // Update total market
         s_contestMarket[contestId][totalScorer] = ContestMarket({
-            theNumber: totalNumber,
+            lineTicks: totalLineTicks,
             upperOdds: overOdds,
             lowerOdds: underOdds,
             lastUpdated: timestamp
@@ -347,8 +347,8 @@ contract ContestModule is IContestModule {
         emit ContestMarketsUpdated(
             contestId,
             timestamp,
-            spreadNumber,
-            totalNumber,
+            spreadLineTicks,
+            totalLineTicks,
             moneylineAwayOdds,
             moneylineHomeOdds,
             spreadAwayOdds,
@@ -363,8 +363,8 @@ contract ContestModule is IContestModule {
             abi.encode(
                 contestId,
                 timestamp,
-                spreadNumber,
-                totalNumber,
+                spreadLineTicks,
+                totalLineTicks,
                 moneylineAwayOdds,
                 moneylineHomeOdds,
                 spreadAwayOdds,

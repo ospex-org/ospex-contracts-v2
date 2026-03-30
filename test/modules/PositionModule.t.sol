@@ -130,7 +130,7 @@ contract PositionModuleTest is Test {
     function _helperRecordFill(
         uint256 contestId,
         address scorer,
-        int32 theNumber,
+        int32 lineTicks,
         PositionType makerPositionType,
         address maker,
         uint256 makerRisk,
@@ -138,7 +138,7 @@ contract PositionModuleTest is Test {
         uint256 takerRisk
     ) internal returns (uint256 speculationId) {
         speculationId = positionModule.recordFill(
-            contestId, scorer, theNumber, leaderboardId,
+            contestId, scorer, lineTicks, leaderboardId,
             makerPositionType, maker, makerRisk,
             _taker, takerRisk, 0, 0
         );
@@ -149,7 +149,7 @@ contract PositionModuleTest is Test {
         PositionModule localPM,
         uint256 contestId,
         address scorer,
-        int32 theNumber,
+        int32 lineTicks,
         PositionType makerPositionType,
         address maker,
         uint256 makerRisk,
@@ -157,7 +157,7 @@ contract PositionModuleTest is Test {
         uint256 takerRisk
     ) internal returns (uint256 speculationId) {
         speculationId = localPM.recordFill(
-            contestId, scorer, theNumber, leaderboardId,
+            contestId, scorer, lineTicks, leaderboardId,
             makerPositionType, maker, makerRisk,
             _taker, takerRisk, 0, 0
         );
@@ -347,7 +347,7 @@ contract PositionModuleTest is Test {
         uint256 existingSpecId = speculationModule.getSpeculationId(
             1, // contestId
             address(0x1234), // scorer
-            42 // theNumber
+            42 // lineTicks
         );
         assertEq(existingSpecId, 0, "Speculation should not exist yet");
 
@@ -363,7 +363,7 @@ contract PositionModuleTest is Test {
         uint256 specId = _helperRecordFill(
             1, // contestId
             address(0x1234), // scorer
-            42, // theNumber
+            42, // lineTicks
             PositionType.Upper,
             address(this), // maker
             makerRisk,
@@ -377,7 +377,7 @@ contract PositionModuleTest is Test {
         Speculation memory spec = speculationModule.getSpeculation(specId);
         assertEq(spec.contestId, 1);
         assertEq(spec.speculationScorer, address(0x1234));
-        assertEq(spec.theNumber, 42);
+        assertEq(spec.lineTicks, 42);
 
         // Verify positions were created
         Position memory makerPos = positionModule.getPosition(
@@ -1076,7 +1076,7 @@ contract PositionModuleTest is Test {
         vm.prank(taker2);
         token.approve(address(positionModule), sellerTakerRisk);
 
-        // Use the same speculation by calling recordFill with the same contest/scorer/theNumber
+        // Use the same speculation by calling recordFill with the same contest/scorer/lineTicks
         positionModule.recordFill(
             1, address(0x1234), 42, leaderboardId,
             PositionType.Upper, seller, sellerRisk,
@@ -1276,7 +1276,7 @@ contract PositionModuleTest is Test {
         vm.prank(taker2);
         token.approve(address(positionModule), takerRisk2);
 
-        // recordFill with same contest/scorer/theNumber reuses existing speculation
+        // recordFill with same contest/scorer/lineTicks reuses existing speculation
         positionModule.recordFill(
             1, address(0x1234), 250, leaderboardId,
             PositionType.Upper, address(this), makerRisk2,
@@ -1405,7 +1405,7 @@ contract PositionModuleTest is Test {
         uint256[4] memory takerRisks = [uint256(9_300_000), uint256(8_700_000), uint256(10_800_000), uint256(11_500_000)];
 
         for (uint256 i = 0; i < makerRisks.length; i++) {
-            int32 theNumber = int32(int256(240 + i));
+            int32 lineTicks = int32(int256(240 + i));
 
             address _taker = address(uint160(0xCA00 + i));
             token.transfer(_taker, takerRisks[i]);
@@ -1414,7 +1414,7 @@ contract PositionModuleTest is Test {
             token.approve(address(localPM), takerRisks[i]);
 
             uint256 specId = _helperRecordFillLocal(
-                localPM, 1, address(mockScorer), theNumber,
+                localPM, 1, address(mockScorer), lineTicks,
                 PositionType.Upper, address(this), makerRisks[i],
                 _taker, takerRisks[i]
             );
@@ -1498,9 +1498,7 @@ contract PositionModuleTest is Test {
             PositionType.Upper, // makerPositionType
             PositionType.Lower, // takerPositionType
             makerRisk, // makerRisk
-            takerRisk, // makerProfit (= takerRisk for first fill)
-            takerRisk, // takerRisk
-            makerRisk  // takerProfit (= makerRisk for first fill)
+            takerRisk // takerRisk
         );
 
         _helperRecordFill(
@@ -2152,7 +2150,7 @@ contract PositionModuleTest is Test {
             PositionType.Upper, address(this), makerRisk1, taker1, takerRisk1
         );
 
-        // Fill 2 — same speculation (same contest/scorer/theNumber)
+        // Fill 2 — same speculation (same contest/scorer/lineTicks)
         token.approve(address(localPM), makerRisk2);
         vm.prank(taker2);
         token.approve(address(localPM), takerRisk2);

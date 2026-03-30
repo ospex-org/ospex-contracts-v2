@@ -117,14 +117,14 @@ contract SolvencyFuzz is Test {
         uint256 totalDeposited = makerRisk + takerRisk;
 
         // Use a unique scorer address per fuzz run to avoid "SpeculationExists" revert
-        // by using the theNumber param to differentiate speculations
-        int32 theNumber = int32(int256(uint256(oddsTick)));
+        // by using the lineTicks param to differentiate speculations
+        int32 lineTicks = int32(int256(uint256(oddsTick)));
 
         // Create positions via recordFill
         uint256 speculationId = positionModule.recordFill(
             1,                    // contestId
             address(mockScorer),  // scorer
-            theNumber,
+            lineTicks,
             leaderboardId,
             PositionType.Upper,   // maker is Upper
             maker,
@@ -157,7 +157,7 @@ contract SolvencyFuzz is Test {
             jsonoddsId: ""
         });
         mockContestModule.setContest(1, scoredContest);
-        mockScorer.setWinSide(1, theNumber, WinSide.Away);
+        mockScorer.setWinSide(1, lineTicks, WinSide.Away);
 
         vm.warp(block.timestamp + 2);
         speculationModule.settleSpeculation(speculationId);
@@ -190,13 +190,13 @@ contract SolvencyFuzz is Test {
         });
         mockContestModule.setContest(1, verifiedContest);
 
-        // Use a different theNumber for the push speculation
-        int32 pushTheNumber = theNumber + 10000;
+        // Use a different lineTicks for the push speculation
+        int32 pushLineTicks = lineTicks + 10000;
 
         uint256 pushSpecId = positionModule.recordFill(
             1,
             address(mockScorer),
-            pushTheNumber,
+            pushLineTicks,
             leaderboardId,
             PositionType.Upper,
             maker,
@@ -208,7 +208,7 @@ contract SolvencyFuzz is Test {
 
         // Score the contest and set Push
         mockContestModule.setContest(1, scoredContest);
-        mockScorer.setWinSide(1, pushTheNumber, WinSide.Push);
+        mockScorer.setWinSide(1, pushLineTicks, WinSide.Push);
 
         vm.warp(block.timestamp + 2);
         speculationModule.settleSpeculation(pushSpecId);

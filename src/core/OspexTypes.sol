@@ -31,7 +31,7 @@ enum ContestStatus {
 
 /// @notice Represents a market for a contest
 struct ContestMarket {
-    int32 theNumber;                     // Line/spread/total number
+    int32 lineTicks;                     // Line/spread/total number
     uint16 upperOdds;                    // Upper odds (reference only)
     uint16 lowerOdds;                    // Lower odds (reference only)
     uint32 lastUpdated;                     // Winning side
@@ -64,7 +64,7 @@ enum LeagueId {
 struct Speculation {
     uint256 contestId;                   // Associated contest ID
     address speculationScorer;           // Scorer contract address
-    int32 theNumber;                     // Line/spread/total number
+    int32 lineTicks;                     // Line/spread/total number
     address speculationCreator;          // Creator address
     SpeculationStatus speculationStatus; // Current status
     WinSide winSide;                     // Winning side

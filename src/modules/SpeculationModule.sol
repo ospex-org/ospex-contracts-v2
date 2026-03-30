@@ -78,7 +78,7 @@ contract SpeculationModule is ISpeculationModule {
     uint256 public s_minSpeculationAmount;
     /// @notice The speculations
     mapping(uint256 => Speculation) public s_speculations;
-    /// @notice Reverse lookup: contestId => scorer => theNumber => speculationId
+    /// @notice Reverse lookup: contestId => scorer => lineTicks => speculationId
     mapping(uint256 => mapping(address => mapping(int32 => uint256)))
         public s_speculationLookup;
 
@@ -88,14 +88,14 @@ contract SpeculationModule is ISpeculationModule {
      * @param speculationId The ID of the speculation
      * @param contestId The ID of the contest
      * @param scorer The scorer of the speculation
-     * @param theNumber The number of the speculation
+     * @param lineTicks The number of the speculation (10x)
      * @param speculationCreator The creator of the speculation
      */
     event SpeculationCreated(
         uint256 indexed speculationId,
         uint256 indexed contestId,
         address scorer,
-        int32 theNumber,
+        int32 lineTicks,
         address speculationCreator
     );
 
@@ -195,7 +195,7 @@ contract SpeculationModule is ISpeculationModule {
      * @notice Creates a speculation
      * @param contestId The ID of the contest
      * @param scorer The scorer of the speculation
-     * @param theNumber The number of the speculation
+     * @param lineTicks The line number of the speculation (10x)
      * @param speculationCreator The address of the speculation creator
      * @param leaderboardId The leaderboard ID (where the fee will be allocated)
      * @return speculationId The ID of the speculation
@@ -203,7 +203,7 @@ contract SpeculationModule is ISpeculationModule {
     function createSpeculation(
         uint256 contestId,
         address scorer,
-        int32 theNumber,
+        int32 lineTicks,
         address speculationCreator,
         uint256 leaderboardId
     ) external override returns (uint256) {
@@ -214,7 +214,7 @@ contract SpeculationModule is ISpeculationModule {
             _createSpeculation(
                 contestId,
                 scorer,
-                theNumber,
+                lineTicks,
                 speculationCreator,
                 leaderboardId
             );
@@ -269,7 +269,7 @@ contract SpeculationModule is ISpeculationModule {
 
         // Call the scorer module
         IScorerModule scorer = IScorerModule(s.speculationScorer);
-        s.winSide = scorer.determineWinSide(s.contestId, s.theNumber);
+        s.winSide = scorer.determineWinSide(s.contestId, s.lineTicks);
         s.speculationStatus = SpeculationStatus.Closed;
 
         emit SpeculationSettled(speculationId, s.winSide, s.speculationScorer);
@@ -313,7 +313,7 @@ contract SpeculationModule is ISpeculationModule {
      * @notice Internal function to create a speculation
      * @param contestId The ID of the contest
      * @param scorer The scorer of the speculation
-     * @param theNumber The number of the speculation
+     * @param lineTicks The line number of the speculation (10x)
      * @param speculationCreator The creator of the speculation
      * @param leaderboardId The leaderboard ID (where the fee will be allocated)
      * @return speculationId The ID of the speculation
@@ -321,11 +321,11 @@ contract SpeculationModule is ISpeculationModule {
     function _createSpeculation(
         uint256 contestId,
         address scorer,
-        int32 theNumber,
+        int32 lineTicks,
         address speculationCreator,
         uint256 leaderboardId
     ) internal returns (uint256) {
-        if (s_speculationLookup[contestId][scorer][theNumber] != 0) {
+        if (s_speculationLookup[contestId][scorer][lineTicks] != 0) {
             revert SpeculationModule__SpeculationExists();
         }
 
@@ -355,20 +355,20 @@ contract SpeculationModule is ISpeculationModule {
         s_speculations[speculationId] = Speculation({
             contestId: contestId,
             speculationScorer: scorer,
-            theNumber: theNumber,
+            lineTicks: lineTicks,
             speculationCreator: speculationCreator,
             speculationStatus: SpeculationStatus.Open,
             winSide: WinSide.TBD
         });
 
         // Populate reverse lookup
-        s_speculationLookup[contestId][scorer][theNumber] = speculationId;
+        s_speculationLookup[contestId][scorer][lineTicks] = speculationId;
 
         emit SpeculationCreated(
             speculationId,
             contestId,
             scorer,
-            theNumber,
+            lineTicks,
             speculationCreator
         );
         // Emit protocol-wide core event
@@ -378,7 +378,7 @@ contract SpeculationModule is ISpeculationModule {
                 speculationId,
                 contestId,
                 scorer,
-                theNumber,
+                lineTicks,
                 speculationCreator
             )
         );
@@ -400,15 +400,15 @@ contract SpeculationModule is ISpeculationModule {
      * @notice Gets a speculation ID by contest parameters
      * @param contestId The ID of the contest
      * @param scorer The scorer of the speculation
-     * @param theNumber The number of the speculation
+     * @param lineTicks The line number of the speculation (10x)
      * @return speculationId The ID of the speculation (0 if doesn't exist)
      */
     function getSpeculationId(
         uint256 contestId,
         address scorer,
-        int32 theNumber
+        int32 lineTicks
     ) external view override returns (uint256) {
-        return s_speculationLookup[contestId][scorer][theNumber];
+        return s_speculationLookup[contestId][scorer][lineTicks];
     }
 
     /**

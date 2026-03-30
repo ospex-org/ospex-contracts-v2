@@ -15,7 +15,7 @@ interface IPositionModule is IModule {
      * @notice Records a fill
      * @param contestId The contest id
      * @param scorer The scorer address
-     * @param theNumber The number if applicable
+     * @param lineTicks The line number if applicable
      * @param leaderboardId The leaderboard id for fees if applicable
      * @param makerPositionType The position type of the maker (Upper or Lower)
      * @param maker The address of the maker
@@ -29,7 +29,7 @@ interface IPositionModule is IModule {
     function recordFill(
         uint256 contestId,
         address scorer,
-        int32 theNumber,
+        int32 lineTicks,
         uint256 leaderboardId,
         PositionType makerPositionType,
         address maker,

@@ -3,7 +3,7 @@ pragma solidity ^0.8.19;
 
 // [NOTE] All test amounts in this file use 6 decimals (USDC-style): 1 USDC = 1_000_000
 // [NOTE] All odds in this file use uint16 ticks: 1.80 = 180, 1.20 = 120, etc.
-// [NOTE] theNumber is in 10x format: 1.5 = 15, -3.5 = -35, 220.5 = 2205
+// [NOTE] lineTicks is in 10x format: 1.5 = 15, -3.5 = -35, 220.5 = 2205
 
 import "forge-std/Test.sol";
 import {RulesModule} from "../../src/modules/RulesModule.sol";
@@ -112,20 +112,20 @@ contract RulesModuleTest is Test {
         });
         mockContestModule.setContest(contestId, contest);
 
-        // Set up contest market data for validation tests (uint16 ticks, 10x theNumber)
+        // Set up contest market data for validation tests (uint16 ticks, 10x lineTicks)
         ContestMarket memory market = ContestMarket({
-            theNumber: 15,         // 1.5 spread (10x format)
+            lineTicks: 15,         // 1.5 spread (10x format)
             upperOdds: 180,        // 1.80 odds
             lowerOdds: 120,        // 1.20 odds
             lastUpdated: uint32(block.timestamp)
         });
         mockContestModule.setContestMarket(contestId, mockScorer, market);
 
-        // Set up a basic speculation (10x theNumber)
+        // Set up a basic speculation (10x lineTicks)
         Speculation memory speculation = Speculation({
             contestId: contestId,
             speculationScorer: mockScorer,
-            theNumber: 15, // +1.5 spread (10x format)
+            lineTicks: 15, // +1.5 spread (10x format)
             speculationCreator: admin,
             speculationStatus: SpeculationStatus.Open,
             winSide: WinSide.TBD
@@ -924,15 +924,15 @@ contract RulesModuleTest is Test {
         core.registerModule(keccak256("MONEYLINE_SCORER"), mockMoneylineScorer);
         core.registerModule(keccak256("SPREAD_SCORER"), mockSpreadScorer);
 
-        // Set up contest markets for both scorer addresses (uint16 ticks, 10x theNumber)
+        // Set up contest markets for both scorer addresses (uint16 ticks, 10x lineTicks)
         mockContestModule.setContestMarket(contestId, mockMoneylineScorer, ContestMarket({
-            theNumber: 15,
+            lineTicks: 15,
             upperOdds: 180,
             lowerOdds: 120,
             lastUpdated: 1
         }));
         mockContestModule.setContestMarket(contestId, mockSpreadScorer, ContestMarket({
-            theNumber: 15,
+            lineTicks: 15,
             upperOdds: 180,
             lowerOdds: 120,
             lastUpdated: 1
@@ -952,7 +952,7 @@ contract RulesModuleTest is Test {
             abi.encode(Speculation({
                 contestId: contestId,
                 speculationScorer: mockMoneylineScorer,
-                theNumber: 15,
+                lineTicks: 15,
                 speculationCreator: address(0),
                 speculationStatus: SpeculationStatus.Open,
                 winSide: WinSide.TBD
@@ -967,7 +967,7 @@ contract RulesModuleTest is Test {
             abi.encode(Speculation({
                 contestId: contestId,
                 speculationScorer: mockSpreadScorer,
-                theNumber: 15,
+                lineTicks: 15,
                 speculationCreator: address(0),
                 speculationStatus: SpeculationStatus.Open,
                 winSide: WinSide.TBD
@@ -1026,15 +1026,15 @@ contract RulesModuleTest is Test {
         core.registerModule(keccak256("MONEYLINE_SCORER"), mockMoneylineScorer);
         core.registerModule(keccak256("SPREAD_SCORER"), mockSpreadScorer);
 
-        // Set up contest markets for both scorer addresses (uint16 ticks, 10x theNumber)
+        // Set up contest markets for both scorer addresses (uint16 ticks, 10x lineTicks)
         mockContestModule.setContestMarket(contestId, mockMoneylineScorer, ContestMarket({
-            theNumber: 15,
+            lineTicks: 15,
             upperOdds: 180,
             lowerOdds: 120,
             lastUpdated: 1
         }));
         mockContestModule.setContestMarket(contestId, mockSpreadScorer, ContestMarket({
-            theNumber: 15,
+            lineTicks: 15,
             upperOdds: 180,
             lowerOdds: 120,
             lastUpdated: 1
@@ -1054,7 +1054,7 @@ contract RulesModuleTest is Test {
             abi.encode(Speculation({
                 contestId: contestId,
                 speculationScorer: mockSpreadScorer,
-                theNumber: 15,
+                lineTicks: 15,
                 speculationCreator: address(0),
                 speculationStatus: SpeculationStatus.Open,
                 winSide: WinSide.TBD
@@ -1069,7 +1069,7 @@ contract RulesModuleTest is Test {
             abi.encode(Speculation({
                 contestId: contestId,
                 speculationScorer: mockMoneylineScorer,
-                theNumber: 15,
+                lineTicks: 15,
                 speculationCreator: address(0),
                 speculationStatus: SpeculationStatus.Open,
                 winSide: WinSide.TBD

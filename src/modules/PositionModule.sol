@@ -62,16 +62,18 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
     // --- Events (module-local) ---
 
     /**
-     * @notice Emitted when a position is filled
+     * @notice Emitted when a position is filled.
+     * @dev In this zero-vig protocol, maker's profit always equals takerRisk and
+     *      taker's profit always equals makerRisk. Four economic values (makerRisk,
+     *      makerProfit, takerRisk, takerProfit) are therefore derivable from the
+     *      two emitted risk amounts alone.
      * @param speculationId The ID of the speculation
      * @param maker The address of the maker
      * @param taker The address of the taker
      * @param makerPositionType The type of position for the maker
      * @param takerPositionType The type of position for the taker
-     * @param makerRisk The amount of the maker's risk
-     * @param makerProfit The amount of the maker's profit
-     * @param takerRisk The amount of the taker's risk
-     * @param takerProfit The amount of the taker's profit
+     * @param makerRisk The amount risked by the maker (also equals taker's profit)
+     * @param takerRisk The amount risked by the taker (also equals maker's profit)
      */
     event PositionFilled(
         uint256 indexed speculationId,
@@ -80,9 +82,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         PositionType makerPositionType,
         PositionType takerPositionType,
         uint256 makerRisk,
-        uint256 makerProfit,
-        uint256 takerRisk,
-        uint256 takerProfit
+        uint256 takerRisk
     );
 
     /**
@@ -178,7 +178,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
      *      Creates the speculation, if necessary
      * @param contestId The contest id
      * @param scorer The scorer address
-     * @param theNumber The number if applicable
+     * @param lineTicks The number if applicable (10x)
      * @param leaderboardId The leaderboard id for fees if applicable
      * @param makerPositionType The position type of the maker (Upper or Lower)
      * @param maker The address of the maker
@@ -193,7 +193,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
     function recordFill(
         uint256 contestId,
         address scorer,
-        int32 theNumber,
+        int32 lineTicks,
         uint256 leaderboardId,
         PositionType makerPositionType,
         address maker,
@@ -216,14 +216,14 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         uint256 speculationId = specModule.getSpeculationId(
             contestId,
             scorer,
-            theNumber
+            lineTicks
         );
 
         if (speculationId == 0) {
             speculationId = specModule.createSpeculation(
                 contestId,
                 scorer,
-                theNumber,
+                lineTicks,
                 taker,
                 leaderboardId
             );
@@ -461,9 +461,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
             makerPositionType,
             takerPositionType,
             makerRisk,
-            makerPos.profitAmount,
-            takerRisk,
-            takerPos.profitAmount
+            takerRisk
         );
         i_ospexCore.emitCoreEvent(
             keccak256("POSITION_MATCHED_PAIR"),
@@ -474,9 +472,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
                 makerPositionType,
                 takerPositionType,
                 makerRisk,
-                makerPos.profitAmount,
-                takerRisk,
-                takerPos.profitAmount
+                takerRisk
             )
         );
     }

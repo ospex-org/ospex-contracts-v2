@@ -118,10 +118,10 @@ contract OracleModuleExposed is OracleModule {
         returns (
             uint16 moneylineAwayOdds,
             uint16 moneylineHomeOdds,
-            int32 spreadNumber,
+            int32 spreadLineTicks,
             uint16 spreadAwayOdds,
             uint16 spreadHomeOdds,
-            int32 totalNumber,
+            int32 totalLineTicks,
             uint16 overOdds,
             uint16 underOdds
         )
@@ -1378,7 +1378,7 @@ contract OracleModuleTest is Test {
         // moneylineAway +150: tick = 100 + 150 = 250
         // moneylineHome -110: tick = 100 + round(10000/110) = 100 + 91 = 191
         ContestMarket memory moneylineMarket = testContestModule.getContestMarket(contestId, moneylineScorer);
-        assertEq(moneylineMarket.theNumber, 0); // Moneyline always has theNumber = 0
+        assertEq(moneylineMarket.lineTicks, 0); // Moneyline always has lineTicks = 0
         assertEq(moneylineMarket.upperOdds, 250);
         assertEq(moneylineMarket.lowerOdds, 191);
 
@@ -1386,7 +1386,7 @@ contract OracleModuleTest is Test {
         // spreadAway +105: tick = 100 + 105 = 205
         // spreadHome -125: tick = 100 + round(10000/125) = 100 + 80 = 180
         ContestMarket memory spreadMarket = testContestModule.getContestMarket(contestId, spreadScorer);
-        assertEq(spreadMarket.theNumber, -35);
+        assertEq(spreadMarket.lineTicks, -35);
         assertEq(spreadMarket.upperOdds, 205);
         assertEq(spreadMarket.lowerOdds, 180);
 
@@ -1394,7 +1394,7 @@ contract OracleModuleTest is Test {
         // over -110: tick = 100 + 91 = 191
         // under -110: tick = 100 + 91 = 191
         ContestMarket memory totalMarket = testContestModule.getContestMarket(contestId, totalScorer);
-        assertEq(totalMarket.theNumber, 220);
+        assertEq(totalMarket.lineTicks, 220);
         assertEq(totalMarket.upperOdds, 191);
         assertEq(totalMarket.lowerOdds, 191);
     }
@@ -1417,17 +1417,17 @@ contract OracleModuleTest is Test {
         (
             uint16 moneylineAwayOdds,
             uint16 moneylineHomeOdds,
-            int32 spreadNumber,
+            int32 spreadLineTicks,
             uint16 spreadAwayOdds,
             uint16 spreadHomeOdds,
-            int32 totalNumber,
+            int32 totalLineTicks,
             uint16 overOdds,
             uint16 underOdds
         ) = oracleExposed.exposed_extractContestMarketData(packedData);
 
         // Verify that numbers are extracted correctly
-        assertEq(spreadNumber, -35); // -3.5 points -> -35 (scaled by 10)
-        assertEq(totalNumber, 210);  // 21.0 points -> 210 (scaled by 10)
+        assertEq(spreadLineTicks, -35); // -3.5 points -> -35 (scaled by 10)
+        assertEq(totalLineTicks, 210);  // 21.0 points -> 210 (scaled by 10)
 
         // Verify exact tick values from americanToOddsTick conversion
         // +120: tick = 100 + 120 = 220
@@ -1459,17 +1459,17 @@ contract OracleModuleTest is Test {
         (
             uint16 moneylineAwayOdds,
             uint16 moneylineHomeOdds,
-            int32 spreadNumber,
+            int32 spreadLineTicks,
             uint16 spreadAwayOdds,
             uint16 spreadHomeOdds,
-            int32 totalNumber,
+            int32 totalLineTicks,
             uint16 overOdds,
             uint16 underOdds
         ) = oracleExposed.exposed_extractContestMarketData(packedData);
 
         // Verify edge case number extraction
-        assertEq(spreadNumber, 100);  // +10.0 points
-        assertEq(totalNumber, 5);     // 0.5 points
+        assertEq(spreadLineTicks, 100);  // +10.0 points
+        assertEq(totalLineTicks, 5);     // 0.5 points
 
         // Verify exact tick values from americanToOddsTick conversion
         // +5000: tick = 100 + 5000 = 5100
