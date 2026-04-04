@@ -7,7 +7,7 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 import {MatchingModule} from "../../src/modules/MatchingModule.sol";
-import {PositionType, Position, Contest, ContestStatus, LeagueId, Leaderboard} from "../../src/core/OspexTypes.sol";
+import {PositionType, Position, Contest, ContestStatus, LeagueId, Leaderboard, Speculation} from "../../src/core/OspexTypes.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {PositionModule} from "../../src/modules/PositionModule.sol";
 import {OspexCore} from "../../src/core/OspexCore.sol";
@@ -218,6 +218,10 @@ contract MatchingModuleTest is Test {
         matchingModule.matchCommitment(tampered, validSig, DEFAULT_TAKER_DESIRED_RISK, 0, 0);
     }
 
+    function _remaining(MatchingModule.OspexCommitment memory c) internal view returns (uint256) {
+        return c.riskAmount - matchingModule.s_filledRisk(matchingModule.getCommitmentHash(c));
+    }
+
     // ===================== CONSTRUCTOR TESTS =====================
 
     function test_ConstructorRejectsZeroOspexCore() public {
@@ -306,6 +310,15 @@ contract MatchingModuleTest is Test {
         _expectSignatureRevert(c, sig);
     }
 
+    function test_MalformedSignatureLength_Reverts() public {
+        MatchingModule.OspexCommitment memory c = _defaultCommitment();
+        // 64 bytes instead of the expected 65
+        bytes memory shortSig = new bytes(64);
+        vm.prank(taker);
+        vm.expectRevert();
+        matchingModule.matchCommitment(c, shortSig, DEFAULT_TAKER_DESIRED_RISK, 0, 0);
+    }
+
     function test_ZeroAddressMakerReverts() public {
         MatchingModule.OspexCommitment memory c = _defaultCommitment();
         c.maker = address(0);
@@ -358,7 +371,7 @@ contract MatchingModuleTest is Test {
         bytes32 commitmentHash = matchingModule.getCommitmentHash(c);
         assertEq(matchingModule.s_filledRisk(commitmentHash), fillMakerRisk);
         // remaining = 100_000_000 - 10_989_000 = 89_011_000
-        assertEq(matchingModule.getRemainingRisk(c), 89_011_000);
+        assertEq(_remaining(c), 89_011_000);
     }
 
     function test_PartialFillAllowsSecondFillForRemainder() public {
@@ -371,12 +384,12 @@ contract MatchingModuleTest is Test {
         vm.prank(taker);
         matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK, 0, 0);
         // remaining = 100_000_000 - 10_989_000 = 89_011_000
-        assertEq(matchingModule.getRemainingRisk(c), 89_011_000);
+        assertEq(_remaining(c), 89_011_000);
 
         vm.prank(taker2);
         matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK, 0, 0);
         // remaining = 89_011_000 - 10_989_000 = 78_022_000
-        assertEq(matchingModule.getRemainingRisk(c), 78_022_000);
+        assertEq(_remaining(c), 78_022_000);
 
         assertEq(mockPosition.lastMakerRisk(), fillMakerRisk);
     }
@@ -390,17 +403,17 @@ contract MatchingModuleTest is Test {
         vm.prank(taker);
         matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK, 0, 0);
         // remaining = 100_000_000 - 10_989_000 = 89_011_000
-        assertEq(matchingModule.getRemainingRisk(c), 89_011_000);
+        assertEq(_remaining(c), 89_011_000);
 
         vm.prank(taker2);
         matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK, 0, 0);
         // remaining = 100_000_000 - 2 * 10_989_000 = 78_022_000
-        assertEq(matchingModule.getRemainingRisk(c), 78_022_000);
+        assertEq(_remaining(c), 78_022_000);
 
         vm.prank(address(0xEEEE));
         matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK, 0, 0);
         // remaining = 100_000_000 - 3 * 10_989_000 = 67_033_000
-        assertEq(matchingModule.getRemainingRisk(c), 67_033_000);
+        assertEq(_remaining(c), 67_033_000);
     }
 
     function test_FullyFilledReverts() public {
@@ -433,7 +446,7 @@ contract MatchingModuleTest is Test {
         bytes32 commitmentHash = matchingModule.getCommitmentHash(c);
         assertEq(matchingModule.s_filledRisk(commitmentHash), fillMakerRisk);
         // remaining = 100_000_000 - 10_989_000 = 89_011_000
-        assertEq(matchingModule.getRemainingRisk(c), 89_011_000);
+        assertEq(_remaining(c), 89_011_000);
 
         vm.prank(taker2);
         matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK, 0, 0);
@@ -456,7 +469,7 @@ contract MatchingModuleTest is Test {
             matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK, 0, 0);
         }
 
-        assertEq(matchingModule.getRemainingRisk(c), 0);
+        assertEq(_remaining(c), 0);
 
         vm.prank(taker);
         vm.expectRevert(MatchingModule.MatchingModule__CommitmentFullyFilled.selector);
@@ -625,7 +638,7 @@ contract MatchingModuleTest is Test {
         matchingModule.cancelCommitment(c);
 
         bytes32 commitmentHash = matchingModule.getCommitmentHash(c);
-        assertTrue(matchingModule.isCancelled(commitmentHash));
+        assertTrue(matchingModule.s_cancelledCommitments(commitmentHash));
     }
 
     function test_CancelledCommitmentCannotBeMatched() public {
@@ -653,8 +666,11 @@ contract MatchingModuleTest is Test {
 
         vm.prank(maker);
         matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS, 6);
+        bytes32 speculationKey = keccak256(
+            abi.encode(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS)
+        );
         assertEq(
-            matchingModule.getMinNonce(maker, DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS),
+            matchingModule.s_minNonces(maker, speculationKey),
             6
         );
     }
@@ -772,6 +788,102 @@ contract MatchingModuleTest is Test {
         assertEq(mockPosition.recordFillCallCount(), 1);
         assertEq(mockPosition.lastMakerContributionAmount(), makerContrib);
         assertEq(mockPosition.lastTakerContributionAmount(), takerContrib);
+    }
+
+    // ===================== CONTRIBUTION GATING (PARTIAL FILLS) =====================
+
+    /// @notice Maker contribution is charged exactly once across two partial fills
+    function test_MakerContributionChargedOnceOnTwoPartialFills() public {
+        uint256 makerContrib = 5_000_000; // 5 USDC contribution
+
+        // Create commitment: 100 USDC risk, 5 USDC contribution, odds 1.91
+        MatchingModule.OspexCommitment memory c = _defaultCommitment();
+        c.contributionAmount = makerContrib;
+        bytes memory sig = _signCommitment(c, MAKER_PK);
+
+        // --- First partial fill (taker1 fills ~11 USDC maker risk) ---
+        vm.prank(taker);
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK, 0, 0);
+
+        // First fill should pass full contribution amount
+        assertEq(mockPosition.lastMakerContributionAmount(), makerContrib, "first fill: maker contribution");
+        assertEq(mockPosition.recordFillCallCount(), 1, "first fill: call count");
+
+        // Contribution flag should be set
+        bytes32 commitmentHash = matchingModule.getCommitmentHash(c);
+        assertTrue(matchingModule.s_contributionCharged(commitmentHash), "contribution flag set");
+
+        // --- Second partial fill (taker2 fills another ~11 USDC maker risk) ---
+        vm.prank(taker2);
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK, 0, 0);
+
+        // Second fill should pass 0 for maker contribution
+        assertEq(mockPosition.lastMakerContributionAmount(), 0, "second fill: maker contribution zero");
+        assertEq(mockPosition.recordFillCallCount(), 2, "second fill: call count");
+    }
+
+    /// @notice Taker contribution is independent per fill (not gated)
+    function test_TakerContributionChargedPerFill() public {
+        uint256 makerContrib = 5_000_000;
+        uint256 taker1Contrib = 1_000_000;
+        uint256 taker2Contrib = 2_000_000;
+
+        MatchingModule.OspexCommitment memory c = _defaultCommitment();
+        c.contributionAmount = makerContrib;
+        bytes memory sig = _signCommitment(c, MAKER_PK);
+
+        // First fill -- taker1 with their own contribution
+        vm.prank(taker);
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK, 0, taker1Contrib);
+        assertEq(mockPosition.lastTakerContributionAmount(), taker1Contrib, "taker1 contribution");
+
+        // Second fill -- taker2 with their own contribution
+        vm.prank(taker2);
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK, 0, taker2Contrib);
+        assertEq(mockPosition.lastTakerContributionAmount(), taker2Contrib, "taker2 contribution");
+    }
+
+    /// @notice Zero contributionAmount never sets the charged flag (no wasted SSTORE)
+    function test_ZeroContributionDoesNotSetChargedFlag() public {
+        // Default commitment has contributionAmount = 0
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
+
+        vm.prank(taker);
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK, 0, 0);
+
+        bytes32 commitmentHash = matchingModule.getCommitmentHash(c);
+        assertFalse(matchingModule.s_contributionCharged(commitmentHash), "flag not set for zero contribution");
+        assertEq(mockPosition.lastMakerContributionAmount(), 0, "zero contribution passed");
+    }
+
+    /// @notice Contribution gating works correctly across 10 partial fills
+    function test_MakerContributionChargedOnceAcrossManyFills() public {
+        uint256 makerContrib = 10_000_000; // 10 USDC
+
+        // Use riskAmount that allows exactly 10 fills
+        // oddsTick=191, takerDesiredRisk=10_000_000 -> fillMakerRisk=10_989_000
+        // totalRisk = 10_989_000 * 10 = 109_890_000
+        MatchingModule.OspexCommitment memory c = _defaultCommitment();
+        c.riskAmount = 109_890_000;
+        c.contributionAmount = makerContrib;
+        bytes memory sig = _signCommitment(c, MAKER_PK);
+
+        // First fill -- gets the contribution
+        vm.prank(address(uint160(0xF000)));
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK, 0, 0);
+        assertEq(mockPosition.lastMakerContributionAmount(), makerContrib, "fill 1: contribution charged");
+
+        // Fills 2-10 -- contribution is zero
+        for (uint256 i = 1; i < 10; i++) {
+            vm.prank(address(uint160(0xF000 + i)));
+            matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK, 0, 0);
+            assertEq(mockPosition.lastMakerContributionAmount(), 0, "subsequent fill: contribution zero");
+        }
+
+        // All 10 fills succeeded
+        assertEq(mockPosition.recordFillCallCount(), 10, "all fills executed");
+        // Commitment fully filled
+        assertEq(_remaining(c), 0, "commitment fully consumed");
     }
 
     // ===================== EDGE CASES =====================
@@ -948,7 +1060,7 @@ contract MatchingModuleTest is Test {
         vm.prank(taker);
         matchingModule.matchCommitment(c, sig, 50_000_000, 0, 0);
 
-        assertEq(matchingModule.getRemainingRisk(c), 0, "fully consumed");
+        assertEq(_remaining(c), 0, "fully consumed");
         assertEq(mockPosition.lastMakerRisk(), 50_000_000, "makerRisk");
         assertEq(mockPosition.lastTakerRisk(), 50_000_000, "takerRisk");
     }
@@ -970,7 +1082,7 @@ contract MatchingModuleTest is Test {
             matchingModule.matchCommitment(c, sig, 20_000_000, 0, 0);
         }
 
-        assertEq(matchingModule.getRemainingRisk(c), 0, "no dust remaining");
+        assertEq(_remaining(c), 0, "no dust remaining");
 
         vm.prank(taker);
         vm.expectRevert(MatchingModule.MatchingModule__CommitmentFullyFilled.selector);
@@ -987,7 +1099,7 @@ contract MatchingModuleTest is Test {
 
         vm.prank(taker);
         matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK, 0, 0);
-        assertEq(matchingModule.getRemainingRisk(c), 0, "fully filled");
+        assertEq(_remaining(c), 0, "fully filled");
 
         vm.prank(taker2);
         vm.expectRevert(MatchingModule.MatchingModule__CommitmentFullyFilled.selector);
@@ -1152,6 +1264,10 @@ contract MatchingModuleIntegrationTest is Test {
         });
     }
 
+    function _remaining(MatchingModule.OspexCommitment memory c) internal view returns (uint256) {
+        return c.riskAmount - matchingModule.s_filledRisk(matchingModule.getCommitmentHash(c));
+    }
+
     // ===================== REAL FILL MATH =====================
 
     function testIntegration_RealFillMath_193() public {
@@ -1191,7 +1307,7 @@ contract MatchingModuleIntegrationTest is Test {
         assertEq(tPos.profitAmount, fillMakerRisk, "taker profitAmount");
 
         // remaining = 10_000_000 - 5_376_300 = 4_623_700
-        assertEq(matchingModule.getRemainingRisk(c), 4_623_700, "remaining");
+        assertEq(_remaining(c), 4_623_700, "remaining");
     }
 
     function testIntegration_RealFillMath_AllRoundingOdds() public {
@@ -1288,7 +1404,7 @@ contract MatchingModuleIntegrationTest is Test {
         vm.prank(taker);
         matchingModule.matchCommitment(c, sig, takerDesiredRisk, 0, 0);
 
-        assertEq(matchingModule.getRemainingRisk(c), 0, "fully filled");
+        assertEq(_remaining(c), 0, "fully filled");
 
         vm.prank(taker);
         vm.expectRevert(MatchingModule.MatchingModule__CommitmentFullyFilled.selector);
@@ -1334,7 +1450,7 @@ contract MatchingModuleIntegrationTest is Test {
 
         // remaining = 10_000_000 - 5_376_300 = 4_623_700
         uint256 remaining = 4_623_700;
-        assertEq(matchingModule.getRemainingRisk(c), remaining, "remaining after first fill");
+        assertEq(_remaining(c), remaining, "remaining after first fill");
 
         // Second taker: takerDesiredRisk = (4_623_700 * 93) / 100 = 4_300_041
         // rawFill = ceil(4_300_041 * 100 / 93) = ceil(430_004_100 / 93) = 4_623_700
@@ -1349,7 +1465,7 @@ contract MatchingModuleIntegrationTest is Test {
         vm.prank(taker2);
         matchingModule.matchCommitment(c, sig, maxTaker2, 0, 0);
 
-        assertEq(matchingModule.getRemainingRisk(c), 0, "fully filled after two takers");
+        assertEq(_remaining(c), 0, "fully filled after two takers");
     }
 
     // ===================== EXISTING SPECULATION PATH =====================
@@ -1393,5 +1509,61 @@ contract MatchingModuleIntegrationTest is Test {
 
         uint256 specId2 = speculationModule.getSpeculationId(1, address(0x1234), 70);
         assertEq(specId, specId2, "same speculation reused");
+    }
+
+    // ===================== SPECULATION CREATOR IS TAKER =====================
+
+    /// @notice When a fill auto-creates a speculation, the taker is recorded as creator
+    function testIntegration_SpeculationCreatorIsTaker() public {
+        uint256 MAKER_B_PK = 0xB0B;
+        address makerB = vm.addr(MAKER_B_PK);
+
+        // Fund and approve maker B
+        token.transfer(makerB, 500_000_000);
+        vm.prank(makerB);
+        token.approve(address(positionModule), type(uint256).max);
+
+        // Maker A signs a commitment
+        MatchingModule.OspexCommitment memory cA = _makeCommitment(200, 80, 10_000_000, 0);
+        bytes memory sigA = _sign(cA, MAKER_PK);
+
+        // Maker B signs a commitment on the same speculation (same contestId/scorer/lineTicks)
+        MatchingModule.OspexCommitment memory cB = MatchingModule.OspexCommitment({
+            maker: makerB,
+            contestId: 1,
+            scorer: address(0x1234),
+            lineTicks: 80,
+            positionType: PositionType.Upper,
+            oddsTick: 200,
+            riskAmount: 10_000_000,
+            contributionAmount: 0,
+            nonce: 1,
+            expiry: block.timestamp + 1 hours
+        });
+        bytes memory sigB = _sign(cB, MAKER_B_PK);
+
+        // Taker fills maker A's commitment — this creates the speculation
+        vm.prank(taker);
+        matchingModule.matchCommitment(cA, sigA, 5_000_000, 0, 0);
+
+        uint256 specId = speculationModule.getSpeculationId(1, address(0x1234), 80);
+        assertGt(specId, 0, "speculation created");
+
+        // The creator should be the taker, not maker A
+        Speculation memory spec = speculationModule.getSpeculation(specId);
+        assertEq(spec.speculationCreator, taker, "creator is taker, not maker");
+
+        // Second fill on maker B reuses the same speculation (no new creation)
+        address taker2 = address(0xDDDD);
+        token.transfer(taker2, 500_000_000);
+        vm.prank(taker2);
+        token.approve(address(positionModule), type(uint256).max);
+
+        vm.prank(taker2);
+        matchingModule.matchCommitment(cB, sigB, 5_000_000, 0, 0);
+
+        // Creator is still the original taker
+        Speculation memory spec2 = speculationModule.getSpeculation(specId);
+        assertEq(spec2.speculationCreator, taker, "creator unchanged after second fill");
     }
 }

@@ -43,10 +43,8 @@ contract SpeculationModule is ISpeculationModule {
     error SpeculationModule__ContestNotFinalized(uint256 contestId);
     /// @notice Error for contest not verified
     error SpeculationModule__ContestNotVerified();
-    /// @notice Error for minimum above maximum
-    error SpeculationModule__MinAboveMax(uint256 minAmount, uint256 maxAmount);
-    /// @notice Error for maximum below minimum
-    error SpeculationModule__MaxBelowMin(uint256 maxAmount, uint256 minAmount);
+    /// @notice Error for setting minimum to zero
+    error SpeculationModule__MinAmountZero();
     /// @notice Error for not admin
     error SpeculationModule__NotAdmin(address admin);
     /// @notice Error for invalid address
@@ -72,8 +70,6 @@ contract SpeculationModule is ISpeculationModule {
     uint32 public s_voidCooldown = 3 days;
     /// @notice The minimum void cooldown
     uint32 public constant MIN_VOID_COOLDOWN = 1 days;
-    /// @notice The maximum speculation amount
-    uint256 public s_maxSpeculationAmount;
     /// @notice The minimum speculation amount
     uint256 public s_minSpeculationAmount;
     /// @notice The speculations
@@ -128,12 +124,6 @@ contract SpeculationModule is ISpeculationModule {
     event VoidCooldownSet(uint32 newVoidCooldown);
 
     /**
-     * @notice Event for maximum speculation amount set
-     * @param newAmount The new maximum speculation amount
-     */
-    event MaxSpeculationAmountSet(uint256 newAmount);
-
-    /**
      * @notice Event for minimum speculation amount set
      * @param newAmount The new minimum speculation amount
      */
@@ -177,8 +167,7 @@ contract SpeculationModule is ISpeculationModule {
         }
         i_ospexCore = OspexCore(ospexCore);
         i_tokenDecimals = tokenDecimals;
-        s_minSpeculationAmount = 1 * (10 ** tokenDecimals);
-        s_maxSpeculationAmount = 100 * (10 ** tokenDecimals);
+        s_minSpeculationAmount = 10 ** uint256(tokenDecimals);
     }
 
     // --- IModule ---
@@ -411,49 +400,24 @@ contract SpeculationModule is ISpeculationModule {
         return s_speculationLookup[contestId][scorer][lineTicks];
     }
 
-    /**
-     * @notice Sets the minimum speculation amount
-     * @param minAmount The new minimum speculation amount
-     */
+    /// @notice Sets the minimum speculation amount in raw token units.
+    /// @dev Accepts the value in the token's smallest denomination (e.g. 1000000 = 1 USDC
+    ///      with 6 decimals, 500000 = 0.50 USDC). This allows fractional minimums.
+    ///      Cannot be set to zero — a positive minimum is required to prevent dust.
+    ///      The contract is token-decimal-agnostic; if redeployed with an 18-decimal
+    ///      token, pass the value in that token's smallest unit accordingly.
+    /// @param minAmount The new minimum (in token's smallest units, must be > 0)
     function setMinSpeculationAmount(
         uint256 minAmount
     ) external override onlyAdmin {
-        uint256 minWithDecimals = minAmount * (10 ** i_tokenDecimals);
-        if (minWithDecimals > s_maxSpeculationAmount) {
-            revert SpeculationModule__MinAboveMax(
-                minWithDecimals,
-                s_maxSpeculationAmount
-            );
+        if (minAmount == 0) {
+            revert SpeculationModule__MinAmountZero();
         }
-        s_minSpeculationAmount = minWithDecimals;
-        emit MinSpeculationAmountSet(minWithDecimals);
-        // Emit protocol-wide core event
+        s_minSpeculationAmount = minAmount;
+        emit MinSpeculationAmountSet(minAmount);
         i_ospexCore.emitCoreEvent(
             keccak256("MIN_SPECULATION_AMOUNT_SET"),
-            abi.encode(minWithDecimals)
-        );
-    }
-
-    /**
-     * @notice Sets the maximum speculation amount
-     * @param maxAmount The new maximum speculation amount
-     */
-    function setMaxSpeculationAmount(
-        uint256 maxAmount
-    ) external override onlyAdmin {
-        uint256 maxWithDecimals = maxAmount * (10 ** i_tokenDecimals);
-        if (maxWithDecimals < s_minSpeculationAmount) {
-            revert SpeculationModule__MaxBelowMin(
-                maxWithDecimals,
-                s_minSpeculationAmount
-            );
-        }
-        s_maxSpeculationAmount = maxWithDecimals;
-        emit MaxSpeculationAmountSet(maxWithDecimals);
-        // Emit protocol-wide core event
-        i_ospexCore.emitCoreEvent(
-            keccak256("MAX_SPECULATION_AMOUNT_SET"),
-            abi.encode(maxWithDecimals)
+            abi.encode(minAmount)
         );
     }
 

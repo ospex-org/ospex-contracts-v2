@@ -3,7 +3,7 @@ pragma solidity ^0.8.19;
 
 // [NOTE] All test amounts use 6 decimals (USDC-style): 1 USDC = 1_000_000
 // [NOTE] oddsTick uses integer ticks: 1.01 = 101, 101.00 = 10100
-// [NOTE] Tests use planned deployment bounds: min=1 USDC, max=3 USDC
+// [NOTE] Tests use planned deployment bounds: min=1 USDC, no maximum
 
 import "forge-std/Test.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -38,7 +38,7 @@ contract MockLeaderboardModuleExtreme {
 
 /// @title Extreme Odds Edge Case Tests
 /// @notice Verifies riskAmountInRange modifier, fill math, and solvency at oddsTick boundaries
-/// @dev Uses min=1 USDC, max=3 USDC to match planned deployment parameters
+/// @dev Uses min=1 USDC (no maximum) to match planned deployment parameters
 contract ExtremeOddsEdgeCases is Test {
     uint16 constant ODDS_SCALE = 100;
     uint16 constant MIN_ODDS = 101;
@@ -85,9 +85,6 @@ contract ExtremeOddsEdgeCases is Test {
 
         // Register this test contract as MATCHING_MODULE so it can call recordFill
         core.registerModule(keccak256("MATCHING_MODULE"), address(this));
-
-        // Set planned deployment bounds: min=1 USDC (default), max=3 USDC
-        speculationModule.setMaxSpeculationAmount(3);
 
         // Set up a verified contest
         _resetContest();
@@ -266,16 +263,6 @@ contract ExtremeOddsEdgeCases is Test {
         );
     }
 
-    /// @notice takerRisk above max (3 USDC) reverts
-    function test_TakerRiskAboveMax_Reverts() public {
-        // 4 USDC taker risk — above 3 USDC max
-        vm.expectRevert(PositionModule.PositionModule__InvalidAmount.selector);
-        positionModule.recordFill(
-            1, address(mockScorer), nextLineTicks++, 0,
-            PositionType.Upper, maker, 4_000_000, taker, 4_000_000, 0, 0
-        );
-    }
-
     /// @notice At 1.01 odds, tiny maker risk → takerRisk = 0.000001 USDC → reverts
     function test_Odds101_TinyMakerRisk_Reverts() public {
         // makerRisk=100 at 1.01 → takerRisk = 100 * 1 / 100 = 1 (0.000001 USDC)
@@ -293,28 +280,12 @@ contract ExtremeOddsEdgeCases is Test {
         assertEq(pos.riskAmount, 1_000_000);
     }
 
-    /// @notice takerRisk exactly at max boundary (3 USDC) succeeds
-    function test_TakerRiskExactlyAtMax_Succeeds() public {
-        (uint256 specId,) = _recordFill(3_000_000, 3_000_000);
-        Position memory pos = positionModule.getPosition(specId, taker, PositionType.Lower);
-        assertEq(pos.riskAmount, 3_000_000);
-    }
-
     /// @notice takerRisk 1 below min reverts
     function test_TakerRiskOneBelow_Min_Reverts() public {
         vm.expectRevert(PositionModule.PositionModule__InvalidAmount.selector);
         positionModule.recordFill(
             1, address(mockScorer), nextLineTicks++, 0,
             PositionType.Upper, maker, 999_999, taker, 999_999, 0, 0
-        );
-    }
-
-    /// @notice takerRisk 1 above max reverts
-    function test_TakerRiskOneAboveMax_Reverts() public {
-        vm.expectRevert(PositionModule.PositionModule__InvalidAmount.selector);
-        positionModule.recordFill(
-            1, address(mockScorer), nextLineTicks++, 0,
-            PositionType.Upper, maker, 3_000_001, taker, 3_000_001, 0, 0
         );
     }
 
@@ -428,7 +399,7 @@ contract ExtremeOddsEdgeCases is Test {
         uint256 makerRisk = rawMakerRisk - (rawMakerRisk % 100);
         uint256 takerRisk = (makerRisk * profitTicks) / 100;
 
-        if (takerRisk < 1_000_000 || takerRisk > 3_000_000) return;
+        if (takerRisk < 1_000_000) return;
 
         (uint256 specId, int32 theNum) = _recordFill(makerRisk, takerRisk);
         _settleAndClaimWinner(specId, theNum, makerRisk + takerRisk);
@@ -443,7 +414,7 @@ contract ExtremeOddsEdgeCases is Test {
         uint256 makerRisk = rawMakerRisk - (rawMakerRisk % 100);
         uint256 takerRisk = (makerRisk * profitTicks) / 100;
 
-        if (takerRisk < 1_000_000 || takerRisk > 3_000_000) return;
+        if (takerRisk < 1_000_000) return;
 
         (uint256 specId, int32 theNum) = _recordFill(makerRisk, takerRisk);
         _settleAndClaimWinner(specId, theNum, makerRisk + takerRisk);
@@ -458,9 +429,58 @@ contract ExtremeOddsEdgeCases is Test {
         uint256 makerRisk = rawMakerRisk - (rawMakerRisk % 100);
         uint256 takerRisk = (makerRisk * profitTicks) / 100;
 
-        if (takerRisk < 1_000_000 || takerRisk > 3_000_000) return;
+        if (takerRisk < 1_000_000) return;
 
         (uint256 specId, int32 theNum) = _recordFill(makerRisk, takerRisk);
         _settleAndClaimPush(specId, theNum, makerRisk, takerRisk);
+    }
+
+    // =========================================================================
+    // 7. NO-MAX — large fills succeed, admin can update min, unfillable at odds
+    // =========================================================================
+
+    /// @notice Very large taker risk (1M USDC) succeeds with no max cap
+    function test_LargeTakerRisk_Succeeds() public {
+        uint256 largeTakerRisk = 1_000_000_000_000; // 1M USDC
+        uint256 largeMakerRisk = 1_000_000_000_000; // 1M USDC (even odds)
+        // Mint enough for both sides
+        token.mint(maker, largeMakerRisk);
+        token.mint(taker, largeTakerRisk);
+        (uint256 specId,) = _recordFill(largeMakerRisk, largeTakerRisk);
+        Position memory pos = positionModule.getPosition(specId, taker, PositionType.Lower);
+        assertEq(pos.riskAmount, largeTakerRisk, "1M USDC fill succeeded");
+    }
+
+    /// @notice Admin updates minRisk and the new value is enforced
+    function test_AdminUpdatesMin_NewValueEnforced() public {
+        // Raise min to 5 USDC
+        speculationModule.setMinSpeculationAmount(5_000_000);
+        assertEq(speculationModule.s_minSpeculationAmount(), 5_000_000);
+
+        // 4 USDC taker risk now reverts
+        vm.expectRevert(PositionModule.PositionModule__InvalidAmount.selector);
+        positionModule.recordFill(
+            1, address(mockScorer), nextLineTicks++, 0,
+            PositionType.Upper, maker, 4_000_000, taker, 4_000_000, 0, 0
+        );
+
+        // 5 USDC taker risk succeeds
+        (uint256 specId,) = _recordFill(5_000_000, 5_000_000);
+        Position memory pos = positionModule.getPosition(specId, taker, PositionType.Lower);
+        assertEq(pos.riskAmount, 5_000_000, "5 USDC fill after min raised");
+    }
+
+    /// @notice 1 USDC commitment at 1.50 odds: taker risk = 0.50 USDC, below 1 USDC min → reverts
+    function test_UnfillableAtLowOdds_TakerRiskBelowMin() public {
+        // Maker commits 1 USDC at oddsTick=150 (1.50 odds)
+        // profitTicks = 50
+        // If taker wants to fill the full 1 USDC maker risk:
+        //   takerRisk = 1_000_000 * 50 / 100 = 500_000 (0.50 USDC)
+        // 0.50 USDC < 1 USDC min → revert
+        vm.expectRevert(PositionModule.PositionModule__InvalidAmount.selector);
+        positionModule.recordFill(
+            1, address(mockScorer), nextLineTicks++, 0,
+            PositionType.Upper, maker, 1_000_000, taker, 500_000, 0, 0
+        );
     }
 }

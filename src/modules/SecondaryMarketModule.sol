@@ -34,8 +34,6 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
     error SecondaryMarketModule__NotAdmin(address admin);
     /// @notice Error for sale amount below minimum
     error SecondaryMarketModule__SaleAmountBelowMinimum();
-    /// @notice Error for sale amount above maximum
-    error SecondaryMarketModule__SaleAmountAboveMaximum();
     /// @notice Error for listing not active
     error SecondaryMarketModule__ListingNotActive();
     /// @notice Error for cannot buy own position
@@ -48,8 +46,6 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
     error SecondaryMarketModule__SpeculationNotActive();
     /// @notice Error for invalid min sale amount
     error SecondaryMarketModule__InvalidMinSaleAmount();
-    /// @notice Error for invalid max sale amount
-    error SecondaryMarketModule__InvalidMaxSaleAmount();
     /// @notice Error for invalid address
     error SecondaryMarketModule__InvalidAddress();
     /// @notice Error for invalid amount
@@ -58,6 +54,10 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
     error SecondaryMarketModule__PositionAlreadyClaimed();
     /// @notice Error for module not set
     error SecondaryMarketModule__ModuleNotSet(bytes32 moduleType);
+    /// @notice Error for purchase price rounding to zero
+    error SecondaryMarketModule__PurchasePriceZero();
+    /// @notice Error for partial buy leaving unsellable dust remainder
+    error SecondaryMarketModule__RemainderBelowMinimum();
 
     // --- Storage ---
     /// @notice The OspexCore contract
@@ -66,8 +66,6 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
     IERC20 public immutable i_token;
     /// @notice The minimum sale amount
     uint256 public s_minSaleAmount;
-    /// @notice The maximum sale amount
-    uint256 public s_maxSaleAmount;
 
     // speculationId => seller => positionType => SaleListing
     mapping(uint256 => mapping(address => mapping(PositionType => SaleListing)))
@@ -159,11 +157,6 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
      * @param newMinSaleAmount The new minimum sale amount
      */
     event MinSaleAmountSet(uint256 newMinSaleAmount);
-    /**
-     * @notice Emitted when the maximum sale amount is set
-     * @param newMaxSaleAmount The new maximum sale amount
-     */
-    event MaxSaleAmountSet(uint256 newMaxSaleAmount);
 
     // --- Modifiers ---
     /**
@@ -184,24 +177,19 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
      * @param ospexCore The address of the OspexCore contract
      * @param token The address of the ERC20 token
      * @param minSaleAmount The minimum sale amount
-     * @param maxSaleAmount The maximum sale amount
      */
     constructor(
         address ospexCore,
         address token,
-        uint256 minSaleAmount,
-        uint256 maxSaleAmount
+        uint256 minSaleAmount
     ) {
         if (ospexCore == address(0) || token == address(0))
             revert SecondaryMarketModule__InvalidAddress();
         if (minSaleAmount == 0)
             revert SecondaryMarketModule__InvalidMinSaleAmount();
-        if (maxSaleAmount == 0)
-            revert SecondaryMarketModule__InvalidMaxSaleAmount();
         i_ospexCore = OspexCore(ospexCore);
         i_token = IERC20(token);
         s_minSaleAmount = minSaleAmount;
-        s_maxSaleAmount = maxSaleAmount;
     }
 
     // --- IModule ---
@@ -252,8 +240,6 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
 
         if (riskAmount < s_minSaleAmount)
             revert SecondaryMarketModule__SaleAmountBelowMinimum();
-        if (riskAmount > s_maxSaleAmount)
-            revert SecondaryMarketModule__SaleAmountAboveMaximum();
 
         if (contributionAmount > 0) {
             IContributionModule(_getModule(keccak256("CONTRIBUTION_MODULE")))
@@ -336,6 +322,18 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
             listing.riskAmount;
         uint256 purchasePrice = (listing.price * riskAmount) /
             listing.riskAmount;
+
+        // Prevent zero-price dust buys
+        if (purchasePrice == 0)
+            revert SecondaryMarketModule__PurchasePriceZero();
+        // Prevent buy amount below minimum
+        if (riskAmount < s_minSaleAmount)
+            revert SecondaryMarketModule__SaleAmountBelowMinimum();
+        // Prevent partial buy leaving unsellable dust remainder
+        if (riskAmount < listing.riskAmount) {
+            if (listing.riskAmount - riskAmount < s_minSaleAmount)
+                revert SecondaryMarketModule__RemainderBelowMinimum();
+        }
 
         // Transfer payment from buyer to contract (seller claims later)
         i_token.safeTransferFrom(msg.sender, address(this), purchasePrice);
@@ -476,8 +474,6 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
                 revert SecondaryMarketModule__AmountAboveMaximum(newRiskAmount);
             if (newRiskAmount < s_minSaleAmount)
                 revert SecondaryMarketModule__SaleAmountBelowMinimum();
-            if (newRiskAmount > s_maxSaleAmount)
-                revert SecondaryMarketModule__SaleAmountAboveMaximum();
             listing.riskAmount = newRiskAmount;
         }
         if (newProfitAmount > 0) {
@@ -529,23 +525,6 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
         i_ospexCore.emitCoreEvent(
             keccak256("MIN_SALE_AMOUNT_SET"),
             abi.encode(newMinSaleAmount)
-        );
-    }
-
-    /**
-     * @notice Sets the maximum sale amount
-     * @param newMaxSaleAmount The new maximum sale amount
-     */
-    function setMaxSaleAmount(
-        uint256 newMaxSaleAmount
-    ) external override onlyAdmin {
-        if (newMaxSaleAmount == 0)
-            revert SecondaryMarketModule__InvalidMaxSaleAmount();
-        s_maxSaleAmount = newMaxSaleAmount;
-        emit MaxSaleAmountSet(newMaxSaleAmount);
-        i_ospexCore.emitCoreEvent(
-            keccak256("MAX_SALE_AMOUNT_SET"),
-            abi.encode(newMaxSaleAmount)
         );
     }
 

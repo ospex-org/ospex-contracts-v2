@@ -34,8 +34,6 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
     error PositionModule__NotMatchingModule();
     /// @notice Error for invalid amount
     error PositionModule__InvalidAmount();
-    /// @notice Error for attempting to transfer to the same address
-    error PositionModule__NoSelfTransfer();
     /// @notice Error for unauthorized market
     error PositionModule__UnauthorizedMarket();
     /// @notice Error for speculation not settled
@@ -133,18 +131,19 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
     }
 
     /**
-     * @notice Modifier to ensure the taker's risk amount is in range
-     *         Maker's risk amount is not checked, as enforcement is only on fills
-     * @param takerRisk The amount of the taker's position
+     * @notice Enforces a minimum bet size on the taker's risk amount.
+     * @dev No maximum is enforced on-chain. The natural upper bound is available
+     *      liquidity. Enforcement is on taker risk only — maker risk is derived from
+     *      taker risk and odds via MatchingModule, so applying bounds to both sides
+     *      would create invalid-revert edge cases at extreme odds. Limits are
+     *      conservative at launch and subject to increase.
+     * @param takerRisk The taker's at-risk amount (USDC, 6 decimals)
      */
     modifier riskAmountInRange(uint256 takerRisk) {
         ISpeculationModule specModule = ISpeculationModule(
             _getModule(keccak256("SPECULATION_MODULE"))
         );
-        if (
-            takerRisk < specModule.s_minSpeculationAmount() ||
-            takerRisk > specModule.s_maxSpeculationAmount()
-        ) {
+        if (takerRisk < specModule.s_minSpeculationAmount()) {
             revert PositionModule__InvalidAmount();
         }
         _;
@@ -176,6 +175,10 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
      * @dev Only callable by Matching Module
      *      Tokens flow directly from maker/taker wallets to this contract.
      *      Creates the speculation, if necessary
+     *      Bet-size enforcement (riskAmountInRange) applies to takerRisk only
+     *      When a fill auto-creates a speculation, the taker (msg.sender of matchCommitment)
+     *      becomes the speculationCreator. This is intentional: Any speculation creation
+     *      fee is charged to the taker accordingly.
      * @param contestId The contest id
      * @param scorer The scorer address
      * @param lineTicks The number if applicable (10x)
@@ -245,6 +248,8 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
 
     /**
      * @notice Transfers a position
+     * @dev This function does not enforce proportional risk/profit splits. It trusts the
+     *      calling market-role contract to define valid transfer semantics.
      * @param speculationId The ID of the speculation
      * @param from The address of the from user
      * @param positionType The type of position
@@ -264,9 +269,9 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         if (!i_ospexCore.hasMarketRole(msg.sender)) {
             revert PositionModule__UnauthorizedMarket();
         }
-        // Revert on self-transfer
-        if (from == to) {
-            revert PositionModule__NoSelfTransfer();
+        // Revert on self-transfer or zero address
+        if (from == to || to == address(0)) {
+            revert PositionModule__InvalidAddress();
         }
         // Get the position being transferred from
         Position storage fromPos = _getPosition(
@@ -380,6 +385,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
 
     /**
      * @notice Internal function to record fill
+     *         riskAmountInRange is applied to takerRisk; makerRisk is unchecked.
      * @param speculationId The ID of the speculation
      * @param makerPositionType The position type of the maker (Upper or Lower)
      * @param maker The address of the maker

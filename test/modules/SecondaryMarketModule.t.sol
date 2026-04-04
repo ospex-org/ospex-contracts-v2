@@ -35,7 +35,6 @@ contract SecondaryMarketModuleTest is Test {
     uint256 public speculationId;
     PositionType public positionType = PositionType.Upper;
     uint256 public minSaleAmount = 1e6; // 1 USDC
-    uint256 public maxSaleAmount = 100e6; // 100 USDC
 
     // leaderboard Id and allocation set to 0 for testing
     uint256 leaderboardId = 0;
@@ -122,8 +121,7 @@ contract SecondaryMarketModuleTest is Test {
         market = new SecondaryMarketModule(
             address(core),
             address(token),
-            minSaleAmount,
-            maxSaleAmount
+            minSaleAmount
         );
         core.registerModule(
             keccak256("SECONDARY_MARKET_MODULE"),
@@ -223,31 +221,6 @@ contract SecondaryMarketModuleTest is Test {
             SecondaryMarketModule
                 .SecondaryMarketModule__SaleAmountBelowMinimum
                 .selector
-        );
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount,
-            contributionAmount
-        );
-        vm.stopPrank();
-    }
-
-    function testListPositionForSale_RevertsIfAmountAboveMax() public {
-        vm.startPrank(seller);
-        uint256 price = 5e6;
-        uint256 riskAmount = maxSaleAmount + 1;
-        uint256 profitAmount = 1e6;
-        uint256 contributionAmount = 0;
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                SecondaryMarketModule
-                    .SecondaryMarketModule__AmountAboveMaximum
-                    .selector,
-                riskAmount
-            )
         );
         market.listPositionForSale(
             speculationId,
@@ -495,17 +468,6 @@ contract SecondaryMarketModuleTest is Test {
             )
         );
         market.setMinSaleAmount(1e6);
-    }
-
-    function testSetMaxSaleAmount_RevertsIfNotAdmin() public {
-        vm.prank(nonAdmin);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                SecondaryMarketModule.SecondaryMarketModule__NotAdmin.selector,
-                nonAdmin
-            )
-        );
-        market.setMaxSaleAmount(100e6);
     }
 
     // 7. View Functions
@@ -900,42 +862,7 @@ contract SecondaryMarketModuleTest is Test {
         );
         vm.stopPrank();
     }
-    function testUpdateListing_RevertsIfNewRiskAmountAboveMaxSaleAmount() public {
-        vm.prank(admin);
-        market.setMaxSaleAmount(5e6); // 5 USDC
-
-        vm.startPrank(seller);
-        uint256 price = 5e6;
-        uint256 riskAmount = 5e6; // <= maxSaleAmount
-        uint256 profitAmount = 1e6;
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount,
-            0
-        );
-        uint256 maxSaleAmount2 = market.s_maxSaleAmount();
-        uint256 newRiskAmount = maxSaleAmount2 + 1;
-        console2.log("maxSaleAmount", maxSaleAmount2);
-        console2.log("newRiskAmount", newRiskAmount);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                SecondaryMarketModule.SecondaryMarketModule__SaleAmountAboveMaximum.selector
-            )
-        );
-        market.updateListing(
-            speculationId,
-            positionType,
-            0,
-            newRiskAmount,
-            0
-        );
-        vm.stopPrank();
-    }
-
-    // 4. setMinSaleAmount and setMaxSaleAmount
+    // 4. setMinSaleAmount
     function testSetMinSaleAmount_HappyPath() public {
         vm.prank(admin);
         market.setMinSaleAmount(2e6);
@@ -954,25 +881,6 @@ contract SecondaryMarketModuleTest is Test {
         );
         market.setMinSaleAmount(0);
     }
-    function testSetMaxSaleAmount_HappyPath() public {
-        vm.prank(admin);
-        market.setMaxSaleAmount(200e6);
-        assertEq(
-            market.s_maxSaleAmount(),
-            200e6,
-            "Max sale amount should update"
-        );
-    }
-    function testSetMaxSaleAmount_RevertsIfZero() public {
-        vm.prank(admin);
-        vm.expectRevert(
-            SecondaryMarketModule
-                .SecondaryMarketModule__InvalidMaxSaleAmount
-                .selector
-        );
-        market.setMaxSaleAmount(0);
-    }
-
     // 5. getModuleType
     function testGetModuleType_ReturnsCorrectType() public view {
         assertEq(
@@ -1063,26 +971,20 @@ contract SecondaryMarketModuleTest is Test {
         vm.expectRevert(
             SecondaryMarketModule.SecondaryMarketModule__InvalidAddress.selector
         );
-        new SecondaryMarketModule(zero, valid, 1, 1);
+        new SecondaryMarketModule(zero, valid, 1);
         vm.expectRevert(
             SecondaryMarketModule.SecondaryMarketModule__InvalidAddress.selector
         );
-        new SecondaryMarketModule(valid, zero, 1, 1);
+        new SecondaryMarketModule(valid, zero, 1);
     }
-    function testConstructor_RevertsOnZeroMinOrMaxSaleAmount() public {
+    function testConstructor_RevertsOnZeroMinSaleAmount() public {
         address valid = address(token);
         vm.expectRevert(
             SecondaryMarketModule
                 .SecondaryMarketModule__InvalidMinSaleAmount
                 .selector
         );
-        new SecondaryMarketModule(valid, valid, 0, 1);
-        vm.expectRevert(
-            SecondaryMarketModule
-                .SecondaryMarketModule__InvalidMaxSaleAmount
-                .selector
-        );
-        new SecondaryMarketModule(valid, valid, 1, 0);
+        new SecondaryMarketModule(valid, valid, 0);
     }
     function testListPositionForSale_WithContributionAmount() public {
         // Set a valid contribution token and receiver
@@ -1299,8 +1201,7 @@ contract SecondaryMarketModuleTest is Test {
         SecondaryMarketModule newMarket = new SecondaryMarketModule(
             address(newCore),
             address(token),
-            minSaleAmount,
-            maxSaleAmount
+            minSaleAmount
         );
 
         // Register the market itself but NOT the speculation module
@@ -1515,5 +1416,99 @@ contract SecondaryMarketModuleTest is Test {
         Position memory sellerPosConsistent = positionModule.getPosition(speculationId, seller, positionType);
         assertEq(sellerPosConsistent.riskAmount, 6e6, "Seller risk should decrease");
         assertEq(sellerPosConsistent.profitAmount, 600000, "Seller profit should decrease");
+    }
+
+    // =========================================================================
+    // DUST BUY PROTECTION
+    // =========================================================================
+
+    /// @notice buyRiskAmount that rounds purchasePrice to zero reverts
+    function testBuyPosition_RevertsIfPurchasePriceZero() public {
+        // List 10 USDC risk at price 1 (1 raw unit = 0.000001 USDC)
+        vm.startPrank(seller);
+        market.listPositionForSale(speculationId, positionType, 1, 10e6, 1e6, 0);
+        vm.stopPrank();
+
+        // Buy 1 raw unit of risk: purchasePrice = (1 * 1) / 10e6 = 0
+        vm.startPrank(buyer);
+        token.approve(address(market), type(uint256).max);
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__PurchasePriceZero.selector);
+        market.buyPosition(speculationId, seller, positionType, 1);
+        vm.stopPrank();
+    }
+
+    /// @notice buyRiskAmount below s_minSaleAmount reverts
+    function testBuyPosition_RevertsIfBuyBelowMinSaleAmount() public {
+        // List 10 USDC risk at 5 USDC price
+        vm.startPrank(seller);
+        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6, 0);
+        vm.stopPrank();
+
+        // Try to buy 0.5 USDC risk (below 1 USDC min)
+        vm.startPrank(buyer);
+        token.approve(address(market), type(uint256).max);
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__SaleAmountBelowMinimum.selector);
+        market.buyPosition(speculationId, seller, positionType, 500_000);
+        vm.stopPrank();
+    }
+
+    /// @notice Partial buy that would leave remainder below s_minSaleAmount reverts
+    function testBuyPosition_RevertsIfRemainderBelowMin() public {
+        // List 2 USDC risk at 2 USDC price
+        vm.startPrank(seller);
+        market.listPositionForSale(speculationId, positionType, 2e6, 2e6, 1e6, 0);
+        vm.stopPrank();
+
+        // Buy 1.5 USDC risk — remainder would be 0.5 USDC (below 1 USDC min)
+        vm.startPrank(buyer);
+        token.approve(address(market), type(uint256).max);
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__RemainderBelowMinimum.selector);
+        market.buyPosition(speculationId, seller, positionType, 1_500_000);
+        vm.stopPrank();
+    }
+
+    /// @notice Valid partial buy above minimum succeeds
+    function testBuyPosition_ValidPartialBuySucceeds() public {
+        // List 10 USDC risk at 5 USDC price
+        vm.startPrank(seller);
+        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6, 0);
+        vm.stopPrank();
+
+        // Buy 5 USDC risk — remainder is 5 USDC (above min), succeeds
+        vm.startPrank(buyer);
+        token.approve(address(market), type(uint256).max);
+        market.buyPosition(speculationId, seller, positionType, 5e6);
+        vm.stopPrank();
+
+        // Verify listing remainder
+        SaleListing memory listing = market.getSaleListing(speculationId, seller, positionType);
+        assertEq(listing.riskAmount, 5e6, "remainder risk");
+
+        // Verify buyer got the position
+        Position memory buyerPos = positionModule.getPosition(speculationId, buyer, positionType);
+        assertEq(buyerPos.riskAmount, 5e6, "buyer risk");
+    }
+
+    /// @notice Full buy (exact listing amount) succeeds and deletes listing
+    function testBuyPosition_FullBuySucceeds() public {
+        // List 5 USDC risk at 3 USDC price
+        vm.startPrank(seller);
+        market.listPositionForSale(speculationId, positionType, 3e6, 5e6, 1e6, 0);
+        vm.stopPrank();
+
+        // Buy the full amount
+        vm.startPrank(buyer);
+        token.approve(address(market), type(uint256).max);
+        market.buyPosition(speculationId, seller, positionType, 5e6);
+        vm.stopPrank();
+
+        // Listing should be deleted
+        SaleListing memory listing = market.getSaleListing(speculationId, seller, positionType);
+        assertEq(listing.riskAmount, 0, "listing deleted");
+        assertEq(listing.price, 0, "listing price zero");
+
+        // Buyer has the full position
+        Position memory buyerPos = positionModule.getPosition(speculationId, buyer, positionType);
+        assertEq(buyerPos.riskAmount, 5e6, "buyer got full risk");
     }
 }

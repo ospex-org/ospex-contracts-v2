@@ -57,7 +57,7 @@ contract DecodePosition is Script {
             console.log("\n-- Speculation Information --");
             console.log("Contest ID:", speculation.contestId);
             console.log("Speculation Scorer:", speculation.speculationScorer);
-            console.log("The Number (Line/Spread/Total):", int256(speculation.theNumber));
+            console.log("The Number (Line/Spread/Total):", int256(speculation.lineTicks));
 
             string memory statusStr = speculation.speculationStatus == SpeculationStatus.Open ? "Open" : "Closed";
             console.log("Status:", statusStr);

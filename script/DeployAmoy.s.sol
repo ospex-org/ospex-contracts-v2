@@ -37,7 +37,6 @@ contract DeployAmoy is Script {
     struct DeploymentConfig {
         uint8 tokenDecimals;
         uint256 minSaleAmount;
-        uint256 maxSaleAmount;
         bytes32 createContestSourceHash;
         bytes32 updateContestMarketsSourceHash;
         bytes32 donId;
@@ -75,7 +74,6 @@ contract DeployAmoy is Script {
         DeploymentConfig memory config = DeploymentConfig({
             tokenDecimals: 6, // USDC-like decimals
             minSaleAmount: 1 * 10**6, // 1 USDC
-            maxSaleAmount: 100 * 10**6, // 100 USDC
             createContestSourceHash: 0x74533c92d0380a7aa2c8d597453cdcea7350344971be3df02623fe339002f9ab,
             updateContestMarketsSourceHash: 0x7f5ce70565133fedb2e0f1aeb925f38a3b26924917cff852e7de40a9297119b4,
             donId: bytes32("fun-polygon-amoy-1"),
@@ -153,8 +151,7 @@ contract DeployAmoy is Script {
         contracts.secondaryMarketModule = address(new SecondaryMarketModule(
             contracts.ospexCore,
             contracts.mockUSDC,
-            config.minSaleAmount,
-            config.maxSaleAmount
+            config.minSaleAmount
         ));
         console.log("SecondaryMarketModule:", contracts.secondaryMarketModule);
 

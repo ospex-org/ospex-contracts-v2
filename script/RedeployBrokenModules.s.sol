@@ -36,9 +36,6 @@ contract RedeployBrokenModules is Script {
     // DON ID for Chainlink Functions
     bytes32 constant DON_ID = bytes32("fun-polygon-mainnet-1");
     
-    // New max speculation amount (in whole USDC, will be multiplied by 10^6)
-    uint256 constant NEW_MAX_SPECULATION_AMOUNT = 3; // 3 USDC
-
     function run() external {
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
         
@@ -88,13 +85,6 @@ contract RedeployBrokenModules is Script {
         
         core.registerModule(keccak256("RULES_MODULE"), newRulesModule);
         console.log("Registered RULES_MODULE");
-
-        // 3. Set max speculation amount on SpeculationModule
-        console.log("\n=== Setting Max Speculation Amount ===");
-        
-        SpeculationModule speculationModule = SpeculationModule(SPECULATION_MODULE);
-        speculationModule.setMaxSpeculationAmount(NEW_MAX_SPECULATION_AMOUNT);
-        console.log("Set max speculation amount to:", NEW_MAX_SPECULATION_AMOUNT, "USDC");
 
         vm.stopBroadcast();
 

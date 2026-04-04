@@ -117,6 +117,9 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
     /// @notice Individually cancelled commitment hashes
     mapping(bytes32 => bool) public s_cancelledCommitments;
 
+    /// @notice Tracks whether the maker contribution has been charged for a commitment
+    mapping(bytes32 => bool) public s_contributionCharged;
+
     // --- Structs ---
     /**
      * @notice Represents a signed commitment from a maker to take a position
@@ -128,7 +131,10 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
      * @param oddsTick Maker's quoted price, as an integer (193 = 1.93 odds)
      * @param riskAmount Risk amount in USDC maker will commit (6 decimals)
      * @param contributionAmount The amount of the optional contribution (USDC, 6 decimals)
-     * @param nonce Per-speculation nonce for cancellation/replay prevention
+     * @param nonce Invalidation threshold (NOT a unique order ID). Multiple commitments
+     *              on the same speculation may share the same nonce. When the maker calls
+     *              raiseMinNonce(), all commitments with nonce < newMinNonce are invalidated.
+     *              This may be viewed as a generation counter, not a sequence number.
      * @param expiry Unix timestamp after which this commitment is invalid
      */
     struct OspexCommitment {
@@ -178,6 +184,13 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
      * @notice Match against a signed commitment, creating the speculation if it doesn't exist
      * @dev The taker is msg.sender. Both maker and taker must have approved the
      *      PositionModule contract for USDC spending.
+     *      This function reverts if fillMakerRisk exceeds remaining capacity — it does
+     *      not auto-clip to the remainder. Off-chain callers must read s_filledRisk and
+     *      size takerDesiredRisk accordingly. This is intentional: revert-or-exact-fill
+     *      prevents dust positions from partial remainders at unintended economics.
+     *      Self-matching (maker == msg.sender) is intentionally allowed.
+     *      If volume-based incentives are added in the future, wash-trade prevention 
+     *      will need to be enforced at the incentive/leaderboard layer, not here.
      * @param commitment The maker's signed commitment
      * @param signature The EIP-712 signature over the commitment
      * @param takerDesiredRisk The amount of risk the taker wants to fill (in USDC, 6 decimals)
@@ -224,6 +237,16 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
         // --- Record fill ---
         s_filledRisk[commitmentHash] += fillMakerRisk;
 
+        // --- Gate maker contribution to first fill only ---
+        uint256 effectiveMakerContribution = 0;
+        if (
+            commitment.contributionAmount > 0 &&
+            !s_contributionCharged[commitmentHash]
+        ) {
+            effectiveMakerContribution = commitment.contributionAmount;
+            s_contributionCharged[commitmentHash] = true;
+        }
+
         IPositionModule posModule = IPositionModule(
             _getModule(keccak256("POSITION_MODULE"))
         );
@@ -239,7 +262,7 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
             fillMakerRisk,
             msg.sender,
             makerProfit,
-            commitment.contributionAmount,
+            effectiveMakerContribution,
             takerContributionAmount
         );
 
@@ -291,9 +314,15 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
         );
     }
 
-    /**
-     * @notice Raise the minimum valid nonce for a speculation, invalidating all                                                                                                                                  *         commitments with a lower nonce.
-     * @dev The scope is deliberately per-speculation, not per-commitment. When a user
+/**
+     * @notice Raise the minimum valid nonce for a speculation, invalidating all
+     *         commitments with a lower nonce.
+     * @dev Nonce semantics: nonces are lower-bound invalidation thresholds, NOT unique
+     *      per-commitment identifiers. A maker can have many active commitments on a
+     *      speculation all sharing the same nonce value. Raising the min nonce
+     *      invalidates all of them at once.
+     *
+     *      The scope is deliberately per-speculation, not per-commitment. When a user
      *      decides to withdraw from a speculation, they withdraw entirely — all of their
      *      unmatched commitments on that speculation are invalidated in a single call.
      *      There is no partial opt-out. This is an intentional design choice: pulling out
@@ -331,47 +360,6 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
     // --- View Functions ---
 
     /**
-     * @notice Returns the remaining risk amount for a commitment
-     * @param commitment The commitment to check
-     * @return remaining The risk amount still available to fill
-     */
-    function getRemainingRisk(
-        OspexCommitment calldata commitment
-    ) external view returns (uint256 remaining) {
-        bytes32 commitmentHash = _hashCommitment(commitment);
-        remaining = commitment.riskAmount - s_filledRisk[commitmentHash];
-    }
-
-    /**
-     * @notice Returns the minimum valid nonce for a maker on a speculation
-     * @param maker The maker address
-     * @param contestId The contest to bet on
-     * @param scorer The scorer of the speculation
-     * @param lineTicks The line/spread/total number (10x)
-     * @return The minimum valid nonce
-     */
-    function getMinNonce(
-        address maker,
-        uint256 contestId,
-        address scorer,
-        int32 lineTicks
-    ) external view returns (uint256) {
-        bytes32 speculationKey = keccak256(
-            abi.encode(contestId, scorer, lineTicks)
-        );
-        return s_minNonces[maker][speculationKey];
-    }
-
-    /**
-     * @notice Check if a specific commitment hash has been individually cancelled
-     * @param commitmentHash The hash to check
-     * @return True if cancelled
-     */
-    function isCancelled(bytes32 commitmentHash) external view returns (bool) {
-        return s_cancelledCommitments[commitmentHash];
-    }
-
-    /**
      * @notice Returns the EIP-712 domain separator
      * @return The domain separator bytes32
      */
@@ -394,6 +382,12 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
 
     /**
      * @notice Validates a commitment signature, checks all preconditions
+     * @dev Signature validation can revert with two different error families:
+     *      - MatchingModule__InvalidSignature: valid signature format, wrong signer
+     *      - OpenZeppelin ECDSA errors (ECDSAInvalidSignature,
+     *        ECDSAInvalidSignatureLength, ECDSAInvalidSignatureS): malformed signature bytes
+     *      Both are terminal reverts with no state change. Off-chain callers should
+     *      treat either error family as "invalid signature," not just the custom error.
      * @param commitment The signed commitment from the maker
      * @param signature The EIP-712 signature
      * @return commitmentHash The EIP-712 hash of the commitment

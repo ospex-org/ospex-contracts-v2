@@ -39,7 +39,6 @@ contract DeployPolygon is Script {
     struct DeploymentConfig {
         uint8 tokenDecimals;
         uint256 minSaleAmount;
-        uint256 maxSaleAmount;
         bytes32 createContestSourceHash;
         bytes32 updateContestMarketsSourceHash;
         bytes32 donId;
@@ -78,7 +77,6 @@ contract DeployPolygon is Script {
         DeploymentConfig memory config = DeploymentConfig({
             tokenDecimals: 6, // USDC decimals
             minSaleAmount: 1 * 10**6, // 1 USDC
-            maxSaleAmount: 3 * 10**6, // 3 USDC - conservative limit for initial launch
             createContestSourceHash: 0xa93ea3137b5c35f5932abee7e8d261c3d5e85d2cbc3918dfc2e75170867c8463,
             updateContestMarketsSourceHash: 0x7f5ce70565133fedb2e0f1aeb925f38a3b26924917cff852e7de40a9297119b4, // hash for JavaScript source code that refreshes odds/lines on existing contests
             donId: bytes32("fun-polygon-mainnet-1"),
@@ -156,8 +154,7 @@ contract DeployPolygon is Script {
         contracts.secondaryMarketModule = address(new SecondaryMarketModule(
             contracts.ospexCore,
             contracts.usdc,
-            config.minSaleAmount,
-            config.maxSaleAmount
+            config.minSaleAmount
         ));
         console.log("SecondaryMarketModule:", contracts.secondaryMarketModule);
 

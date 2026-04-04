@@ -403,6 +403,14 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
 
     /**
      * @notice Registers a position for one or more leaderboards (initial registration only)
+     * @dev Leaderboard design principles:
+     *      - A leaderboard entry is an immutable snapshot of position economics at registration time.
+     *      - Registration is intentionally decoupled from fill time. Strategic timing is a feature.
+     *      - Subsequent changes to the underlying position (additional fills, transfers, secondary
+     *      market sales) do not modify or invalidate the leaderboard entry.
+     *      - Positions acquired via SecondaryMarketModule are eligible for registration.
+     *      - The odds of record are a public, updatable reference point. Anyone can update them.
+     *      Validation occurs against the odds of record at registration time, not at fill time.
      * @param speculationId The speculation ID
      * @param positionType The position type
      * @param leaderboardIds The list of leaderboard IDs (max 8)
@@ -525,6 +533,10 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
 
     /**
      * @notice Submits a ROI to a leaderboard
+     * @dev ROI is calculated from the user's registered leaderboard positions and their declared bankroll.
+     * If the submitted ROI equals the current highest ROI, the user is added to the winners list,
+     * creating a tie. Multiple users can share the highest ROI. Prize distribution handles ties
+     * by splitting the prize pool equally among all co-winners.
      * @param leaderboardId The ID of the leaderboard
      */
     function submitLeaderboardROI(uint256 leaderboardId) external override {
@@ -618,6 +630,9 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
 
     /**
      * @notice Claims a prize from a leaderboard
+     * @dev The prize pool is split equally among all winners (users who share the highest ROI).
+     * Each winner receives prizePool / winners.length. Integer division may leave up to
+     * (winners.length - 1) wei of dust unclaimed in the treasury. Each winner can only claim once.
      * @param leaderboardId The ID of the leaderboard
      */
     function claimLeaderboardPrize(

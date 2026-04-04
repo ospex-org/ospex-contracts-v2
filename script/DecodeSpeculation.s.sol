@@ -52,7 +52,7 @@ contract DecodeSpeculation is Script {
         console.log("\n-- Timestamps & Numbers --");
         console.log(
             "The Number (Line/Spread/Total):",
-            int256(speculation.theNumber)
+            int256(speculation.lineTicks)
         );
     }
 }

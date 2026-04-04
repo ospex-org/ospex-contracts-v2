@@ -36,7 +36,6 @@ contract DeployLocal is Script {
     struct DeploymentConfig {
         uint8 tokenDecimals;
         uint256 minSaleAmount;
-        uint256 maxSaleAmount;
         bytes32 createContestSourceHash;
         bytes32 updateContestMarketsSourceHash;
         bytes32 donId;
@@ -80,7 +79,6 @@ contract DeployLocal is Script {
         DeploymentConfig memory config = DeploymentConfig({
             tokenDecimals: 6, // USDC-like decimals
             minSaleAmount: 1 * 10**6, // 1 USDC
-            maxSaleAmount: 100_000 * 10**6, // 100,000 USDC
             createContestSourceHash: keccak256("test_source_hash"),
             updateContestMarketsSourceHash: keccak256("test_source_hash"),
             donId: bytes32("test_don_id"),
@@ -166,8 +164,7 @@ contract DeployLocal is Script {
         contracts.secondaryMarketModule = address(new SecondaryMarketModule(
             contracts.ospexCore,
             contracts.mockToken,
-            config.minSaleAmount,
-            config.maxSaleAmount
+            config.minSaleAmount
         ));
         console.log("SecondaryMarketModule deployed at:", contracts.secondaryMarketModule);
 

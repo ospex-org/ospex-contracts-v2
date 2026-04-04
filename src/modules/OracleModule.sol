@@ -476,10 +476,10 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         (
             uint16 moneylineAwayOdds,
             uint16 moneylineHomeOdds,
-            int32 spreadNumber,
+            int32 spreadLineTicks,
             uint16 spreadAwayOdds,
             uint16 spreadHomeOdds,
-            int32 totalNumber,
+            int32 totalLineTicks,
             uint16 overOdds,
             uint16 underOdds
         ) = extractContestMarketData(marketData);
@@ -490,10 +490,10 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
                 contestId,
                 moneylineAwayOdds,
                 moneylineHomeOdds,
-                spreadNumber,
+                spreadLineTicks,
                 spreadAwayOdds,
                 spreadHomeOdds,
-                totalNumber,
+                totalLineTicks,
                 overOdds,
                 underOdds
             );
@@ -607,10 +607,10 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
      * @param _uint The packed uint256 containing all contest market data.
      * @return moneylineAwayOdds Odds tick for away team moneyline (e.g., 191 = 1.91)
      * @return moneylineHomeOdds Odds tick for home team moneyline
-     * @return spreadNumber The point spread, stored as 10x (e.g., -35 = -3.5)
+     * @return spreadLineTicks The point spread, stored as 10x (e.g., -35 = -3.5)
      * @return spreadAwayOdds Odds tick for away spread
      * @return spreadHomeOdds Odds tick for home spread
-     * @return totalNumber The total points line, stored as 10x (e.g., 2205 = 220.5)
+     * @return totalLineTicks The total points line, stored as 10x (e.g., 2205 = 220.5)
      * @return overOdds Odds tick for over
      * @return underOdds Odds tick for under
      */
@@ -622,10 +622,10 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         returns (
             uint16 moneylineAwayOdds,
             uint16 moneylineHomeOdds,
-            int32 spreadNumber,
+            int32 spreadLineTicks,
             uint16 spreadAwayOdds,
             uint16 spreadHomeOdds,
-            int32 totalNumber,
+            int32 totalLineTicks,
             uint16 overOdds,
             uint16 underOdds
         )
@@ -635,14 +635,14 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         moneylineHomeOdds = americanToOddsTick(((_uint / 1e28) % 1e5));
 
         // Extract spread (4 digits, offset back from +1000)
-        spreadNumber = int32(int256((_uint / 1e24) % 1e4)) - 1000;
+        spreadLineTicks = int32(int256((_uint / 1e24) % 1e4)) - 1000;
 
         // Extract spread odds (5 digits each, offset back from +10000, then convert to scaled decimal)
         spreadAwayOdds = americanToOddsTick(((_uint / 1e19) % 1e5));
         spreadHomeOdds = americanToOddsTick(((_uint / 1e14) % 1e5));
 
         // Extract total (4 digits, offset back from +1000)
-        totalNumber = int32(int256((_uint / 1e10) % 1e4)) - 1000;
+        totalLineTicks = int32(int256((_uint / 1e10) % 1e4)) - 1000;
 
         // Extract total odds (5 digits each, offset back from +10000, then convert to scaled decimal)
         overOdds = americanToOddsTick(((_uint / 1e5) % 1e5));
@@ -651,10 +651,10 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         return (
             moneylineAwayOdds,
             moneylineHomeOdds,
-            spreadNumber,
+            spreadLineTicks,
             spreadAwayOdds,
             spreadHomeOdds,
-            totalNumber,
+            totalLineTicks,
             overOdds,
             underOdds
         );

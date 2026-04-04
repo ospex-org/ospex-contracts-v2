@@ -16,11 +16,6 @@ interface ISpeculationModule is IModule {
     function s_minSpeculationAmount() external view returns (uint256);
 
     /**
-     * @notice Returns the maximum speculation amount (in token's smallest units)
-     */
-    function s_maxSpeculationAmount() external view returns (uint256);
-
-    /**
      * @notice Returns the current void cooldown (in seconds)
      */
     function s_voidCooldown() external view returns (uint32);
@@ -82,16 +77,10 @@ interface ISpeculationModule is IModule {
     ) external view returns (uint256 speculationId);
 
     /**
-     * @notice Sets the minimum speculation amount (in whole tokens, normalized to token decimals)
-     * @param minAmount The new minimum speculation amount (whole tokens)
+     * @notice Sets the minimum speculation amount in raw token units
+     * @param minAmount The new minimum (in token's smallest units, must be > 0)
      */
     function setMinSpeculationAmount(uint256 minAmount) external;
-
-    /**
-     * @notice Sets the maximum speculation amount (in whole tokens, normalized to token decimals)
-     * @param maxAmount The new maximum speculation amount (whole tokens)
-     */
-    function setMaxSpeculationAmount(uint256 maxAmount) external;
 
     /**
      * @notice Sets the void cooldown (minimum time after start before a speculation can be voided)

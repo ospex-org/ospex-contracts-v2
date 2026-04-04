@@ -58,8 +58,7 @@ Market creation and settlement.
 - **Upgradeable**: No
 - **Admin can withdraw user funds**: No
 - **Admin-only functions** (require `DEFAULT_ADMIN_ROLE`):
-  - `setMinSpeculationAmount(uint256)` — sets minimum position size
-  - `setMaxSpeculationAmount(uint256)` — sets maximum position size
+  - `setMinSpeculationAmount(uint256)` — sets minimum position size (raw token units, must be > 0)
   - `setVoidCooldown(uint32)` — sets void timeout (minimum 1 day)
 - **Role-gated functions**:
   - `forfeitSpeculation(uint256)` — forfeits a speculation after void cooldown. Requires `SPECULATION_MANAGER_ROLE`. Currently **not granted to anyone**.
@@ -151,8 +150,7 @@ Position trading/selling.
 - **Upgradeable**: No
 - **Admin can withdraw user funds**: No
 - **Admin-only functions** (require `DEFAULT_ADMIN_ROLE`):
-  - `setMinSaleAmount(uint256)` — sets minimum listing size
-  - `setMaxSaleAmount(uint256)` — sets maximum listing size
+  - `setMinSaleAmount(uint256)` — sets minimum listing size (raw token units, must be > 0)
 - **Note**: The `buyPosition` function calls `transferPosition` on PositionModule, which requires `MARKET_ROLE`. Currently **MARKET_ROLE is not granted** to SecondaryMarketModule, meaning secondary market trading is not yet active.
 
 ---

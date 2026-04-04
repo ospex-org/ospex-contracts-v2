@@ -80,12 +80,6 @@ interface ISecondaryMarketModule is IModule {
     function setMinSaleAmount(uint256 newMinSaleAmount) external;
 
     /**
-     * @notice Sets the maximum sale amount
-     * @param newMaxSaleAmount New maximum sale amount
-     */
-    function setMaxSaleAmount(uint256 newMaxSaleAmount) external;
-
-    /**
      * @notice Returns the sale listing for a given position
      * @param speculationId Speculation ID
      * @param seller Seller address

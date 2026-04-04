@@ -32,7 +32,6 @@ contract SpeculationModuleTest is Test {
     MockLeaderboardModule mockLeaderboardModule;
     uint8 constant TOKEN_DECIMALS = 6;
     uint256 constant MIN_AMOUNT = 1;
-    uint256 constant MAX_AMOUNT = 100;
     address speculationCreator = address(0x123);
     address admin = address(0x1234);
 
@@ -101,11 +100,7 @@ contract SpeculationModuleTest is Test {
         assertEq(speculationModule.i_tokenDecimals(), TOKEN_DECIMALS);
         assertEq(
             speculationModule.s_minSpeculationAmount(),
-            MIN_AMOUNT * (10 ** TOKEN_DECIMALS)
-        );
-        assertEq(
-            speculationModule.s_maxSpeculationAmount(),
-            MAX_AMOUNT * (10 ** TOKEN_DECIMALS)
+            10 ** uint256(TOKEN_DECIMALS)
         );
     }
 
@@ -414,11 +409,19 @@ contract SpeculationModuleTest is Test {
 
     function testSetMinSpeculationAmount_Success() public {
         vm.prank(admin);
-        speculationModule.setMinSpeculationAmount(2);
+        speculationModule.setMinSpeculationAmount(2_000_000); // 2 USDC in raw units
         assertEq(
             speculationModule.s_minSpeculationAmount(),
-            2 * (10 ** TOKEN_DECIMALS)
+            2_000_000
         );
+    }
+
+    function testSetMinSpeculationAmount_RevertsIfZero() public {
+        vm.prank(admin);
+        vm.expectRevert(
+            SpeculationModule.SpeculationModule__MinAmountZero.selector
+        );
+        speculationModule.setMinSpeculationAmount(0);
     }
 
     function testSettleSpeculation_RevertsIfContestNotFinalized() public {
@@ -462,43 +465,6 @@ contract SpeculationModuleTest is Test {
             )
         );
         speculationModule.settleSpeculation(id);
-    }
-
-    function testSetMinSpeculationAmount_RevertsIfMinAboveMax() public {
-        vm.prank(admin);
-        speculationModule.setMaxSpeculationAmount(2);
-        vm.prank(admin);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                SpeculationModule.SpeculationModule__MinAboveMax.selector,
-                3 * (10 ** TOKEN_DECIMALS),
-                2 * (10 ** TOKEN_DECIMALS)
-            )
-        );
-        speculationModule.setMinSpeculationAmount(3);
-    }
-
-    function testSetMaxSpeculationAmount_Success() public {
-        vm.prank(admin);
-        speculationModule.setMaxSpeculationAmount(200);
-        assertEq(
-            speculationModule.s_maxSpeculationAmount(),
-            200 * (10 ** TOKEN_DECIMALS)
-        );
-    }
-
-    function testSetMaxSpeculationAmount_RevertsIfMaxBelowMin() public {
-        vm.prank(admin);
-        speculationModule.setMinSpeculationAmount(10);
-        vm.prank(admin);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                SpeculationModule.SpeculationModule__MaxBelowMin.selector,
-                5 * (10 ** TOKEN_DECIMALS),
-                10 * (10 ** TOKEN_DECIMALS)
-            )
-        );
-        speculationModule.setMaxSpeculationAmount(5);
     }
 
     function testSetVoidCooldown_Success() public {

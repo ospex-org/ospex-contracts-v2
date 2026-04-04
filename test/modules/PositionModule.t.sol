@@ -1461,13 +1461,41 @@ contract PositionModuleTest is Test {
         MockMarket market = new MockMarket(address(positionModule));
         core.setMarketRole(address(market), true);
 
-        vm.expectRevert(PositionModule.PositionModule__NoSelfTransfer.selector);
+        vm.expectRevert(PositionModule.PositionModule__InvalidAddress.selector);
         vm.prank(address(market));
         market.transferPosition(
             specId,
             address(this),
             PositionType.Upper,
             address(this), // self-transfer
+            makerRisk,
+            takerRisk
+        );
+    }
+
+    function testTransferPosition_RevertsOnZeroAddress() public {
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
+            1, address(0x1234), 42,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        MockMarket market = new MockMarket(address(positionModule));
+        core.setMarketRole(address(market), true);
+
+        vm.expectRevert(PositionModule.PositionModule__InvalidAddress.selector);
+        vm.prank(address(market));
+        market.transferPosition(
+            specId,
+            address(this),
+            PositionType.Upper,
+            address(0), // zero address
             makerRisk,
             takerRisk
         );
