@@ -81,6 +81,9 @@ contract SpeculationModuleTest is Test {
         // Grant admin role to admin account
         core.grantRole(core.DEFAULT_ADMIN_ROLE(), admin);
 
+        // Grant SCORER_ROLE to common test scorer addresses
+        core.setScorerRole(address(0xBEEF), true);
+
         // Set up a default verified contest for all tests
         Contest memory defaultContest = Contest({
             awayScore: 0,
@@ -125,6 +128,7 @@ contract SpeculationModuleTest is Test {
     function testSettleSpeculation_Success() public {
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 id = speculationModule.createSpeculation(
             1,
@@ -159,6 +163,7 @@ contract SpeculationModuleTest is Test {
 
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 id = speculationModule.createSpeculation(
             1,
@@ -192,6 +197,7 @@ contract SpeculationModuleTest is Test {
     function testSettleSpeculation_RevertsIfNotStarted() public {
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 id = speculationModule.createSpeculation(
             1,
@@ -228,6 +234,7 @@ contract SpeculationModuleTest is Test {
     function testSettleSpeculation_RevertsIfAlreadySettled() public {
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 id = speculationModule.createSpeculation(
             1,
@@ -264,6 +271,7 @@ contract SpeculationModuleTest is Test {
 
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 id = speculationModule.createSpeculation(
             1,
@@ -298,6 +306,7 @@ contract SpeculationModuleTest is Test {
 
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 id = speculationModule.createSpeculation(
             1,
@@ -332,6 +341,7 @@ contract SpeculationModuleTest is Test {
 
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 id = speculationModule.createSpeculation(
             1,
@@ -374,6 +384,7 @@ contract SpeculationModuleTest is Test {
         // Create and settle a speculation
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 id = speculationModule.createSpeculation(
             1,
@@ -428,6 +439,7 @@ contract SpeculationModuleTest is Test {
         uint32 startTime = uint32(block.timestamp + 1); // speculation starts soon
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         // Create speculation
         uint256 id = speculationModule.createSpeculation(
@@ -587,6 +599,9 @@ contract SpeculationModuleTest is Test {
         });
         mockContest.setContest(1, testContest);
 
+        // Grant SCORER_ROLE so we get past the scorer check and hit the missing TREASURY_MODULE
+        newCore.setScorerRole(address(0xBEEF), true);
+
         // Try to create a speculation - this will call _getModule for TREASURY_MODULE
         // which won't be registered, causing the revert
         vm.expectRevert(
@@ -651,5 +666,67 @@ contract SpeculationModuleTest is Test {
         assertEq(s.speculationCreator, creator);
         assertEq(uint(s.speculationStatus), uint(SpeculationStatus.Open));
         assertEq(uint(s.winSide), uint(WinSide.TBD));
+    }
+
+    // ===================== SCORER ROLE GATE =====================
+
+    function testCreateSpeculation_RevertsIfScorerNotApproved() public {
+        address unapprovedScorer = address(0xBAD);
+        // unapprovedScorer has NOT been granted SCORER_ROLE
+
+        vm.expectRevert(
+            SpeculationModule.SpeculationModule__ScorerNotApproved.selector
+        );
+        speculationModule.createSpeculation(
+            1,
+            unapprovedScorer,
+            42,
+            address(this),
+            leaderboardId
+        );
+    }
+
+    function testCreateSpeculation_SucceedsWithApprovedScorer() public {
+        address approvedScorer = address(0xACC);
+        core.setScorerRole(approvedScorer, true);
+
+        uint256 id = speculationModule.createSpeculation(
+            1,
+            approvedScorer,
+            42,
+            address(this),
+            leaderboardId
+        );
+        Speculation memory s = speculationModule.getSpeculation(id);
+        assertEq(s.speculationScorer, approvedScorer);
+    }
+
+    function testCreateSpeculation_RevertsAfterScorerRoleRevoked() public {
+        address scorer = address(0xACC);
+        core.setScorerRole(scorer, true);
+
+        // First creation succeeds
+        speculationModule.createSpeculation(
+            1,
+            scorer,
+            42,
+            address(this),
+            leaderboardId
+        );
+
+        // Revoke the role
+        core.setScorerRole(scorer, false);
+
+        // Second creation with same scorer reverts
+        vm.expectRevert(
+            SpeculationModule.SpeculationModule__ScorerNotApproved.selector
+        );
+        speculationModule.createSpeculation(
+            1,
+            scorer,
+            43, // different lineTicks to avoid SpeculationExists
+            address(this),
+            leaderboardId
+        );
     }
 }

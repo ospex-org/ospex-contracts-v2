@@ -57,6 +57,8 @@ contract OspexCore is AccessControl {
     bytes32 public constant MODULE_ADMIN_ROLE = keccak256("MODULE_ADMIN_ROLE");
     /// @notice Role for approved market contracts
     bytes32 public constant MARKET_ROLE = keccak256("MARKET_ROLE");
+    /// @notice Role for approved scorer contracts
+    bytes32 public constant SCORER_ROLE = keccak256("SCORER_ROLE");
     /// @notice The address of the admin
     address public s_admin;
     /// @notice The address of the pending admin
@@ -192,6 +194,32 @@ contract OspexCore is AccessControl {
      */
     function hasMarketRole(address market) external view returns (bool) {
         return hasRole(MARKET_ROLE, market);
+    }
+
+    /**
+     * @notice Grants or revokes the SCORER_ROLE for a scorer contract
+     * @dev Only callable by DEFAULT_ADMIN_ROLE
+     * @param scorer The address of the scorer contract
+     * @param approved True to grant, false to revoke
+     */
+    function setScorerRole(
+        address scorer,
+        bool approved
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (approved) {
+            _grantRole(SCORER_ROLE, scorer);
+        } else {
+            _revokeRole(SCORER_ROLE, scorer);
+        }
+    }
+
+    /**
+     * @notice Checks if an address has the SCORER_ROLE
+     * @param scorer The address to check
+     * @return True if the address has SCORER_ROLE
+     */
+    function hasScorerRole(address scorer) external view returns (bool) {
+        return hasRole(SCORER_ROLE, scorer);
     }
 
     /**

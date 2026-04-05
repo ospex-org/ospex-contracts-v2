@@ -72,6 +72,11 @@ contract ScorerModuleTest is Test {
         // Register this test contract as POSITION_MODULE so it can call createSpeculation
         // (createSpeculation now requires msg.sender == POSITION_MODULE)
         core.registerModule(keccak256("POSITION_MODULE"), address(this));
+
+        // Grant SCORER_ROLE to all scorer modules
+        core.setScorerRole(address(moneyline), true);
+        core.setScorerRole(address(spread), true);
+        core.setScorerRole(address(total), true);
     }
 
     // --- MoneylineScorerModule ---

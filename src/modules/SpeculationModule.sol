@@ -51,6 +51,8 @@ contract SpeculationModule is ISpeculationModule {
     error SpeculationModule__InvalidAddress();
     /// @notice Error for module not set
     error SpeculationModule__ModuleNotSet(bytes32 moduleType);
+    /// @notice Error for unapproved scorer address
+    error SpeculationModule__ScorerNotApproved();
 
     // --- Constants ---
     /// @notice The role of the Speculation Manager Role
@@ -324,6 +326,11 @@ contract SpeculationModule is ISpeculationModule {
         ).getContest(contestId);
         if (contest.contestStatus == ContestStatus.Unverified) {
             revert SpeculationModule__ContestNotVerified();
+        }
+
+        // Validate scorer is an approved scorer contract
+        if (!i_ospexCore.hasScorerRole(scorer)) {
+            revert SpeculationModule__ScorerNotApproved();
         }
 
         // Charge the speculation creation fee

@@ -105,6 +105,9 @@ contract PositionModuleTest is Test {
         // Register this test contract as ORACLE_MODULE (kept for other module interactions)
         core.registerModule(keccak256("ORACLE_MODULE"), address(this));
 
+        // Grant SCORER_ROLE to common test scorer addresses
+        core.setScorerRole(address(0x1234), true);
+
         // Set up default verified contests for all tests
         Contest memory defaultContest = Contest({
             awayScore: 0,
@@ -259,6 +262,7 @@ contract PositionModuleTest is Test {
         uint32 startTime = uint32(block.timestamp + 1 hours);
 
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         // First create a speculation via recordFill
         uint256 makerRisk = 10_000_000;
@@ -401,6 +405,7 @@ contract PositionModuleTest is Test {
         uint32 futureTime = uint32(block.timestamp + 1 hours);
 
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         // Create matched pair: maker=this (Upper), taker=0xCAFE (Lower)
         // At 1.80 odds: makerRisk=10M, takerRisk=8M
@@ -457,6 +462,7 @@ contract PositionModuleTest is Test {
         uint32 futureTime = uint32(block.timestamp + 1 hours);
 
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         // Create matched pair
         uint256 makerRisk = 10_000_000;
@@ -527,6 +533,7 @@ contract PositionModuleTest is Test {
         );
 
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         // Reset to a reasonable starting time
         vm.warp(1672531200); // Jan 1, 2023
@@ -646,6 +653,7 @@ contract PositionModuleTest is Test {
         );
 
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 tokenUnit = 10_000_000; // 10 USDC
 
@@ -916,6 +924,7 @@ contract PositionModuleTest is Test {
         core.setMarketRole(address(mockMarket), true);
 
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         // Create matched pair: maker=this, taker=taker
         uint256 makerRisk = 10_000_000;
@@ -982,6 +991,7 @@ contract PositionModuleTest is Test {
      */
     function testClaimPosition_RevertsWithAlreadyClaimed_OnDoubleClaim() public {
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         // Create matched pair
         uint256 makerRisk = 10_000_000;
@@ -1339,6 +1349,7 @@ contract PositionModuleTest is Test {
     /// @notice Maker (Upper) wins — verify payout = riskAmount + profitAmount
     function testClaimPosition_MakerWins() public {
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 makerRisk = 5_376_345;
         uint256 takerRisk = 5_000_000;
@@ -1365,6 +1376,7 @@ contract PositionModuleTest is Test {
     /// @notice Taker (Lower) wins — taker payout should equal total pool
     function testClaimPosition_TakerWins() public {
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
         mockScorer.setDefaultWinSide(WinSide.Home); // Home = Lower wins
 
         uint256 makerRisk = 5_376_345;
@@ -1399,6 +1411,7 @@ contract PositionModuleTest is Test {
         core.registerModule(keccak256("POSITION_MODULE"), address(localPM));
 
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         // Risk/profit ratios corresponding to various odds
         uint256[4] memory makerRisks = [uint256(10_000_000), uint256(10_000_000), uint256(10_000_000), uint256(10_000_000)];
@@ -1544,6 +1557,7 @@ contract PositionModuleTest is Test {
     /// @notice Verify PositionClaimed event is emitted with correct fields
     function testClaimPosition_EmitsPositionClaimedEvent() public {
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 makerRisk = 10_000_000;
         uint256 takerRisk = 8_000_000;
@@ -1653,6 +1667,7 @@ contract PositionModuleTest is Test {
         );
 
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         // --- Upper maker wins scenario ---
         uint256 upperMakerRisk = 10_000_000;
@@ -1819,6 +1834,7 @@ contract PositionModuleTest is Test {
         );
 
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 makerRisk = 10_000_000;
         uint256 takerRisk = 8_000_000;
@@ -1876,6 +1892,7 @@ contract PositionModuleTest is Test {
         );
 
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 makerRisk = 10_000_000;
         uint256 takerRisk = 8_000_000;
@@ -1933,6 +1950,7 @@ contract PositionModuleTest is Test {
         );
 
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 makerRisk = 10_000_000;
         uint256 takerRisk = 8_000_000;
@@ -2059,6 +2077,7 @@ contract PositionModuleTest is Test {
         );
 
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 makerRisk = 100_000_000; // 100 USDC (100e6)
         uint256 takerRisk = 80_000_000;  // 80 USDC (80e6)
@@ -2150,6 +2169,7 @@ contract PositionModuleTest is Test {
         );
 
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         // Three fills with different risk/profit amounts
         uint256 makerRisk1 = 10_000_000;

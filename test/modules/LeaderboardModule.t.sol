@@ -159,7 +159,7 @@ contract LeaderboardModuleTest is Test {
         vm.prank(admin);
         vm.expectEmit(true, true, true, true);
         emit LeaderboardModule.LeaderboardCreated(
-            1, // next leaderboard ID
+            2, // next leaderboard ID (setUp already created ID 1)
             ENTRY_FEE,
             address(0),
             startTime,
@@ -179,7 +179,7 @@ contract LeaderboardModuleTest is Test {
             CLAIM_WINDOW
         );
 
-        assertEq(newLeaderboardId, 1);
+        assertEq(newLeaderboardId, 2);
 
         Leaderboard memory lb = leaderboardModule.getLeaderboard(newLeaderboardId);
         assertEq(lb.entryFee, ENTRY_FEE);

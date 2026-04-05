@@ -85,6 +85,7 @@ contract ExtremeOddsEdgeCases is Test {
 
         // Register this test contract as MATCHING_MODULE so it can call recordFill
         core.registerModule(keccak256("MATCHING_MODULE"), address(this));
+        core.setScorerRole(address(mockScorer), true);
 
         // Set up a verified contest
         _resetContest();

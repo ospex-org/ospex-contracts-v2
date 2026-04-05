@@ -189,7 +189,7 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
      *      size takerDesiredRisk accordingly. This is intentional: revert-or-exact-fill
      *      prevents dust positions from partial remainders at unintended economics.
      *      Self-matching (maker == msg.sender) is intentionally allowed.
-     *      If volume-based incentives are added in the future, wash-trade prevention 
+     *      If volume-based incentives are added in the future, wash-trade prevention
      *      will need to be enforced at the incentive/leaderboard layer, not here.
      * @param commitment The maker's signed commitment
      * @param signature The EIP-712 signature over the commitment
@@ -233,6 +233,13 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
         }
 
         uint256 makerProfit = (fillMakerRisk * profitTicks) / ODDS_SCALE;
+
+        // Lot-size alignment can produce a fillMakerRisk at a ODDS_SCALE boundary where
+        // (fillMakerRisk * profitTicks / ODDS_SCALE) exceeds takerDesiredRisk by 1 base unit.
+        // Clamp to prevent the taker from overpaying.
+        if (makerProfit > takerDesiredRisk) {
+            makerProfit = takerDesiredRisk;
+        }
 
         // --- Record fill ---
         s_filledRisk[commitmentHash] += fillMakerRisk;
@@ -314,7 +321,7 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
         );
     }
 
-/**
+    /**
      * @notice Raise the minimum valid nonce for a speculation, invalidating all
      *         commitments with a lower nonce.
      * @dev Nonce semantics: nonces are lower-bound invalidation thresholds, NOT unique
@@ -382,7 +389,11 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
 
     /**
      * @notice Validates a commitment signature, checks all preconditions
-     * @dev Signature validation can revert with two different error families:
+     * @dev Expiry is the sole temporal guard on commitments. The protocol does not check
+     *      contest start time or speculation state at match time.
+     *      Off-chain infrastructure is responsible for setting sensible defaults.
+     *      Makers who set long expiries accept the risk of stale fills.
+     *      Signature validation can revert with two different error families:
      *      - MatchingModule__InvalidSignature: valid signature format, wrong signer
      *      - OpenZeppelin ECDSA errors (ECDSAInvalidSignature,
      *        ECDSAInvalidSignatureLength, ECDSAInvalidSignatureS): malformed signature bytes

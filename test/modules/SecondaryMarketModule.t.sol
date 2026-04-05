@@ -128,6 +128,7 @@ contract SecondaryMarketModuleTest is Test {
             address(market)
         );
         core.setMarketRole(address(market), true);
+        core.setScorerRole(address(0xBEEF), true);
 
         // Fund seller and buyer
         token.mint(seller, 1000e6);
@@ -388,6 +389,7 @@ contract SecondaryMarketModuleTest is Test {
     function testUpdateListing_RevertsIfSpeculationNotOpen() public {
         // Create a MockScorerModule for this test
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         // Create a new speculation via recordFill with the mock scorer
         // Need to fund seller/buyer again for this new fill
@@ -698,6 +700,7 @@ contract SecondaryMarketModuleTest is Test {
     function testCancelListing_RevertsIfPositionClaimed() public {
         // Create a separate fill with MockScorerModule so we can settle and claim
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 testSpecId = positionModule.recordFill(
             1,                   // contestId

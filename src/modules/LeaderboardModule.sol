@@ -113,7 +113,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     mapping(uint256 => mapping(address => bool)) private s_roiSubmitted;
 
     // Leaderboard counter
-    uint256 public s_nextLeaderboardId;
+    uint256 public s_nextLeaderboardId = 1;
     /// @notice The OspexCore contract
     OspexCore public immutable i_ospexCore;
 
