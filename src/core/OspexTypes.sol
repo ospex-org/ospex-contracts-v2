@@ -34,7 +34,7 @@ struct ContestMarket {
     int32 lineTicks;                     // Line/spread/total number
     uint16 upperOdds;                    // Upper odds (reference only)
     uint16 lowerOdds;                    // Lower odds (reference only)
-    uint32 lastUpdated;                     // Winning side
+    uint32 lastUpdated;
 }
 
 /// @notice League Id
@@ -141,6 +141,7 @@ struct LeaderboardPosition {
 struct LeaderboardScoring {
     int256 highestROI;
     address[] winners;
+    uint256 snapshotPrizePool;
     mapping(address => int256) userROIs;
     mapping(address => bool) hasClaimed;
 }

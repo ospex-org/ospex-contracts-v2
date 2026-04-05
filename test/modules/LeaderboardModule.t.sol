@@ -1508,4 +1508,468 @@ contract LeaderboardModuleTest is Test {
         vm.expectRevert(LeaderboardModule.LeaderboardModule__NotInROIWindow.selector);
         leaderboardModule.submitLeaderboardROI(leaderboardId);
     }
+
+    // =====================================================================
+    // Prize Pool Snapshot Fix Tests (C-2)
+    // =====================================================================
+    // These tests verify the fix for the shrinking-pool bug where tied winners
+    // received unequal shares because claimLeaderboardPrize computed shares
+    // from the live (decremented) pool instead of a snapshot.
+    //
+    // The fix snapshots the prize pool on first claim. All winners split the
+    // snapshot, not the live balance. adminSweep uses the same snapshot.
+    // A zero-winner escape hatch was also added.
+    // =====================================================================
+
+    /// @notice Two tied winners both receive exactly half the prize pool
+    function testTiedWinners_BothGetEqualShare() public {
+        uint256 prizePool = _setupTwoTiedWinnersInClaimWindow();
+        uint256 expectedShare = prizePool / 2; // 10 USDC each from 20 USDC pool
+
+        uint256 user1BalBefore = token.balanceOf(user1);
+        uint256 user2BalBefore = token.balanceOf(user2);
+
+        // User1 claims first
+        vm.prank(user1);
+        leaderboardModule.claimLeaderboardPrize(leaderboardId);
+
+        // User2 claims second — must get the SAME share (not reduced by user1's claim)
+        vm.prank(user2);
+        leaderboardModule.claimLeaderboardPrize(leaderboardId);
+
+        // Both received equal shares
+        assertEq(token.balanceOf(user1) - user1BalBefore, expectedShare, "user1 share incorrect");
+        assertEq(token.balanceOf(user2) - user2BalBefore, expectedShare, "user2 share incorrect");
+
+        // Treasury drained exactly
+        assertEq(treasuryModule.getPrizePool(leaderboardId), 0, "pool should be empty");
+    }
+
+    /// @notice Claim order does not affect distribution — user2 claims first
+    function testTiedWinners_ReverseClaimOrder() public {
+        uint256 prizePool = _setupTwoTiedWinnersInClaimWindow();
+        uint256 expectedShare = prizePool / 2;
+
+        uint256 user1BalBefore = token.balanceOf(user1);
+        uint256 user2BalBefore = token.balanceOf(user2);
+
+        // User2 claims first this time
+        vm.prank(user2);
+        leaderboardModule.claimLeaderboardPrize(leaderboardId);
+
+        vm.prank(user1);
+        leaderboardModule.claimLeaderboardPrize(leaderboardId);
+
+        assertEq(token.balanceOf(user1) - user1BalBefore, expectedShare, "user1 share incorrect");
+        assertEq(token.balanceOf(user2) - user2BalBefore, expectedShare, "user2 share incorrect");
+    }
+
+    /// @notice adminSweep after one of two tied winners claims uses snapshot, not live pool
+    function testAdminSweep_AfterPartialClaims_UsesSnapshot() public {
+        uint256 prizePool = _setupTwoTiedWinnersInClaimWindow();
+        uint256 expectedShare = prizePool / 2;
+
+        // Only user1 claims during claim window
+        vm.prank(user1);
+        leaderboardModule.claimLeaderboardPrize(leaderboardId);
+
+        // Warp past claim window
+        Leaderboard memory lb = leaderboardModule.getLeaderboard(leaderboardId);
+        (, , , uint256 claimWindowEnd) = _calculateTimeBoundsExternal(lb);
+        vm.warp(claimWindowEnd + 1);
+
+        uint256 adminBalBefore = token.balanceOf(admin);
+
+        // Admin sweeps unclaimed — should recover exactly user2's share from snapshot
+        vm.prank(admin);
+        leaderboardModule.adminSweep(leaderboardId, admin);
+
+        assertEq(token.balanceOf(admin) - adminBalBefore, expectedShare, "admin swept wrong amount");
+        assertEq(treasuryModule.getPrizePool(leaderboardId), 0, "pool should be empty");
+    }
+
+    /// @notice adminSweep with zero winners recovers entire prize pool
+    function testAdminSweep_ZeroWinners_SweepsEntirePool() public {
+        // Register users and pay entry fees, but never submit ROI → no winners
+        _mockRulesModuleForRegistration();
+        vm.warp(block.timestamp + 2 hours);
+
+        _approveEntryFee(user1);
+        vm.prank(user1);
+        leaderboardModule.registerUser(leaderboardId, DECLARED_BANKROLL);
+
+        _approveEntryFee(user2);
+        vm.prank(user2);
+        leaderboardModule.registerUser(leaderboardId, DECLARED_BANKROLL);
+
+        uint256 prizePool = treasuryModule.getPrizePool(leaderboardId);
+        assertEq(prizePool, ENTRY_FEE * 2, "pool should equal two entry fees");
+
+        // Warp past all windows (claim window end)
+        Leaderboard memory lb = leaderboardModule.getLeaderboard(leaderboardId);
+        (, , , uint256 claimWindowEnd) = _calculateTimeBoundsExternal(lb);
+        vm.warp(claimWindowEnd + 1);
+
+        // No winners exist — sweep should recover the full pool
+        uint256 adminBalBefore = token.balanceOf(admin);
+
+        vm.prank(admin);
+        leaderboardModule.adminSweep(leaderboardId, admin);
+
+        assertEq(token.balanceOf(admin) - adminBalBefore, prizePool, "admin should get full pool");
+        assertEq(treasuryModule.getPrizePool(leaderboardId), 0, "pool should be empty");
+    }
+
+    /// @notice adminSweep with zero winners and empty pool reverts
+    function testAdminSweep_ZeroWinners_EmptyPool_Reverts() public {
+        // Create a free leaderboard (no entry fee → empty pool)
+        vm.prank(admin);
+        uint256 freeLbId = leaderboardModule.createLeaderboard(
+            0, // no entry fee
+            address(0),
+            uint32(block.timestamp + 1 hours),
+            uint32(block.timestamp + 8 days),
+            SAFETY_PERIOD,
+            ROI_WINDOW,
+            CLAIM_WINDOW
+        );
+
+        // Warp past all windows
+        Leaderboard memory lb = leaderboardModule.getLeaderboard(freeLbId);
+        (, , , uint256 claimWindowEnd) = _calculateTimeBoundsExternal(lb);
+        vm.warp(claimWindowEnd + 1);
+
+        // Sweep on empty pool → revert
+        vm.prank(admin);
+        vm.expectRevert(LeaderboardModule.LeaderboardModule__NoUnclaimedPrizes.selector);
+        leaderboardModule.adminSweep(freeLbId, admin);
+    }
+
+    /// @notice adminSweep with no claims snapshots and recovers all winners' shares
+    function testAdminSweep_NoClaims_SweepsAllShares() public {
+        uint256 prizePool = _setupTwoTiedWinnersInClaimWindow();
+
+        // Nobody claims — warp past claim window
+        Leaderboard memory lb = leaderboardModule.getLeaderboard(leaderboardId);
+        (, , , uint256 claimWindowEnd) = _calculateTimeBoundsExternal(lb);
+        vm.warp(claimWindowEnd + 1);
+
+        uint256 adminBalBefore = token.balanceOf(admin);
+
+        vm.prank(admin);
+        leaderboardModule.adminSweep(leaderboardId, admin);
+
+        // Admin should recover the full pool (both shares)
+        uint256 expectedSweep = (prizePool / 2) * 2; // share * 2 winners
+        assertEq(token.balanceOf(admin) - adminBalBefore, expectedSweep, "admin should get both shares");
+    }
+
+    // =====================================================================
+    // TBD Exclusion Tests (C-3)
+    // =====================================================================
+    // Positions with winSide == TBD (unscored) are excluded from the ROI
+    // calculation via early return in _calculatePositionNet. They contribute
+    // zero to net P&L rather than being treated as a resolved outcome.
+    // =====================================================================
+
+    /// @notice A single TBD position yields 0 ROI, not a loss
+    function testROI_TBDPosition_YieldsZeroROI() public {
+        _setupCompleteLeaderboardScenario();
+
+        // Speculation already mocked as Push (winSide=5) by _setupCompleteLeaderboardScenario.
+        // Override to TBD (winSide=0) for this test.
+        vm.mockCall(
+            address(speculationModule),
+            abi.encodeWithSignature("getSpeculation(uint256)"),
+            abi.encode(contestId, admin, int32(0), address(0), uint8(1), uint8(0)) // TBD
+        );
+
+        // Warp to ROI window and submit
+        Leaderboard memory lb = leaderboardModule.getLeaderboard(leaderboardId);
+        uint256 roiWindowStart = uint256(lb.endTime) + uint256(lb.safetyPeriodDuration);
+        vm.warp(roiWindowStart);
+
+        vm.prank(user1);
+        leaderboardModule.submitLeaderboardROI(leaderboardId);
+
+        // ROI should be 0 (TBD excluded), NOT -50% (loss)
+        int256 roi = leaderboardModule.getUserROI(leaderboardId, user1);
+        assertEq(roi, 0, "TBD position should yield 0 ROI");
+    }
+
+    /// @notice TBD position does not dilute a winning position's ROI
+    function testROI_TBDPosition_DoesNotAffectWinningPosition() public {
+        // Register user
+        _mockRulesModuleForRegistration();
+        vm.warp(block.timestamp + 2 hours);
+        _approveEntryFee(user1);
+        vm.prank(user1);
+        leaderboardModule.registerUser(leaderboardId, DECLARED_BANKROLL);
+
+        // --- Position 1 (contest 1): will be scored as a win ---
+        vm.prank(admin);
+        leaderboardModule.addLeaderboardSpeculation(leaderboardId, speculationId);
+
+        vm.mockCall(
+            address(positionModule),
+            abi.encodeWithSignature("getPosition(uint256,address,uint8)", speculationId, user1, uint8(0)),
+            abi.encode(50_000_000, 40_000_000, uint8(0), false)
+        );
+        vm.mockCall(
+            address(speculationModule),
+            abi.encodeWithSignature("getSpeculation(uint256)", speculationId),
+            abi.encode(contestId, admin, int32(0), address(0), uint8(0), uint8(0))
+        );
+        _mockRulesModuleValidation(true);
+
+        uint256[] memory lbIds = new uint256[](1);
+        lbIds[0] = leaderboardId;
+        vm.prank(user1);
+        leaderboardModule.registerPositionForLeaderboards(speculationId, PositionType.Upper, lbIds);
+
+        // --- Position 2 (contest 2): will remain TBD (unscored) ---
+        uint256 specId2 = 2;
+        uint256 contestId2 = 2;
+        // Set up contest 2 in the mock
+        Contest memory contest2 = Contest({
+            awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Verified, contestCreator: admin,
+            scoreContestSourceHash: bytes32(0), rundownId: "test2",
+            sportspageId: "test2", jsonoddsId: "test2"
+        });
+        mockContestModule.setContest(contestId2, contest2);
+        mockContestModule.setContestStartTime(contestId2, uint32(block.timestamp + 4 hours));
+
+        vm.prank(admin);
+        leaderboardModule.addLeaderboardSpeculation(leaderboardId, specId2);
+
+        vm.mockCall(
+            address(positionModule),
+            abi.encodeWithSignature("getPosition(uint256,address,uint8)", specId2, user1, uint8(0)),
+            abi.encode(50_000_000, 40_000_000, uint8(0), false)
+        );
+        vm.mockCall(
+            address(speculationModule),
+            abi.encodeWithSignature("getSpeculation(uint256)", specId2),
+            abi.encode(contestId2, admin, int32(0), address(0), uint8(0), uint8(0))
+        );
+        vm.prank(user1);
+        leaderboardModule.registerPositionForLeaderboards(specId2, PositionType.Upper, lbIds);
+
+        // Mock min positions
+        vm.mockCall(
+            address(rulesModule),
+            abi.encodeWithSignature("isMinPositionsMet(uint256,uint256)"),
+            abi.encode(true)
+        );
+
+        // --- Set scoring outcomes for ROI calculation ---
+        // Speculation 1: Away win (Upper position wins) → net = +40M
+        vm.mockCall(
+            address(speculationModule),
+            abi.encodeWithSignature("getSpeculation(uint256)", speculationId),
+            abi.encode(contestId, admin, int32(0), address(0), uint8(1), uint8(1)) // Away
+        );
+        // Speculation 2: TBD (unscored) → excluded, net = 0
+        vm.mockCall(
+            address(speculationModule),
+            abi.encodeWithSignature("getSpeculation(uint256)", specId2),
+            abi.encode(contestId2, admin, int32(0), address(0), uint8(1), uint8(0)) // TBD
+        );
+
+        // Submit ROI
+        Leaderboard memory lb = leaderboardModule.getLeaderboard(leaderboardId);
+        uint256 roiWindowStart = uint256(lb.endTime) + uint256(lb.safetyPeriodDuration);
+        vm.warp(roiWindowStart);
+
+        vm.prank(user1);
+        leaderboardModule.submitLeaderboardROI(leaderboardId);
+
+        // ROI = +40M / 100M bankroll = 40% = 4e17
+        // If TBD were a loss: ROI = (40M - 50M) / 100M = -10% = -1e17
+        int256 roi = leaderboardModule.getUserROI(leaderboardId, user1);
+        assertEq(roi, 400000000000000000, "ROI should reflect only the winning position (40%)");
+    }
+
+    /// @notice TBD position does not dilute a losing position's ROI
+    function testROI_TBDPosition_DoesNotAffectLosingPosition() public {
+        // Register user
+        _mockRulesModuleForRegistration();
+        vm.warp(block.timestamp + 2 hours);
+        _approveEntryFee(user1);
+        vm.prank(user1);
+        leaderboardModule.registerUser(leaderboardId, DECLARED_BANKROLL);
+
+        // --- Position 1 (contest 1): will be scored as a loss ---
+        vm.prank(admin);
+        leaderboardModule.addLeaderboardSpeculation(leaderboardId, speculationId);
+
+        vm.mockCall(
+            address(positionModule),
+            abi.encodeWithSignature("getPosition(uint256,address,uint8)", speculationId, user1, uint8(0)),
+            abi.encode(50_000_000, 40_000_000, uint8(0), false)
+        );
+        vm.mockCall(
+            address(speculationModule),
+            abi.encodeWithSignature("getSpeculation(uint256)", speculationId),
+            abi.encode(contestId, admin, int32(0), address(0), uint8(0), uint8(0))
+        );
+        _mockRulesModuleValidation(true);
+
+        uint256[] memory lbIds = new uint256[](1);
+        lbIds[0] = leaderboardId;
+        vm.prank(user1);
+        leaderboardModule.registerPositionForLeaderboards(speculationId, PositionType.Upper, lbIds);
+
+        // --- Position 2 (contest 2): will remain TBD ---
+        uint256 specId2 = 2;
+        uint256 contestId2 = 2;
+        Contest memory contest2 = Contest({
+            awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Verified, contestCreator: admin,
+            scoreContestSourceHash: bytes32(0), rundownId: "test2",
+            sportspageId: "test2", jsonoddsId: "test2"
+        });
+        mockContestModule.setContest(contestId2, contest2);
+        mockContestModule.setContestStartTime(contestId2, uint32(block.timestamp + 4 hours));
+
+        vm.prank(admin);
+        leaderboardModule.addLeaderboardSpeculation(leaderboardId, specId2);
+
+        vm.mockCall(
+            address(positionModule),
+            abi.encodeWithSignature("getPosition(uint256,address,uint8)", specId2, user1, uint8(0)),
+            abi.encode(50_000_000, 40_000_000, uint8(0), false)
+        );
+        vm.mockCall(
+            address(speculationModule),
+            abi.encodeWithSignature("getSpeculation(uint256)", specId2),
+            abi.encode(contestId2, admin, int32(0), address(0), uint8(0), uint8(0))
+        );
+        vm.prank(user1);
+        leaderboardModule.registerPositionForLeaderboards(specId2, PositionType.Upper, lbIds);
+
+        // Mock min positions
+        vm.mockCall(
+            address(rulesModule),
+            abi.encodeWithSignature("isMinPositionsMet(uint256,uint256)"),
+            abi.encode(true)
+        );
+
+        // --- Set scoring outcomes ---
+        // Speculation 1: Home win (Upper position loses) → net = -50M
+        vm.mockCall(
+            address(speculationModule),
+            abi.encodeWithSignature("getSpeculation(uint256)", speculationId),
+            abi.encode(contestId, admin, int32(0), address(0), uint8(1), uint8(2)) // Home
+        );
+        // Speculation 2: TBD → excluded, net = 0
+        vm.mockCall(
+            address(speculationModule),
+            abi.encodeWithSignature("getSpeculation(uint256)", specId2),
+            abi.encode(contestId2, admin, int32(0), address(0), uint8(1), uint8(0)) // TBD
+        );
+
+        // Submit ROI
+        Leaderboard memory lb = leaderboardModule.getLeaderboard(leaderboardId);
+        uint256 roiWindowStart = uint256(lb.endTime) + uint256(lb.safetyPeriodDuration);
+        vm.warp(roiWindowStart);
+
+        vm.prank(user1);
+        leaderboardModule.submitLeaderboardROI(leaderboardId);
+
+        // ROI = -50M / 100M bankroll = -50% = -5e17
+        // If TBD were also a loss: ROI = (-50M + -50M) / 100M = -100% = -1e18
+        int256 roi = leaderboardModule.getUserROI(leaderboardId, user1);
+        assertEq(roi, -500000000000000000, "ROI should reflect only the losing position (-50%)");
+    }
+
+    // --- Helper: sets up two tied winners and warps to claim window ---
+    function _setupTwoTiedWinnersInClaimWindow() internal returns (uint256 prizePool) {
+        // Register user1
+        _mockRulesModuleForRegistration();
+        vm.warp(block.timestamp + 2 hours);
+        _approveEntryFee(user1);
+        vm.prank(user1);
+        leaderboardModule.registerUser(leaderboardId, DECLARED_BANKROLL);
+
+        // Register user2
+        _approveEntryFee(user2);
+        vm.prank(user2);
+        leaderboardModule.registerUser(leaderboardId, DECLARED_BANKROLL);
+
+        // Add speculation and register position for user1
+        vm.prank(admin);
+        leaderboardModule.addLeaderboardSpeculation(leaderboardId, speculationId);
+        _mockPositionModuleCalls();
+        _mockRulesModuleValidation(true);
+
+        uint256[] memory lbIds = new uint256[](1);
+        lbIds[0] = leaderboardId;
+        vm.prank(user1);
+        leaderboardModule.registerPositionForLeaderboards(speculationId, PositionType.Upper, lbIds);
+
+        // Setup user2's position on a second speculation
+        uint256 specId2 = 2;
+        vm.mockCall(
+            address(positionModule),
+            abi.encodeWithSignature("getPosition(uint256,address,uint8)", specId2, user2, uint8(0)),
+            abi.encode(50_000_000, 40_000_000, uint8(0), false)
+        );
+        vm.mockCall(
+            address(speculationModule),
+            abi.encodeWithSignature("getSpeculation(uint256)", specId2),
+            abi.encode(contestId, admin, int32(0), address(0), uint8(0), uint8(0))
+        );
+        vm.prank(admin);
+        leaderboardModule.addLeaderboardSpeculation(leaderboardId, specId2);
+        vm.prank(user2);
+        leaderboardModule.registerPositionForLeaderboards(specId2, PositionType.Upper, lbIds);
+
+        // Mock min positions check
+        vm.mockCall(
+            address(rulesModule),
+            abi.encodeWithSignature("isMinPositionsMet(uint256,uint256)"),
+            abi.encode(true)
+        );
+
+        // Mock both speculations as Push (0 ROI) for scoring
+        vm.mockCall(
+            address(speculationModule),
+            abi.encodeWithSignature("getSpeculation(uint256)"),
+            abi.encode(contestId, admin, int32(0), address(0), uint8(1), uint8(5)) // Push
+        );
+
+        // Warp to ROI window and submit for both
+        Leaderboard memory lb = leaderboardModule.getLeaderboard(leaderboardId);
+        uint256 roiWindowStart = uint256(lb.endTime) + uint256(lb.safetyPeriodDuration);
+        vm.warp(roiWindowStart);
+
+        vm.prank(user1);
+        leaderboardModule.submitLeaderboardROI(leaderboardId);
+        vm.prank(user2);
+        leaderboardModule.submitLeaderboardROI(leaderboardId);
+
+        // Verify tie
+        address[] memory winners = leaderboardModule.getWinners(leaderboardId);
+        assertEq(winners.length, 2, "should have 2 tied winners");
+
+        // Record prize pool and warp to claim window
+        prizePool = treasuryModule.getPrizePool(leaderboardId);
+        uint256 claimWindowStart = roiWindowStart + uint256(lb.roiSubmissionWindow);
+        vm.warp(claimWindowStart);
+
+        return prizePool;
+    }
+
+    // --- Helper: mirrors _calculateTimeBounds from LeaderboardModule for test use ---
+    function _calculateTimeBoundsExternal(
+        Leaderboard memory lb
+    ) internal pure returns (uint256, uint256, uint256, uint256) {
+        uint256 roiWindowStart = uint256(lb.endTime) + uint256(lb.safetyPeriodDuration);
+        uint256 roiWindowEnd = roiWindowStart + uint256(lb.roiSubmissionWindow);
+        uint256 claimWindowStart = roiWindowEnd;
+        uint256 claimWindowEnd = claimWindowStart + uint256(lb.claimWindow);
+        return (roiWindowStart, roiWindowEnd, claimWindowStart, claimWindowEnd);
+    }
 }

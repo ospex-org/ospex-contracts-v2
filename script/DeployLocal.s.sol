@@ -20,6 +20,7 @@ import "../src/modules/RulesModule.sol";
 import "../src/modules/MoneylineScorerModule.sol";
 import "../src/modules/SpreadScorerModule.sol";
 import "../src/modules/TotalScorerModule.sol";
+import "../src/modules/MatchingModule.sol";
 
 // Mock contracts for local testing
 import "../test/mocks/MockERC20.sol";
@@ -63,6 +64,7 @@ contract DeployLocal is Script {
         address moneylineScorerModule;
         address spreadScorerModule;
         address totalScorerModule;
+        address matchingModule;
     }
 
     function run() external {
@@ -140,6 +142,9 @@ contract DeployLocal is Script {
 
         contracts.totalScorerModule = address(new TotalScorerModule(contracts.ospexCore));
         console.log("TotalScorerModule deployed at:", contracts.totalScorerModule);
+
+        contracts.matchingModule = address(new MatchingModule(contracts.ospexCore));
+        console.log("MatchingModule deployed at:", contracts.matchingModule);
 
         // Deploy modules with additional dependencies
         contracts.treasuryModule = address(new TreasuryModule(
@@ -227,6 +232,19 @@ contract DeployLocal is Script {
 
         core.registerModule(keccak256("TOTAL_SCORER"), contracts.totalScorerModule);
         console.log("Registered TotalScorerModule");
+
+        core.registerModule(keccak256("MATCHING_MODULE"), contracts.matchingModule);
+        console.log("Registered MatchingModule");
+
+        // Grant scorer role to scorer modules
+        core.setScorerRole(contracts.moneylineScorerModule, true);
+        console.log("Granted SCORER_ROLE to MoneylineScorerModule");
+
+        core.setScorerRole(contracts.spreadScorerModule, true);
+        console.log("Granted SCORER_ROLE to SpreadScorerModule");
+
+        core.setScorerRole(contracts.totalScorerModule, true);
+        console.log("Granted SCORER_ROLE to TotalScorerModule");
     }
 
     function printDeploymentInfo(DeployedContracts memory contracts) internal pure {
@@ -252,6 +270,7 @@ contract DeployLocal is Script {
         console.log("  MoneylineScorerModule:", contracts.moneylineScorerModule);
         console.log("  SpreadScorerModule:", contracts.spreadScorerModule);
         console.log("  TotalScorerModule:", contracts.totalScorerModule);
+        console.log("  MatchingModule:", contracts.matchingModule);
     }
 
     function calculateDeploymentCosts() internal pure {

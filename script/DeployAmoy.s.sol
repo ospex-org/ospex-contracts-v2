@@ -20,6 +20,7 @@ import "../src/modules/RulesModule.sol";
 import "../src/modules/MoneylineScorerModule.sol";
 import "../src/modules/SpreadScorerModule.sol";
 import "../src/modules/TotalScorerModule.sol";
+import "../src/modules/MatchingModule.sol";
 
 // Using existing USDC contract instead of deploying mock token
 
@@ -62,6 +63,7 @@ contract DeployAmoy is Script {
         address moneylineScorerModule;
         address spreadScorerModule;
         address totalScorerModule;
+        address matchingModule;
     }
 
     function run() external {
@@ -128,6 +130,9 @@ contract DeployAmoy is Script {
         contracts.totalScorerModule = address(new TotalScorerModule(contracts.ospexCore));
         console.log("TotalScorerModule:", contracts.totalScorerModule);
 
+        contracts.matchingModule = address(new MatchingModule(contracts.ospexCore));
+        console.log("MatchingModule:", contracts.matchingModule);
+
         // Deploy modules with additional dependencies
         contracts.treasuryModule = address(new TreasuryModule(
             contracts.ospexCore,
@@ -193,8 +198,14 @@ contract DeployAmoy is Script {
         core.registerModule(keccak256("MONEYLINE_SCORER"), contracts.moneylineScorerModule);
         core.registerModule(keccak256("SPREAD_SCORER"), contracts.spreadScorerModule);
         core.registerModule(keccak256("TOTAL_SCORER"), contracts.totalScorerModule);
-        
-        console.log("All modules registered successfully");
+        core.registerModule(keccak256("MATCHING_MODULE"), contracts.matchingModule);
+
+        // Grant scorer role to scorer modules
+        core.setScorerRole(contracts.moneylineScorerModule, true);
+        core.setScorerRole(contracts.spreadScorerModule, true);
+        core.setScorerRole(contracts.totalScorerModule, true);
+
+        console.log("All modules registered and scorer roles granted");
     }
 
     function printDeploymentInfo(DeployedContracts memory contracts) internal pure {

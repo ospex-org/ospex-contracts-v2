@@ -37,6 +37,8 @@ contract RulesModule is IRulesModule {
     error RulesModule__InvalidBps();
     /// @notice Error thrown when the leaderboard is invalid
     error RulesModule__InvalidLeaderboard();
+    /// @notice Error thrown when the deviation is invalid (ie. less than 0)
+    error RulesModule__InvalidDeviation();
 
     // --- State Variables ---
     OspexCore public immutable i_ospexCore;
@@ -305,6 +307,7 @@ contract RulesModule is IRulesModule {
         PositionType positionType,
         int32 maxDeviation
     ) external override onlyAdmin leaderboardNotStarted(leaderboardId) {
+        if (maxDeviation < 0) revert RulesModule__InvalidDeviation();
         s_deviationRules[leaderboardId][leagueId][scorer][
             positionType
         ] = maxDeviation;

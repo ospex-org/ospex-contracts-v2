@@ -633,6 +633,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
      * @dev The prize pool is split equally among all winners (users who share the highest ROI).
      * Each winner receives prizePool / winners.length. Integer division may leave up to
      * (winners.length - 1) wei of dust unclaimed in the treasury. Each winner can only claim once.
+     * Remaining dust is recoverable via adminSweep() after the claim window closes.
      * @param leaderboardId The ID of the leaderboard
      */
     function claimLeaderboardPrize(
@@ -680,12 +681,18 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             _getModule(keccak256("TREASURY_MODULE"))
         );
 
+        // Snapshot prize pool on first claim so all winners split the same total
+        if (scoring.snapshotPrizePool == 0) {
+            scoring.snapshotPrizePool = treasuryModule.getPrizePool(
+                leaderboardId
+            );
+        }
+
         // Mark as claimed
         scoring.hasClaimed[msg.sender] = true;
 
-        // Calculate share
-        uint256 share = treasuryModule.getPrizePool(leaderboardId) /
-            scoring.winners.length;
+        // Calculate share from snapshot, not live pool
+        uint256 share = scoring.snapshotPrizePool / scoring.winners.length;
 
         // Transfer prize
         treasuryModule.claimPrizePool(leaderboardId, msg.sender, share);
@@ -720,6 +727,27 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             revert LeaderboardModule__NotInClaimWindow();
         }
 
+        ITreasuryModule treasuryModule = ITreasuryModule(
+            _getModule(keccak256("TREASURY_MODULE"))
+        );
+
+        // Zero winners: sweep entire pool
+        if (scoring.winners.length == 0) {
+            uint256 snapshotPrizePool = treasuryModule.getPrizePool(
+                leaderboardId
+            );
+            if (snapshotPrizePool == 0) {
+                revert LeaderboardModule__NoUnclaimedPrizes();
+            }
+            treasuryModule.claimPrizePool(leaderboardId, to, snapshotPrizePool);
+            emit LeaderboardPrizesSwept(leaderboardId, to, snapshotPrizePool);
+            i_ospexCore.emitCoreEvent(
+                keccak256("LEADERBOARD_PRIZES_SWEPT"),
+                abi.encode(leaderboardId, to, snapshotPrizePool)
+            );
+            return;
+        }
+
         // Count unclaimed winners
         uint256 unclaimedCount = 0;
         for (uint256 i = 0; i < scoring.winners.length; i++) {
@@ -731,13 +759,15 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             revert LeaderboardModule__NoUnclaimedPrizes();
         }
 
-        ITreasuryModule treasuryModule = ITreasuryModule(
-            _getModule(keccak256("TREASURY_MODULE"))
-        );
+        // Use snapshot if claims already happened, otherwise snapshot now
+        if (scoring.snapshotPrizePool == 0) {
+            scoring.snapshotPrizePool = treasuryModule.getPrizePool(
+                leaderboardId
+            );
+        }
 
         // Calculate unclaimed amount
-        uint256 share = treasuryModule.getPrizePool(leaderboardId) /
-            scoring.winners.length;
+        uint256 share = scoring.snapshotPrizePool / scoring.winners.length;
         uint256 unclaimedAmount = share * unclaimedCount;
 
         // Mark all as claimed to prevent future claims
@@ -830,6 +860,9 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
 
     /**
      * @notice Internal helper to calculate ROI
+     * @dev Positions whose speculation has winSide == TBD (unscored) are excluded
+     * from the net P&L sum. Only resolved outcomes (win, loss, push, void, forfeit)
+     * contribute to ROI.
      * @param leaderboardId The ID of the leaderboard
      * @param user The address of the user
      * @param declaredBankroll The declared bankroll of the user
@@ -861,6 +894,8 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
 
     /**
      * @notice Internal helper to calculate the net profit/loss for a position
+     * @dev Positions with winSide == TBD (unscored) return 0 and are excluded from
+     * the ROI calculation. This prevents unresolved contests from distorting ROI.
      * @param lbPos The leaderboard position
      * @return net The net profit/loss for the position
      */
@@ -872,13 +907,16 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             _getModule(keccak256("SPECULATION_MODULE"))
         ).getSpeculation(lbPos.speculationId);
 
+        // --- Unscored: exclude from ROI ---
+        if (spec.winSide == WinSide.TBD) {
+            return 0;
+        }
+
         // --- Retrieve outcome ---
         bool isWinner = _isLeaderboardPositionWinner(lbPos, spec);
         bool isPushOrVoid = (spec.winSide == WinSide.Push ||
             spec.winSide == WinSide.Void ||
-            spec.winSide == WinSide.Forfeit ||
-            // adding TBD in case something isn't scored
-            spec.winSide == WinSide.TBD);
+            spec.winSide == WinSide.Forfeit);
 
         uint256 payout;
         if (isPushOrVoid) {
