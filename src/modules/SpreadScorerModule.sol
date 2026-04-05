@@ -61,7 +61,8 @@ contract SpreadScorerModule is IScorerModule {
      * @param _lineTicks Point spread value, stored as 10x (e.g., -3.5 = -35).
      *                   Positive means home team is favored, negative means away team is favored.
      *                   Scores are scaled to 10x internally to match lineTicks's representation.
-     *                   Away side covers when awayScore * 10 + lineTicks >= homeScore * 10.
+     *                   Away side covers when awayScore * 10 + lineTicks > homeScore * 10.
+     *                   Exact equality on the adjusted spread results in a Push.
      * @return WinSide The winning side of the speculation
      */
     function scoreSpread(

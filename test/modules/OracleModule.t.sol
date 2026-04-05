@@ -31,9 +31,6 @@ contract OracleModuleTestHelper is OracleModule {
     ) public {
         fulfillRequest(requestId, response, err);
     }
-    function setLastRequestId(bytes32 requestId) public {
-        s_lastRequestId = requestId;
-    }
     function setRequestMapping(bytes32 requestId, uint256 contestId) public {
         s_requestMapping[requestId] = contestId;
     }
@@ -729,7 +726,6 @@ contract OracleModuleTest is Test {
 
         // Simulate oracle request mapping
         bytes32 requestId = bytes32(uint256(0xAABB));
-        oracleHelper.setLastRequestId(requestId);
         oracleHelper.setRequestMapping(requestId, contestId);
 
         // Set up the request context to simulate a ContestCreate request
@@ -800,7 +796,6 @@ contract OracleModuleTest is Test {
 
         // Simulate oracle request mapping
         bytes32 requestId = bytes32(uint256(0xBEEF));
-        oracleHelper.setLastRequestId(requestId);
         oracleHelper.setRequestMapping(requestId, contestId);
 
         // Set up the request context to simulate a ContestScore request
@@ -863,8 +858,12 @@ contract OracleModuleTest is Test {
 
         // Simulate oracle request mapping
         bytes32 requestId = bytes32(uint256(0xDEAD));
-        oracleHelper.setLastRequestId(requestId);
         oracleHelper.setRequestMapping(requestId, contestId);
+        oracleHelper.setRequestContext(
+            requestId,
+            OracleRequestType.ContestScore,
+            contestId
+        );
         bytes memory response = hex"";
         bytes memory err = hex"deadbeef";
         // Act & Assert - reverts with ChainlinkFunctionError containing the error bytes
@@ -904,7 +903,7 @@ contract OracleModuleTest is Test {
 
         // Use vm.prank to have the call come from the oracleHelper
         vm.prank(address(oracleHelper));
-        uint256 contestId = testContestModule.createContest(
+        testContestModule.createContest(
             rundownId,
             sportspageId,
             jsonoddsId,
@@ -913,10 +912,8 @@ contract OracleModuleTest is Test {
             leaderboardId
         );
 
-        // Simulate oracle request mapping with a different requestId
+        // Use a requestId that has no context set — triggers UnexpectedRequestId
         bytes32 requestId = bytes32(uint256(0x1111));
-        oracleHelper.setLastRequestId(bytes32(uint256(0x2222))); // mismatch
-        oracleHelper.setRequestMapping(requestId, contestId);
         bytes memory response = hex"";
         bytes memory err = hex"";
         // Act & Assert
@@ -1038,7 +1035,6 @@ contract OracleModuleTest is Test {
     function testFulfillRequest_RevertsOnInvalidRequestType() public {
         // Arrange - create a minimal setup
         bytes32 requestId = bytes32(uint256(0xDEAD));
-        oracleHelper.setLastRequestId(requestId);
 
         // Set an invalid request type (cast from a high number that's not in the enum)
         // We need to use the setRequestContext function, but OracleRequestType is an enum
@@ -1340,7 +1336,6 @@ contract OracleModuleTest is Test {
 
         // Simulate oracle request mapping
         bytes32 requestId = bytes32(uint256(0x4D41524B4554)); // "MARKET" in hex
-        oracleHelper.setLastRequestId(requestId);
         oracleHelper.setRequestMapping(requestId, contestId);
 
         // Set up the request context for ContestMarketsUpdate
@@ -1519,7 +1514,6 @@ contract OracleModuleTest is Test {
     function testFulfillRequest_ContestScore_RevertsIfResponseTooShort() public {
         // Set up a ContestScore request with a response shorter than 4 bytes
         bytes32 requestId = bytes32(uint256(0xBEEF));
-        oracleHelper.setLastRequestId(requestId);
         oracleHelper.setRequestContext(
             requestId,
             OracleRequestType.ContestScore,

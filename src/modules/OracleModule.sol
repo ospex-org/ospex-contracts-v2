@@ -90,7 +90,6 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
     bytes32 public immutable i_donId;
 
     // Request tracking
-    bytes32 public s_lastRequestId;
     bytes public s_lastResponse;
     bytes public s_lastError;
     mapping(bytes32 => uint256) public s_requestMapping;
@@ -388,7 +387,7 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         if (args.length > 0) {
             req.setArgs(args);
         }
-        s_lastRequestId = _sendRequest(
+        bytes32 requestId = _sendRequest(
             req.encodeCBOR(),
             subscriptionId,
             gasLimit,
@@ -396,14 +395,14 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         );
 
         // Store the context for the request
-        s_requestContext[s_lastRequestId] = OracleRequestContext({
+        s_requestContext[requestId] = OracleRequestContext({
             requestType: requestType,
             contestId: contestId
         });
 
         // Map requestId to contestId
-        s_requestMapping[s_lastRequestId] = contestId;
-        return s_lastRequestId;
+        s_requestMapping[requestId] = contestId;
+        return requestId;
     }
 
     // Chainlink Functions callback
@@ -419,7 +418,8 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         bytes memory response,
         bytes memory err
     ) internal override {
-        if (requestId != s_lastRequestId)
+        OracleRequestContext memory ctx = s_requestContext[requestId];
+        if (ctx.contestId == 0)
             revert OracleModule__UnexpectedRequestId(requestId);
 
         s_lastResponse = response;
@@ -431,7 +431,6 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
             revert OracleModule__ChainlinkFunctionError(err);
         }
 
-        OracleRequestContext memory ctx = s_requestContext[requestId];
         if (ctx.requestType == OracleRequestType.ContestCreate) {
             _handleContestCreate(ctx.contestId, response);
         } else if (ctx.requestType == OracleRequestType.ContestMarketsUpdate) {
@@ -441,6 +440,10 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         } else {
             revert OracleModule__InvalidRequestType(ctx.requestType);
         }
+
+        // Clean up request tracking
+        delete s_requestContext[requestId];
+        delete s_requestMapping[requestId];
     }
 
     /**
