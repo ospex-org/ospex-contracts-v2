@@ -39,6 +39,8 @@ contract SpeculationModule is ISpeculationModule {
     error SpeculationModule__VoidCooldownBelowMinimum(uint32 cooldown);
     /// @notice Error for speculation not open
     error SpeculationModule__SpeculationNotOpen();
+    /// @notice Error for contest already scored
+    error SpeculationModule__ContestAlreadyScored();
     /// @notice Error for contest not finalized
     error SpeculationModule__ContestNotFinalized(uint256 contestId);
     /// @notice Error for contest not verified
@@ -217,12 +219,16 @@ contract SpeculationModule is ISpeculationModule {
      * @param speculationId The ID of the speculation
      */
     function settleSpeculation(uint256 speculationId) external override {
+        IContestModule contestModule = IContestModule(
+            _getModule(keccak256("CONTEST_MODULE"))
+        );
+
         Speculation storage s = s_speculations[speculationId];
 
         // Get contest start time for timing validation
-        uint32 contestStartTime = IContestModule(
-            _getModule(keccak256("CONTEST_MODULE"))
-        ).s_contestStartTimes(s.contestId);
+        uint32 contestStartTime = contestModule.s_contestStartTimes(
+            s.contestId
+        );
 
         if (uint32(block.timestamp) < contestStartTime) {
             revert SpeculationModule__SpeculationNotStarted();
@@ -230,6 +236,31 @@ contract SpeculationModule is ISpeculationModule {
         if (s.speculationStatus == SpeculationStatus.Closed) {
             revert SpeculationModule__AlreadySettled();
         }
+
+        // Get contest status from ContestModule
+        Contest memory contest = contestModule.getContest(s.contestId);
+
+        if (
+            contest.contestStatus == ContestStatus.Scored ||
+            contest.contestStatus == ContestStatus.ScoredManually
+        ) {
+            // Call the scorer module
+            IScorerModule scorer = IScorerModule(s.speculationScorer);
+            s.winSide = scorer.determineWinSide(s.contestId, s.lineTicks);
+            s.speculationStatus = SpeculationStatus.Closed;
+
+            emit SpeculationSettled(
+                speculationId,
+                s.winSide,
+                s.speculationScorer
+            );
+            i_ospexCore.emitCoreEvent(
+                keccak256("SPECULATION_SETTLED"),
+                abi.encode(speculationId, s.winSide, s.speculationScorer)
+            );
+            return;
+        }
+
         // Auto-void if voidCooldown has passed
         if (uint32(block.timestamp) >= contestStartTime + s_voidCooldown) {
             s.speculationStatus = SpeculationStatus.Closed;
@@ -247,27 +278,7 @@ contract SpeculationModule is ISpeculationModule {
             return;
         }
 
-        // Get contest status from ContestModule
-        Contest memory contest = IContestModule(
-            _getModule(keccak256("CONTEST_MODULE"))
-        ).getContest(s.contestId);
-        if (
-            !(contest.contestStatus == ContestStatus.Scored ||
-                contest.contestStatus == ContestStatus.ScoredManually)
-        ) {
-            revert SpeculationModule__ContestNotFinalized(s.contestId);
-        }
-
-        // Call the scorer module
-        IScorerModule scorer = IScorerModule(s.speculationScorer);
-        s.winSide = scorer.determineWinSide(s.contestId, s.lineTicks);
-        s.speculationStatus = SpeculationStatus.Closed;
-
-        emit SpeculationSettled(speculationId, s.winSide, s.speculationScorer);
-        i_ospexCore.emitCoreEvent(
-            keccak256("SPECULATION_SETTLED"),
-            abi.encode(speculationId, s.winSide, s.speculationScorer)
-        );
+        revert SpeculationModule__ContestNotFinalized(s.contestId);
     }
 
     /**
@@ -326,6 +337,14 @@ contract SpeculationModule is ISpeculationModule {
         ).getContest(contestId);
         if (contest.contestStatus == ContestStatus.Unverified) {
             revert SpeculationModule__ContestNotVerified();
+        }
+
+        // Validate contest is not already scored
+        if (
+            contest.contestStatus == ContestStatus.Scored ||
+            contest.contestStatus == ContestStatus.ScoredManually
+        ) {
+            revert SpeculationModule__ContestAlreadyScored();
         }
 
         // Validate scorer is an approved scorer contract

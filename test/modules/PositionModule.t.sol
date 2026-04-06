@@ -1426,20 +1426,28 @@ contract PositionModuleTest is Test {
             vm.prank(_taker);
             token.approve(address(localPM), takerRisks[i]);
 
+            // Reset contest to Verified before each fill so speculation creation is allowed
+            Contest memory verified = Contest({
+                awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
+                contestStatus: ContestStatus.Verified, contestCreator: address(this),
+                scoreContestSourceHash: bytes32(0), rundownId: "", sportspageId: "", jsonoddsId: ""
+            });
+            mockContestModule.setContest(1, verified);
+
             uint256 specId = _helperRecordFillLocal(
                 localPM, 1, address(mockScorer), lineTicks,
                 PositionType.Upper, address(this), makerRisks[i],
                 _taker, takerRisks[i]
             );
 
-            // Settle as Away wins (Upper wins)
-            vm.warp(block.timestamp + 2 hours);
+            // Score the contest, then settle as Away wins (Upper wins)
             Contest memory c = Contest({
                 awayScore: 100, homeScore: 90, leagueId: LeagueId.NBA,
                 contestStatus: ContestStatus.Scored, contestCreator: address(this),
                 scoreContestSourceHash: bytes32(0), rundownId: "", sportspageId: "", jsonoddsId: ""
             });
             mockContestModule.setContest(1, c);
+            vm.warp(block.timestamp + 2 hours);
             mockSpeculationModule.settleSpeculation(specId);
 
             uint256 balBefore = token.balanceOf(address(this));

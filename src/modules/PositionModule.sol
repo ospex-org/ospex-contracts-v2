@@ -248,8 +248,10 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
 
     /**
      * @notice Transfers a position
-     * @dev This function does not enforce proportional risk/profit splits. It trusts the
-     *      calling market-role contract to define valid transfer semantics.
+     * @dev This function does not enforce proportional risk/profit splits.
+     *      It trusts the calling contract to define valid transfer semantics.
+     *      Callers must hold MARKET_ROLE to call this function (admin-granted).
+     *      MARKET_ROLE is a full trust delegration, equivalent to module registration.
      * @param speculationId The ID of the speculation
      * @param from The address of the from user
      * @param positionType The type of position

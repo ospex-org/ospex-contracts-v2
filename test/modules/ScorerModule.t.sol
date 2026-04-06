@@ -31,6 +31,8 @@ contract ScorerModuleTest is Test {
     RulesModule rulesModule;
     MockERC20 token;
     uint256 nextContestId;
+    // Stores the intended final contest state (with Scored status) for _finalizeContest
+    mapping(uint256 => Contest) private _finalContests;
 
     // leaderboard Id and allocation set to 0 for testing
     uint256 leaderboardId = 0;
@@ -89,6 +91,7 @@ contract ScorerModuleTest is Test {
             address(this),
             leaderboardId
         );
+        _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
         speculationModule.settleSpeculation(speculationId);
         Speculation memory s = speculationModule.getSpeculation(speculationId);
@@ -103,6 +106,7 @@ contract ScorerModuleTest is Test {
             address(this),
             leaderboardId
         );
+        _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
         speculationModule.settleSpeculation(speculationId);
         Speculation memory s = speculationModule.getSpeculation(speculationId);
@@ -117,6 +121,7 @@ contract ScorerModuleTest is Test {
             address(this),
             leaderboardId
         );
+        _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
         speculationModule.settleSpeculation(speculationId);
         Speculation memory s = speculationModule.getSpeculation(speculationId);
@@ -167,6 +172,7 @@ contract ScorerModuleTest is Test {
             address(this),
             leaderboardId
         );
+        _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
         speculationModule.settleSpeculation(speculationId);
         Speculation memory s = speculationModule.getSpeculation(speculationId);
@@ -183,6 +189,7 @@ contract ScorerModuleTest is Test {
             address(this),
             leaderboardId
         );
+        _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
         speculationModule.settleSpeculation(speculationId);
         Speculation memory s = speculationModule.getSpeculation(speculationId);
@@ -200,6 +207,7 @@ contract ScorerModuleTest is Test {
             address(this),
             leaderboardId
         );
+        _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
         speculationModule.settleSpeculation(speculationId);
         Speculation memory s = speculationModule.getSpeculation(speculationId);
@@ -216,6 +224,7 @@ contract ScorerModuleTest is Test {
             address(this),
             leaderboardId
         );
+        _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
         speculationModule.settleSpeculation(speculationId);
         Speculation memory s = speculationModule.getSpeculation(speculationId);
@@ -233,6 +242,7 @@ contract ScorerModuleTest is Test {
             address(this),
             leaderboardId
         );
+        _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
         speculationModule.settleSpeculation(speculationId);
         Speculation memory s = speculationModule.getSpeculation(speculationId);
@@ -251,6 +261,7 @@ contract ScorerModuleTest is Test {
             address(this),
             leaderboardId
         );
+        _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
         speculationModule.settleSpeculation(speculationId);
         Speculation memory s = speculationModule.getSpeculation(speculationId);
@@ -268,6 +279,7 @@ contract ScorerModuleTest is Test {
             address(this),
             leaderboardId
         );
+        _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
         speculationModule.settleSpeculation(speculationId);
         Speculation memory s = speculationModule.getSpeculation(speculationId);
@@ -285,6 +297,7 @@ contract ScorerModuleTest is Test {
             address(this),
             leaderboardId
         );
+        _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
         speculationModule.settleSpeculation(speculationId);
         Speculation memory s = speculationModule.getSpeculation(speculationId);
@@ -313,6 +326,7 @@ contract ScorerModuleTest is Test {
             address(this),
             leaderboardId
         );
+        _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
         speculationModule.settleSpeculation(speculationId);
         Speculation memory s = speculationModule.getSpeculation(speculationId);
@@ -328,6 +342,7 @@ contract ScorerModuleTest is Test {
             address(this),
             leaderboardId
         );
+        _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
         speculationModule.settleSpeculation(speculationId);
         Speculation memory s = speculationModule.getSpeculation(speculationId);
@@ -343,6 +358,7 @@ contract ScorerModuleTest is Test {
             address(this),
             leaderboardId
         );
+        _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
         speculationModule.settleSpeculation(speculationId);
         Speculation memory s = speculationModule.getSpeculation(speculationId);
@@ -361,6 +377,7 @@ contract ScorerModuleTest is Test {
             address(this),
             leaderboardId
         );
+        _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
         speculationModule.settleSpeculation(speculationId);
         Speculation memory s = speculationModule.getSpeculation(speculationId);
@@ -378,6 +395,7 @@ contract ScorerModuleTest is Test {
             address(this),
             leaderboardId
         );
+        _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
         speculationModule.settleSpeculation(speculationId);
         Speculation memory s = speculationModule.getSpeculation(speculationId);
@@ -395,6 +413,7 @@ contract ScorerModuleTest is Test {
             address(this),
             leaderboardId
         );
+        _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
         speculationModule.settleSpeculation(speculationId);
         Speculation memory s = speculationModule.getSpeculation(speculationId);
@@ -433,7 +452,16 @@ contract ScorerModuleTest is Test {
     }
     function _storeContest(Contest memory c) internal returns (uint256) {
         uint256 contestId = nextContestId++;
-        mockContest.setContest(contestId, c);
+        // Save the intended final state (with scores + Scored status)
+        _finalContests[contestId] = c;
+        // Store as Verified so speculations can be created
+        Contest memory verified = c;
+        verified.contestStatus = ContestStatus.Verified;
+        mockContest.setContest(contestId, verified);
         return contestId;
+    }
+    /// @dev Restores the contest to its intended final state (Scored) for settlement
+    function _finalizeContest(uint256 contestId) internal {
+        mockContest.setContest(contestId, _finalContests[contestId]);
     }
 }

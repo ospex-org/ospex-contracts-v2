@@ -173,19 +173,8 @@ contract SpeculationModuleTest is Test {
             leaderboardId
         );
 
-        // Set up the contest to be in Scored state before settling
-        Contest memory contest = Contest({
-            awayScore: 1,
-            homeScore: 0,
-            leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Scored, // Set the contest as scored
-            contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0),
-            rundownId: "",
-            sportspageId: "",
-            jsonoddsId: ""
-        });
-        mockContestModule.setContest(1, contest);
+        // Contest remains Verified (NOT scored) — simulates an unresolved game
+        // The default contest from setUp is already Verified, so no override needed
 
         vm.warp(nowTime + speculationModule.s_voidCooldown() + 1);
         speculationModule.settleSpeculation(id);
@@ -728,5 +717,121 @@ contract SpeculationModuleTest is Test {
             address(this),
             leaderboardId
         );
+    }
+
+    // =====================================================================
+    // Fix: Finalized contests settle by scorer even after cooldown (C-4)
+    // =====================================================================
+
+    /// @notice A scored contest settles by scorer even after void cooldown has passed
+    function testSettleSpeculation_ScoredContestSettlesByScorerAfterCooldown() public {
+        MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
+
+        uint256 id = speculationModule.createSpeculation(
+            1, address(mockScorer), 42, address(this), leaderboardId
+        );
+
+        // Contest scored (e.g., late oracle delivery)
+        Contest memory contest = Contest({
+            awayScore: 3, homeScore: 1, leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored, contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0), rundownId: "", sportspageId: "", jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, contest);
+
+        // Warp well past cooldown — should still settle by scorer, not void
+        vm.warp(block.timestamp + speculationModule.s_voidCooldown() + 10 days);
+        speculationModule.settleSpeculation(id);
+
+        Speculation memory s = speculationModule.getSpeculation(id);
+        assertEq(uint(s.speculationStatus), uint(SpeculationStatus.Closed));
+        assertEq(uint(s.winSide), uint(WinSide.Away), "should settle by scorer, not void");
+    }
+
+    /// @notice A manually scored contest settles by scorer even after cooldown
+    function testSettleSpeculation_ManuallyScoredContestSettlesAfterCooldown() public {
+        MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
+        mockScorer.setWinSide(1, 42, WinSide.Home);
+
+        uint256 id = speculationModule.createSpeculation(
+            1, address(mockScorer), 42, address(this), leaderboardId
+        );
+
+        Contest memory contest = Contest({
+            awayScore: 0, homeScore: 2, leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.ScoredManually, contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0), rundownId: "", sportspageId: "", jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, contest);
+
+        vm.warp(block.timestamp + speculationModule.s_voidCooldown() + 10 days);
+        speculationModule.settleSpeculation(id);
+
+        Speculation memory s = speculationModule.getSpeculation(id);
+        assertEq(uint(s.winSide), uint(WinSide.Home), "should settle by scorer, not void");
+    }
+
+    /// @notice Unresolved contest still auto-voids after cooldown (not broken by fix)
+    function testSettleSpeculation_UnresolvedContestStillVoidsAfterCooldown() public {
+        MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
+
+        uint256 id = speculationModule.createSpeculation(
+            1, address(mockScorer), 42, address(this), leaderboardId
+        );
+
+        // Contest stays Verified (no scores yet)
+        vm.warp(block.timestamp + speculationModule.s_voidCooldown() + 1);
+        speculationModule.settleSpeculation(id);
+
+        Speculation memory s = speculationModule.getSpeculation(id);
+        assertEq(uint(s.winSide), uint(WinSide.Void), "unresolved should void");
+    }
+
+    // =====================================================================
+    // Fix: Reject speculation creation on finalized contests (C-5)
+    // =====================================================================
+
+    /// @notice Cannot create speculation on a Scored contest
+    function testCreateSpeculation_RevertsOnScoredContest() public {
+        Contest memory contest = Contest({
+            awayScore: 3, homeScore: 1, leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored, contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0), rundownId: "", sportspageId: "", jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, contest);
+
+        vm.expectRevert(SpeculationModule.SpeculationModule__ContestAlreadyScored.selector);
+        speculationModule.createSpeculation(
+            1, address(0xBEEF), 42, address(this), leaderboardId
+        );
+    }
+
+    /// @notice Cannot create speculation on a ScoredManually contest
+    function testCreateSpeculation_RevertsOnManuallyScoredContest() public {
+        Contest memory contest = Contest({
+            awayScore: 0, homeScore: 2, leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.ScoredManually, contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0), rundownId: "", sportspageId: "", jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, contest);
+
+        vm.expectRevert(SpeculationModule.SpeculationModule__ContestAlreadyScored.selector);
+        speculationModule.createSpeculation(
+            1, address(0xBEEF), 42, address(this), leaderboardId
+        );
+    }
+
+    /// @notice Can still create speculation on a Verified (live/unscored) contest
+    function testCreateSpeculation_SucceedsOnVerifiedContest() public {
+        // Default contest from setUp is Verified
+        uint256 id = speculationModule.createSpeculation(
+            1, address(0xBEEF), 99, address(this), leaderboardId
+        );
+        Speculation memory s = speculationModule.getSpeculation(id);
+        assertEq(s.contestId, 1);
+        assertEq(uint(s.speculationStatus), uint(SpeculationStatus.Open));
     }
 }
