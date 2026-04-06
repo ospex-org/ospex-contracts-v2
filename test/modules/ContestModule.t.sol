@@ -662,12 +662,106 @@ contract ContestModuleTest is Test {
 
     function testGetContestMarket_ReturnsEmptyForUnsetMarket() public view {
         uint256 contestId = 1;
-        
+
         // Get market before any updates (should be empty)
         ContestMarket memory market = contestModule.getContestMarket(contestId, spreadScorer);
         assertEq(market.lineTicks, 0);
         assertEq(market.upperOdds, 0);
         assertEq(market.lowerOdds, 0);
         assertEq(market.lastUpdated, 0);
+    }
+
+    // =====================================================================
+    // Scoring Immutability Tests (C-7)
+    // =====================================================================
+
+    /// @notice Oracle scores a contest successfully, then a second oracle score reverts
+    function testSetScores_OracleCannotRescore() public {
+        // Create and verify a contest
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest(
+            "rd", "sp", "jo", bytes32("hash"), contestCreator, leaderboardId
+        );
+        vm.prank(oracleModule);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, uint32(block.timestamp));
+
+        // First oracle score succeeds
+        vm.prank(oracleModule);
+        contestModule.setScores(contestId, 100, 95);
+
+        Contest memory c = contestModule.getContest(contestId);
+        assertEq(uint(c.contestStatus), uint(ContestStatus.Scored));
+        assertEq(c.awayScore, 100);
+        assertEq(c.homeScore, 95);
+
+        // Second oracle score attempt reverts
+        vm.prank(oracleModule);
+        vm.expectRevert(
+            abi.encodeWithSelector(ContestModule.ContestModule__AlreadyScored.selector, contestId)
+        );
+        contestModule.setScores(contestId, 110, 90);
+
+        // Scores unchanged
+        Contest memory c2 = contestModule.getContest(contestId);
+        assertEq(c2.awayScore, 100);
+        assertEq(c2.homeScore, 95);
+    }
+
+    /// @notice Manual score cannot overwrite an oracle-scored contest
+    function testScoreContestManually_CannotOverwriteOracleScore() public {
+        // Create and verify a contest
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest(
+            "rd", "sp", "jo", bytes32("hash"), contestCreator, leaderboardId
+        );
+        vm.prank(oracleModule);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, uint32(block.timestamp));
+
+        // Oracle scores the contest
+        vm.prank(oracleModule);
+        contestModule.setScores(contestId, 100, 95);
+
+        // Grant SCORE_MANAGER_ROLE and warp past wait period
+        core.grantRole(keccak256("SCORE_MANAGER_ROLE"), scoreManager);
+        vm.warp(block.timestamp + 3 days);
+
+        // Manual score attempt reverts — contest is Scored, not Verified
+        vm.prank(scoreManager);
+        vm.expectRevert(
+            abi.encodeWithSelector(ContestModule.ContestModule__ContestNotVerified.selector, contestId)
+        );
+        contestModule.scoreContestManually(contestId, 110, 90);
+
+        // Scores unchanged
+        Contest memory c = contestModule.getContest(contestId);
+        assertEq(c.awayScore, 100);
+        assertEq(c.homeScore, 95);
+        assertEq(uint(c.contestStatus), uint(ContestStatus.Scored));
+    }
+
+    /// @notice Oracle cannot overwrite a manually-scored contest either
+    function testSetScores_OracleCannotOverwriteManualScore() public {
+        // Create and verify a contest
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest(
+            "rd", "sp", "jo", bytes32("hash"), contestCreator, leaderboardId
+        );
+        vm.prank(oracleModule);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, uint32(block.timestamp));
+
+        // Score manually
+        core.grantRole(keccak256("SCORE_MANAGER_ROLE"), scoreManager);
+        vm.warp(block.timestamp + 3 days);
+        vm.prank(scoreManager);
+        contestModule.scoreContestManually(contestId, 100, 95);
+
+        assertEq(uint(contestModule.getContest(contestId).contestStatus), uint(ContestStatus.ScoredManually));
+
+        // Oracle attempts to rescore — reverts
+        vm.prank(oracleModule);
+        vm.expectRevert(
+            abi.encodeWithSelector(ContestModule.ContestModule__AlreadyScored.selector, contestId)
+        );
+        contestModule.setScores(contestId, 110, 90);
     }
 }

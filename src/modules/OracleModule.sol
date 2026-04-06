@@ -300,8 +300,13 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
     }
 
     /**
-     * @notice Can be called by any user to score a contest
-     * @dev Calls ContestModule to actually score the contest
+     * @notice Requests oracle scoring for a verified contest
+     * @dev Permissionless. Any caller may attempt to score a contest while it remains
+     *      in the Verified state and the configured scoring script hash matches the contest.
+     *      The expected scoring script compares multiple upstream data sources and reverts
+     *      on disagreement. Callers may retry scoring until a valid, agreeing result is returned.
+     *      Once a score is successfully posted on-chain, the contest leaves Verified and the
+     *      result becomes final. Later score requests cannot overwrite that result.
      * @param contestId The ID of the contest
      * @param scoreContestSourceJS The source code for the score contest function
      * @param encryptedSecretsUrls The encrypted secrets URLs

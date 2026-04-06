@@ -11,6 +11,7 @@ import {
 } from "../core/OspexTypes.sol";
 import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IPositionModule} from "../interfaces/IPositionModule.sol";
+import {ILeaderboardModule} from "../interfaces/ILeaderboardModule.sol";
 import {IContributionModule} from "../interfaces/IContributionModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {
@@ -46,6 +47,8 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
     error PositionModule__NoPayout();
     /// @notice Error for module not set
     error PositionModule__ModuleNotSet(bytes32 moduleType);
+    /// @notice Error for position transfer locked
+    error PositionModule__TransferLocked();
 
     // --- Storage ---
     /// @notice The OspexCore contract
@@ -281,6 +284,32 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
             from,
             positionType
         );
+        // Check if the position amounts are locked
+        ILeaderboardModule lbModule = ILeaderboardModule(
+            _getModule(keccak256("LEADERBOARD_MODULE"))
+        );
+        uint256 lockedRisk = lbModule.s_lockedRisk(
+            speculationId,
+            from,
+            positionType
+        );
+        uint256 lockedProfit = lbModule.s_lockedProfit(
+            speculationId,
+            from,
+            positionType
+        );
+
+        if (lockedRisk > 0 || lockedProfit > 0) {
+            Position memory pos = s_positions[speculationId][from][
+                positionType
+            ];
+            uint256 remainingRisk = pos.riskAmount - riskAmount;
+            uint256 remainingProfit = pos.profitAmount - profitAmount;
+            if (remainingRisk < lockedRisk || remainingProfit < lockedProfit) {
+                revert PositionModule__TransferLocked();
+            }
+        }
+        // Check if the risk and profit amounts are valid
         if (
             riskAmount > fromPos.riskAmount ||
             profitAmount > fromPos.profitAmount

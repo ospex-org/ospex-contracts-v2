@@ -510,8 +510,6 @@ contract LeaderboardModuleTest is Test {
         // Mock rules module validation
         _mockRulesModuleValidation(true);
 
-        uint256[] memory leaderboardIds = new uint256[](1);
-        leaderboardIds[0] = leaderboardId;
 
         vm.prank(user1);
         vm.expectEmit(true, true, true, true);
@@ -525,10 +523,10 @@ contract LeaderboardModuleTest is Test {
             leaderboardId
         );
 
-        leaderboardModule.registerPositionForLeaderboards(
+        leaderboardModule.registerPositionForLeaderboard(
             speculationId,
             PositionType.Upper,
-            leaderboardIds
+            leaderboardId
         );
 
         // Verify position was registered
@@ -543,18 +541,6 @@ contract LeaderboardModuleTest is Test {
         assertEq(uint256(lbPos.positionType), uint256(PositionType.Upper));
     }
 
-    function testRegisterPositionForLeaderboards_RevertsInvalidLeaderboardCount() public {
-        uint256[] memory leaderboardIds = new uint256[](9); // exceeds max of 8
-
-        vm.prank(user1);
-        vm.expectRevert(LeaderboardModule.LeaderboardModule__InvalidLeaderboardCount.selector);
-        leaderboardModule.registerPositionForLeaderboards(
-            speculationId,
-            PositionType.Upper,
-            leaderboardIds
-        );
-    }
-
     function testRegisterPositionForLeaderboards_RevertsNoRiskAmount() public {
         _setupUserRegistration();
 
@@ -565,15 +551,13 @@ contract LeaderboardModuleTest is Test {
             abi.encode(0, 0, uint8(0), false) // riskAmount = 0
         );
 
-        uint256[] memory leaderboardIds = new uint256[](1);
-        leaderboardIds[0] = leaderboardId;
 
         vm.prank(user1);
         vm.expectRevert(LeaderboardModule.LeaderboardModule__NoRiskAmount.selector);
-        leaderboardModule.registerPositionForLeaderboards(
+        leaderboardModule.registerPositionForLeaderboard(
             speculationId,
             PositionType.Upper,
-            leaderboardIds
+            leaderboardId
         );
     }
 
@@ -581,15 +565,13 @@ contract LeaderboardModuleTest is Test {
         _setupPositionAndSpeculation();
         _mockPositionModuleCalls();
 
-        uint256[] memory leaderboardIds = new uint256[](1);
-        leaderboardIds[0] = leaderboardId;
 
         vm.prank(user1); // user1 not registered for leaderboard
         vm.expectRevert(LeaderboardModule.LeaderboardModule__UserNotRegisteredForLeaderboard.selector);
-        leaderboardModule.registerPositionForLeaderboards(
+        leaderboardModule.registerPositionForLeaderboard(
             speculationId,
             PositionType.Upper,
-            leaderboardIds
+            leaderboardId
         );
     }
 
@@ -599,24 +581,22 @@ contract LeaderboardModuleTest is Test {
         _mockPositionModuleCalls();
         _mockRulesModuleValidation(true);
 
-        uint256[] memory leaderboardIds = new uint256[](1);
-        leaderboardIds[0] = leaderboardId;
 
         // Register position first time
         vm.prank(user1);
-        leaderboardModule.registerPositionForLeaderboards(
+        leaderboardModule.registerPositionForLeaderboard(
             speculationId,
             PositionType.Upper,
-            leaderboardIds
+            leaderboardId
         );
 
         // Try to register again - should fail
         vm.prank(user1);
         vm.expectRevert(LeaderboardModule.LeaderboardModule__PositionAlreadyExistsForSpeculation.selector);
-        leaderboardModule.registerPositionForLeaderboards(
+        leaderboardModule.registerPositionForLeaderboard(
             speculationId,
             PositionType.Upper,
-            leaderboardIds
+            leaderboardId
         );
     }
 
@@ -757,14 +737,12 @@ contract LeaderboardModuleTest is Test {
         _mockPositionModuleCalls();
         _mockRulesModuleValidation(true);
 
-        uint256[] memory leaderboardIds = new uint256[](1);
-        leaderboardIds[0] = leaderboardId;
 
         vm.prank(user1);
-        leaderboardModule.registerPositionForLeaderboards(
+        leaderboardModule.registerPositionForLeaderboard(
             speculationId,
             PositionType.Upper,
-            leaderboardIds
+            leaderboardId
         );
 
         // Mock rules module for minimum positions
@@ -987,74 +965,6 @@ contract LeaderboardModuleTest is Test {
     }
 
     // --- Edge Cases ---
-    function testRegisterPositionForLeaderboards_MaxLeaderboards() public {
-        _setupUserRegistration();
-        _setupPositionAndSpeculation();
-        _mockPositionModuleCalls();
-        _mockRulesModuleValidation(true);
-
-        // Update contest start time to be in the future to avoid live betting validation
-        mockContestModule.setContestStartTime(contestId, uint32(block.timestamp + 6 hours));
-
-        // Create 8 different leaderboards (max allowed)
-        uint256[] memory leaderboardIds = new uint256[](8);
-        leaderboardIds[0] = leaderboardId; // Use the existing leaderboard from setUp
-
-        // Get current time for consistent leaderboard creation
-        uint256 currentTime = block.timestamp;
-
-        // Create 7 additional leaderboards
-        vm.startPrank(admin);
-        for (uint256 i = 1; i < 8; i++) {
-            uint256 newLeaderboardId = leaderboardModule.createLeaderboard(
-                ENTRY_FEE,
-                address(0),
-                uint32(currentTime + 1 hours), // All start at same time
-                uint32(currentTime + 8 days),  // All end at same time
-                SAFETY_PERIOD,
-                ROI_WINDOW,
-                CLAIM_WINDOW
-            );
-            leaderboardIds[i] = newLeaderboardId;
-        }
-
-        // Add speculation to all newly created leaderboards
-        for (uint256 i = 1; i < 8; i++) {
-            leaderboardModule.addLeaderboardSpeculation(leaderboardIds[i], speculationId);
-        }
-        vm.stopPrank();
-
-        // Warp to after all leaderboards start (but only once)
-        vm.warp(currentTime + 2 hours);
-
-        // Register user for all additional leaderboards
-        for (uint256 i = 1; i < 8; i++) {
-            // Approve entry fee for each leaderboard registration
-            _approveEntryFee(user1);
-            vm.prank(user1);
-            leaderboardModule.registerUser(leaderboardIds[i], DECLARED_BANKROLL);
-        }
-
-        // Register position for all leaderboards
-        vm.prank(user1);
-        leaderboardModule.registerPositionForLeaderboards(
-            speculationId,
-            PositionType.Upper,
-            leaderboardIds
-        );
-
-        // Verify position was registered for all 8 leaderboards
-        for (uint256 i = 0; i < 8; i++) {
-            LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(
-                leaderboardIds[i],
-                user1,
-                speculationId
-            );
-            assertEq(lbPos.riskAmount, 50_000_000);
-            assertEq(lbPos.user, user1);
-        }
-    }
-
     function testRegisterPositionForLeaderboards_BetAmountCapping() public {
         _setupUserRegistration();
         _setupPositionAndSpeculation();
@@ -1103,14 +1013,12 @@ contract LeaderboardModuleTest is Test {
             abi.encode(0) // LeaderboardPositionValidationResult.Valid
         );
 
-        uint256[] memory leaderboardIds = new uint256[](1);
-        leaderboardIds[0] = leaderboardId;
 
         vm.prank(user1);
-        leaderboardModule.registerPositionForLeaderboards(
+        leaderboardModule.registerPositionForLeaderboard(
             speculationId,
             PositionType.Upper,
-            leaderboardIds
+            leaderboardId
         );
 
         // Verify amount was capped
@@ -1129,8 +1037,6 @@ contract LeaderboardModuleTest is Test {
         _setupPositionAndSpeculation();
         _mockPositionModuleCalls();
 
-        uint256[] memory leaderboardIds = new uint256[](1);
-        leaderboardIds[0] = leaderboardId;
 
         // ===== PHASE 1: Initial attempt with validation failure (should revert) =====
 
@@ -1159,10 +1065,10 @@ contract LeaderboardModuleTest is Test {
             LeaderboardModule.LeaderboardModule__ValidationFailed.selector,
             uint256(LeaderboardPositionValidationResult.OddsTooFavorable)
         ));
-        leaderboardModule.registerPositionForLeaderboards(
+        leaderboardModule.registerPositionForLeaderboard(
             speculationId,
             PositionType.Upper,
-            leaderboardIds
+            leaderboardId
         );
 
         // ===== PHASE 2: Retry should succeed =====
@@ -1176,10 +1082,10 @@ contract LeaderboardModuleTest is Test {
 
         // Second registration attempt should succeed
         vm.prank(user1);
-        leaderboardModule.registerPositionForLeaderboards(
+        leaderboardModule.registerPositionForLeaderboard(
             speculationId,
             PositionType.Upper,
-            leaderboardIds
+            leaderboardId
         );
 
         // Verify position is now registered
@@ -1239,15 +1145,13 @@ contract LeaderboardModuleTest is Test {
         _mockPositionModuleCalls();
         _mockRulesModuleValidation(true);
 
-        uint256[] memory leaderboardIds = new uint256[](1);
-        leaderboardIds[0] = leaderboardId;
 
         // Register positions for both users
         vm.prank(user1);
-        leaderboardModule.registerPositionForLeaderboards(
+        leaderboardModule.registerPositionForLeaderboard(
             speculationId,
             PositionType.Upper,
-            leaderboardIds
+            leaderboardId
         );
 
         // For user2, use different speculation ID to avoid conflicts
@@ -1279,10 +1183,10 @@ contract LeaderboardModuleTest is Test {
         );
 
         vm.prank(user2);
-        leaderboardModule.registerPositionForLeaderboards(
+        leaderboardModule.registerPositionForLeaderboard(
             speculationId2,
             PositionType.Upper,
-            leaderboardIds
+            leaderboardId
         );
 
         // Mock rules module for minimum positions
@@ -1722,10 +1626,9 @@ contract LeaderboardModuleTest is Test {
         );
         _mockRulesModuleValidation(true);
 
-        uint256[] memory lbIds = new uint256[](1);
-        lbIds[0] = leaderboardId;
+
         vm.prank(user1);
-        leaderboardModule.registerPositionForLeaderboards(speculationId, PositionType.Upper, lbIds);
+        leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, leaderboardId);
 
         // --- Position 2 (contest 2): will remain TBD (unscored) ---
         uint256 specId2 = 2;
@@ -1754,7 +1657,7 @@ contract LeaderboardModuleTest is Test {
             abi.encode(contestId2, admin, int32(0), address(0), uint8(0), uint8(0))
         );
         vm.prank(user1);
-        leaderboardModule.registerPositionForLeaderboards(specId2, PositionType.Upper, lbIds);
+        leaderboardModule.registerPositionForLeaderboard(specId2, PositionType.Upper, leaderboardId);
 
         // Mock min positions
         vm.mockCall(
@@ -1816,10 +1719,9 @@ contract LeaderboardModuleTest is Test {
         );
         _mockRulesModuleValidation(true);
 
-        uint256[] memory lbIds = new uint256[](1);
-        lbIds[0] = leaderboardId;
+
         vm.prank(user1);
-        leaderboardModule.registerPositionForLeaderboards(speculationId, PositionType.Upper, lbIds);
+        leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, leaderboardId);
 
         // --- Position 2 (contest 2): will remain TBD ---
         uint256 specId2 = 2;
@@ -1847,7 +1749,7 @@ contract LeaderboardModuleTest is Test {
             abi.encode(contestId2, admin, int32(0), address(0), uint8(0), uint8(0))
         );
         vm.prank(user1);
-        leaderboardModule.registerPositionForLeaderboards(specId2, PositionType.Upper, lbIds);
+        leaderboardModule.registerPositionForLeaderboard(specId2, PositionType.Upper, leaderboardId);
 
         // Mock min positions
         vm.mockCall(
@@ -1904,10 +1806,9 @@ contract LeaderboardModuleTest is Test {
         _mockPositionModuleCalls();
         _mockRulesModuleValidation(true);
 
-        uint256[] memory lbIds = new uint256[](1);
-        lbIds[0] = leaderboardId;
+
         vm.prank(user1);
-        leaderboardModule.registerPositionForLeaderboards(speculationId, PositionType.Upper, lbIds);
+        leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, leaderboardId);
 
         // Setup user2's position on a second speculation
         uint256 specId2 = 2;
@@ -1924,7 +1825,7 @@ contract LeaderboardModuleTest is Test {
         vm.prank(admin);
         leaderboardModule.addLeaderboardSpeculation(leaderboardId, specId2);
         vm.prank(user2);
-        leaderboardModule.registerPositionForLeaderboards(specId2, PositionType.Upper, lbIds);
+        leaderboardModule.registerPositionForLeaderboard(specId2, PositionType.Upper, leaderboardId);
 
         // Mock min positions check
         vm.mockCall(

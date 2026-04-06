@@ -456,11 +456,15 @@ contract ContestModule is IContestModule {
 
     /**
      * @inheritdoc IContestModule
-     * @dev Only callable by the OracleModule, except for manual override after MANUAL_SCORE_WAIT_PERIOD by SCORE_MANAGER_ROLE
      */
 
     /**
-     * @notice Sets the scores of a contest
+     * @notice Sets the final oracle score for a contest
+     * @dev Oracle-set scores are immutable once written. This intentionally favors
+     *      settlement finality over discretionary score correction. If upstream data sources
+     *      disagree, scoring should fail before this function is reached. If a wrong but
+     *      internally consistent result is submitted first, the protocol accepts that as
+     *      oracle risk rather than allowing on-chain score overwrites.
      * @param contestId The ID of the contest
      * @param awayScore The away score
      * @param homeScore The home score

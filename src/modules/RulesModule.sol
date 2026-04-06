@@ -275,7 +275,15 @@ contract RulesModule is IRulesModule {
     }
 
     /**
-     * @notice Sets the allow live betting for a leaderboard
+     * @notice Enables or disables live betting for a leaderboard.
+     * @dev Unset leaderboards implicitly disallow live betting (mapping yields false).
+     *      Must be called before the leaderboard starts.
+     *      When false, leaderboard registration is blocked at contest start time.
+     *      When true, registration may continue after contest start as part 
+     *      of an intentional live-betting mode. This mode has materially
+     *      different fairness assumptions and will only be enabled
+     *      when operators are comfortable with in-play information
+     *      asymmetry, market-lag risk, and settlement-timing complexity
      * @param leaderboardId The ID of the leaderboard
      * @param value The allow live betting
      */

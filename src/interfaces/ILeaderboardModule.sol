@@ -2,7 +2,11 @@
 pragma solidity ^0.8.20;
 
 import {IModule} from "./IModule.sol";
-import {PositionType, Leaderboard, LeaderboardPosition} from "../core/OspexTypes.sol";
+import {
+    PositionType,
+    Leaderboard,
+    LeaderboardPosition
+} from "../core/OspexTypes.sol";
 
 /**
  * @title ILeaderboardModule
@@ -31,6 +35,28 @@ interface ILeaderboardModule is IModule {
         address user,
         uint256 contestId,
         address scorer
+    ) external view returns (uint256);
+
+    /// @notice Returns the locked risk for a user in a leaderboard
+    /// @param speculationId The ID of the speculation
+    /// @param user The address of the user
+    /// @param positionType The position type (Upper or Lower)
+    /// @return The locked risk
+    function s_lockedRisk(
+        uint256 speculationId,
+        address user,
+        PositionType positionType
+    ) external view returns (uint256);
+
+    /// @notice Returns the locked profit for a user in a leaderboard
+    /// @param speculationId The ID of the speculation
+    /// @param user The address of the user
+    /// @param positionType The position type (Upper or Lower)
+    /// @return The locked profit
+    function s_lockedProfit(
+        uint256 speculationId,
+        address user,
+        PositionType positionType
     ) external view returns (uint256);
 
     /// @notice Creates a new leaderboard with the specified configuration
@@ -68,16 +94,16 @@ interface ILeaderboardModule is IModule {
         uint256 declaredBankroll
     ) external;
 
-    /// @notice Snapshots a user's position into one or more leaderboards
+    /// @notice Snapshots a user's position into one leaderboard
     /// @dev Creates immutable LeaderboardPosition entries. Risk/profit amounts may be capped
     ///      proportionally based on the leaderboard's max bet rules.
     /// @param speculationId The ID of the speculation the position is on
     /// @param positionType The position type (Upper or Lower)
-    /// @param leaderboardIds Array of leaderboard IDs to register the position for (max 8)
-    function registerPositionForLeaderboards(
+    /// @param leaderboardId The leaderboard ID
+    function registerPositionForLeaderboard(
         uint256 speculationId,
         PositionType positionType,
-        uint256[] calldata leaderboardIds
+        uint256 leaderboardId
     ) external;
 
     /// @notice Calculates and submits the caller's ROI for a leaderboard

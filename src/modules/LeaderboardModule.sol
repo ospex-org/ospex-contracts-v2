@@ -45,8 +45,6 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     error LeaderboardModule__UserNotRegisteredForLeaderboard();
     /// @notice Error for ROI already submitted
     error LeaderboardModule__ROIAlreadySubmitted();
-    /// @notice Error for invalid leaderboard count
-    error LeaderboardModule__InvalidLeaderboardCount();
     /// @notice Error for invalid OspexCore
     error LeaderboardModule__InvalidOspexCore();
     /// @notice Error for bet size below minimum
@@ -111,6 +109,14 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
 
     // Check to see if roi has been submitted, protects against repeatedly submitting ROI of 0
     mapping(uint256 => mapping(address => bool)) private s_roiSubmitted;
+
+    /// @notice Minimum position floor locked by leaderboard registration.
+    ///         After registration, the user must retain at least this much
+    ///         risk and profit to back their leaderboard snapshot.
+    mapping(uint256 => mapping(address => mapping(PositionType => uint256)))
+        public s_lockedRisk;
+    mapping(uint256 => mapping(address => mapping(PositionType => uint256)))
+        public s_lockedProfit;
 
     // Leaderboard counter
     uint256 public s_nextLeaderboardId = 1;
@@ -402,7 +408,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     }
 
     /**
-     * @notice Registers a position for one or more leaderboards (initial registration only)
+     * @notice Registers a position for one leaderboard (initial registration only)
      * @dev Leaderboard design principles:
      *      - A leaderboard entry is an immutable snapshot of position economics at registration time.
      *      - Registration is intentionally decoupled from fill time. Strategic timing is a feature.
@@ -413,16 +419,13 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
      *      Validation occurs against the odds of record at registration time, not at fill time.
      * @param speculationId The speculation ID
      * @param positionType The position type
-     * @param leaderboardIds The list of leaderboard IDs (max 8)
+     * @param leaderboardId The leaderboard ID
      */
-    function registerPositionForLeaderboards(
+    function registerPositionForLeaderboard(
         uint256 speculationId,
         PositionType positionType,
-        uint256[] calldata leaderboardIds
+        uint256 leaderboardId
     ) external override {
-        if (leaderboardIds.length > 8) {
-            revert LeaderboardModule__InvalidLeaderboardCount();
-        }
         address user = msg.sender;
         (
             uint256 riskAmount,
@@ -432,103 +435,112 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             address scorer
         ) = _getPositionAndLeaderboardData(speculationId, user, positionType);
 
-        for (uint256 i = 0; i < leaderboardIds.length; i++) {
-            uint256 leaderboardId = leaderboardIds[i];
-            (, uint256 declaredBankroll) = _getLeaderboardAndBankroll(
-                leaderboardId,
-                user
-            );
-            // Check if the speculation is already registered for this leaderboard
-            uint256 registeredSpecId = s_registeredLeaderboardSpeculation[
-                leaderboardId
-            ][user][contestId][scorer];
-            if (registeredSpecId != 0) {
-                // Already registered, must use increase function
-                revert LeaderboardModule__PositionAlreadyExistsForSpeculation();
-            }
-
-            IRulesModule rulesModule = IRulesModule(
-                _getModule(keccak256("RULES_MODULE"))
-            );
-
-            // Cap at max allowed bet size
-            uint256 maxBet = rulesModule.getMaxBetAmount(
-                leaderboardId,
-                declaredBankroll
-            );
-            uint256 cappedRiskAmount = riskAmount > maxBet
-                ? maxBet
-                : riskAmount;
-
-            // Profit amount scaled proportionally to cappedRiskAmount
-            uint256 cappedProfitAmount = riskAmount > maxBet
-                ? (profitAmount * maxBet) / riskAmount
-                : profitAmount;
-
-            // Confirm bet size is above minimum bet amount
-            if (
-                cappedRiskAmount <
-                rulesModule.getMinBetAmount(leaderboardId, declaredBankroll)
-            ) {
-                revert LeaderboardModule__BetSizeBelowMinimum();
-            }
-
-            // Validate position using comprehensive rules validation
-            LeaderboardPositionValidationResult validationResult = rulesModule
-                .validateLeaderboardPosition(
-                    leaderboardId,
-                    speculationId,
-                    user,
-                    lineTicks,
-                    positionType,
-                    cappedRiskAmount,
-                    cappedProfitAmount
-                );
-
-            if (validationResult == LeaderboardPositionValidationResult.Valid) {
-                // Register this speculationId as the slot owner
-                s_registeredLeaderboardSpeculation[leaderboardId][user][
-                    contestId
-                ][scorer] = speculationId;
-                // Store LeaderboardPosition
-                s_leaderboardPositions[leaderboardId][user][
-                    speculationId
-                ] = LeaderboardPosition({
-                    contestId: contestId,
-                    speculationId: speculationId,
-                    riskAmount: cappedRiskAmount,
-                    profitAmount: cappedProfitAmount,
-                    user: user,
-                    positionType: positionType
-                });
-                // Track speculationId for user in this leaderboard
-                s_userSpeculationIds[leaderboardId][user].push(speculationId);
-
-                emit LeaderboardPositionAdded(
-                    contestId,
-                    speculationId,
-                    user,
-                    cappedRiskAmount,
-                    cappedProfitAmount,
-                    positionType,
-                    leaderboardId
-                );
-                i_ospexCore.emitCoreEvent(
-                    keccak256("LEADERBOARD_POSITION_ADDED"),
-                    abi.encode(
-                        contestId,
-                        speculationId,
-                        user,
-                        cappedRiskAmount,
-                        cappedProfitAmount,
-                        positionType,
-                        leaderboardId
-                    )
-                );
-            } else {
-                revert LeaderboardModule__ValidationFailed(validationResult);
-            }
+        (, uint256 declaredBankroll) = _getLeaderboardAndBankroll(
+            leaderboardId,
+            user
+        );
+        // Check if the speculation is already registered for this leaderboard
+        if (
+            s_registeredLeaderboardSpeculation[leaderboardId][user][contestId][
+                scorer
+            ] != 0
+        ) {
+            // Already registered, must use increase function
+            revert LeaderboardModule__PositionAlreadyExistsForSpeculation();
         }
+
+        IRulesModule rulesModule = IRulesModule(
+            _getModule(keccak256("RULES_MODULE"))
+        );
+
+        // Cap at max allowed bet size
+        uint256 maxBet = rulesModule.getMaxBetAmount(
+            leaderboardId,
+            declaredBankroll
+        );
+        uint256 cappedRiskAmount = riskAmount > maxBet ? maxBet : riskAmount;
+
+        // Profit amount scaled proportionally to cappedRiskAmount
+        uint256 cappedProfitAmount = riskAmount > maxBet
+            ? (profitAmount * maxBet) / riskAmount
+            : profitAmount;
+
+        // Confirm bet size is above minimum bet amount
+        if (
+            cappedRiskAmount <
+            rulesModule.getMinBetAmount(leaderboardId, declaredBankroll)
+        ) {
+            revert LeaderboardModule__BetSizeBelowMinimum();
+        }
+
+        // Validate position using comprehensive rules validation
+        LeaderboardPositionValidationResult validationResult = rulesModule
+            .validateLeaderboardPosition(
+                leaderboardId,
+                speculationId,
+                user,
+                lineTicks,
+                positionType,
+                cappedRiskAmount,
+                cappedProfitAmount
+            );
+
+        if (validationResult != LeaderboardPositionValidationResult.Valid) {
+            revert LeaderboardModule__ValidationFailed(validationResult);
+        }
+        // Register this speculationId as the slot owner
+        s_registeredLeaderboardSpeculation[leaderboardId][user][contestId][
+            scorer
+        ] = speculationId;
+        // Store LeaderboardPosition
+        s_leaderboardPositions[leaderboardId][user][
+            speculationId
+        ] = LeaderboardPosition({
+            contestId: contestId,
+            speculationId: speculationId,
+            riskAmount: cappedRiskAmount,
+            profitAmount: cappedProfitAmount,
+            user: user,
+            positionType: positionType
+        });
+        // Track speculationId for user in this leaderboard
+        s_userSpeculationIds[leaderboardId][user].push(speculationId);
+
+        if (
+            cappedRiskAmount > s_lockedRisk[speculationId][user][positionType]
+        ) {
+            s_lockedRisk[speculationId][user][positionType] = cappedRiskAmount;
+        }
+        if (
+            cappedProfitAmount >
+            s_lockedProfit[speculationId][user][positionType]
+        ) {
+            s_lockedProfit[speculationId][user][
+                positionType
+            ] = cappedProfitAmount;
+        }
+
+        emit LeaderboardPositionAdded(
+            contestId,
+            speculationId,
+            user,
+            cappedRiskAmount,
+            cappedProfitAmount,
+            positionType,
+            leaderboardId
+        );
+        i_ospexCore.emitCoreEvent(
+            keccak256("LEADERBOARD_POSITION_ADDED"),
+            abi.encode(
+                contestId,
+                speculationId,
+                user,
+                cappedRiskAmount,
+                cappedProfitAmount,
+                positionType,
+                leaderboardId
+            )
+        );
     }
 
     /**
@@ -537,6 +549,16 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
      * If the submitted ROI equals the current highest ROI, the user is added to the winners list,
      * creating a tie. Multiple users can share the highest ROI. Prize distribution handles ties
      * by splitting the prize pool equally among all co-winners.
+     * Leaderboard ROI is computed from resolved positions at submission time.
+     * Positions whose associated speculations remain unresolved (WinSide.TBD)
+     * contribute zero to ROI. ROI submission is final and cannot be resubmitted.
+     * This is an explicit liveness tradeoff: blocking submission on unresolved
+     * positions could prevent users from submitting any ROI during oracle or settlement delays.
+     * Contest scoring and speculation settlement are permissionless under normal
+     * protocol operation, so any participant may initiate resolution of unresolved positions.
+     * Leaderboard creators are responsible for configuring safetyPeriodDuration
+     * long enough that unresolved positions are expected to be rare by the time
+     * the ROI submission window opens for the selected contests.
      * @param leaderboardId The ID of the leaderboard
      */
     function submitLeaderboardROI(uint256 leaderboardId) external override {

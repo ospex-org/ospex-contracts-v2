@@ -19,6 +19,8 @@ import {MockContestModule} from "../mocks/MockContestModule.sol";
 
 contract MockLeaderboardModule {
     mapping(uint256 => Leaderboard) private leaderboards;
+    mapping(uint256 => mapping(address => mapping(PositionType => uint256))) public s_lockedRisk;
+    mapping(uint256 => mapping(address => mapping(PositionType => uint256))) public s_lockedProfit;
 
     function setLeaderboard(uint256 leaderboardId, Leaderboard memory leaderboard) external {
         leaderboards[leaderboardId] = leaderboard;
@@ -26,6 +28,14 @@ contract MockLeaderboardModule {
 
     function getLeaderboard(uint256 leaderboardId) external view returns (Leaderboard memory) {
         return leaderboards[leaderboardId];
+    }
+
+    function setLockedAmounts(
+        uint256 speculationId, address user, PositionType positionType,
+        uint256 risk, uint256 profit
+    ) external {
+        s_lockedRisk[speculationId][user][positionType] = risk;
+        s_lockedProfit[speculationId][user][positionType] = profit;
     }
 }
 
@@ -2254,6 +2264,155 @@ contract PositionModuleTest is Test {
             payout,
             totalMakerRisk + totalMakerProfit,
             "Claim payout == totalRiskAmount + totalProfitAmount"
+        );
+    }
+
+    // =====================================================================
+    // Transfer Lock Tests (C-6)
+    // =====================================================================
+    // Positions registered on a leaderboard lock the registered amounts.
+    // Users can still transfer exposure ABOVE the locked amounts.
+    // LeaderboardModule stores s_lockedRisk / s_lockedProfit per
+    // (speculationId, user, positionType). PositionModule.transferPosition
+    // ensures the remaining position after transfer >= locked amounts.
+    // =====================================================================
+
+    /// @notice Full transfer reverts when locked amounts would be violated
+    function testTransferPosition_RevertsWhenLockedAmountsViolated() public {
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
+            1, address(0x1234), 42,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        // Lock the full position amounts (simulates leaderboard registration)
+        mockLeaderboardModule.setLockedAmounts(specId, address(this), PositionType.Upper, makerRisk, takerRisk);
+
+        MockMarket market = new MockMarket(address(positionModule));
+        core.setMarketRole(address(market), true);
+
+        // Attempt full transfer — should revert (remaining would be 0 < locked)
+        vm.expectRevert(PositionModule.PositionModule__TransferLocked.selector);
+        market.transferPosition(
+            specId, address(this), PositionType.Upper, taker, makerRisk, takerRisk
+        );
+    }
+
+    /// @notice Transfer succeeds when no amounts are locked (default)
+    function testTransferPosition_SucceedsWhenNotLocked() public {
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
+            1, address(0x1234), 42,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        MockMarket market = new MockMarket(address(positionModule));
+        core.setMarketRole(address(market), true);
+
+        market.transferPosition(
+            specId, address(this), PositionType.Upper, taker, makerRisk, takerRisk
+        );
+
+        Position memory fromPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
+        assertEq(fromPos.riskAmount, 0, "sender should have 0 risk after full transfer");
+    }
+
+    /// @notice Lock only affects the locked user — other users can still transfer
+    function testTransferPosition_LockIsPerUser() public {
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
+            1, address(0x1234), 42,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        // Lock maker's Upper position
+        mockLeaderboardModule.setLockedAmounts(specId, address(this), PositionType.Upper, makerRisk, takerRisk);
+
+        MockMarket market = new MockMarket(address(positionModule));
+        core.setMarketRole(address(market), true);
+
+        // Taker's Lower position is NOT locked — transfer should succeed
+        address recipient = address(0xDEAD);
+        market.transferPosition(
+            specId, taker, PositionType.Lower, recipient, takerRisk, makerRisk
+        );
+
+        Position memory recipientPos = positionModule.getPosition(specId, recipient, PositionType.Lower);
+        assertEq(recipientPos.riskAmount, takerRisk, "taker's unlocked position should transfer");
+    }
+
+    /// @notice Excess exposure above locked amount can be transferred
+    function testTransferPosition_ExcessAboveLockedCanBeTransferred() public {
+        // Initial fill: maker risks 10 USDC, taker risks 8 USDC
+        uint256 makerRisk1 = 10_000_000;
+        uint256 takerRisk1 = 8_000_000;
+
+        token.approve(address(positionModule), makerRisk1);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk1);
+
+        uint256 specId = _helperRecordFill(
+            1, address(0x1234), 42,
+            PositionType.Upper, address(this), makerRisk1, taker, takerRisk1
+        );
+
+        // Lock 10M risk / 8M profit (the registered leaderboard amounts)
+        mockLeaderboardModule.setLockedAmounts(specId, address(this), PositionType.Upper, makerRisk1, takerRisk1);
+
+        // Second fill adds more exposure: maker risks another 5 USDC, taker risks 4 USDC
+        uint256 makerRisk2 = 5_000_000;
+        uint256 takerRisk2 = 4_000_000;
+
+        token.approve(address(positionModule), makerRisk2);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk2);
+
+        _helperRecordFill(
+            1, address(0x1234), 42,
+            PositionType.Upper, address(this), makerRisk2, taker, takerRisk2
+        );
+
+        // Maker now has: risk = 15M, profit = 12M. Locked: risk = 10M, profit = 8M.
+        // Transferable: risk = 5M, profit = 4M.
+        Position memory pos = positionModule.getPosition(specId, address(this), PositionType.Upper);
+        assertEq(pos.riskAmount, 15_000_000, "total risk should be 15M");
+        assertEq(pos.profitAmount, 12_000_000, "total profit should be 12M");
+
+        MockMarket market = new MockMarket(address(positionModule));
+        core.setMarketRole(address(market), true);
+
+        // Transfer the excess (5M risk, 4M profit) — should succeed
+        market.transferPosition(
+            specId, address(this), PositionType.Upper, taker, makerRisk2, takerRisk2
+        );
+
+        // Remaining should equal the locked amounts exactly
+        Position memory afterPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
+        assertEq(afterPos.riskAmount, makerRisk1, "remaining risk should equal locked amount");
+        assertEq(afterPos.profitAmount, takerRisk1, "remaining profit should equal locked amount");
+
+        // Trying to transfer even 1 more wei should revert
+        vm.expectRevert(PositionModule.PositionModule__TransferLocked.selector);
+        market.transferPosition(
+            specId, address(this), PositionType.Upper, taker, 1, 0
         );
     }
 }

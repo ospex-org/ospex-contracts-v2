@@ -15,6 +15,17 @@ import {MockContestModule} from "../mocks/MockContestModule.sol";
 import {MockScorerModule} from "../mocks/MockScorerModule.sol";
 import {MockFunctionsRouter} from "../mocks/MockFunctionsRouter.sol";
 import {MockLinkToken} from "../mocks/MockLinkToken.sol";
+import {Leaderboard} from "../../src/core/OspexTypes.sol";
+
+contract MockLeaderboardModuleSM {
+    mapping(uint256 => mapping(address => mapping(PositionType => uint256))) public s_lockedRisk;
+    mapping(uint256 => mapping(address => mapping(PositionType => uint256))) public s_lockedProfit;
+    mapping(uint256 => Leaderboard) private leaderboards;
+
+    function getLeaderboard(uint256 leaderboardId) external view returns (Leaderboard memory) {
+        return leaderboards[leaderboardId];
+    }
+}
 
 contract SecondaryMarketModuleTest is Test {
     OspexCore public core;
@@ -116,6 +127,10 @@ contract SecondaryMarketModuleTest is Test {
             jsonoddsId: ""
         });
         mockContestModule.setContest(1, contest);
+
+        // Register mock leaderboard module (needed for transfer lock checks)
+        MockLeaderboardModuleSM mockLeaderboard = new MockLeaderboardModuleSM();
+        core.registerModule(keccak256("LEADERBOARD_MODULE"), address(mockLeaderboard));
 
         // Deploy secondary market module
         market = new SecondaryMarketModule(
