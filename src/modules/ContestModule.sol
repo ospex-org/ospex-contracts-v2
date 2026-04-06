@@ -45,8 +45,8 @@ contract ContestModule is IContestModule {
     error ContestModule__InvalidCreateContestSourceHash();
     /// @notice Error for invalid update contest markets source hash
     error ContestModule__InvalidUpdateContestMarketsSourceHash();
-    /// @notice Error for attempting to overwrite a manual score via oracle
-    error ContestModule__ManualScoreIsFinal(uint256 contestId);
+    /// @notice Error for contest already scored
+    error ContestModule__AlreadyScored(uint256 contestId);
 
     // --- Constants ---
     /// @notice The role of the ScoreManager, for manual score setting
@@ -471,9 +471,10 @@ contract ContestModule is IContestModule {
         uint32 homeScore
     ) external override onlyOracleModule {
         if (
+            s_contests[contestId].contestStatus == ContestStatus.Scored ||
             s_contests[contestId].contestStatus == ContestStatus.ScoredManually
         ) {
-            revert ContestModule__ManualScoreIsFinal(contestId);
+            revert ContestModule__AlreadyScored(contestId);
         }
         s_contests[contestId].awayScore = awayScore;
         s_contests[contestId].homeScore = homeScore;
