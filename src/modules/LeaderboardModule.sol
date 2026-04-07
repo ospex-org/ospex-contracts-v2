@@ -585,7 +585,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
 
         ) = _calculateTimeBounds(leaderboard);
         if (
-            block.timestamp < roiWindowStart || block.timestamp > roiWindowEnd
+            block.timestamp < roiWindowStart || block.timestamp >= roiWindowEnd
         ) {
             revert LeaderboardModule__NotInROIWindow();
         }
@@ -691,7 +691,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         // Only allow during claim window
         if (
             block.timestamp < claimWindowStart ||
-            block.timestamp > claimWindowEnd
+            block.timestamp >= claimWindowEnd
         ) {
             revert LeaderboardModule__NotInClaimWindow();
         }
@@ -730,8 +730,10 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         // Calculate share from snapshot, not live pool
         uint256 share = scoring.snapshotPrizePool / scoring.winners.length;
 
-        // Transfer prize
-        treasuryModule.claimPrizePool(leaderboardId, msg.sender, share);
+        // Transfer prize (skip if nothing to transfer, e.g. free leaderboard)
+        if (share > 0) {
+            treasuryModule.claimPrizePool(leaderboardId, msg.sender, share);
+        }
 
         // Emit events
         emit LeaderboardPrizeClaimed(leaderboardId, msg.sender, share);
@@ -759,7 +761,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         (, , , uint256 claimWindowEnd) = _calculateTimeBounds(lb);
 
         // Only after claim window
-        if (block.timestamp <= claimWindowEnd) {
+        if (block.timestamp < claimWindowEnd) {
             revert LeaderboardModule__NotInClaimWindow();
         }
 
@@ -773,7 +775,13 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
                 leaderboardId
             );
             if (snapshotPrizePool == 0) {
-                revert LeaderboardModule__NoUnclaimedPrizes();
+                // Free leaderboard with no winners - nothing to sweep
+                emit LeaderboardPrizesSwept(leaderboardId, to, 0);
+                i_ospexCore.emitCoreEvent(
+                    keccak256("LEADERBOARD_PRIZES_SWEPT"),
+                    abi.encode(leaderboardId, to, 0)
+                );
+                return;
             }
             treasuryModule.claimPrizePool(leaderboardId, to, snapshotPrizePool);
             emit LeaderboardPrizesSwept(leaderboardId, to, snapshotPrizePool);

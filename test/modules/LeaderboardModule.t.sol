@@ -847,6 +847,66 @@ contract LeaderboardModuleTest is Test {
         leaderboardModule.claimLeaderboardPrize(leaderboardId);
     }
 
+    function testClaimLeaderboardPrize_RevertsAtClaimWindowEnd() public {
+        _setupLeaderboardWithWinner();
+
+        // Calculate exact claimWindowEnd
+        Leaderboard memory lb = leaderboardModule.getLeaderboard(leaderboardId);
+        uint256 roiWindowStart = uint256(lb.endTime) + uint256(lb.safetyPeriodDuration);
+        uint256 roiWindowEnd = roiWindowStart + uint256(lb.roiSubmissionWindow);
+        uint256 claimWindowEnd = roiWindowEnd + uint256(lb.claimWindow);
+
+        // Warp to exact claimWindowEnd — should be rejected (exclusive upper bound)
+        vm.warp(claimWindowEnd);
+
+        vm.prank(user1);
+        vm.expectRevert(LeaderboardModule.LeaderboardModule__NotInClaimWindow.selector);
+        leaderboardModule.claimLeaderboardPrize(leaderboardId);
+    }
+
+    function testClaimLeaderboardPrize_SucceedsOneSecondBeforeClaimWindowEnd() public {
+        _setupLeaderboardWithWinner();
+
+        Leaderboard memory lb = leaderboardModule.getLeaderboard(leaderboardId);
+        uint256 roiWindowStart = uint256(lb.endTime) + uint256(lb.safetyPeriodDuration);
+        uint256 roiWindowEnd = roiWindowStart + uint256(lb.roiSubmissionWindow);
+        uint256 claimWindowEnd = roiWindowEnd + uint256(lb.claimWindow);
+
+        // One second before claimWindowEnd — should succeed
+        vm.warp(claimWindowEnd - 1);
+
+        vm.mockCall(
+            address(treasuryModule),
+            abi.encodeWithSignature("claimPrizePool(uint256,address,uint256)"),
+            abi.encode()
+        );
+
+        vm.prank(user1);
+        leaderboardModule.claimLeaderboardPrize(leaderboardId);
+        assertTrue(leaderboardModule.hasClaimed(leaderboardId, user1));
+    }
+
+    function testAdminSweep_SucceedsAtExactClaimWindowEnd() public {
+        _setupLeaderboardWithWinner();
+
+        Leaderboard memory lb = leaderboardModule.getLeaderboard(leaderboardId);
+        uint256 roiWindowStart = uint256(lb.endTime) + uint256(lb.safetyPeriodDuration);
+        uint256 roiWindowEnd = roiWindowStart + uint256(lb.roiSubmissionWindow);
+        uint256 claimWindowEnd = roiWindowEnd + uint256(lb.claimWindow);
+
+        // Admin sweep at exact claimWindowEnd — should now succeed (no gap between claim end and sweep start)
+        vm.warp(claimWindowEnd);
+
+        vm.mockCall(
+            address(treasuryModule),
+            abi.encodeWithSignature("claimPrizePool(uint256,address,uint256)"),
+            abi.encode()
+        );
+
+        vm.prank(admin);
+        leaderboardModule.adminSweep(leaderboardId, admin);
+    }
+
     // --- Admin Sweep Tests ---
     function testAdminSweep_Success() public {
         _setupLeaderboardWithWinner();
@@ -1414,7 +1474,7 @@ contract LeaderboardModuleTest is Test {
         assertEq(roi, 0); // Push scenario = 0 ROI
     }
 
-    function testSubmitLeaderboardROI_SucceedsAtROIWindowEnd() public {
+    function testSubmitLeaderboardROI_RevertsAtROIWindowEnd() public {
         // Setup complete leaderboard scenario
         _setupCompleteLeaderboardScenario();
 
@@ -1423,15 +1483,12 @@ contract LeaderboardModuleTest is Test {
         uint256 roiWindowStart = uint256(lb.endTime) + uint256(lb.safetyPeriodDuration);
         uint256 roiWindowEnd = roiWindowStart + uint256(lb.roiSubmissionWindow);
 
-        // Warp to exactly the ROI window end (boundary, uses <=)
+        // Warp to exactly the ROI window end — boundary is now exclusive to prevent overlap with claim window
         vm.warp(roiWindowEnd);
 
         vm.prank(user1);
+        vm.expectRevert(LeaderboardModule.LeaderboardModule__NotInROIWindow.selector);
         leaderboardModule.submitLeaderboardROI(leaderboardId);
-
-        // Verify ROI was submitted successfully
-        int256 roi = leaderboardModule.getUserROI(leaderboardId, user1);
-        assertEq(roi, 0); // Push scenario = 0 ROI
     }
 
     function testSubmitLeaderboardROI_RevertsAfterROIWindowCloses() public {
@@ -1587,7 +1644,7 @@ contract LeaderboardModuleTest is Test {
     }
 
     /// @notice adminSweep with zero winners and empty pool reverts
-    function testAdminSweep_ZeroWinners_EmptyPool_Reverts() public {
+    function testAdminSweep_ZeroWinners_EmptyPool_Succeeds() public {
         // Create a free leaderboard (no entry fee → empty pool)
         vm.prank(admin);
         uint256 freeLbId = leaderboardModule.createLeaderboard(
@@ -1605,9 +1662,17 @@ contract LeaderboardModuleTest is Test {
         (, , , uint256 claimWindowEnd) = _calculateTimeBoundsExternal(lb);
         vm.warp(claimWindowEnd + 1);
 
-        // Sweep on empty pool → revert
+        // Mock treasury to return 0 prize pool
+        vm.mockCall(
+            address(treasuryModule),
+            abi.encodeWithSignature("getPrizePool(uint256)"),
+            abi.encode(0)
+        );
+
+        // Sweep on empty pool → short-circuits with zero amount event
         vm.prank(admin);
-        vm.expectRevert(LeaderboardModule.LeaderboardModule__NoUnclaimedPrizes.selector);
+        vm.expectEmit(true, true, true, true);
+        emit LeaderboardModule.LeaderboardPrizesSwept(freeLbId, admin, 0);
         leaderboardModule.adminSweep(freeLbId, admin);
     }
 
@@ -1964,5 +2029,149 @@ contract LeaderboardModuleTest is Test {
             ROI_WINDOW,
             0 // claimWindow = 0
         );
+    }
+
+    // --- ROI/Claim Window Overlap Fix Tests ---
+
+    function testSubmitROI_RevertsAtExactBoundary() public {
+        // Setup a winner scenario
+        _setupCompleteLeaderboardScenario();
+
+        // Calculate the exact roiWindowEnd boundary
+        Leaderboard memory lb = leaderboardModule.getLeaderboard(leaderboardId);
+        uint256 roiWindowEnd = uint256(lb.endTime) + uint256(lb.safetyPeriodDuration) + uint256(lb.roiSubmissionWindow);
+
+        // Warp to exact boundary (roiWindowEnd == claimWindowStart)
+        vm.warp(roiWindowEnd);
+
+        // ROI submission should be rejected at exact boundary (window is now exclusive on upper end)
+        vm.prank(user1);
+        vm.expectRevert(LeaderboardModule.LeaderboardModule__NotInROIWindow.selector);
+        leaderboardModule.submitLeaderboardROI(leaderboardId);
+    }
+
+    function testSubmitROI_SucceedsOneSecondBeforeBoundary() public {
+        _setupCompleteLeaderboardScenario();
+
+        Leaderboard memory lb = leaderboardModule.getLeaderboard(leaderboardId);
+        uint256 roiWindowEnd = uint256(lb.endTime) + uint256(lb.safetyPeriodDuration) + uint256(lb.roiSubmissionWindow);
+
+        // One second before boundary — should succeed
+        vm.warp(roiWindowEnd - 1);
+
+        vm.prank(user1);
+        leaderboardModule.submitLeaderboardROI(leaderboardId);
+
+        // Verify ROI was stored
+        int256 roi = leaderboardModule.getUserROI(leaderboardId, user1);
+        // ROI value depends on position mock (Push = 0 ROI), but no revert means success
+        assertEq(roi, 0);
+    }
+
+    // --- Free Leaderboard (Zero Entry Fee) Tests ---
+
+    function testFreeLeaderboard_WinnerCanClaim() public {
+        // Create a free leaderboard (0 entry fee)
+        vm.prank(admin);
+        uint256 freeLbId = leaderboardModule.createLeaderboard(
+            0, // entryFee = 0
+            address(0),
+            uint32(block.timestamp + 1 hours),
+            uint32(block.timestamp + 8 days),
+            SAFETY_PERIOD,
+            ROI_WINDOW,
+            CLAIM_WINDOW
+        );
+
+        // Register user (no entry fee needed)
+        _mockRulesModuleForRegistration();
+        vm.warp(block.timestamp + 2 hours);
+        vm.prank(user1);
+        leaderboardModule.registerUser(freeLbId, DECLARED_BANKROLL);
+
+        // Setup position
+        vm.prank(admin);
+        leaderboardModule.addLeaderboardSpeculation(freeLbId, speculationId);
+        _mockPositionModuleCalls();
+        _mockRulesModuleValidation(true);
+
+        vm.prank(user1);
+        leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, freeLbId);
+
+        // Mock min positions
+        vm.mockCall(
+            address(rulesModule),
+            abi.encodeWithSignature("isMinPositionsMet(uint256,uint256)"),
+            abi.encode(true)
+        );
+
+        // Mock speculation as Push for ROI calc
+        vm.mockCall(
+            address(speculationModule),
+            abi.encodeWithSignature("getSpeculation(uint256)"),
+            abi.encode(contestId, admin, int32(0), address(0), uint8(1), uint8(5))
+        );
+
+        // Submit ROI
+        Leaderboard memory lb = leaderboardModule.getLeaderboard(freeLbId);
+        uint256 roiWindowStart = uint256(lb.endTime) + uint256(lb.safetyPeriodDuration);
+        vm.warp(roiWindowStart);
+        vm.prank(user1);
+        leaderboardModule.submitLeaderboardROI(freeLbId);
+
+        // Warp to claim window
+        uint256 roiWindowEnd = roiWindowStart + uint256(lb.roiSubmissionWindow);
+        vm.warp(roiWindowEnd);
+
+        // Mock treasury to return 0 prize pool
+        vm.mockCall(
+            address(treasuryModule),
+            abi.encodeWithSignature("getPrizePool(uint256)"),
+            abi.encode(0)
+        );
+
+        // Winner should be able to claim without reverting (share = 0, skips treasury call)
+        vm.prank(user1);
+        vm.expectEmit(true, true, true, true);
+        emit LeaderboardModule.LeaderboardPrizeClaimed(freeLbId, user1, 0);
+        leaderboardModule.claimLeaderboardPrize(freeLbId);
+
+        // Verify user is marked as claimed
+        assertTrue(leaderboardModule.hasClaimed(freeLbId, user1));
+    }
+
+    function testFreeLeaderboard_AdminSweepWithZeroWinners() public {
+        // Create a free leaderboard
+        vm.prank(admin);
+        uint256 freeLbId = leaderboardModule.createLeaderboard(
+            0,
+            address(0),
+            uint32(block.timestamp + 1 hours),
+            uint32(block.timestamp + 8 days),
+            SAFETY_PERIOD,
+            ROI_WINDOW,
+            CLAIM_WINDOW
+        );
+
+        // Warp past claim window without any registrations or ROI submissions
+        Leaderboard memory lb = leaderboardModule.getLeaderboard(freeLbId);
+        uint256 claimWindowEnd = uint256(lb.endTime)
+            + uint256(lb.safetyPeriodDuration)
+            + uint256(lb.roiSubmissionWindow)
+            + uint256(lb.claimWindow);
+        vm.warp(claimWindowEnd + 1);
+
+        // Mock treasury to return 0 prize pool
+        vm.mockCall(
+            address(treasuryModule),
+            abi.encodeWithSignature("getPrizePool(uint256)"),
+            abi.encode(0)
+        );
+
+        // Admin sweep should succeed (short-circuits on zero pool)
+        vm.prank(admin);
+        vm.expectEmit(true, true, true, true);
+        emit LeaderboardModule.LeaderboardPrizesSwept(freeLbId, admin, 0);
+        leaderboardModule.adminSweep(freeLbId, admin);
     }
 }
