@@ -577,6 +577,7 @@ contract SecondaryMarketModuleTest is Test {
         vm.expectEmit(true, true, false, true, address(core));
         emit OspexCore.CoreEventEmitted(
             keccak256("POSITION_LISTED"),
+            address(market),
             abi.encode(
                 speculationId,
                 seller,
@@ -642,9 +643,10 @@ contract SecondaryMarketModuleTest is Test {
         uint256 before = token.balanceOf(seller);
         vm.expectEmit(true, false, false, true);
         emit SecondaryMarketModule.SaleProceedsClaimed(seller, price);
-        vm.expectEmit(true, false, false, true, address(core));
+        vm.expectEmit(true, true, false, true, address(core));
         emit OspexCore.CoreEventEmitted(
             keccak256("SALE_PROCEEDS_CLAIMED"),
+            address(market),
             abi.encode(seller, price)
         );
         market.claimSaleProceeds();
@@ -684,6 +686,7 @@ contract SecondaryMarketModuleTest is Test {
         vm.expectEmit(true, true, false, true, address(core));
         emit OspexCore.CoreEventEmitted(
             keccak256("LISTING_CANCELLED"),
+            address(market),
             abi.encode(speculationId, seller, positionType)
         );
         market.cancelListing(speculationId, positionType);
@@ -797,6 +800,7 @@ contract SecondaryMarketModuleTest is Test {
         vm.expectEmit(true, true, false, true, address(core));
         emit OspexCore.CoreEventEmitted(
             keccak256("LISTING_UPDATED"),
+            address(market),
             abi.encode(
                 speculationId,
                 seller,
@@ -945,6 +949,7 @@ contract SecondaryMarketModuleTest is Test {
         vm.expectEmit(true, true, true, true, address(core));
         emit OspexCore.CoreEventEmitted(
             keccak256("POSITION_SOLD"),
+            address(market),
             abi.encode(
                 speculationId,
                 seller,

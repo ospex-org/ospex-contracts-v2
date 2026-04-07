@@ -63,10 +63,8 @@ contract TotalScorerModule is IScorerModule {
      * @param _awayScore Away team score (raw game score, not scaled)
      * @param _homeScore Home team score (raw game score, not scaled)
      * @param _lineTicks Total line, stored as 10x (e.g., 220.5 = 2205).
-     *                   Over wins when (awayScore + homeScore) * 10 >= lineTicks.
-     *                   For example:
-     *                   - If _lineTicks is 2205 (220.5) and combined score is 221, scaled to 2210: Over
-     *                   - If _lineTicks is 2205 (220.5) and combined score is 220, scaled to 2200: Under
+     *                   Over wins when (awayScore + homeScore) * 10 > lineTicks.
+     *                   Exact equality results in a Push.
      * @return WinSide The winning side of the speculation
      */
     function scoreTotal(
@@ -78,10 +76,12 @@ contract TotalScorerModule is IScorerModule {
         // forge-lint: disable-next-line(unsafe-typecast)
         int32 scaledTotal = int32(_awayScore + _homeScore) * 10;
 
-        if (scaledTotal >= _lineTicks) {
+        if (scaledTotal > _lineTicks) {
             return WinSide.Over;
-        } else {
+        } else if (scaledTotal < _lineTicks) {
             return WinSide.Under;
+        } else {
+            return WinSide.Push;
         }
     }
 

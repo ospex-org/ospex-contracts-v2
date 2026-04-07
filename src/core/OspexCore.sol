@@ -50,8 +50,21 @@ contract OspexCore is AccessControl {
 
     /// @notice Emitted when a protocol-wide event is emitted for off-chain indexing
     /// @param eventType The bytes32 event type identifier
+    /// @param emitter The address of the module that emitted the event
     /// @param eventData Arbitrary event data (encoded)
-    event CoreEventEmitted(bytes32 indexed eventType, bytes eventData);
+    event CoreEventEmitted(
+        bytes32 indexed eventType,
+        address indexed emitter,
+        bytes eventData
+    );
+
+    /// @notice Emitted when a module is retired (replaced by a newer version)
+    /// @param moduleType The bytes32 identifier for the module type that was replaced
+    /// @param retiredAddress The address of the old module now in retired status
+    event ModuleRetired(
+        bytes32 indexed moduleType,
+        address indexed retiredAddress
+    );
 
     /// @notice Role for managing modules
     bytes32 public constant MODULE_ADMIN_ROLE = keccak256("MODULE_ADMIN_ROLE");
@@ -68,6 +81,13 @@ contract OspexCore is AccessControl {
     mapping(bytes32 => address) public s_moduleRegistry;
     /// @notice Reverse mapping to efficiently check if an address is a registered module
     mapping(address => bool) public s_isModuleRegistered;
+    /// @notice Tracks module addresses that have been replaced but may still need to
+    ///         complete in-flight operations (e.g., position claims).
+    /// @dev When registerModule() replaces an existing module, the old address is moved
+    ///      here instead of being fully deregistered. Retired modules are ONLY permitted
+    ///      to call emitCoreEvent — they cannot processFee or other registered-module
+    ///      functions. This is intentionally permanent: there is no removal function.
+    mapping(address => bool) public s_isRetiredModule;
 
     /**
      * @notice Constructor sets deployer as protocol admin and module admin
@@ -94,6 +114,8 @@ contract OspexCore is AccessControl {
         address oldAddress = s_moduleRegistry[moduleType];
         if (oldAddress != address(0) && oldAddress != moduleAddress) {
             s_isModuleRegistered[oldAddress] = false; // Mark old address as no longer registered (for this type)
+            s_isRetiredModule[oldAddress] = true;
+            emit ModuleRetired(moduleType, oldAddress);
         }
         s_moduleRegistry[moduleType] = moduleAddress;
         s_isModuleRegistered[moduleAddress] = true; // Mark new address as registered
@@ -144,7 +166,9 @@ contract OspexCore is AccessControl {
 
     /**
      * @notice Emits a protocol-wide event for off-chain indexing
-     * @dev Callable by any registered module
+     * @dev Callable by any registered module or retired module. Retired modules
+     *      retain access so that in-flight operations (e.g., position claims from
+     *      a replaced PositionModule) can complete without reverting.
      * @param eventType The bytes32 event type identifier
      * @param eventData Arbitrary event data (encoded)
      */
@@ -152,10 +176,15 @@ contract OspexCore is AccessControl {
         bytes32 eventType,
         bytes calldata eventData
     ) external {
-        if (!isRegisteredModule(msg.sender)) {
+        // Allow both active registered modules and retired modules to emit events.
+        // Allows retired modules to complete in-flight operations.
+        // This is the only gated function that retired modules are permitted to call.
+        if (
+            !s_isModuleRegistered[msg.sender] && !s_isRetiredModule[msg.sender]
+        ) {
             revert OspexCore__NotRegisteredModule(msg.sender);
         }
-        emit CoreEventEmitted(eventType, eventData);
+        emit CoreEventEmitted(eventType, msg.sender, eventData);
     }
 
     /**

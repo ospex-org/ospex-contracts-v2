@@ -352,7 +352,8 @@ contract ScorerModuleTest is Test {
         Speculation memory s = speculationModule.getSpeculation(speculationId);
         assertEq(uint(s.winSide), uint(WinSide.Under));
     }
-    function testTotal_Over_Exact() public {
+    function testTotal_Push_Exact() public {
+        // Away 10, Home 10, total 200 (20.0) — scaledTotal = 200 == lineTicks => Push
         uint256 contestId = _storeContest(_contest(10, 10, ContestStatus.Scored));
         int32 totalNum = 200; // 20.0 in 10x format
         uint256 speculationId = speculationModule.createSpeculation(
@@ -366,7 +367,7 @@ contract ScorerModuleTest is Test {
         vm.warp(block.timestamp + 2);
         speculationModule.settleSpeculation(speculationId);
         Speculation memory s = speculationModule.getSpeculation(speculationId);
-        assertEq(uint(s.winSide), uint(WinSide.Over));
+        assertEq(uint(s.winSide), uint(WinSide.Push));
     }
     // --- Total 10x half-point tests ---
     function testTotal_Over_HalfPoint() public {
@@ -405,10 +406,28 @@ contract ScorerModuleTest is Test {
         Speculation memory s = speculationModule.getSpeculation(speculationId);
         assertEq(uint(s.winSide), uint(WinSide.Under));
     }
-    function testTotal_Over_ExactWholeNumber() public {
+    function testTotal_Push_ExactWholeNumber() public {
         // Away 110, Home 110, total 2200 (220.0)
-        // scaledTotal = (110 + 110) * 10 = 2200, 2200 >= 2200 => Over (contract uses >=)
+        // scaledTotal = (110 + 110) * 10 = 2200, 2200 == 2200 => Push
         uint256 contestId = _storeContest(_contest(110, 110, ContestStatus.Scored));
+        int32 totalNum = 2200; // 220.0 in 10x format
+        uint256 speculationId = speculationModule.createSpeculation(
+            contestId,
+            address(total),
+            totalNum,
+            address(this),
+            leaderboardId
+        );
+        _finalizeContest(contestId);
+        vm.warp(block.timestamp + 2);
+        speculationModule.settleSpeculation(speculationId);
+        Speculation memory s = speculationModule.getSpeculation(speculationId);
+        assertEq(uint(s.winSide), uint(WinSide.Push));
+    }
+    function testTotal_Over_OneAboveWholeNumber() public {
+        // Away 111, Home 110, total 2200 (220.0)
+        // scaledTotal = (111 + 110) * 10 = 2210, 2210 > 2200 => Over
+        uint256 contestId = _storeContest(_contest(111, 110, ContestStatus.Scored));
         int32 totalNum = 2200; // 220.0 in 10x format
         uint256 speculationId = speculationModule.createSpeculation(
             contestId,
@@ -423,6 +442,7 @@ contract ScorerModuleTest is Test {
         Speculation memory s = speculationModule.getSpeculation(speculationId);
         assertEq(uint(s.winSide), uint(WinSide.Over));
     }
+
     function testTotal_Revert_NotSpeculationModule() public {
         uint256 contestId = _storeContest(_contest(10, 15, ContestStatus.Scored));
         address notSpeculationModule = address(0xDEAD);
