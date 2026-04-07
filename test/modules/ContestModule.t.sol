@@ -68,9 +68,9 @@ contract ContestModuleTest is Test {
         core.registerModule(keccak256("LEADERBOARD_MODULE"), address(mockLeaderboardModule));
         
         // Register mock scorer modules for updateContestMarkets tests
-        core.registerModule(keccak256("MONEYLINE_SCORER"), moneylineScorer);
-        core.registerModule(keccak256("SPREAD_SCORER"), spreadScorer);
-        core.registerModule(keccak256("TOTAL_SCORER"), totalScorer);
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), moneylineScorer);
+        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), spreadScorer);
+        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), totalScorer);
         
         // Grant admin role to admin account
         core.grantRole(core.DEFAULT_ADMIN_ROLE(), admin);
@@ -763,5 +763,92 @@ contract ContestModuleTest is Test {
             abi.encodeWithSelector(ContestModule.ContestModule__AlreadyScored.selector, contestId)
         );
         contestModule.setScores(contestId, 110, 90);
+    }
+
+    // --- setContestLeagueIdAndStartTime Validation Tests ---
+
+    function testSetContestLeagueIdAndStartTime_RevertsIfUnknownLeague() public {
+        // Create a contest first
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest("rd", "sp", "jo", bytes32("hash"), contestCreator, leaderboardId);
+
+        vm.prank(oracleModule);
+        vm.expectRevert(ContestModule.ContestModule__InvalidValue.selector);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.Unknown, uint32(block.timestamp));
+    }
+
+    function testSetContestLeagueIdAndStartTime_RevertsIfStartTimeZero() public {
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest("rd", "sp", "jo", bytes32("hash"), contestCreator, leaderboardId);
+
+        vm.prank(oracleModule);
+        vm.expectRevert(ContestModule.ContestModule__InvalidValue.selector);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, 0);
+    }
+
+    // --- updateContestMarkets Validation Tests ---
+
+    function testUpdateContestMarkets_RevertsIfAnyOddsZero() public {
+        vm.prank(oracleModule);
+        vm.expectRevert(ContestModule.ContestModule__InvalidMarketData.selector);
+        contestModule.updateContestMarkets(
+            1,
+            0,    // moneylineAwayOdds = 0
+            250,
+            -35,
+            180,
+            220,
+            2250,
+            190,
+            210
+        );
+    }
+
+    function testUpdateContestMarkets_RevertsIfUnderOddsZero() public {
+        vm.prank(oracleModule);
+        vm.expectRevert(ContestModule.ContestModule__InvalidMarketData.selector);
+        contestModule.updateContestMarkets(
+            1,
+            150,
+            250,
+            -35,
+            180,
+            220,
+            2250,
+            190,
+            0     // underOdds = 0
+        );
+    }
+
+    function testUpdateContestMarkets_RevertsIfNegativeTotalLineTicks() public {
+        vm.prank(oracleModule);
+        vm.expectRevert(ContestModule.ContestModule__InvalidMarketData.selector);
+        contestModule.updateContestMarkets(
+            1,
+            150,
+            250,
+            -35,
+            180,
+            220,
+            -10,   // totalLineTicks < 0
+            190,
+            210
+        );
+    }
+
+    // --- createContest All-Empty Source IDs Test ---
+
+    function testCreateContest_RevertsIfAllSourceIdsEmpty() public {
+        vm.prank(oracleModule);
+        vm.expectRevert(ContestModule.ContestModule__InvalidValue.selector);
+        contestModule.createContest("", "", "", bytes32("hash"), contestCreator, leaderboardId);
+    }
+
+    function testCreateContest_SucceedsWithOneSourceId() public {
+        // At least one non-empty source ID should succeed
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest("", "", "jo", bytes32("hash"), contestCreator, leaderboardId);
+        Contest memory c = contestModule.getContest(contestId);
+        assertEq(c.jsonoddsId, "jo");
     }
 }

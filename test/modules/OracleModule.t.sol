@@ -521,7 +521,7 @@ contract OracleModuleTest is Test {
         contestModule.setContestLeagueIdAndStartTime(
             contestId,
             LeagueId.NBA,
-            uint32(block.timestamp - 1)
+            uint32(block.timestamp)
         );
 
         // Act: call scoreContestFromOracle as user
@@ -614,7 +614,7 @@ contract OracleModuleTest is Test {
         contestModule.setContestLeagueIdAndStartTime(
             contestId,
             LeagueId.NBA,
-            uint32(block.timestamp - 1)
+            uint32(block.timestamp)
         );
 
         // Act & Assert: should revert due to incorrect score source hash
@@ -736,8 +736,8 @@ contract OracleModuleTest is Test {
         );
 
         // Simulate response: encode a uint256 with a start time in the last 10 digits
-        // Use LeagueId.NBA (4) instead of 33 which is out of range
-        uint256 contestData = 4000000000000000000000001234; // LeagueId.NBA (4) at position 1e18, startTime 1234 at end
+        // LeagueId.NBA (4) at 1e18 position, startTime 1234 in last 10 digits
+        uint256 contestData = 4 * 1e18 + 1234; // LeagueId.NBA (4) at position 1e18, startTime 1234 at end
         bytes memory response = abi.encodePacked(contestData);
         bytes memory err = hex"";
         // Expect Response event
@@ -791,7 +791,7 @@ contract OracleModuleTest is Test {
         testContestModule.setContestLeagueIdAndStartTime(
             contestId,
             LeagueId.NBA,
-            uint32(block.timestamp - 1)
+            uint32(block.timestamp)
         );
 
         // Simulate oracle request mapping
@@ -971,6 +971,12 @@ contract OracleModuleTest is Test {
         oracleModule.setLinkDenominator(newDenominator);
     }
 
+    function testSetLinkDenominator_RevertsIfZero() public {
+        vm.prank(admin);
+        vm.expectRevert(OracleModule.OracleModule__InvalidValue.selector);
+        oracleModule.setLinkDenominator(0);
+    }
+
     // --- Utility Function Tests ---
     /**
      * @notice Tests conversion of positive American odds to tick format
@@ -1111,7 +1117,7 @@ contract OracleModuleTest is Test {
         contestModule.setContestLeagueIdAndStartTime(
             contestId,
             LeagueId.NBA,
-            uint32(block.timestamp - 1)
+            uint32(block.timestamp)
         );
 
         // Act: call updateContestMarketsFromOracle
@@ -1164,7 +1170,7 @@ contract OracleModuleTest is Test {
         contestModule.setContestLeagueIdAndStartTime(
             contestId,
             LeagueId.NBA,
-            uint32(block.timestamp - 1)
+            uint32(block.timestamp)
         );
 
         // Act & Assert: should revert due to incorrect source hash
@@ -1259,7 +1265,7 @@ contract OracleModuleTest is Test {
         contestModule.setContestLeagueIdAndStartTime(
             contestId,
             LeagueId.NBA,
-            uint32(block.timestamp - 1)
+            uint32(block.timestamp)
         );
 
         // User has no more LINK for the update call
@@ -1305,9 +1311,9 @@ contract OracleModuleTest is Test {
         address moneylineScorer = address(0xAAA1);
         address spreadScorer = address(0xAAA2);
         address totalScorer = address(0xAAA3);
-        core.registerModule(keccak256("MONEYLINE_SCORER"), moneylineScorer);
-        core.registerModule(keccak256("SPREAD_SCORER"), spreadScorer);
-        core.registerModule(keccak256("TOTAL_SCORER"), totalScorer);
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), moneylineScorer);
+        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), spreadScorer);
+        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), totalScorer);
 
         // Arrange: create and verify contest
         string memory rundownId = "rd";
@@ -1331,7 +1337,7 @@ contract OracleModuleTest is Test {
         testContestModule.setContestLeagueIdAndStartTime(
             contestId,
             LeagueId.NBA,
-            uint32(block.timestamp - 1)
+            uint32(block.timestamp)
         );
 
         // Simulate oracle request mapping

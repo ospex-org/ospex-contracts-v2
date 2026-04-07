@@ -92,8 +92,8 @@ contract RulesModuleTest is Test {
         core.registerModule(keccak256("ORACLE_MODULE"), address(this)); // Test contract as oracle
 
         // Register scorer modules for directional position conflict testing
-        core.registerModule(keccak256("MONEYLINE_SCORER"), address(mockScorerModule));
-        core.registerModule(keccak256("SPREAD_SCORER"), address(mockScorerModule));
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), address(mockScorerModule));
+        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), address(mockScorerModule));
 
         // Grant admin role
         core.grantRole(core.DEFAULT_ADMIN_ROLE(), admin);
@@ -921,8 +921,8 @@ contract RulesModuleTest is Test {
         address mockSpreadScorer = address(0x2222);
 
         // Register these as separate scorer modules
-        core.registerModule(keccak256("MONEYLINE_SCORER"), mockMoneylineScorer);
-        core.registerModule(keccak256("SPREAD_SCORER"), mockSpreadScorer);
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), mockMoneylineScorer);
+        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), mockSpreadScorer);
 
         // Set up contest markets for both scorer addresses (uint16 ticks, 10x lineTicks)
         mockContestModule.setContestMarket(contestId, mockMoneylineScorer, ContestMarket({
@@ -1023,8 +1023,8 @@ contract RulesModuleTest is Test {
         address mockSpreadScorer = address(0x2222);
 
         // Register these as separate scorer modules
-        core.registerModule(keccak256("MONEYLINE_SCORER"), mockMoneylineScorer);
-        core.registerModule(keccak256("SPREAD_SCORER"), mockSpreadScorer);
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), mockMoneylineScorer);
+        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), mockSpreadScorer);
 
         // Set up contest markets for both scorer addresses (uint16 ticks, 10x lineTicks)
         mockContestModule.setContestMarket(contestId, mockMoneylineScorer, ContestMarket({
@@ -1215,5 +1215,120 @@ contract RulesModuleTest is Test {
         vm.prank(admin);
         vm.expectRevert(RulesModule.RulesModule__LeaderboardStarted.selector);
         rulesModule.setMinBets(leaderboardId, MIN_BETS);
+    }
+
+    // --- Cross-field Invariant Tests ---
+
+    function testSetMinBankroll_RevertsIfExceedsMax() public {
+        // Set max first
+        vm.prank(admin);
+        rulesModule.setMaxBankroll(leaderboardId, 100_000_000); // 100 USDC
+
+        // Try to set min above max
+        vm.prank(admin);
+        vm.expectRevert(RulesModule.RulesModule__InvalidValue.selector);
+        rulesModule.setMinBankroll(leaderboardId, 200_000_000); // 200 USDC > max
+    }
+
+    function testSetMaxBankroll_RevertsIfBelowMin() public {
+        // Set min first
+        vm.prank(admin);
+        rulesModule.setMinBankroll(leaderboardId, 100_000_000); // 100 USDC
+
+        // Try to set max below min
+        vm.prank(admin);
+        vm.expectRevert(RulesModule.RulesModule__InvalidValue.selector);
+        rulesModule.setMaxBankroll(leaderboardId, 50_000_000); // 50 USDC < min
+    }
+
+    function testSetMinBetPercentage_RevertsIfExceedsMax() public {
+        // Set max first
+        vm.prank(admin);
+        rulesModule.setMaxBetPercentage(leaderboardId, 500); // 5%
+
+        // Try to set min above max
+        vm.prank(admin);
+        vm.expectRevert(RulesModule.RulesModule__InvalidValue.selector);
+        rulesModule.setMinBetPercentage(leaderboardId, 1000); // 10% > max
+    }
+
+    function testSetMaxBetPercentage_RevertsIfBelowMin() public {
+        // Set min first
+        vm.prank(admin);
+        rulesModule.setMinBetPercentage(leaderboardId, 500); // 5%
+
+        // Try to set max below min
+        vm.prank(admin);
+        vm.expectRevert(RulesModule.RulesModule__InvalidValue.selector);
+        rulesModule.setMaxBetPercentage(leaderboardId, 100); // 1% < min
+    }
+
+    function testBankroll_EitherOrderWorks() public {
+        // Set min first, then max — should work
+        vm.prank(admin);
+        rulesModule.setMinBankroll(leaderboardId, 50_000_000);
+        vm.prank(admin);
+        rulesModule.setMaxBankroll(leaderboardId, 200_000_000);
+
+        assertEq(rulesModule.s_minBankroll(leaderboardId), 50_000_000);
+        assertEq(rulesModule.s_maxBankroll(leaderboardId), 200_000_000);
+
+        // Create a second leaderboard to test reverse order
+        vm.prank(admin);
+        uint256 lb2 = leaderboardModule.createLeaderboard(
+            0, address(0),
+            uint32(block.timestamp + 1 hours),
+            uint32(block.timestamp + 8 days),
+            SAFETY_PERIOD, ROI_WINDOW, CLAIM_WINDOW
+        );
+
+        // Set max first, then min — should also work
+        vm.prank(admin);
+        rulesModule.setMaxBankroll(lb2, 200_000_000);
+        vm.prank(admin);
+        rulesModule.setMinBankroll(lb2, 50_000_000);
+
+        assertEq(rulesModule.s_minBankroll(lb2), 50_000_000);
+        assertEq(rulesModule.s_maxBankroll(lb2), 200_000_000);
+    }
+
+    function testBetPercentage_EitherOrderWorks() public {
+        // Set min first, then max
+        vm.prank(admin);
+        rulesModule.setMinBetPercentage(leaderboardId, 100); // 1%
+        vm.prank(admin);
+        rulesModule.setMaxBetPercentage(leaderboardId, 1000); // 10%
+
+        assertEq(rulesModule.s_minBetPercentage(leaderboardId), 100);
+        assertEq(rulesModule.s_maxBetPercentage(leaderboardId), 1000);
+
+        // Create a second leaderboard to test reverse order
+        vm.prank(admin);
+        uint256 lb2 = leaderboardModule.createLeaderboard(
+            0, address(0),
+            uint32(block.timestamp + 1 hours),
+            uint32(block.timestamp + 8 days),
+            SAFETY_PERIOD, ROI_WINDOW, CLAIM_WINDOW
+        );
+
+        // Set max first, then min
+        vm.prank(admin);
+        rulesModule.setMaxBetPercentage(lb2, 1000);
+        vm.prank(admin);
+        rulesModule.setMinBetPercentage(lb2, 100);
+
+        assertEq(rulesModule.s_minBetPercentage(lb2), 100);
+        assertEq(rulesModule.s_maxBetPercentage(lb2), 1000);
+    }
+
+    function testBankroll_EqualMinMaxAllowed() public {
+        // min == max is a valid config (fixed bankroll)
+        vm.prank(admin);
+        rulesModule.setMinBankroll(leaderboardId, 100_000_000);
+        vm.prank(admin);
+        rulesModule.setMaxBankroll(leaderboardId, 100_000_000);
+
+        assertEq(rulesModule.s_minBankroll(leaderboardId), 100_000_000);
+        assertEq(rulesModule.s_maxBankroll(leaderboardId), 100_000_000);
     }
 }

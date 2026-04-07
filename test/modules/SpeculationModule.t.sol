@@ -81,6 +81,10 @@ contract SpeculationModuleTest is Test {
         // Grant admin role to admin account
         core.grantRole(core.DEFAULT_ADMIN_ROLE(), admin);
 
+        // Register scorer modules so _getModule lookups don't revert
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), address(0xCC01));
+        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), address(0xCC02));
+
         // Grant SCORER_ROLE to common test scorer addresses
         core.setScorerRole(address(0xBEEF), true);
 
@@ -588,6 +592,10 @@ contract SpeculationModuleTest is Test {
         });
         mockContest.setContest(1, testContest);
 
+        // Register scorer modules so _getModule lookups for lineTicks validation don't revert
+        newCore.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), address(0xCC01));
+        newCore.registerModule(keccak256("TOTAL_SCORER_MODULE"), address(0xCC02));
+
         // Grant SCORER_ROLE so we get past the scorer check and hit the missing TREASURY_MODULE
         newCore.setScorerRole(address(0xBEEF), true);
 
@@ -833,5 +841,70 @@ contract SpeculationModuleTest is Test {
         Speculation memory s = speculationModule.getSpeculation(id);
         assertEq(s.contestId, 1);
         assertEq(uint(s.speculationStatus), uint(SpeculationStatus.Open));
+    }
+
+    // --- Scorer-Specific LineTicks Validation Tests ---
+
+    // Helper: register both scorer modules so _getModule doesn't revert
+    address constant MOCK_MONEYLINE = address(0xAA01);
+    address constant MOCK_TOTAL = address(0xAA02);
+
+    function _registerScorerModules() internal {
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), MOCK_MONEYLINE);
+        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), MOCK_TOTAL);
+        core.setScorerRole(MOCK_MONEYLINE, true);
+        core.setScorerRole(MOCK_TOTAL, true);
+    }
+
+    function testCreateSpeculation_RevertsIfMoneylineScorerWithNonZeroLineTicks() public {
+        _registerScorerModules();
+
+        vm.expectRevert(SpeculationModule.SpeculationModule__InvalidLineTicks.selector);
+        speculationModule.createSpeculation(
+            1, MOCK_MONEYLINE, 5, address(this), leaderboardId
+        );
+    }
+
+    function testCreateSpeculation_SucceedsIfMoneylineScorerWithZeroLineTicks() public {
+        _registerScorerModules();
+
+        uint256 id = speculationModule.createSpeculation(
+            1, MOCK_MONEYLINE, 0, address(this), leaderboardId
+        );
+        Speculation memory s = speculationModule.getSpeculation(id);
+        assertEq(s.lineTicks, 0);
+    }
+
+    function testCreateSpeculation_RevertsIfTotalScorerWithNegativeLineTicks() public {
+        _registerScorerModules();
+
+        vm.expectRevert(SpeculationModule.SpeculationModule__InvalidLineTicks.selector);
+        speculationModule.createSpeculation(
+            1, MOCK_TOTAL, -100, address(this), leaderboardId
+        );
+    }
+
+    function testCreateSpeculation_SucceedsIfTotalScorerWithPositiveLineTicks() public {
+        _registerScorerModules();
+
+        uint256 id = speculationModule.createSpeculation(
+            1, MOCK_TOTAL, 2250, address(this), leaderboardId
+        );
+        Speculation memory s = speculationModule.getSpeculation(id);
+        assertEq(s.lineTicks, 2250);
+    }
+
+    function testCreateSpeculation_SpreadScorerAllowsAnyLineTicks() public {
+        _registerScorerModules();
+
+        // Spread scorer (not moneyline or total) should allow negative lineTicks
+        address spreadScorer = address(0xAA03);
+        core.setScorerRole(spreadScorer, true);
+
+        uint256 id = speculationModule.createSpeculation(
+            1, spreadScorer, -35, address(this), leaderboardId
+        );
+        Speculation memory s = speculationModule.getSpeculation(id);
+        assertEq(s.lineTicks, -35);
     }
 }

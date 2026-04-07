@@ -47,6 +47,10 @@ contract ContestModule is IContestModule {
     error ContestModule__InvalidUpdateContestMarketsSourceHash();
     /// @notice Error for contest already scored
     error ContestModule__AlreadyScored(uint256 contestId);
+    /// @notice Error for invalid value (ie bad league or start time)
+    error ContestModule__InvalidValue();
+    /// @notice Error for invalid market data
+    error ContestModule__InvalidMarketData();
 
     // --- Constants ---
     /// @notice The role of the ScoreManager, for manual score setting
@@ -241,6 +245,13 @@ contract ContestModule is IContestModule {
         address contestCreator,
         uint256 leaderboardId
     ) external override onlyOracleModule returns (uint256 contestId) {
+        if (
+            bytes(rundownId).length == 0 &&
+            bytes(sportspageId).length == 0 &&
+            bytes(jsonoddsId).length == 0
+        ) {
+            revert ContestModule__InvalidValue();
+        }
         // Charge the contest creation fee
         uint256 feeAmount = ITreasuryModule(
             _getModule(keccak256("TREASURY_MODULE"))
@@ -293,6 +304,7 @@ contract ContestModule is IContestModule {
     /**
      * @notice Updates all market data for a contest from oracle response
      * @dev Updates moneyline, spread, and total markets for all known scorers
+     * @dev All odds must be greater than 0 (ie odds must exist) and total line ticks must be greater than 0
      * @param contestId The contest identifier
      * @param moneylineAwayOdds Odds tick for away team moneyline
      * @param moneylineHomeOdds Odds tick for home team moneyline
@@ -314,12 +326,25 @@ contract ContestModule is IContestModule {
         uint16 overOdds,
         uint16 underOdds
     ) external override onlyOracleModule {
+        if (
+            moneylineAwayOdds == 0 ||
+            moneylineHomeOdds == 0 ||
+            spreadAwayOdds == 0 ||
+            spreadHomeOdds == 0 ||
+            overOdds == 0 ||
+            underOdds == 0 ||
+            totalLineTicks < 0
+        ) {
+            revert ContestModule__InvalidMarketData();
+        }
         uint32 timestamp = uint32(block.timestamp);
 
         // Get scorer addresses from core registry
-        address moneylineScorer = _getModule(keccak256("MONEYLINE_SCORER"));
-        address spreadScorer = _getModule(keccak256("SPREAD_SCORER"));
-        address totalScorer = _getModule(keccak256("TOTAL_SCORER"));
+        address moneylineScorer = _getModule(
+            keccak256("MONEYLINE_SCORER_MODULE")
+        );
+        address spreadScorer = _getModule(keccak256("SPREAD_SCORER_MODULE"));
+        address totalScorer = _getModule(keccak256("TOTAL_SCORER_MODULE"));
 
         // Update moneyline market (lineTicks = 0 for moneylines)
         s_contestMarket[contestId][moneylineScorer] = ContestMarket({
@@ -444,6 +469,9 @@ contract ContestModule is IContestModule {
         LeagueId leagueId,
         uint32 startTime
     ) external override onlyOracleModule {
+        if (leagueId == LeagueId.Unknown || startTime == 0) {
+            revert ContestModule__InvalidValue();
+        }
         s_contests[contestId].leagueId = leagueId;
         s_contestStartTimes[contestId] = startTime;
         s_contests[contestId].contestStatus = ContestStatus.Verified;

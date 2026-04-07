@@ -75,6 +75,10 @@ contract ScorerModuleTest is Test {
         // (createSpeculation now requires msg.sender == POSITION_MODULE)
         core.registerModule(keccak256("POSITION_MODULE"), address(this));
 
+        // Register scorer modules so _getModule lookups don't revert
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), address(moneyline));
+        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), address(total));
+
         // Grant SCORER_ROLE to all scorer modules
         core.setScorerRole(address(moneyline), true);
         core.setScorerRole(address(spread), true);
@@ -463,5 +467,22 @@ contract ScorerModuleTest is Test {
     /// @dev Restores the contest to its intended final state (Scored) for settlement
     function _finalizeContest(uint256 contestId) internal {
         mockContest.setContest(contestId, _finalContests[contestId]);
+    }
+
+    // --- Constructor Zero-Address Tests ---
+
+    function testMoneylineConstructor_RevertsOnZeroAddress() public {
+        vm.expectRevert(MoneylineScorerModule.MoneylineScorerModule__InvalidOspexCore.selector);
+        new MoneylineScorerModule(address(0));
+    }
+
+    function testSpreadConstructor_RevertsOnZeroAddress() public {
+        vm.expectRevert(SpreadScorerModule.SpreadScorerModule__InvalidOspexCore.selector);
+        new SpreadScorerModule(address(0));
+    }
+
+    function testTotalConstructor_RevertsOnZeroAddress() public {
+        vm.expectRevert(TotalScorerModule.TotalScorerModule__InvalidOspexCore.selector);
+        new TotalScorerModule(address(0));
     }
 }

@@ -73,6 +73,8 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
     );
     /// @notice Error for invalid request type
     error OracleModule__InvalidRequestType(OracleRequestType requestType);
+    /// @notice Error for invalid value (ie bad denominator)
+    error OracleModule__InvalidValue();
 
     // --- Constants ---
     /// @notice The OspexCore contract
@@ -708,6 +710,9 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
      * @param denominator The denominator for the LINK payment
      */
     function setLinkDenominator(uint256 denominator) external onlyAdmin {
+        if (denominator == 0) {
+            revert OracleModule__InvalidValue();
+        }
         s_linkDenominator = denominator;
         emit LinkDenominatorSet(denominator);
         i_ospexCore.emitCoreEvent(

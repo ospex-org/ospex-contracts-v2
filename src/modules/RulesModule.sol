@@ -163,6 +163,11 @@ contract RulesModule is IRulesModule {
         uint256 leaderboardId,
         uint256 value
     ) external override onlyAdmin leaderboardNotStarted(leaderboardId) {
+        if (
+            value > 0 &&
+            s_maxBankroll[leaderboardId] > 0 &&
+            value > s_maxBankroll[leaderboardId]
+        ) revert RulesModule__InvalidValue();
         s_minBankroll[leaderboardId] = value;
         emit RuleSet(leaderboardId, "minBankroll", value);
         i_ospexCore.emitCoreEvent(
@@ -180,6 +185,11 @@ contract RulesModule is IRulesModule {
         uint256 leaderboardId,
         uint256 value
     ) external override onlyAdmin leaderboardNotStarted(leaderboardId) {
+        if (
+            value > 0 &&
+            s_minBankroll[leaderboardId] > 0 &&
+            value < s_minBankroll[leaderboardId]
+        ) revert RulesModule__InvalidValue();
         s_maxBankroll[leaderboardId] = value;
         emit RuleSet(leaderboardId, "maxBankroll", value);
         i_ospexCore.emitCoreEvent(
@@ -203,6 +213,11 @@ contract RulesModule is IRulesModule {
         leaderboardNotStarted(leaderboardId)
         valueNotExceedingMaxBps(value)
     {
+        if (
+            value > 0 &&
+            s_maxBetPercentage[leaderboardId] > 0 &&
+            value > s_maxBetPercentage[leaderboardId]
+        ) revert RulesModule__InvalidValue();
         s_minBetPercentage[leaderboardId] = value;
         emit RuleSet(leaderboardId, "minBetPercentage", value);
         i_ospexCore.emitCoreEvent(
@@ -226,6 +241,11 @@ contract RulesModule is IRulesModule {
         leaderboardNotStarted(leaderboardId)
         valueNotExceedingMaxBps(value)
     {
+        if (
+            value > 0 &&
+            s_minBetPercentage[leaderboardId] > 0 &&
+            value < s_minBetPercentage[leaderboardId]
+        ) revert RulesModule__InvalidValue();
         s_maxBetPercentage[leaderboardId] = value;
         emit RuleSet(leaderboardId, "maxBetPercentage", value);
         i_ospexCore.emitCoreEvent(
@@ -279,7 +299,7 @@ contract RulesModule is IRulesModule {
      * @dev Unset leaderboards implicitly disallow live betting (mapping yields false).
      *      Must be called before the leaderboard starts.
      *      When false, leaderboard registration is blocked at contest start time.
-     *      When true, registration may continue after contest start as part 
+     *      When true, registration may continue after contest start as part
      *      of an intentional live-betting mode. This mode has materially
      *      different fairness assumptions and will only be enabled
      *      when operators are comfortable with in-play information
@@ -305,7 +325,7 @@ contract RulesModule is IRulesModule {
      * @param leagueId The league ID (e.g., NHL, NFL)
      * @param scorer The scorer contract address (e.g., spread scorer, moneyline scorer)
      * @param positionType The position type (Upper/Lower)
-     * @param maxDeviation Maximum allowed deviation from market number (can be negative for calculations)
+     * @param maxDeviation Maximum allowed deviation from market number
      * @dev A maxDeviation of 0 means exact match required, positive values allow deviation
      */
     function setDeviationRule(
@@ -567,8 +587,10 @@ contract RulesModule is IRulesModule {
         }
 
         // Validate directional position conflict
-        address moneylineScorer = _getModule(keccak256("MONEYLINE_SCORER"));
-        address spreadScorer = _getModule(keccak256("SPREAD_SCORER"));
+        address moneylineScorer = _getModule(
+            keccak256("MONEYLINE_SCORER_MODULE")
+        );
+        address spreadScorer = _getModule(keccak256("SPREAD_SCORER_MODULE"));
 
         if (speculation.speculationScorer == moneylineScorer) {
             if (

@@ -59,6 +59,15 @@ interface ILeaderboardModule is IModule {
         PositionType positionType
     ) external view returns (uint256);
 
+    /// @notice Returns whether a user has submitted their ROI for a leaderboard
+    /// @param leaderboardId The ID of the leaderboard
+    /// @param user The address of the user
+    /// @return True if the user has submitted their ROI
+    function s_roiSubmitted(
+        uint256 leaderboardId,
+        address user
+    ) external view returns (bool);
+
     /// @notice Creates a new leaderboard with the specified configuration
     /// @param entryFee The entry fee to join the leaderboard (in token smallest units, 0 for free)
     /// @param yieldStrategy The address of an optional yield strategy contract (address(0) for none)

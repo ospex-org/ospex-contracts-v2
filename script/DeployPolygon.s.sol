@@ -198,9 +198,9 @@ contract DeployPolygon is Script {
         core.registerModule(keccak256("CONTRIBUTION_MODULE"), contracts.contributionModule);
         core.registerModule(keccak256("LEADERBOARD_MODULE"), contracts.leaderboardModule);
         core.registerModule(keccak256("RULES_MODULE"), contracts.rulesModule);
-        core.registerModule(keccak256("MONEYLINE_SCORER"), contracts.moneylineScorerModule);
-        core.registerModule(keccak256("SPREAD_SCORER"), contracts.spreadScorerModule);
-        core.registerModule(keccak256("TOTAL_SCORER"), contracts.totalScorerModule);
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), contracts.moneylineScorerModule);
+        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), contracts.spreadScorerModule);
+        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), contracts.totalScorerModule);
         core.registerModule(keccak256("MATCHING_MODULE"), contracts.matchingModule);
 
         // Grant scorer role to scorer modules

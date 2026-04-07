@@ -17,6 +17,8 @@ contract MoneylineScorerModule is IScorerModule {
     error MoneylineScorerModule__NotSpeculationModule(address caller);
     /// @notice Error for module not set
     error MoneylineScorerModule__ModuleNotSet(bytes32 moduleType);
+    /// @notice Error for invalid OspexCore address
+    error MoneylineScorerModule__InvalidOspexCore();
 
     /// @notice The OspexCore contract
     OspexCore public immutable i_ospexCore;
@@ -34,6 +36,8 @@ contract MoneylineScorerModule is IScorerModule {
      * @param _ospexCore The address of the OspexCore contract
      */
     constructor(address _ospexCore) {
+        if (_ospexCore == address(0))
+            revert MoneylineScorerModule__InvalidOspexCore();
         i_ospexCore = OspexCore(_ospexCore);
     }
 

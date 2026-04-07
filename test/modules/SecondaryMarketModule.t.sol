@@ -143,6 +143,11 @@ contract SecondaryMarketModuleTest is Test {
             address(market)
         );
         core.setMarketRole(address(market), true);
+
+        // Register scorer modules so _getModule lookups don't revert
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), address(0xCC01));
+        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), address(0xCC02));
+
         core.setScorerRole(address(0xBEEF), true);
 
         // Fund seller and buyer

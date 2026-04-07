@@ -115,6 +115,10 @@ contract PositionModuleTest is Test {
         // Register this test contract as ORACLE_MODULE (kept for other module interactions)
         core.registerModule(keccak256("ORACLE_MODULE"), address(this));
 
+        // Register scorer modules so _getModule lookups don't revert
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), address(0xCC01));
+        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), address(0xCC02));
+
         // Grant SCORER_ROLE to common test scorer addresses
         core.setScorerRole(address(0x1234), true);
 

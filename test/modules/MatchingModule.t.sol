@@ -1772,6 +1772,10 @@ contract MatchingModuleIntegrationTest is Test {
         core.registerModule(keccak256("ORACLE_MODULE"), address(this));
 
         core.setMarketRole(address(matchingModule), true);
+        // Register scorer modules so _getModule lookups don't revert
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), address(0xCC01));
+        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), address(0xCC02));
+
         core.setScorerRole(address(0x1234), true);
         core.registerModule(
             keccak256("MATCHING_MODULE"),

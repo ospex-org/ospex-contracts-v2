@@ -17,6 +17,8 @@ contract SpreadScorerModule is IScorerModule {
     error SpreadScorerModule__NotSpeculationModule(address caller);
     /// @notice Error for module not set
     error SpreadScorerModule__ModuleNotSet(bytes32 moduleType);
+    /// @notice Error for invalid OspexCore address
+    error SpreadScorerModule__InvalidOspexCore();
 
     /// @notice The OspexCore contract
     OspexCore public immutable i_ospexCore;
@@ -34,6 +36,8 @@ contract SpreadScorerModule is IScorerModule {
      * @param _ospexCore The address of the OspexCore contract
      */
     constructor(address _ospexCore) {
+        if (_ospexCore == address(0))
+            revert SpreadScorerModule__InvalidOspexCore();
         i_ospexCore = OspexCore(_ospexCore);
     }
 

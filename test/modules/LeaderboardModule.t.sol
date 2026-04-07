@@ -100,8 +100,8 @@ contract LeaderboardModuleTest is Test {
         core.registerModule(keccak256("ORACLE_MODULE"), oracleModule);
 
         // Register scorer modules for directional position conflict testing
-        core.registerModule(keccak256("MONEYLINE_SCORER"), address(mockScorerModule));
-        core.registerModule(keccak256("SPREAD_SCORER"), address(mockScorerModule));
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), address(mockScorerModule));
+        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), address(mockScorerModule));
 
         // Grant admin role
         core.grantRole(core.DEFAULT_ADMIN_ROLE(), admin);
@@ -411,6 +411,15 @@ contract LeaderboardModuleTest is Test {
         vm.prank(user1);
         vm.expectRevert(LeaderboardModule.LeaderboardModule__BankrollOutOfRange.selector);
         leaderboardModule.registerUser(leaderboardId, DECLARED_BANKROLL);
+    }
+
+    function testRegisterUser_RevertsIfZeroBankroll() public {
+        // Warp to after leaderboard start
+        vm.warp(block.timestamp + 2 hours);
+
+        vm.prank(user1);
+        vm.expectRevert(LeaderboardModule.LeaderboardModule__BankrollOutOfRange.selector);
+        leaderboardModule.registerUser(leaderboardId, 0);
     }
 
     // --- Getter Tests ---
@@ -1030,6 +1039,59 @@ contract LeaderboardModuleTest is Test {
         assertEq(lbPos.riskAmount, 100_000_000); // Should be capped to max
         // profitAmount should be scaled proportionally: 400M * 100M / 500M = 80M
         assertEq(lbPos.profitAmount, 80_000_000);
+    }
+
+    function testRegisterPositionForLeaderboards_RevertsWhenCappedRiskRoundsToZero() public {
+        _setupUserRegistration();
+        _setupPositionAndSpeculation();
+
+        // Mock position with a valid non-zero risk amount
+        vm.mockCall(
+            address(positionModule),
+            abi.encodeWithSignature("getPosition(uint256,address,uint8)"),
+            abi.encode(
+                50_000_000,  // riskAmount: 50 USDC
+                40_000_000,  // profitAmount: 40 USDC
+                uint8(0),    // positionType = Upper
+                false        // claimed
+            )
+        );
+
+        vm.mockCall(
+            address(speculationModule),
+            abi.encodeWithSignature("getSpeculation(uint256)"),
+            abi.encode(
+                contestId,          // contestId
+                admin,              // speculationScorer
+                int32(0),           // lineTicks
+                address(0),         // speculationCreator
+                uint8(0),           // speculationStatus = Open
+                uint8(0)            // winSide = TBD
+            )
+        );
+
+        // Mock max bet to return 0 (simulates tiny bankroll where integer division rounds to 0)
+        vm.mockCall(
+            address(rulesModule),
+            abi.encodeWithSignature("getMaxBetAmount(uint256,uint256)"),
+            abi.encode(0)
+        );
+
+        // Mock min bet to also return 0 (no minimum configured)
+        vm.mockCall(
+            address(rulesModule),
+            abi.encodeWithSignature("getMinBetAmount(uint256,uint256)"),
+            abi.encode(0)
+        );
+
+        // Should revert because capped risk amount rounds to zero
+        vm.prank(user1);
+        vm.expectRevert(LeaderboardModule.LeaderboardModule__BetSizeBelowMinimum.selector);
+        leaderboardModule.registerPositionForLeaderboard(
+            speculationId,
+            PositionType.Upper,
+            leaderboardId
+        );
     }
 
     function testRegisterPositionForLeaderboards_CanRetryAfterValidationFailure() public {
@@ -1872,5 +1934,35 @@ contract LeaderboardModuleTest is Test {
         uint256 claimWindowStart = roiWindowEnd;
         uint256 claimWindowEnd = claimWindowStart + uint256(lb.claimWindow);
         return (roiWindowStart, roiWindowEnd, claimWindowStart, claimWindowEnd);
+    }
+
+    // --- createLeaderboard Zero Windows Tests ---
+
+    function testCreateLeaderboard_RevertsIfROIWindowZero() public {
+        vm.prank(admin);
+        vm.expectRevert(LeaderboardModule.LeaderboardModule__InvalidTimeRange.selector);
+        leaderboardModule.createLeaderboard(
+            ENTRY_FEE,
+            address(0),
+            uint32(block.timestamp + 1 hours),
+            uint32(block.timestamp + 8 days),
+            SAFETY_PERIOD,
+            0, // roiSubmissionWindow = 0
+            CLAIM_WINDOW
+        );
+    }
+
+    function testCreateLeaderboard_RevertsIfClaimWindowZero() public {
+        vm.prank(admin);
+        vm.expectRevert(LeaderboardModule.LeaderboardModule__InvalidTimeRange.selector);
+        leaderboardModule.createLeaderboard(
+            ENTRY_FEE,
+            address(0),
+            uint32(block.timestamp + 1 hours),
+            uint32(block.timestamp + 8 days),
+            SAFETY_PERIOD,
+            ROI_WINDOW,
+            0 // claimWindow = 0
+        );
     }
 }

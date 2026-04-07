@@ -108,7 +108,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     mapping(uint256 => LeaderboardScoring) private s_leaderboardScoring;
 
     // Check to see if roi has been submitted, protects against repeatedly submitting ROI of 0
-    mapping(uint256 => mapping(address => bool)) private s_roiSubmitted;
+    mapping(uint256 => mapping(address => bool)) public s_roiSubmitted;
 
     /// @notice Minimum position floor locked by leaderboard registration.
     ///         After registration, the user must retain at least this much
@@ -278,6 +278,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     // --- Core Functions ---
     /**
      * @notice Creates a leaderboard
+     * @dev All time values must be greater than 0
      * @param entryFee The entry fee for the leaderboard
      * @param yieldStrategy The yield strategy for the leaderboard
      * @param startTime The start time of the leaderboard
@@ -297,7 +298,13 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         uint32 claimWindow
     ) external override onlyAdmin returns (uint256 leaderboardId) {
         // Validate time range
-        if (startTime >= endTime || startTime < block.timestamp) {
+        if (
+            startTime >= endTime ||
+            startTime < block.timestamp ||
+            safetyPeriodDuration == 0 ||
+            roiSubmissionWindow == 0 ||
+            claimWindow == 0
+        ) {
             revert LeaderboardModule__InvalidTimeRange();
         }
         leaderboardId = s_nextLeaderboardId++;
@@ -357,7 +364,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     }
 
     /**
-     * @notice Registers a user for a leaderboard
+     * @notice Registers a user for a leaderboard (bankroll must be greater than zero)
      * @param leaderboardId The ID of the leaderboard
      * @param declaredBankroll The declared bankroll of the user
      */
@@ -372,6 +379,11 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             leaderboard.startTime == 0 || block.timestamp >= leaderboard.endTime
         ) {
             revert LeaderboardModule__InvalidTime();
+        }
+
+        // Reject if declared bankroll is 0
+        if (declaredBankroll == 0) {
+            revert LeaderboardModule__BankrollOutOfRange();
         }
 
         // Check if user is already registered (bankroll > 0 means registered)
@@ -459,6 +471,8 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             declaredBankroll
         );
         uint256 cappedRiskAmount = riskAmount > maxBet ? maxBet : riskAmount;
+        if (cappedRiskAmount == 0)
+            revert LeaderboardModule__BetSizeBelowMinimum();
 
         // Profit amount scaled proportionally to cappedRiskAmount
         uint256 cappedProfitAmount = riskAmount > maxBet
@@ -916,8 +930,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
 
     /**
      * @notice Internal helper to calculate the net profit/loss for a position
-     * @dev Positions with winSide == TBD (unscored) return 0 and are excluded from
-     * the ROI calculation. This prevents unresolved contests from distorting ROI.
+     * @dev Positions with winSide == TBD (unscored) return 0 and are excluded from the ROI calculation.
      * @param lbPos The leaderboard position
      * @return net The net profit/loss for the position
      */

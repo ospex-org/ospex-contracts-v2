@@ -55,6 +55,8 @@ contract SpeculationModule is ISpeculationModule {
     error SpeculationModule__ModuleNotSet(bytes32 moduleType);
     /// @notice Error for unapproved scorer address
     error SpeculationModule__ScorerNotApproved();
+    /// @notice Error for invalid line ticks
+    error SpeculationModule__InvalidLineTicks();
 
     // --- Constants ---
     /// @notice The role of the Speculation Manager Role
@@ -350,6 +352,15 @@ contract SpeculationModule is ISpeculationModule {
         // Validate scorer is an approved scorer contract
         if (!i_ospexCore.hasScorerRole(scorer)) {
             revert SpeculationModule__ScorerNotApproved();
+        }
+
+        if (
+            (scorer == _getModule(keccak256("MONEYLINE_SCORER_MODULE")) &&
+                lineTicks != 0) ||
+            (scorer == _getModule(keccak256("TOTAL_SCORER_MODULE")) &&
+                lineTicks < 0)
+        ) {
+            revert SpeculationModule__InvalidLineTicks();
         }
 
         // Charge the speculation creation fee

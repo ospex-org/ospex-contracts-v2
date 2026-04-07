@@ -94,9 +94,9 @@ contract RedeployBrokenModules is Script {
         console.log("Registered MATCHING_MODULE");
 
         // Grant scorer role to existing scorer modules
-        address moneylineScorer = core.getModule(keccak256("MONEYLINE_SCORER"));
-        address spreadScorer = core.getModule(keccak256("SPREAD_SCORER"));
-        address totalScorer = core.getModule(keccak256("TOTAL_SCORER"));
+        address moneylineScorer = core.getModule(keccak256("MONEYLINE_SCORER_MODULE"));
+        address spreadScorer = core.getModule(keccak256("SPREAD_SCORER_MODULE"));
+        address totalScorer = core.getModule(keccak256("TOTAL_SCORER_MODULE"));
 
         core.setScorerRole(moneylineScorer, true);
         console.log("Granted SCORER_ROLE to MoneylineScorerModule:", moneylineScorer);

@@ -224,13 +224,13 @@ contract DeployLocal is Script {
         core.registerModule(keccak256("RULES_MODULE"), contracts.rulesModule);
         console.log("Registered RulesModule");
 
-        core.registerModule(keccak256("MONEYLINE_SCORER"), contracts.moneylineScorerModule);
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), contracts.moneylineScorerModule);
         console.log("Registered MoneylineScorerModule");
 
-        core.registerModule(keccak256("SPREAD_SCORER"), contracts.spreadScorerModule);
+        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), contracts.spreadScorerModule);
         console.log("Registered SpreadScorerModule");
 
-        core.registerModule(keccak256("TOTAL_SCORER"), contracts.totalScorerModule);
+        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), contracts.totalScorerModule);
         console.log("Registered TotalScorerModule");
 
         core.registerModule(keccak256("MATCHING_MODULE"), contracts.matchingModule);

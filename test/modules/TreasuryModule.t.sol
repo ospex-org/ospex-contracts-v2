@@ -318,6 +318,12 @@ contract TreasuryModuleTest is Test {
         treasuryModule.claimPrizePool(leaderboardId, user, 0);
     }
 
+    function testClaimPrizePool_RevertsIfZeroAddress() public {
+        vm.prank(address(mockLeaderboardModule));
+        vm.expectRevert(TreasuryModule.TreasuryModule__InvalidReceiver.selector);
+        treasuryModule.claimPrizePool(leaderboardId, address(0), 100);
+    }
+
     // --- Getters ---
     function testGetFeeRateAndPrizePool() public {
         treasuryModule.setFeeRates(FeeType.ContestCreation, 123);

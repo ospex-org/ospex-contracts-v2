@@ -17,6 +17,8 @@ contract TotalScorerModule is IScorerModule {
     error TotalScorerModule__NotSpeculationModule(address caller);
     /// @notice Error for module not set
     error TotalScorerModule__ModuleNotSet(bytes32 moduleType);
+    /// @notice Error for invalid OspexCore address
+    error TotalScorerModule__InvalidOspexCore();
 
     /// @notice The OspexCore contract
     OspexCore public immutable i_ospexCore;
@@ -34,6 +36,8 @@ contract TotalScorerModule is IScorerModule {
      * @param _ospexCore The address of the OspexCore contract
      */
     constructor(address _ospexCore) {
+        if (_ospexCore == address(0))
+            revert TotalScorerModule__InvalidOspexCore();
         i_ospexCore = OspexCore(_ospexCore);
     }
 

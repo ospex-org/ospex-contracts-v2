@@ -345,6 +345,7 @@ contract TreasuryModule is ITreasuryModule {
         address to,
         uint256 share
     ) external override onlyLeaderboardModule {
+        if (to == address(0)) revert TreasuryModule__InvalidReceiver();
         if (share == 0) revert TreasuryModule__InsufficientBalance();
         s_leaderboardPrizePools[leaderboardId] -= share;
         i_token.safeTransfer(to, share);
