@@ -7,6 +7,7 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {
     ReentrancyGuard
 } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {IContestModule} from "../interfaces/IContestModule.sol";
 import {IPositionModule} from "../interfaces/IPositionModule.sol";
 import {PositionType} from "../core/OspexTypes.sol";
 import {IModule} from "../interfaces/IModule.sol";
@@ -51,6 +52,8 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
     error MatchingModule__CommitmentFullyFilled();
     /// @notice Error for module not set
     error MatchingModule__ModuleNotSet(bytes32 moduleType);
+    /// @notice Contest has already been scored (status is Scored or ScoredManually)
+    error MatchingModule__ContestAlreadyScored();
 
     // --- Events ---
     /// @notice Emitted when a commitment is matched (fully or partially)
@@ -208,6 +211,14 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
         // --- Validate amount ---
         if (takerDesiredRisk == 0) {
             revert MatchingModule__InvalidTakerDesiredRisk();
+        }
+
+        // --- Check if contest has been scored ---
+        if (
+            IContestModule(_getModule(keccak256("CONTEST_MODULE")))
+                .isContestScored(commitment.contestId)
+        ) {
+            revert MatchingModule__ContestAlreadyScored();
         }
 
         // --- Validate commitment ---
@@ -390,7 +401,8 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
     /**
      * @notice Validates a commitment signature, checks all preconditions
      * @dev Expiry is the sole temporal guard on commitments. The protocol does not check
-     *      contest start time or speculation state at match time.
+     *      contest start time or speculation state at match time (though matchCommitment() 
+     *      checks if the contest has been scored and will revert if it has).
      *      Off-chain infrastructure is responsible for setting sensible defaults.
      *      Makers who set long expiries accept the risk of stale fills.
      *      Signature validation can revert with two different error families:

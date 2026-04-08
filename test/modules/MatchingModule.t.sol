@@ -102,6 +102,21 @@ contract MockPositionModuleForMatching {
 }
 
 // =============================================================================
+// Mock ContestModule -- implements isContestScored with configurable return.
+// =============================================================================
+contract MockContestModuleForMatching {
+    mapping(uint256 => bool) private _scored;
+
+    function setContestScored(uint256 contestId, bool scored) external {
+        _scored[contestId] = scored;
+    }
+
+    function isContestScored(uint256 contestId) external view returns (bool) {
+        return _scored[contestId];
+    }
+}
+
+// =============================================================================
 // Reentrant Mock -- attempts to call matchCommitment from within
 // recordFill to verify nonReentrant protection.
 // =============================================================================
@@ -163,6 +178,7 @@ contract MatchingModuleTest is Test {
     MatchingModule matchingModule;
     MockOspexCoreForMatching mockCore;
     MockPositionModuleForMatching mockPosition;
+    MockContestModuleForMatching mockContest;
 
     uint256 constant MAKER_PK = 0xA11CE;
     address maker;
@@ -186,8 +202,10 @@ contract MatchingModuleTest is Test {
 
         mockCore = new MockOspexCoreForMatching();
         mockPosition = new MockPositionModuleForMatching();
+        mockContest = new MockContestModuleForMatching();
 
         mockCore.setModule(keccak256("POSITION_MODULE"), address(mockPosition));
+        mockCore.setModule(keccak256("CONTEST_MODULE"), address(mockContest));
 
         matchingModule = new MatchingModule(address(mockCore));
 
@@ -1415,7 +1433,9 @@ contract MatchingModuleTest is Test {
     function test_ReentrancyProtection() public {
         MockOspexCoreForMatching reentrCore = new MockOspexCoreForMatching();
         ReentrantMockPositionModule reentrPos = new ReentrantMockPositionModule();
+        MockContestModuleForMatching reentrContest = new MockContestModuleForMatching();
         reentrCore.setModule(keccak256("POSITION_MODULE"), address(reentrPos));
+        reentrCore.setModule(keccak256("CONTEST_MODULE"), address(reentrContest));
         MatchingModule mmReentrant = new MatchingModule(address(reentrCore));
         reentrPos.setTarget(address(mmReentrant));
         reentrPos.setShouldReenter(true);
@@ -1684,6 +1704,111 @@ contract MatchingModuleTest is Test {
 
         // fillMakerRisk = 10_000_000
         assertEq(mockPosition.lastMakerRisk(), 10_000_000, "fillMakerRisk at ODDS_SCALE boundary");
+    }
+
+    // ===================== CONTEST ALREADY SCORED =====================
+
+    /**
+     * @notice matchCommitment reverts when the contest has been scored
+     */
+    function test_ContestAlreadyScored_Reverts() public {
+        mockContest.setContestScored(DEFAULT_CONTEST_ID, true);
+
+        (
+            MatchingModule.OspexCommitment memory c,
+            bytes memory sig
+        ) = _signedDefault();
+        vm.prank(taker);
+        vm.expectRevert(
+            MatchingModule.MatchingModule__ContestAlreadyScored.selector
+        );
+        matchingModule.matchCommitment(
+            c,
+            sig,
+            DEFAULT_TAKER_DESIRED_RISK,
+            0,
+            0
+        );
+    }
+
+    /**
+     * @notice matchCommitment succeeds when the contest has NOT been scored
+     */
+    function test_ContestNotScored_Succeeds() public {
+        // mockContest defaults to false (not scored)
+        (
+            MatchingModule.OspexCommitment memory c,
+            bytes memory sig
+        ) = _signedDefault();
+        vm.prank(taker);
+        matchingModule.matchCommitment(
+            c,
+            sig,
+            DEFAULT_TAKER_DESIRED_RISK,
+            0,
+            0
+        );
+        assertEq(mockPosition.recordFillCallCount(), 1);
+    }
+
+    /**
+     * @notice Scoring a contest after a partial fill blocks further fills
+     */
+    function test_ContestScoredAfterPartialFill_BlocksFurtherFills() public {
+        (
+            MatchingModule.OspexCommitment memory c,
+            bytes memory sig
+        ) = _signedDefault();
+
+        // First fill succeeds (contest not scored)
+        vm.prank(taker);
+        matchingModule.matchCommitment(
+            c,
+            sig,
+            DEFAULT_TAKER_DESIRED_RISK,
+            0,
+            0
+        );
+        assertEq(mockPosition.recordFillCallCount(), 1);
+
+        // Contest gets scored
+        mockContest.setContestScored(DEFAULT_CONTEST_ID, true);
+
+        // Second fill on same commitment reverts
+        vm.prank(taker);
+        vm.expectRevert(
+            MatchingModule.MatchingModule__ContestAlreadyScored.selector
+        );
+        matchingModule.matchCommitment(
+            c,
+            sig,
+            DEFAULT_TAKER_DESIRED_RISK,
+            0,
+            0
+        );
+    }
+
+    /**
+     * @notice Scoring contest X does not block fills on contest Y
+     */
+    function test_ContestScored_DoesNotAffectOtherContests() public {
+        // Score contest 999 — not the default contest
+        mockContest.setContestScored(999, true);
+
+        // Default contest (ID=1) is still fillable
+        (
+            MatchingModule.OspexCommitment memory c,
+            bytes memory sig
+        ) = _signedDefault();
+        vm.prank(taker);
+        matchingModule.matchCommitment(
+            c,
+            sig,
+            DEFAULT_TAKER_DESIRED_RISK,
+            0,
+            0
+        );
+        assertEq(mockPosition.recordFillCallCount(), 1);
     }
 }
 

@@ -586,6 +586,17 @@ contract ContestModule is IContestModule {
     }
 
     /**
+     * @notice Checks if a contest has been scored
+     * @param contestId The ID of the contest
+     * @return True if the contest has been scored
+     */
+    function isContestScored(uint256 contestId) external view override returns (bool) {
+        return
+            s_contests[contestId].contestStatus == ContestStatus.Scored ||
+            s_contests[contestId].contestStatus == ContestStatus.ScoredManually;
+    }
+
+    /**
      * @notice Gets a contest market
      * @param contestId The ID of the contest
      * @param scorer The scorer contract address

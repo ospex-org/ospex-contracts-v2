@@ -47,6 +47,11 @@ interface IContestModule is IModule {
         uint256 contestId
     ) external view returns (Contest memory contest);
 
+    /// @notice Checks if a contest has been scored
+    /// @param contestId The ID of the contest
+    /// @return True if the contest has been Scored or ScoredManually
+    function isContestScored(uint256 contestId) external view returns (bool);
+
     /// @notice Gets a contest market
     /// @param contestId The ID of the contest
     /// @param scorer The scorer contract address
