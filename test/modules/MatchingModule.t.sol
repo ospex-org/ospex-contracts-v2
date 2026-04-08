@@ -2396,4 +2396,39 @@ contract MatchingModuleIntegrationTest is Test {
             "creator unchanged after second fill"
         );
     }
+
+    // ===================== SCORED MANUALLY BLOCKS MATCHING =====================
+
+    /**
+     * @notice matchCommitment reverts when contest status is ScoredManually
+     */
+    function testIntegration_ScoredManually_BlocksMatching() public {
+        // Override contest 1 with ScoredManually status
+        Contest memory scoredContest = Contest({
+            awayScore: 110,
+            homeScore: 105,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.ScoredManually,
+            contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, scoredContest);
+
+        MatchingModule.OspexCommitment memory c = _makeCommitment(
+            193,
+            0,
+            10_000_000,
+            0
+        );
+        bytes memory sig = _sign(c, MAKER_PK);
+
+        vm.prank(taker);
+        vm.expectRevert(
+            MatchingModule.MatchingModule__ContestAlreadyScored.selector
+        );
+        matchingModule.matchCommitment(c, sig, 5_000_000, 0, 0);
+    }
 }
