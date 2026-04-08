@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import {Contest, ContestMarket} from "../../src/core/OspexTypes.sol";
+import {Contest, ContestMarket, ContestStatus} from "../../src/core/OspexTypes.sol";
 
 // --- MockContestModule ---
 // This mock is ONLY used to allow SpeculationModule to call getContest in tests.
@@ -28,6 +28,12 @@ contract MockContestModule {
         uint256 contestId
     ) external view returns (Contest memory) {
         return contests[contestId];
+    }
+
+    function isContestScored(uint256 contestId) external view returns (bool) {
+        return
+            contests[contestId].contestStatus == ContestStatus.Scored ||
+            contests[contestId].contestStatus == ContestStatus.ScoredManually;
     }
     
     function getContestMarket(

@@ -7,11 +7,11 @@ import {
     PositionType,
     Speculation,
     SpeculationStatus,
-    OddsPair,
     WinSide
 } from "../core/OspexTypes.sol";
 import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IPositionModule} from "../interfaces/IPositionModule.sol";
+import {ILeaderboardModule} from "../interfaces/ILeaderboardModule.sol";
 import {IContributionModule} from "../interfaces/IContributionModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {
@@ -23,7 +23,7 @@ import {
 
 /**
  * @title PositionModule
- * @notice Handles user positions: creation, matching, claiming, etc. for Ospex protocol
+ * @notice Handles user positions: fill recording, claiming, and transfer for Ospex protocol
  * @dev All business logic for positions is implemented here. Uses hybrid event emission pattern.
  */
 contract PositionModule is IPositionModule, ReentrancyGuard {
@@ -31,21 +31,10 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
 
     /// @notice Error for invalid address
     error PositionModule__InvalidAddress();
+    /// @notice Error for caller being anyone other than Matching Module
+    error PositionModule__NotMatchingModule();
     /// @notice Error for invalid amount
     error PositionModule__InvalidAmount();
-    /// @notice Error for invalid unmatched expiry
-    error PositionModule__InvalidUnmatchedExpiry();
-    /// @notice Error for position already exists
-    error PositionModule__PositionAlreadyExists();
-    /// @notice Error for odds out of range
-    error PositionModule__OddsOutOfRange(uint64 odds);
-    /// @notice Error for insufficient unmatched amount
-    error PositionModule__InsufficientUnmatchedAmount(
-        uint256 requested,
-        uint256 available
-    );
-    /// @notice Error for unmatched position expired
-    error PositionModule__UnmatchedExpired();
     /// @notice Error for unauthorized market
     error PositionModule__UnauthorizedMarket();
     /// @notice Error for speculation not settled
@@ -56,127 +45,75 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
     error PositionModule__SpeculationNotOpen();
     /// @notice Error for no payout
     error PositionModule__NoPayout();
-    /// @notice Error for position does not exist
-    error PositionModule__PositionDoesNotExist();
-    /// @notice Error for array length mismatch
-    error PositionModule__ArrayLengthMismatch();
     /// @notice Error for module not set
     error PositionModule__ModuleNotSet(bytes32 moduleType);
+    /// @notice Error for position transfer locked
+    error PositionModule__TransferLocked();
 
     // --- Storage ---
     /// @notice The OspexCore contract
     OspexCore public immutable i_ospexCore;
     /// @notice The ERC20 token
     IERC20 public immutable i_token;
-    /// @notice The odds precision
-    uint64 public constant ODDS_PRECISION = 10_000_000; // 1e7
-    /// @notice The odds increment
-    uint64 public constant ODDS_INCREMENT = 100_000; // 0.01
-    /// @notice The minimum odds
-    uint64 public constant MIN_ODDS = 10_100_000; // 1.01 (example, can be set via function)
-    /// @notice The maximum odds
-    uint64 public constant MAX_ODDS = 1_010_000_000; // 101.00 (example, can be set via function)
 
-    // Positions: speculationId => user => oddsPairId => positionType => Position
-    mapping(uint256 => mapping(address => mapping(uint128 => mapping(PositionType => Position))))
+    // Positions: speculationId => user => positionType => Position
+    mapping(uint256 => mapping(address => mapping(PositionType => Position)))
         public s_positions;
 
-    // --- OddsPair Storage ---
-    // oddsPairId => OddsPair
-    mapping(uint128 => OddsPair) public s_oddsPairs;
-    // oddsPairId => original requested odds
-    mapping(uint128 => uint64) public s_originalRequestedOdds;
-    // oddsPairId => inverse calculated odds
-    mapping(uint128 => uint64) public s_inverseCalculatedOdds;
-
     // --- Events (module-local) ---
-    /**
-     * @notice Emitted when a new unmatched pair is created
-     * @param speculationId The ID of the speculation
-     * @param user The address of the user
-     * @param oddsPairId The ID of the odds pair
-     * @param unmatchedExpiry The expiry of the unmatched position
-     * @param positionType The type of position
-     * @param amount The amount of the position
-     */
-    event PositionCreated(
-        uint256 indexed speculationId,
-        address indexed user,
-        uint128 oddsPairId,
-        uint32 unmatchedExpiry,
-        PositionType positionType,
-        uint256 amount,
-        uint64 upperOdds,
-        uint64 lowerOdds
-    );
 
     /**
-     * @notice Emitted when an unmatched pair is adjusted
-     * @param speculationId The ID of the speculation
-     * @param user The address of the user
-     * @param oddsPairId The ID of the odds pair
-     * @param positionType The type of position
-     * @param amount The amount of the position
-     */
-    event PositionAdjusted(
-        uint256 indexed speculationId,
-        address indexed user,
-        uint128 oddsPairId,
-        uint32 unmatchedExpiry,
-        PositionType positionType,
-        int256 amount
-    );
-
-    /**
-     * @notice Emitted when an unmatched pair is matched
+     * @notice Emitted when a position is filled.
+     * @dev In this zero-vig protocol, maker's profit always equals takerRisk and
+     *      taker's profit always equals makerRisk. Four economic values (makerRisk,
+     *      makerProfit, takerRisk, takerProfit) are therefore derivable from the
+     *      two emitted risk amounts alone.
      * @param speculationId The ID of the speculation
      * @param maker The address of the maker
-     * @param oddsPairId The ID of the odds pair
-     * @param makerPositionType The type of position
      * @param taker The address of the taker
-     * @param amount The amount of the position
-     * @param takerAmount The amount of the taker's position
+     * @param makerPositionType The type of position for the maker
+     * @param takerPositionType The type of position for the taker
+     * @param makerRisk The amount risked by the maker (also equals taker's profit)
+     * @param takerRisk The amount risked by the taker (also equals maker's profit)
      */
-    event PositionMatched(
+    event PositionFilled(
         uint256 indexed speculationId,
         address indexed maker,
-        uint128 oddsPairId,
-        PositionType makerPositionType,
         address indexed taker,
-        uint256 amount,
-        uint256 takerAmount
+        PositionType makerPositionType,
+        PositionType takerPositionType,
+        uint256 makerRisk,
+        uint256 takerRisk
     );
 
     /**
      * @notice Emitted when a position is transferred
      * @param speculationId The ID of the speculation
      * @param from The address of the from user
-     * @param oddsPairId The ID of the odds pair
      * @param positionType The type of position
      * @param to The address of the to user
-     * @param amount The amount of the position
+     * @param riskAmount The risk amount of the position
+     * @param profitAmount The profit amount of the position
      */
     event PositionTransferred(
         uint256 indexed speculationId,
         address indexed from,
-        uint128 oddsPairId,
         PositionType positionType,
         address indexed to,
-        uint256 amount
+        uint256 riskAmount,
+        uint256 profitAmount
     );
 
     /**
      * @notice Emitted when a position is claimed
      * @param speculationId The ID of the speculation
      * @param user The address of the user
-     * @param oddsPairId The ID of the odds pair
      * @param positionType The type of position
      * @param payout The payout amount
      */
     event PositionClaimed(
         uint256 indexed speculationId,
         address indexed user,
-        uint128 oddsPairId,
         PositionType positionType,
         uint256 payout
     );
@@ -197,47 +134,27 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
     }
 
     /**
-     * @notice Modifier to ensure the amount is in range
-     * @param amount The amount of the position
+     * @notice Enforces a minimum bet size on the taker's risk amount.
+     * @dev No maximum is enforced on-chain. The natural upper bound is available
+     *      liquidity. Enforcement is on taker risk only — maker risk is derived from
+     *      taker risk and odds via MatchingModule, so applying bounds to both sides
+     *      would create invalid-revert edge cases at extreme odds. Limits are
+     *      conservative at launch and subject to increase.
+     * @param takerRisk The taker's at-risk amount (USDC, 6 decimals)
      */
-    modifier amountInRange(uint256 amount) {
+    modifier riskAmountInRange(uint256 takerRisk) {
         ISpeculationModule specModule = ISpeculationModule(
             _getModule(keccak256("SPECULATION_MODULE"))
         );
-        if (
-            amount < specModule.s_minSpeculationAmount() ||
-            amount > specModule.s_maxSpeculationAmount()
-        ) {
+        if (takerRisk < specModule.s_minSpeculationAmount()) {
             revert PositionModule__InvalidAmount();
-        }
-        _;
-    }
-
-    /**
-     * @notice Modifier to ensure the unmatched expiry is in the future
-     * @param unmatchedExpiry The expiry of the unmatched position
-     */
-    modifier unmatchedExpiryInFuture(uint32 unmatchedExpiry) {
-        if (unmatchedExpiry != 0 && unmatchedExpiry < block.timestamp) {
-            revert PositionModule__InvalidUnmatchedExpiry();
-        }
-        _;
-    }
-
-    /**
-     * @notice Modifier to ensure the odds are in range
-     * @param odds The odds of the position
-     */
-    modifier oddsInRange(uint64 odds) {
-        if (odds < MIN_ODDS || odds > MAX_ODDS) {
-            revert PositionModule__OddsOutOfRange(odds);
         }
         _;
     }
 
     // --- Constructor ---
     /**
-     * @notice Constructor sets the OspexCore address, token, and speculation module
+     * @notice Constructor sets the OspexCore address and token
      * @param _ospexCore The address of the OspexCore contract
      * @param _token The address of the ERC20 token
      */
@@ -257,354 +174,188 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
     // --- IPositionModule ---
 
     /**
-     * @inheritdoc IPositionModule
+     * @notice Records a fill
+     * @dev Only callable by Matching Module
+     *      Tokens flow directly from maker/taker wallets to this contract.
+     *      Creates the speculation, if necessary
+     *      Bet-size enforcement (riskAmountInRange) applies to takerRisk only
+     *      When a fill auto-creates a speculation, the taker (msg.sender of matchCommitment)
+     *      becomes the speculationCreator. This is intentional: Any speculation creation
+     *      fee is charged to the taker accordingly.
+     * @param contestId The contest id
+     * @param scorer The scorer address
+     * @param lineTicks The number if applicable (10x)
+     * @param leaderboardId The leaderboard id for fees if applicable
+     * @param makerPositionType The position type of the maker (Upper or Lower)
+     * @param maker The address of the maker
+     * @param makerRisk Maker risk being consumed
+     * @param taker The address of the taker
+     * @param takerRisk The risk the taker is putting up
+     * @param makerContributionAmount The amount of the contribution for the maker
+     * @param takerContributionAmount The amount of the contribution for the taker
+     * @return speculationId The speculation for the fill
      */
 
-    /**
-     * @notice Creates a new unmatched pair
-     * @param speculationId The ID of the speculation
-     * @param odds The odds of the position
-     * @param unmatchedExpiry The expiry of the unmatched position
-     * @param positionType The type of position
-     * @param amount The amount of the position
-     * @param contributionAmount The amount of the contribution
-     */
-    function createUnmatchedPair(
-        uint256 speculationId,
-        uint64 odds,
-        uint32 unmatchedExpiry,
-        PositionType positionType,
-        uint256 amount,
-        uint256 contributionAmount
-    )
-        public
-        override
-        nonReentrant
-        amountInRange(amount)
-        unmatchedExpiryInFuture(unmatchedExpiry)
-        oddsInRange(odds)
-    {
-        _createUnmatchedPair(
-            speculationId,
-            odds,
-            unmatchedExpiry,
-            positionType,
-            amount,
-            contributionAmount
-        );
-    }
-
-    /**
-     * @inheritdoc IPositionModule
-     */
-
-    /**
-     * @notice Creates both a new speculation and unmatched pair
-     * @dev Convenience function that creates a speculation if it doesn't exist,
-     * @dev then creates an unmatched pair at the specified odds
-     * @param contestId The ID of the contest
-     * @param scorer The scorer of the speculation
-     * @param theNumber The line/spread/total number
-     * @param odds The odds of the position
-     * @param unmatchedExpiry The expiry of the unmatched position
-     * @param positionType The type of position
-     * @param amount The amount of the position
-     * @param contributionAmount The amount of the contribution
-     */
-    function createUnmatchedPairWithSpeculation(
+    function recordFill(
         uint256 contestId,
         address scorer,
-        int32 theNumber,
+        int32 lineTicks,
         uint256 leaderboardId,
-        uint64 odds,
-        uint32 unmatchedExpiry,
-        PositionType positionType,
-        uint256 amount,
-        uint256 contributionAmount
-    )
-        external
-        override
-        nonReentrant
-        amountInRange(amount)
-        unmatchedExpiryInFuture(unmatchedExpiry)
-        oddsInRange(odds)
-    {
+        PositionType makerPositionType,
+        address maker,
+        uint256 makerRisk,
+        address taker,
+        uint256 takerRisk,
+        uint256 makerContributionAmount,
+        uint256 takerContributionAmount
+    ) external override nonReentrant returns (uint256) {
+        // --- Access control ---
+        if (
+            msg.sender !=
+            address(i_ospexCore.getModule(keccak256("MATCHING_MODULE")))
+        ) revert PositionModule__NotMatchingModule();
+
         ISpeculationModule specModule = ISpeculationModule(
             _getModule(keccak256("SPECULATION_MODULE"))
         );
+
         uint256 speculationId = specModule.getSpeculationId(
             contestId,
             scorer,
-            theNumber
+            lineTicks
         );
+
         if (speculationId == 0) {
-            speculationId = specModule.createSpeculationWithUnmatchedPair(
+            speculationId = specModule.createSpeculation(
                 contestId,
                 scorer,
-                theNumber,
-                msg.sender,
+                lineTicks,
+                taker,
                 leaderboardId
             );
         }
-        _createUnmatchedPair(
+
+        _recordFill(
             speculationId,
-            odds,
-            unmatchedExpiry,
-            positionType,
-            amount,
-            contributionAmount
-        );
-    }
-
-    /**
-     * @inheritdoc IPositionModule
-     */
-
-    /**
-     * @notice Adjusts an unmatched pair
-     * @param speculationId The ID of the speculation
-     * @param oddsPairId The ID of the odds pair
-     * @param newUnmatchedExpiry The new expiry of the unmatched position
-     * @param positionType The type of position
-     * @param amount The amount of the position
-     * @param contributionAmount The amount of the contribution
-     */
-    function adjustUnmatchedPair(
-        uint256 speculationId,
-        uint128 oddsPairId,
-        uint32 newUnmatchedExpiry,
-        PositionType positionType,
-        int256 amount,
-        uint256 contributionAmount
-    )
-        external
-        override
-        nonReentrant
-        speculationOpen(speculationId)
-        unmatchedExpiryInFuture(newUnmatchedExpiry)
-    {
-        // Get position
-        Position storage pos = _getPosition(
-            speculationId,
-            msg.sender,
-            oddsPairId,
-            positionType
-        );
-
-        // Handle contribution if any
-        IContributionModule(_getModule(keccak256("CONTRIBUTION_MODULE")))
-            .handleContribution(
-                speculationId,
-                msg.sender,
-                oddsPairId,
-                positionType,
-                contributionAmount
-            );
-
-        // Update unmatched expiry if provided
-        if (
-            newUnmatchedExpiry != 0 && newUnmatchedExpiry != pos.unmatchedExpiry
-        ) {
-            pos.unmatchedExpiry = newUnmatchedExpiry;
-        }
-
-        // Adjustment logic
-        if (amount > 0) {
-            uint256 addAmount = uint256(amount);
-            if (
-                pos.unmatchedAmount + addAmount >
-                ISpeculationModule(_getModule(keccak256("SPECULATION_MODULE")))
-                    .s_maxSpeculationAmount()
-            ) {
-                revert PositionModule__InvalidAmount();
-            }
-            i_token.safeTransferFrom(msg.sender, address(this), addAmount);
-            pos.unmatchedAmount += addAmount;
-        } else if (amount < 0) {
-            uint256 reduceAmount = uint256(-amount);
-            if (reduceAmount > pos.unmatchedAmount) {
-                revert PositionModule__InvalidAmount();
-            }
-            pos.unmatchedAmount -= reduceAmount;
-            i_token.safeTransfer(msg.sender, reduceAmount);
-        }
-
-        emit PositionAdjusted(
-            speculationId,
-            msg.sender,
-            oddsPairId,
-            newUnmatchedExpiry,
-            positionType,
-            amount
-        );
-        i_ospexCore.emitCoreEvent(
-            keccak256("POSITION_ADJUSTED"),
-            abi.encode(
-                speculationId,
-                msg.sender,
-                oddsPairId,
-                newUnmatchedExpiry,
-                positionType,
-                amount
-            )
-        );
-    }
-
-    /**
-     * @inheritdoc IPositionModule
-     */
-
-    /**
-     * @notice Completes an unmatched pair
-     * @param speculationId The ID of the speculation
-     * @param maker The address of the maker
-     * @param oddsPairId The ID of the odds pair
-     * @param makerPositionType The type of position
-     * @param amount The amount of the position
-     */
-    function completeUnmatchedPair(
-        uint256 speculationId,
-        address maker,
-        uint128 oddsPairId,
-        PositionType makerPositionType,
-        uint256 amount
-    ) external override nonReentrant {
-        _completeUnmatchedPair(
-            speculationId,
-            maker,
-            oddsPairId,
             makerPositionType,
-            amount,
-            msg.sender
+            maker,
+            makerRisk,
+            taker,
+            takerRisk,
+            makerContributionAmount,
+            takerContributionAmount
         );
+
+        return speculationId;
     }
-
-    /**
-     * @inheritdoc IPositionModule
-     */
-
-    /**
-     * @notice Completes an unmatched pair batch
-     * @param speculationId The ID of the speculation
-     * @param makers The addresses of the makers
-     * @param oddsPairIds The IDs of the odds pairs
-     * @param makerPositionTypes The types of positions
-     * @param amounts The amounts of the positions
-     */
-    function completeUnmatchedPairBatch(
-        uint256 speculationId,
-        address[] calldata makers,
-        uint128[] calldata oddsPairIds,
-        PositionType[] calldata makerPositionTypes,
-        uint256[] calldata amounts
-    ) external override nonReentrant {
-        if (
-            makers.length != oddsPairIds.length ||
-            makers.length != makerPositionTypes.length ||
-            makers.length != amounts.length
-        ) {
-            revert PositionModule__ArrayLengthMismatch();
-        }
-        for (uint256 i = 0; i < makers.length; i++) {
-            _completeUnmatchedPair(
-                speculationId,
-                makers[i],
-                oddsPairIds[i],
-                makerPositionTypes[i],
-                amounts[i],
-                msg.sender
-            );
-        }
-    }
-
-    /**
-     * @inheritdoc IPositionModule
-     */
 
     /**
      * @notice Transfers a position
+     * @dev This function does not enforce proportional risk/profit splits.
+     *      It trusts the calling contract to define valid transfer semantics.
+     *      Callers must hold MARKET_ROLE to call this function (admin-granted).
+     *      MARKET_ROLE is a full trust delegration, equivalent to module registration.
      * @param speculationId The ID of the speculation
      * @param from The address of the from user
-     * @param oddsPairId The ID of the odds pair
      * @param positionType The type of position
      * @param to The address of the to user
-     * @param amount The amount of the position
+     * @param riskAmount The amount of risk being sold
+     * @param profitAmount The amount of profit being sold
      */
     function transferPosition(
         uint256 speculationId,
         address from,
-        uint128 oddsPairId,
         PositionType positionType,
         address to,
-        uint256 amount
+        uint256 riskAmount,
+        uint256 profitAmount
     ) external override speculationOpen(speculationId) {
         // Centralized access control: only approved market contracts can call
         if (!i_ospexCore.hasMarketRole(msg.sender)) {
             revert PositionModule__UnauthorizedMarket();
         }
+        // Revert on self-transfer or zero address
+        if (from == to || to == address(0)) {
+            revert PositionModule__InvalidAddress();
+        }
         // Get the position being transferred from
         Position storage fromPos = _getPosition(
             speculationId,
             from,
-            oddsPairId,
             positionType
         );
-        if (amount == 0 || amount > fromPos.matchedAmount) {
+        // Check if the position amounts are locked
+        ILeaderboardModule lbModule = ILeaderboardModule(
+            _getModule(keccak256("LEADERBOARD_MODULE"))
+        );
+        uint256 lockedRisk = lbModule.s_lockedRisk(
+            speculationId,
+            from,
+            positionType
+        );
+        uint256 lockedProfit = lbModule.s_lockedProfit(
+            speculationId,
+            from,
+            positionType
+        );
+
+        if (lockedRisk > 0 || lockedProfit > 0) {
+            Position memory pos = s_positions[speculationId][from][
+                positionType
+            ];
+            uint256 remainingRisk = pos.riskAmount - riskAmount;
+            uint256 remainingProfit = pos.profitAmount - profitAmount;
+            if (remainingRisk < lockedRisk || remainingProfit < lockedProfit) {
+                revert PositionModule__TransferLocked();
+            }
+        }
+        // Check if the risk and profit amounts are valid
+        if (
+            riskAmount > fromPos.riskAmount ||
+            profitAmount > fromPos.profitAmount
+        ) {
             revert PositionModule__InvalidAmount();
         }
 
-        // Calculate proportional takerAmount to transfer
-        uint256 takerAmountToTransfer = (amount * fromPos.takerAmount) /
-            fromPos.matchedAmount;
+        fromPos.riskAmount -= riskAmount;
+        fromPos.profitAmount -= profitAmount;
 
-        fromPos.matchedAmount -= amount;
-        fromPos.takerAmount -= takerAmountToTransfer;
-
-        Position storage toPos = s_positions[speculationId][to][oddsPairId][
-            positionType
-        ];
-        if (toPos.poolId == 0) {
-            toPos.poolId = oddsPairId;
+        Position storage toPos = s_positions[speculationId][to][positionType];
+        if (toPos.riskAmount == 0) {
             toPos.positionType = positionType;
+            toPos.claimed = false;
         }
-        toPos.matchedAmount += amount;
-        toPos.takerAmount += takerAmountToTransfer;
-        toPos.claimed = false;
+        toPos.riskAmount += riskAmount;
+        toPos.profitAmount += profitAmount;
 
         emit PositionTransferred(
             speculationId,
             from,
-            oddsPairId,
             positionType,
             to,
-            amount
+            riskAmount,
+            profitAmount
         );
         i_ospexCore.emitCoreEvent(
             keccak256("POSITION_TRANSFERRED"),
             abi.encode(
                 speculationId,
                 from,
-                oddsPairId,
                 positionType,
                 to,
-                amount
+                riskAmount,
+                profitAmount
             )
         );
     }
 
     /**
-     * @inheritdoc IPositionModule
-     */
-
-    /**
-     * @notice Claims a position
+     * @notice Claims winnings from a position
      * @param speculationId The ID of the speculation
-     * @param oddsPairId The ID of the odds pair
      * @param positionType The type of position
      */
     function claimPosition(
         uint256 speculationId,
-        uint128 oddsPairId,
         PositionType positionType
     ) external override nonReentrant {
         // Get speculation and ensure it's closed
@@ -619,348 +370,146 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         Position storage pos = _getPosition(
             speculationId,
             msg.sender,
-            oddsPairId,
             positionType
         );
 
+        // Calculate payout for matched amount
+        uint256 payout = _calculatePayout(speculationId, pos);
+
         // Check if there's anything to claim
-        if (pos.matchedAmount == 0 && pos.unmatchedAmount == 0) {
+        if (pos.riskAmount == 0 || payout == 0) {
             revert PositionModule__NoPayout();
         }
 
-        // Calculate payout for matched amount
-        uint256 payout = calculatePayout(speculationId, pos);
-
-        // Add any unmatched amount to the payout
-        payout += pos.unmatchedAmount;
-
         // Zero out the position
-        pos.unmatchedAmount = 0;
-        pos.matchedAmount = 0;
-        pos.takerAmount = 0;
+        pos.riskAmount = 0;
+        pos.profitAmount = 0;
         pos.claimed = true;
 
         // Transfer total payout
         i_token.safeTransfer(msg.sender, payout);
 
         // Emit module-local event
-        emit PositionClaimed(
-            speculationId,
-            msg.sender,
-            oddsPairId,
-            positionType,
-            payout
-        );
+        emit PositionClaimed(speculationId, msg.sender, positionType, payout);
         // Emit core event
         i_ospexCore.emitCoreEvent(
             keccak256("POSITION_CLAIMED"),
-            abi.encode(
-                speculationId,
-                msg.sender,
-                oddsPairId,
-                positionType,
-                payout
-            )
+            abi.encode(speculationId, msg.sender, positionType, payout)
         );
     }
-
-    /**
-     * @inheritdoc IPositionModule
-     */
 
     /**
      * @notice Gets a position
      * @param speculationId The ID of the speculation
      * @param user The address of the user
-     * @param oddsPairId The ID of the odds pair
      * @param positionType The type of position
      */
     function getPosition(
         uint256 speculationId,
         address user,
-        uint128 oddsPairId,
         PositionType positionType
     ) external view override returns (Position memory position) {
-        position = s_positions[speculationId][user][oddsPairId][positionType];
-    }
-
-    /**
-     * @notice Gets an odds pair
-     * @param oddsPairId The ID of the odds pair
-     */
-    function getOddsPair(
-        uint128 oddsPairId
-    ) public view returns (OddsPair memory) {
-        return s_oddsPairs[oddsPairId];
-    }
-
-    /**
-     * @notice Gets the original odds
-     * @param oddsPairId The ID of the odds pair
-     */
-    function getOriginalOdds(uint128 oddsPairId) public view returns (uint64) {
-        return s_originalRequestedOdds[oddsPairId];
-    }
-
-    /**
-     * @notice Gets the inverse odds
-     * @param oddsPairId The ID of the odds pair
-     */
-    function getInverseOdds(uint128 oddsPairId) public view returns (uint64) {
-        return s_inverseCalculatedOdds[oddsPairId];
-    }
-
-    // --- Odds Logic ---
-    /**
-     * @notice Rounds odds to the nearest increment
-     * @param odds The odds to round
-     */
-    function roundOddsToNearestIncrement(
-        uint64 odds
-    ) public pure returns (uint64) {
-        if (odds < MIN_ODDS) return MIN_ODDS;
-        if (odds > MAX_ODDS) return MAX_ODDS;
-        uint64 remainder = odds % ODDS_INCREMENT;
-        if (remainder >= ODDS_INCREMENT / 2) {
-            return odds + (ODDS_INCREMENT - remainder);
-        } else {
-            return odds - remainder;
-        }
-    }
-
-    /**
-     * @notice Calculates and rounds inverse odds
-     * @param odds The odds to calculate and round
-     */
-    function calculateAndRoundInverseOdds(
-        uint64 odds
-    ) public pure returns (uint64) {
-        // First calculate the exact inverse
-        uint64 numerator = ODDS_PRECISION * ODDS_PRECISION;
-        uint64 denominator = odds - ODDS_PRECISION;
-        uint64 exactInverse = uint64(
-            (numerator / denominator) + ODDS_PRECISION
-        );
-        // Then round to nearest valid increment
-        return roundOddsToNearestIncrement(exactInverse);
-    }
-
-    /**
-     * @notice Gets or creates an odds pair ID
-     * @param odds The odds to get or create
-     * @param positionType The type of position
-     */
-    function getOrCreateOddsPairId(
-        uint64 odds,
-        PositionType positionType
-    ) public returns (uint128 oddsPairId, uint64 upperOdds, uint64 lowerOdds) {
-        uint64 normalizedOdds = roundOddsToNearestIncrement(odds);
-        uint64 inverseOdds = calculateAndRoundInverseOdds(normalizedOdds);
-        uint16 oddsIndex = uint16((normalizedOdds - MIN_ODDS) / ODDS_INCREMENT);
-        uint128 baseOddsPairId = uint128(oddsIndex);
-        // Apply offset for Lower (home/under) positions
-        oddsPairId = (positionType == PositionType.Lower)
-            ? baseOddsPairId + 10000
-            : baseOddsPairId;
-        OddsPair storage oddsPair = s_oddsPairs[oddsPairId];
-        // Check if pair exists for this speculation/oddsPairId
-        if (oddsPair.oddsPairId == 0) {
-            // Store original and inverse odds
-            s_originalRequestedOdds[oddsPairId] = normalizedOdds;
-            s_inverseCalculatedOdds[oddsPairId] = inverseOdds;
-            oddsPair.oddsPairId = oddsPairId;
-            oddsPair.upperOdds = (positionType == PositionType.Upper)
-                ? normalizedOdds
-                : inverseOdds;
-            oddsPair.lowerOdds = (positionType == PositionType.Upper)
-                ? inverseOdds
-                : normalizedOdds;
-        }
-        return (oddsPairId, oddsPair.upperOdds, oddsPair.lowerOdds);
+        position = s_positions[speculationId][user][positionType];
     }
 
     // --- Internal functions ---
 
     /**
-     * @notice Creates an unmatched pair
+     * @notice Internal function to record fill
+     *         riskAmountInRange is applied to takerRisk; makerRisk is unchecked.
      * @param speculationId The ID of the speculation
-     * @param odds The odds of the pair
-     * @param unmatchedExpiry The expiry of the unmatched position
-     * @param positionType The type of position
-     * @param amount The amount of the position
-     * @param contributionAmount The amount of the contribution
-     */
-
-    function _createUnmatchedPair(
-        uint256 speculationId,
-        uint64 odds,
-        uint32 unmatchedExpiry,
-        PositionType positionType,
-        uint256 amount,
-        uint256 contributionAmount
-    ) internal speculationOpen(speculationId) {
-        // --- Odds pair ID logic ---
-        (
-            uint128 oddsPairId,
-            uint64 upperOdds,
-            uint64 lowerOdds
-        ) = getOrCreateOddsPairId(odds, positionType);
-        // --- Position storage ---
-        Position storage pos = s_positions[speculationId][msg.sender][
-            oddsPairId
-        ][positionType];
-        // --- Check if position already exists ---
-        if (pos.poolId != 0) {
-            revert PositionModule__PositionAlreadyExists();
-        }
-        // --- Token transfer ---
-        i_token.safeTransferFrom(msg.sender, address(this), amount);
-        // --- Position setup ---
-        pos.poolId = oddsPairId;
-        pos.unmatchedExpiry = unmatchedExpiry;
-        pos.matchedAmount = 0;
-        pos.unmatchedAmount = amount;
-        pos.takerAmount = 0;
-        pos.positionType = positionType;
-        pos.claimed = false;
-        // --- Contribution handling ---
-        IContributionModule(_getModule(keccak256("CONTRIBUTION_MODULE")))
-            .handleContribution(
-                speculationId,
-                msg.sender,
-                oddsPairId,
-                positionType,
-                contributionAmount
-            );
-        // --- Emit events ---
-        emit PositionCreated(
-            speculationId,
-            msg.sender,
-            oddsPairId,
-            unmatchedExpiry,
-            positionType,
-            amount,
-            upperOdds,
-            lowerOdds
-        );
-        i_ospexCore.emitCoreEvent(
-            keccak256("POSITION_CREATED"),
-            abi.encode(
-                speculationId,
-                msg.sender,
-                oddsPairId,
-                unmatchedExpiry,
-                positionType,
-                amount,
-                upperOdds,
-                lowerOdds
-            )
-        );
-    }
-
-    /**
-     * @notice Completes an unmatched pair
-     * @param speculationId The ID of the speculation
+     * @param makerPositionType The position type of the maker (Upper or Lower)
      * @param maker The address of the maker
-     * @param oddsPairId The ID of the odds pair
-     * @param makerPositionType The type of position
-     * @param amount The amount of the position
+     * @param makerRisk Maker risk being consumed
+     * @param taker The address of the taker
+     * @param takerRisk The risk the taker is putting up
+     * @param makerContributionAmount The amount of the contribution for the maker
+     * @param takerContributionAmount The amount of the contribution for the taker
      */
-    function _completeUnmatchedPair(
+    function _recordFill(
         uint256 speculationId,
-        address maker,
-        uint128 oddsPairId,
         PositionType makerPositionType,
-        uint256 amount,
-        address taker
-    ) internal speculationOpen(speculationId) amountInRange(amount) {
-        // Get maker's position (base or repeat)
-        Position storage makerPos = _getPosition(
-            speculationId,
-            maker,
-            oddsPairId,
-            makerPositionType
-        );
-
-        // Check if unmatched position has expired
-        if (
-            makerPos.unmatchedExpiry != 0 &&
-            makerPos.unmatchedExpiry < block.timestamp
-        ) {
-            revert PositionModule__UnmatchedExpired();
-        }
-
-        // Get the odds pair
-        OddsPair memory oddsPair = getOddsPair(oddsPairId);
-
-        // Calculate how much can be matched
-        uint64 relevantOdds = makerPos.positionType == PositionType.Upper
-            ? oddsPair.upperOdds
-            : oddsPair.lowerOdds;
-        uint256 matchableAmount = (makerPos.unmatchedAmount *
-            (relevantOdds - ODDS_PRECISION)) / ODDS_PRECISION;
-
-        // Validate maker's position
-        if (matchableAmount < amount) {
-            revert PositionModule__InsufficientUnmatchedAmount(
-                amount,
-                matchableAmount
-            );
-        }
-
-        // Transfer tokens from taker
-        i_token.safeTransferFrom(taker, address(this), amount);
-
-        // Calculate how much of maker's position this match consumes
-        uint256 makerAmountConsumed = (amount *
-            (
-                makerPos.positionType == PositionType.Upper
-                    ? oddsPair.lowerOdds - ODDS_PRECISION
-                    : oddsPair.upperOdds - ODDS_PRECISION
-            )) / ODDS_PRECISION;
-
-        // Update maker's position
-        makerPos.matchedAmount += makerAmountConsumed;
-        makerPos.unmatchedAmount -= makerAmountConsumed;
-        makerPos.takerAmount += amount;
-
-        // Determine taker position type
+        address maker,
+        uint256 makerRisk,
+        address taker,
+        uint256 takerRisk,
+        uint256 makerContributionAmount,
+        uint256 takerContributionAmount
+    ) internal speculationOpen(speculationId) riskAmountInRange(takerRisk) {
+        // --- Taker position type---
         PositionType takerPositionType = makerPositionType == PositionType.Upper
             ? PositionType.Lower
             : PositionType.Upper;
 
-        // Check if taker already has a position at this speculationId/oddsPairId/positionType
-        Position storage takerPos = s_positions[speculationId][taker][
-            oddsPairId
-        ][takerPositionType];
-        if (takerPos.poolId == 0) {
-            takerPos.poolId = oddsPairId;
-            takerPos.positionType = takerPositionType;
+        // --- Maker position ---
+        Position storage makerPos = s_positions[speculationId][maker][
+            makerPositionType
+        ];
+        if (makerPos.riskAmount == 0) {
+            makerPos.positionType = makerPositionType;
+            makerPos.claimed = false;
         }
-        takerPos.matchedAmount += amount;
-        takerPos.unmatchedAmount = 0;
-        takerPos.takerAmount += makerAmountConsumed;
-        takerPos.claimed = false;
+        makerPos.riskAmount += makerRisk;
+        makerPos.profitAmount += takerRisk;
 
-        emit PositionMatched(
+        // --- Taker position ---
+        Position storage takerPos = s_positions[speculationId][taker][
+            takerPositionType
+        ];
+        if (takerPos.riskAmount == 0) {
+            takerPos.positionType = takerPositionType;
+            takerPos.claimed = false;
+        }
+        takerPos.riskAmount += takerRisk;
+        takerPos.profitAmount += makerRisk;
+
+        // --- Token transfer ---
+        i_token.safeTransferFrom(maker, address(this), makerRisk);
+        i_token.safeTransferFrom(taker, address(this), takerRisk);
+
+        // --- Contribution handling ---
+        if (makerContributionAmount + takerContributionAmount > 0) {
+            IContributionModule contributionModule = IContributionModule(
+                _getModule(keccak256("CONTRIBUTION_MODULE"))
+            );
+            if (makerContributionAmount > 0) {
+                contributionModule.handleContribution(
+                    speculationId,
+                    maker,
+                    makerPositionType,
+                    makerContributionAmount
+                );
+            }
+            if (takerContributionAmount > 0) {
+                contributionModule.handleContribution(
+                    speculationId,
+                    taker,
+                    takerPositionType,
+                    takerContributionAmount
+                );
+            }
+        }
+
+        // --- Event ---
+        emit PositionFilled(
             speculationId,
             maker,
-            oddsPairId,
-            makerPositionType,
             taker,
-            amount,
-            makerAmountConsumed
+            makerPositionType,
+            takerPositionType,
+            makerRisk,
+            takerRisk
         );
         i_ospexCore.emitCoreEvent(
-            keccak256("POSITION_MATCHED"),
+            keccak256("POSITION_MATCHED_PAIR"),
             abi.encode(
                 speculationId,
                 maker,
-                oddsPairId,
-                makerPositionType,
                 taker,
-                amount,
-                makerAmountConsumed
+                makerPositionType,
+                takerPositionType,
+                makerRisk,
+                takerRisk
             )
         );
     }
@@ -970,19 +519,14 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
      * @notice Gets a position
      * @param speculationId The ID of the speculation
      * @param user The address of the user
-     * @param oddsPairId The ID of the odds pair
      * @param positionType The type of position
      */
     function _getPosition(
         uint256 speculationId,
         address user,
-        uint128 oddsPairId,
         PositionType positionType
     ) internal view returns (Position storage position) {
-        position = s_positions[speculationId][user][oddsPairId][positionType];
-        if (position.poolId == 0) {
-            revert PositionModule__PositionDoesNotExist();
-        }
+        position = s_positions[speculationId][user][positionType];
         if (position.claimed) {
             revert PositionModule__AlreadyClaimed();
         }
@@ -995,7 +539,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
      * @param speculationId The ID of the speculation
      * @param position The position to calculate the payout for
      */
-    function calculatePayout(
+    function _calculatePayout(
         uint256 speculationId,
         Position memory position
     ) internal view returns (uint256) {
@@ -1009,10 +553,10 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
             speculation.winSide == WinSide.Void ||
             speculation.winSide == WinSide.Forfeit
         ) {
-            return position.matchedAmount; // Return original stake
+            return position.riskAmount; // Return original stake
         }
 
-        // Calculate payout based on position type and odds
+        // Calculate payout based on position type and win side
         bool isWinner = ((position.positionType == PositionType.Upper &&
             (speculation.winSide == WinSide.Away ||
                 speculation.winSide == WinSide.Over)) ||
@@ -1021,7 +565,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
                     speculation.winSide == WinSide.Under)));
 
         if (isWinner) {
-            return position.matchedAmount + position.takerAmount;
+            return position.riskAmount + position.profitAmount;
         }
         return 0; // Losing position gets nothing
     }

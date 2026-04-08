@@ -8,14 +8,12 @@ interface IContributionModule {
      * @notice Handles a contribution, transferring tokens and emitting events
      * @param speculationId The speculation ID
      * @param contributor The address making the contribution
-     * @param oddsPairId The odds pair ID
      * @param positionType The position type
      * @param contributionAmount The amount to contribute
      */
     function handleContribution(
         uint256 speculationId,
         address contributor,
-        uint128 oddsPairId,
         PositionType positionType,
         uint256 contributionAmount
     ) external;

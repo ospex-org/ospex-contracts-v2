@@ -20,6 +20,7 @@ import "../src/modules/RulesModule.sol";
 import "../src/modules/MoneylineScorerModule.sol";
 import "../src/modules/SpreadScorerModule.sol";
 import "../src/modules/TotalScorerModule.sol";
+import "../src/modules/MatchingModule.sol";
 
 /**
  * @title DeployPolygon
@@ -39,7 +40,6 @@ contract DeployPolygon is Script {
     struct DeploymentConfig {
         uint8 tokenDecimals;
         uint256 minSaleAmount;
-        uint256 maxSaleAmount;
         bytes32 createContestSourceHash;
         bytes32 updateContestMarketsSourceHash;
         bytes32 donId;
@@ -65,6 +65,7 @@ contract DeployPolygon is Script {
         address moneylineScorerModule;
         address spreadScorerModule;
         address totalScorerModule;
+        address matchingModule;
     }
 
     function run() external {
@@ -78,7 +79,6 @@ contract DeployPolygon is Script {
         DeploymentConfig memory config = DeploymentConfig({
             tokenDecimals: 6, // USDC decimals
             minSaleAmount: 1 * 10**6, // 1 USDC
-            maxSaleAmount: 3 * 10**6, // 3 USDC - conservative limit for initial launch
             createContestSourceHash: 0xa93ea3137b5c35f5932abee7e8d261c3d5e85d2cbc3918dfc2e75170867c8463,
             updateContestMarketsSourceHash: 0x7f5ce70565133fedb2e0f1aeb925f38a3b26924917cff852e7de40a9297119b4, // hash for JavaScript source code that refreshes odds/lines on existing contests
             donId: bytes32("fun-polygon-mainnet-1"),
@@ -133,6 +133,9 @@ contract DeployPolygon is Script {
         contracts.totalScorerModule = address(new TotalScorerModule(contracts.ospexCore));
         console.log("TotalScorerModule:", contracts.totalScorerModule);
 
+        contracts.matchingModule = address(new MatchingModule(contracts.ospexCore));
+        console.log("MatchingModule:", contracts.matchingModule);
+
         // Deploy modules with additional dependencies
         contracts.treasuryModule = address(new TreasuryModule(
             contracts.ospexCore,
@@ -156,8 +159,7 @@ contract DeployPolygon is Script {
         contracts.secondaryMarketModule = address(new SecondaryMarketModule(
             contracts.ospexCore,
             contracts.usdc,
-            config.minSaleAmount,
-            config.maxSaleAmount
+            config.minSaleAmount
         ));
         console.log("SecondaryMarketModule:", contracts.secondaryMarketModule);
 
@@ -196,11 +198,17 @@ contract DeployPolygon is Script {
         core.registerModule(keccak256("CONTRIBUTION_MODULE"), contracts.contributionModule);
         core.registerModule(keccak256("LEADERBOARD_MODULE"), contracts.leaderboardModule);
         core.registerModule(keccak256("RULES_MODULE"), contracts.rulesModule);
-        core.registerModule(keccak256("MONEYLINE_SCORER"), contracts.moneylineScorerModule);
-        core.registerModule(keccak256("SPREAD_SCORER"), contracts.spreadScorerModule);
-        core.registerModule(keccak256("TOTAL_SCORER"), contracts.totalScorerModule);
-        
-        console.log("All modules registered successfully");
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), contracts.moneylineScorerModule);
+        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), contracts.spreadScorerModule);
+        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), contracts.totalScorerModule);
+        core.registerModule(keccak256("MATCHING_MODULE"), contracts.matchingModule);
+
+        // Grant scorer role to scorer modules
+        core.setScorerRole(contracts.moneylineScorerModule, true);
+        core.setScorerRole(contracts.spreadScorerModule, true);
+        core.setScorerRole(contracts.totalScorerModule, true);
+
+        console.log("All modules registered and scorer roles granted");
     }
 
     function printDeploymentInfo(DeployedContracts memory contracts) internal pure {

@@ -15,10 +15,10 @@ import {OspexCore} from "../core/OspexCore.sol";
 contract MoneylineScorerModule is IScorerModule {
     /// @notice Error for not a score manager
     error MoneylineScorerModule__NotSpeculationModule(address caller);
-    /// @notice Error for score not finalized
-    error MoneylineScorerModule__ScoreNotFinalized(uint256 contestId);
     /// @notice Error for module not set
     error MoneylineScorerModule__ModuleNotSet(bytes32 moduleType);
+    /// @notice Error for invalid OspexCore address
+    error MoneylineScorerModule__InvalidOspexCore();
 
     /// @notice The OspexCore contract
     OspexCore public immutable i_ospexCore;
@@ -36,6 +36,8 @@ contract MoneylineScorerModule is IScorerModule {
      * @param _ospexCore The address of the OspexCore contract
      */
     constructor(address _ospexCore) {
+        if (_ospexCore == address(0))
+            revert MoneylineScorerModule__InvalidOspexCore();
         i_ospexCore = OspexCore(_ospexCore);
     }
 
@@ -46,7 +48,7 @@ contract MoneylineScorerModule is IScorerModule {
      */
     function determineWinSide(
         uint256 contestId,
-        int32 /*theNumber*/
+        int32 /*lineTicks*/
     ) external view override onlySpeculationModule returns (WinSide) {
         Contest memory contest = IContestModule(
             _getModule(keccak256("CONTEST_MODULE"))

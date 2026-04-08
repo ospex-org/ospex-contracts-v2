@@ -15,10 +15,10 @@ import {OspexCore} from "../core/OspexCore.sol";
 contract TotalScorerModule is IScorerModule {
     /// @notice Error for not a speculation module
     error TotalScorerModule__NotSpeculationModule(address caller);
-    /// @notice Error for score not finalized
-    error TotalScorerModule__ScoreNotFinalized(uint256 contestId);
     /// @notice Error for module not set
     error TotalScorerModule__ModuleNotSet(bytes32 moduleType);
+    /// @notice Error for invalid OspexCore address
+    error TotalScorerModule__InvalidOspexCore();
 
     /// @notice The OspexCore contract
     OspexCore public immutable i_ospexCore;
@@ -36,46 +36,52 @@ contract TotalScorerModule is IScorerModule {
      * @param _ospexCore The address of the OspexCore contract
      */
     constructor(address _ospexCore) {
+        if (_ospexCore == address(0))
+            revert TotalScorerModule__InvalidOspexCore();
         i_ospexCore = OspexCore(_ospexCore);
     }
 
     /**
      * @notice Determines the winning side for a total (over/under) speculation
      * @param contestId The ID of the contest to score
-     * @param theNumber The predicted total combined score
+     * @param lineTicks The total line, stored as 10x (e.g., 220.5 = 2205)
      * @return WinSide The winning side
      */
     function determineWinSide(
         uint256 contestId,
-        int32 theNumber
+        int32 lineTicks
     ) external view override onlySpeculationModule returns (WinSide) {
         Contest memory contest = IContestModule(
             _getModule(keccak256("CONTEST_MODULE"))
         ).getContest(contestId);
 
-        return scoreTotal(contest.awayScore, contest.homeScore, theNumber);
+        return scoreTotal(contest.awayScore, contest.homeScore, lineTicks);
     }
 
     /**
      * @notice Scores a total points speculation
-     * @param _awayScore Away team score
-     * @param _homeScore Home team score
-     * @param _theNumber Predicted total combined score for the speculation
-     *                   For example:
-     *                   - If _theNumber is 195 and the combined score is 196, the result is Over
-     *                   - If _theNumber is 195 and the combined score is 194, the result is Under
-     *                   - If the combined score equals _theNumber, the result is Over
+     * @param _awayScore Away team score (raw game score, not scaled)
+     * @param _homeScore Home team score (raw game score, not scaled)
+     * @param _lineTicks Total line, stored as 10x (e.g., 220.5 = 2205).
+     *                   Over wins when (awayScore + homeScore) * 10 > lineTicks.
+     *                   Exact equality results in a Push.
      * @return WinSide The winning side of the speculation
      */
     function scoreTotal(
         uint32 _awayScore,
         uint32 _homeScore,
-        int32 _theNumber
+        int32 _lineTicks
     ) private pure returns (WinSide) {
-        if (int32(_awayScore + _homeScore) >= _theNumber) {
+        // casting to 'int32' is safe because combined sports scores * 10 never exceed int32 max
+        // forge-lint: disable-next-line(unsafe-typecast)
+        int32 scaledTotal = int32(_awayScore + _homeScore) * 10;
+
+        if (scaledTotal > _lineTicks) {
             return WinSide.Over;
-        } else {
+        } else if (scaledTotal < _lineTicks) {
             return WinSide.Under;
+        } else {
+            return WinSide.Push;
         }
     }
 

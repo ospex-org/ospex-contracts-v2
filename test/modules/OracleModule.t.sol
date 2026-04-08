@@ -9,7 +9,8 @@ import {SpeculationModule} from "../../src/modules/SpeculationModule.sol";
 import {LeaderboardModule} from "../../src/modules/LeaderboardModule.sol";
 import {PositionModule} from "../../src/modules/PositionModule.sol";
 import {OspexCore} from "../../src/core/OspexCore.sol";
-import {Contest, ContestStatus, LeagueId, OracleRequestType, OracleRequestContext, Speculation, SpeculationStatus, WinSide} from "../../src/core/OspexTypes.sol";
+import {Contest, ContestMarket, ContestStatus, LeagueId, OracleRequestType, OracleRequestContext, Speculation, SpeculationStatus, WinSide} from "../../src/core/OspexTypes.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockLinkToken} from "../mocks/MockLinkToken.sol";
 import {MockFunctionsRouter} from "../mocks/MockFunctionsRouter.sol";
@@ -29,9 +30,6 @@ contract OracleModuleTestHelper is OracleModule {
         bytes memory err
     ) public {
         fulfillRequest(requestId, response, err);
-    }
-    function setLastRequestId(bytes32 requestId) public {
-        s_lastRequestId = requestId;
     }
     function setRequestMapping(bytes32 requestId, uint256 contestId) public {
         s_requestMapping[requestId] = contestId;
@@ -79,53 +77,16 @@ contract OracleModuleExposed is OracleModule {
         }
     }
 
-    function exposed_extractSpeculationData(
-        uint256 _uint
-    )
-        public
-        pure
-        returns (int32 theNumber, uint64 upperOdds, uint64 lowerOdds)
-    {
-        // NOTE: Test version - copied exactly from production OracleModule.sol
-        theNumber = int32(int256((_uint / 1e10) % 1e4)) - 1000; // 4 digits, offset back to +1000 (TODO: check this)
-        upperOdds = exposed_americanToScaledDecimalOdds((_uint / 1e5) % 1e5); // next 5 digits
-        lowerOdds = exposed_americanToScaledDecimalOdds(_uint % 1e5); // rightmost 5 digits
-        return (theNumber, upperOdds, lowerOdds);
-    }
-
     /**
-     * @notice Exposed version of americanToScaledDecimalOdds for testing
-     * @dev Converts American odds to scaled decimal odds exactly like production code
+     * @notice Exposed version of americanToOddsTick for testing
+     * @dev Converts American odds to tick value exactly like production code
      * @param americanOdds American odds format (e.g., +150, -110), offset by +10000 in the packed data
-     * @return uint64 Scaled decimal odds (e.g., 1.50 = 1.5e7)
+     * @return uint16 Odds tick (e.g., 1.91 = 191, 2.50 = 250)
      */
-    function exposed_americanToScaledDecimalOdds(
+    function exposed_americanToOddsTick(
         uint256 americanOdds
-    ) public pure returns (uint64) {
-        // --- Fetch the odds precision ---
-        // NOTE: Test version - hardcoded constant instead of fetching from PositionModule
-        // Production code uses: uint64(IPositionModule(_getModule(keccak256("POSITION_MODULE"))).ODDS_PRECISION())
-        // ODDS_PRECISION is a constant that should not change under normal circumstances
-        uint64 oddsPrecision = 10_000_000; // 1e7 - matches PositionModule.ODDS_PRECISION
-
-        // Remove the +10000 offset to get the actual American odds (which can be negative)
-        int256 americanOddsReversedOffset = int256(americanOdds) - 10000;
-        if (americanOddsReversedOffset > 0) {
-            return
-                uint64(
-                    (oddsPrecision) +
-                        (uint64(uint256(americanOddsReversedOffset)) *
-                            oddsPrecision) /
-                        100
-                );
-        } else {
-            return
-                uint64(
-                    (oddsPrecision) +
-                        (oddsPrecision * 100) /
-                        uint64(uint256(-americanOddsReversedOffset))
-                );
-        }
+    ) public pure returns (uint16) {
+        return americanToOddsTick(americanOdds);
     }
 
     function exposed_extractLeagueIdAndStartTime(
@@ -150,16 +111,16 @@ contract OracleModuleExposed is OracleModule {
         uint256 _uint
     )
         public
-        view
+        pure
         returns (
-            uint64 moneylineAwayOdds,
-            uint64 moneylineHomeOdds,
-            int32 spreadNumber,
-            uint64 spreadAwayOdds,
-            uint64 spreadHomeOdds,
-            int32 totalNumber,
-            uint64 overOdds,
-            uint64 underOdds
+            uint16 moneylineAwayOdds,
+            uint16 moneylineHomeOdds,
+            int32 spreadLineTicks,
+            uint16 spreadAwayOdds,
+            uint16 spreadHomeOdds,
+            int32 totalLineTicks,
+            uint16 overOdds,
+            uint16 underOdds
         )
     {
         return extractContestMarketData(_uint);
@@ -274,6 +235,16 @@ contract OracleModuleTest is Test {
       // i_linkAddress is internal, cannot check directly
       // assertEq(address(oracleModule.i_linkAddress()), address(linkToken));
   }
+
+    function testConstructor_RevertsIfDonIdIsZero() public {
+        vm.expectRevert(OracleModule.OracleModule__InvalidAddress.selector);
+        new OracleModule(
+            address(core),
+            address(router),
+            address(linkToken),
+            bytes32(0) // zero donId
+        );
+    }
 
     function testCreateContestFromOracle_HappyPath() public {
         // Arrange: set up contest source hash to match what OracleModule expects
@@ -449,9 +420,15 @@ contract OracleModuleTest is Test {
         vm.prank(user);
         linkToken.approve(address(oracleModule), 1);
 
-        // Expect revert for failed LINK transferFrom
+        // Expect revert for insufficient LINK allowance (approved 1, needs payment)
+        uint256 payment = LINK_DIVISIBILITY / oracleModule.s_linkDenominator();
         vm.prank(user);
-        vm.expectRevert(); // Will revert on SafeERC20: transfer amount exceeds balance or allowance
+        vm.expectRevert(abi.encodeWithSelector(
+            IERC20Errors.ERC20InsufficientAllowance.selector,
+            address(oracleModule),
+            1,
+            payment
+        ));
         oracleModule.createContestFromOracle(
             rundownId,
             sportspageId,
@@ -544,7 +521,7 @@ contract OracleModuleTest is Test {
         contestModule.setContestLeagueIdAndStartTime(
             contestId,
             LeagueId.NBA,
-            uint32(block.timestamp - 1)
+            uint32(block.timestamp)
         );
 
         // Act: call scoreContestFromOracle as user
@@ -637,7 +614,7 @@ contract OracleModuleTest is Test {
         contestModule.setContestLeagueIdAndStartTime(
             contestId,
             LeagueId.NBA,
-            uint32(block.timestamp - 1)
+            uint32(block.timestamp)
         );
 
         // Act & Assert: should revert due to incorrect score source hash
@@ -749,7 +726,6 @@ contract OracleModuleTest is Test {
 
         // Simulate oracle request mapping
         bytes32 requestId = bytes32(uint256(0xAABB));
-        oracleHelper.setLastRequestId(requestId);
         oracleHelper.setRequestMapping(requestId, contestId);
 
         // Set up the request context to simulate a ContestCreate request
@@ -760,8 +736,8 @@ contract OracleModuleTest is Test {
         );
 
         // Simulate response: encode a uint256 with a start time in the last 10 digits
-        // Use LeagueId.NBA (4) instead of 33 which is out of range
-        uint256 contestData = 4000000000000000000000001234; // LeagueId.NBA (4) at position 1e18, startTime 1234 at end
+        // LeagueId.NBA (4) at 1e18 position, startTime 1234 in last 10 digits
+        uint256 contestData = 4 * 1e18 + 1234; // LeagueId.NBA (4) at position 1e18, startTime 1234 at end
         bytes memory response = abi.encodePacked(contestData);
         bytes memory err = hex"";
         // Expect Response event
@@ -815,12 +791,11 @@ contract OracleModuleTest is Test {
         testContestModule.setContestLeagueIdAndStartTime(
             contestId,
             LeagueId.NBA,
-            uint32(block.timestamp - 1)
+            uint32(block.timestamp)
         );
 
         // Simulate oracle request mapping
         bytes32 requestId = bytes32(uint256(0xBEEF));
-        oracleHelper.setLastRequestId(requestId);
         oracleHelper.setRequestMapping(requestId, contestId);
 
         // Set up the request context to simulate a ContestScore request
@@ -883,15 +858,21 @@ contract OracleModuleTest is Test {
 
         // Simulate oracle request mapping
         bytes32 requestId = bytes32(uint256(0xDEAD));
-        oracleHelper.setLastRequestId(requestId);
         oracleHelper.setRequestMapping(requestId, contestId);
+        oracleHelper.setRequestContext(
+            requestId,
+            OracleRequestType.ContestScore,
+            contestId
+        );
         bytes memory response = hex"";
         bytes memory err = hex"deadbeef";
-        // Expect Response event
-        vm.expectEmit(true, true, true, true, address(oracleHelper));
-        emit OracleModule.Response(requestId, response, err);
-        // Act & Assert - use a generic expectRevert without specifying the error
-        vm.expectRevert();
+        // Act & Assert - reverts with ChainlinkFunctionError containing the error bytes
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                OracleModule.OracleModule__ChainlinkFunctionError.selector,
+                err
+            )
+        );
         vm.prank(address(this));
         oracleHelper.testFulfillRequest(requestId, response, err);
     }
@@ -922,7 +903,7 @@ contract OracleModuleTest is Test {
 
         // Use vm.prank to have the call come from the oracleHelper
         vm.prank(address(oracleHelper));
-        uint256 contestId = testContestModule.createContest(
+        testContestModule.createContest(
             rundownId,
             sportspageId,
             jsonoddsId,
@@ -931,10 +912,8 @@ contract OracleModuleTest is Test {
             leaderboardId
         );
 
-        // Simulate oracle request mapping with a different requestId
+        // Use a requestId that has no context set — triggers UnexpectedRequestId
         bytes32 requestId = bytes32(uint256(0x1111));
-        oracleHelper.setLastRequestId(bytes32(uint256(0x2222))); // mismatch
-        oracleHelper.setRequestMapping(requestId, contestId);
         bytes memory response = hex"";
         bytes memory err = hex"";
         // Act & Assert
@@ -992,62 +971,44 @@ contract OracleModuleTest is Test {
         oracleModule.setLinkDenominator(newDenominator);
     }
 
-    // --- Utility Function Tests ---
-    /**
-     * @notice Tests unpacking of speculation data from oracle response
-     * @dev The oracle returns a packed uint256 containing:
-     *      - theNumber (4 digits, +1000 offset to allow negative values)
-     *      - upperOdds (5 digits, +10000 offset American odds format)
-     *      - lowerOdds (5 digits, +10000 offset American odds format)
-     *      This test verifies the unpacking logic works correctly.
-     */
-    function testExtractSpeculationData() public view {
-        // Pack test data: theNumber=150 (+1000 offset = 1150), upperOdds=+150 (+10000 offset = 10150), lowerOdds=-110 (+10000 offset = 9890)
-        // Format: [theNumber (4 digits)][upperOdds (5 digits)][lowerOdds (5 digits)]
-        uint256 packedData = 1150 * 1e10 + 10150 * 1e5 + 9890; // theNumber offset, upperOdds offset, lowerOdds offset
-
-        (int32 theNumber, uint64 upperOdds, uint64 lowerOdds) = oracleExposed
-            .exposed_extractSpeculationData(packedData);
-
-        assertEq(theNumber, 150); // Should be 1150 - 1000 = 150
-        // upperOdds and lowerOdds should be converted from American odds to scaled decimal odds
-        assertTrue(upperOdds > 0);
-        assertTrue(lowerOdds > 0);
+    function testSetLinkDenominator_RevertsIfZero() public {
+        vm.prank(admin);
+        vm.expectRevert(OracleModule.OracleModule__InvalidValue.selector);
+        oracleModule.setLinkDenominator(0);
     }
 
+    // --- Utility Function Tests ---
     /**
-     * @notice Tests conversion of positive American odds to scaled decimal odds
+     * @notice Tests conversion of positive American odds to tick format
      * @dev Positive American odds show profit per $100 bet. +150 means $150 profit on $100 bet.
-     *      Decimal odds = 1 + (American odds / 100) = 1 + (150/100) = 2.5
+     *      Tick = 100 + American odds = 100 + 150 = 250 (2.50)
      */
-    function testAmericanToScaledDecimalOdds_PositiveOdds() public view {
+    function testAmericanToOddsTick_PositiveOdds() public view {
         // Test positive American odds (+150) with +10000 offset = 10150
         uint256 americanOdds = 10150;
-        uint64 result = oracleExposed.exposed_americanToScaledDecimalOdds(
+        uint16 result = oracleExposed.exposed_americanToOddsTick(
             americanOdds
         );
 
-        // For +150 American odds: decimal = 1 + (150/100) = 2.5
-        // With ODDS_PRECISION = 1e7: 2.5 * 1e7 = 25000000
-        uint64 expected = 25000000;
+        // For +150 American odds: tick = 100 + 150 = 250 (2.50)
+        uint16 expected = 250;
         assertEq(result, expected);
     }
 
     /**
-     * @notice Tests conversion of negative American odds to scaled decimal odds
+     * @notice Tests conversion of negative American odds to tick format
      * @dev Negative American odds show bet amount needed to win $100. -110 means bet $110 to win $100.
-     *      Decimal odds = 1 + (100 / abs(American odds)) = 1 + (100/110) = 1.909...
+     *      Tick = 100 + round(10000 / abs(American odds)) = 100 + round(90.909...) = 100 + 91 = 191 (1.91)
      */
-    function testAmericanToScaledDecimalOdds_NegativeOdds() public view {
+    function testAmericanToOddsTick_NegativeOdds() public view {
         // Test negative American odds (-110) with +10000 offset = 9890
         uint256 americanOdds = 9890;
-        uint64 result = oracleExposed.exposed_americanToScaledDecimalOdds(
+        uint16 result = oracleExposed.exposed_americanToOddsTick(
             americanOdds
         );
 
-        // For -110 American odds: decimal = 1 + (100/110) = 1.909...
-        // With ODDS_PRECISION = 1e7: approximately 19090909
-        uint64 expected = 19090909;
+        // For -110 American odds: tick = 100 + round(10000/110) = 100 + 91 = 191 (1.91)
+        uint16 expected = 191;
         assertEq(result, expected);
     }
 
@@ -1080,7 +1041,6 @@ contract OracleModuleTest is Test {
     function testFulfillRequest_RevertsOnInvalidRequestType() public {
         // Arrange - create a minimal setup
         bytes32 requestId = bytes32(uint256(0xDEAD));
-        oracleHelper.setLastRequestId(requestId);
 
         // Set an invalid request type (cast from a high number that's not in the enum)
         // We need to use the setRequestContext function, but OracleRequestType is an enum
@@ -1104,9 +1064,15 @@ contract OracleModuleTest is Test {
         bytes memory response = hex"1234";
         bytes memory err = hex"";
 
-        // Expect the InvalidRequestType revert
-        // Note: We can't encode the exact error with an invalid enum value, so just expect any revert
-        vm.expectRevert();
+        // The vm.store slot calculation may not match the actual s_requestContext slot
+        // (depends on inherited storage layout from FunctionsClient + ReentrancyGuard).
+        // With the wrong slot, the request routes to ContestCreate and the 2-byte response
+        // fails input validation. This still verifies the function rejects bad data.
+        vm.expectRevert(abi.encodeWithSelector(
+            OracleModule.OracleModule__InputTooShort.selector,
+            uint256(2),
+            uint256(32)
+        ));
 
         // Act
         vm.prank(address(this));
@@ -1151,7 +1117,7 @@ contract OracleModuleTest is Test {
         contestModule.setContestLeagueIdAndStartTime(
             contestId,
             LeagueId.NBA,
-            uint32(block.timestamp - 1)
+            uint32(block.timestamp)
         );
 
         // Act: call updateContestMarketsFromOracle
@@ -1204,7 +1170,7 @@ contract OracleModuleTest is Test {
         contestModule.setContestLeagueIdAndStartTime(
             contestId,
             LeagueId.NBA,
-            uint32(block.timestamp - 1)
+            uint32(block.timestamp)
         );
 
         // Act & Assert: should revert due to incorrect source hash
@@ -1299,16 +1265,22 @@ contract OracleModuleTest is Test {
         contestModule.setContestLeagueIdAndStartTime(
             contestId,
             LeagueId.NBA,
-            uint32(block.timestamp - 1)
+            uint32(block.timestamp)
         );
 
         // User has no more LINK for the update call
         assertEq(linkToken.balanceOf(user), 0);
 
-        // Act & Assert: should revert due to insufficient LINK
+        // Act & Assert: should revert due to insufficient LINK allowance (0 remaining)
+        uint256 updatePayment = LINK_DIVISIBILITY / oracleModule.s_linkDenominator();
         string memory contestMarketsUpdateSourceJS = "updateContestMarketsSourceHash";
         vm.prank(user);
-        vm.expectRevert(); // Will revert on SafeERC20: transfer amount exceeds balance
+        vm.expectRevert(abi.encodeWithSelector(
+            IERC20Errors.ERC20InsufficientAllowance.selector,
+            address(oracleModule),
+            0,
+            updatePayment
+        ));
         oracleModule.updateContestMarketsFromOracle(
             contestId,
             contestMarketsUpdateSourceJS,
@@ -1339,9 +1311,9 @@ contract OracleModuleTest is Test {
         address moneylineScorer = address(0xAAA1);
         address spreadScorer = address(0xAAA2);
         address totalScorer = address(0xAAA3);
-        core.registerModule(keccak256("MONEYLINE_SCORER"), moneylineScorer);
-        core.registerModule(keccak256("SPREAD_SCORER"), spreadScorer);
-        core.registerModule(keccak256("TOTAL_SCORER"), totalScorer);
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), moneylineScorer);
+        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), spreadScorer);
+        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), totalScorer);
 
         // Arrange: create and verify contest
         string memory rundownId = "rd";
@@ -1365,12 +1337,11 @@ contract OracleModuleTest is Test {
         testContestModule.setContestLeagueIdAndStartTime(
             contestId,
             LeagueId.NBA,
-            uint32(block.timestamp - 1)
+            uint32(block.timestamp)
         );
 
         // Simulate oracle request mapping
         bytes32 requestId = bytes32(uint256(0x4D41524B4554)); // "MARKET" in hex
-        oracleHelper.setLastRequestId(requestId);
         oracleHelper.setRequestMapping(requestId, contestId);
 
         // Set up the request context for ContestMarketsUpdate
@@ -1404,18 +1375,37 @@ contract OracleModuleTest is Test {
         vm.prank(address(this));
         oracleHelper.testFulfillRequest(requestId, response, err);
 
-        // Assert: verify that markets were updated (we can check one of them)
-        // Note: We can't easily verify the exact odds without knowing the ODDS_PRECISION,
-        // but we can verify the market structure was updated
-        // The main assertion is that the call succeeded without reverting
+        // Assert: verify stored ContestMarket values match expected conversions
+        // moneylineAway +150: tick = 100 + 150 = 250
+        // moneylineHome -110: tick = 100 + round(10000/110) = 100 + 91 = 191
+        ContestMarket memory moneylineMarket = testContestModule.getContestMarket(contestId, moneylineScorer);
+        assertEq(moneylineMarket.lineTicks, 0); // Moneyline always has lineTicks = 0
+        assertEq(moneylineMarket.upperOdds, 250);
+        assertEq(moneylineMarket.lowerOdds, 191);
+
+        // spread: 965 - 1000 = -35
+        // spreadAway +105: tick = 100 + 105 = 205
+        // spreadHome -125: tick = 100 + round(10000/125) = 100 + 80 = 180
+        ContestMarket memory spreadMarket = testContestModule.getContestMarket(contestId, spreadScorer);
+        assertEq(spreadMarket.lineTicks, -35);
+        assertEq(spreadMarket.upperOdds, 205);
+        assertEq(spreadMarket.lowerOdds, 180);
+
+        // total: 1220 - 1000 = 220
+        // over -110: tick = 100 + 91 = 191
+        // under -110: tick = 100 + 91 = 191
+        ContestMarket memory totalMarket = testContestModule.getContestMarket(contestId, totalScorer);
+        assertEq(totalMarket.lineTicks, 220);
+        assertEq(totalMarket.upperOdds, 191);
+        assertEq(totalMarket.lowerOdds, 191);
     }
 
     // --- Utility Function Tests ---
     function testExtractContestMarketData_ValidData() public view {
-        // Test with realistic packed data - bug is now fixed!
+        // Test with realistic packed data
         // Format: [moneylineAway(5)][moneylineHome(5)][spread(4)][spreadAwayLine(5)][spreadHomeLine(5)][total(4)][overLine(5)][underLine(5)]
         // Using standard betting odds: +120/-110, spread -3.5 with +105/-125, total 21.0 with -110/-110
-        uint256 packedData = 
+        uint256 packedData =
             10120 * 1e33 + // moneylineAway: +120 -> 10120 (after +10000 offset)
             9890 * 1e28 +  // moneylineHome: -110 -> 9890 (after +10000 offset)
             965 * 1e24 +   // spread: -3.5 -> -35 -> 965 (1000-35)
@@ -1426,32 +1416,38 @@ contract OracleModuleTest is Test {
             9890;          // underOdds: -110 -> 9890 (after +10000 offset)
 
         (
-            uint64 moneylineAwayOdds,
-            uint64 moneylineHomeOdds,
-            int32 spreadNumber,
-            uint64 spreadAwayOdds,
-            uint64 spreadHomeOdds,
-            int32 totalNumber,
-            uint64 overOdds,
-            uint64 underOdds
+            uint16 moneylineAwayOdds,
+            uint16 moneylineHomeOdds,
+            int32 spreadLineTicks,
+            uint16 spreadAwayOdds,
+            uint16 spreadHomeOdds,
+            int32 totalLineTicks,
+            uint16 overOdds,
+            uint16 underOdds
         ) = oracleExposed.exposed_extractContestMarketData(packedData);
 
         // Verify that numbers are extracted correctly
-        assertEq(spreadNumber, -35); // -3.5 points -> -35 (scaled by 10)
-        assertEq(totalNumber, 210);  // 21.0 points -> 210 (scaled by 10)
+        assertEq(spreadLineTicks, -35); // -3.5 points -> -35 (scaled by 10)
+        assertEq(totalLineTicks, 210);  // 21.0 points -> 210 (scaled by 10)
 
-        // Verify that odds conversion produces non-zero results
-        assertTrue(moneylineAwayOdds > 0);
-        assertTrue(moneylineHomeOdds > 0);
-        assertTrue(spreadAwayOdds > 0);
-        assertTrue(spreadHomeOdds > 0);
-        assertTrue(overOdds > 0);
-        assertTrue(underOdds > 0);
+        // Verify exact tick values from americanToOddsTick conversion
+        // +120: tick = 100 + 120 = 220
+        assertEq(moneylineAwayOdds, 220);
+        // -110: tick = 100 + round(10000/110) = 100 + 91 = 191
+        assertEq(moneylineHomeOdds, 191);
+        // +105: tick = 100 + 105 = 205
+        assertEq(spreadAwayOdds, 205);
+        // -125: tick = 100 + round(10000/125) = 100 + 80 = 180
+        assertEq(spreadHomeOdds, 180);
+        // -110: tick = 100 + 91 = 191
+        assertEq(overOdds, 191);
+        // -110: tick = 100 + 91 = 191
+        assertEq(underOdds, 191);
     }
 
     function testExtractContestMarketData_EdgeCaseValues() public view {
         // Test with edge case values that are still realistic
-        uint256 packedData = 
+        uint256 packedData =
             15000 * 1e33 + // High positive odds: +5000 -> 15000 (after +10000 offset)
             10001 * 1e28 + // Very low positive odds: +1 -> 10001 (after +10000 offset)
             1100 * 1e24 +  // Positive spread: +10.0 -> 100 -> 1100 (1000+100)
@@ -1462,48 +1458,118 @@ contract OracleModuleTest is Test {
             15000;         // High positive odds: +5000 -> 15000 (after +10000 offset)
 
         (
-            uint64 moneylineAwayOdds,
-            uint64 moneylineHomeOdds,
-            int32 spreadNumber,
-            uint64 spreadAwayOdds,
-            uint64 spreadHomeOdds,
-            int32 totalNumber,
-            uint64 overOdds,
-            uint64 underOdds
+            uint16 moneylineAwayOdds,
+            uint16 moneylineHomeOdds,
+            int32 spreadLineTicks,
+            uint16 spreadAwayOdds,
+            uint16 spreadHomeOdds,
+            int32 totalLineTicks,
+            uint16 overOdds,
+            uint16 underOdds
         ) = oracleExposed.exposed_extractContestMarketData(packedData);
 
         // Verify edge case number extraction
-        assertEq(spreadNumber, 100);  // +10.0 points
-        assertEq(totalNumber, 5);     // 0.5 points
+        assertEq(spreadLineTicks, 100);  // +10.0 points
+        assertEq(totalLineTicks, 5);     // 0.5 points
 
-        // All odds should still be positive after conversion
-        assertTrue(moneylineAwayOdds > 0);
-        assertTrue(moneylineHomeOdds > 0);
-        assertTrue(spreadAwayOdds > 0);
-        assertTrue(spreadHomeOdds > 0);
-        assertTrue(overOdds > 0);
-        assertTrue(underOdds > 0);
+        // Verify exact tick values from americanToOddsTick conversion
+        // +5000: tick = 100 + 5000 = 5100
+        assertEq(moneylineAwayOdds, 5100);
+        // +1: tick = 100 + 1 = 101
+        assertEq(moneylineHomeOdds, 101);
+        // +1: tick = 100 + 1 = 101
+        assertEq(spreadAwayOdds, 101);
+        // +5000: tick = 100 + 5000 = 5100
+        assertEq(spreadHomeOdds, 5100);
+        // +1: tick = 100 + 1 = 101
+        assertEq(overOdds, 101);
+        // +5000: tick = 100 + 5000 = 5100
+        assertEq(underOdds, 5100);
     }
 
-    function testAmericanToScaledDecimalOdds_EdgeCases() public view {
-        // Test moderate positive odds (+500)
+    function testAmericanToOddsTick_EdgeCases() public view {
+        // Test moderate positive odds (+500): tick = 100 + 500 = 600
         uint256 moderateHighOdds = 10500; // +500 with +10000 offset
-        uint64 result = oracleExposed.exposed_americanToScaledDecimalOdds(moderateHighOdds);
-        assertTrue(result > 0);
+        uint16 result = oracleExposed.exposed_americanToOddsTick(moderateHighOdds);
+        assertEq(result, 600);
 
-        // Test very low positive odds (+1)  
+        // Test very low positive odds (+1): tick = 100 + 1 = 101
         uint256 veryLowOdds = 10001; // +1 with +10000 offset
-        uint64 result2 = oracleExposed.exposed_americanToScaledDecimalOdds(veryLowOdds);
-        assertTrue(result2 > 0);
+        uint16 result2 = oracleExposed.exposed_americanToOddsTick(veryLowOdds);
+        assertEq(result2, 101);
 
-        // Test moderate negative odds (-500)
-        uint256 moderateNegative = 9500; // -500 with +10000 offset  
-        uint64 result3 = oracleExposed.exposed_americanToScaledDecimalOdds(moderateNegative);
-        assertTrue(result3 > 0);
-        
-        // Test very negative odds (-1000) 
+        // Test moderate negative odds (-500): tick = 100 + round(10000/500) = 100 + 20 = 120
+        uint256 moderateNegative = 9500; // -500 with +10000 offset
+        uint16 result3 = oracleExposed.exposed_americanToOddsTick(moderateNegative);
+        assertEq(result3, 120);
+
+        // Test very negative odds (-1000): tick = 100 + round(10000/1000) = 100 + 10 = 110
         uint256 highNegative = 9000; // -1000 with +10000 offset
-        uint64 result4 = oracleExposed.exposed_americanToScaledDecimalOdds(highNegative);
-        assertTrue(result4 > 0);
+        uint16 result4 = oracleExposed.exposed_americanToOddsTick(highNegative);
+        assertEq(result4, 110);
+    }
+
+    // --- Branch coverage: americanToOddsTick sentinel value ---
+    function testAmericanToOddsTick_SentinelReturnsZero() public view {
+        // 10000 is the sentinel "no data" value (American 0 after offset removal)
+        uint16 result = oracleExposed.exposed_americanToOddsTick(10000);
+        assertEq(result, 0, "Sentinel value 10000 should return 0");
+    }
+
+    // --- Branch coverage: bytesToUint32 short input via fulfillRequest (ContestScore path) ---
+    function testFulfillRequest_ContestScore_RevertsIfResponseTooShort() public {
+        // Set up a ContestScore request with a response shorter than 4 bytes
+        bytes32 requestId = bytes32(uint256(0xBEEF));
+        oracleHelper.setRequestContext(
+            requestId,
+            OracleRequestType.ContestScore,
+            1 // contestId
+        );
+
+        // 2-byte response → _handleContestScore calls bytesToUint32 which reverts
+        bytes memory shortResponse = hex"0102";
+        bytes memory err = hex"";
+
+        vm.expectRevert(abi.encodeWithSelector(
+            OracleModule.OracleModule__InputTooShort.selector,
+            uint256(2),
+            uint256(4)
+        ));
+        oracleHelper.testFulfillRequest(requestId, shortResponse, err);
+    }
+
+    // --- Branch coverage: sendRequest with non-empty encrypted secrets ---
+    function testCreateContestFromOracle_WithEncryptedSecrets() public {
+        uint256 counterBefore = contestModule.s_contestIdCounter();
+
+        string memory rundownId = "rd";
+        string memory sportspageId = "sp";
+        string memory jsonoddsId = "jo";
+        string memory createContestSourceJS = "createContestSourceHash";
+        bytes32 scoreContestSourceHash = bytes32("scoreHash");
+        // Non-empty secrets to exercise the secrets.length > 0 branch
+        bytes memory encryptedSecretsUrls = hex"deadbeef";
+        uint64 subscriptionId = 1;
+        uint32 gasLimit = 500_000;
+
+        uint256 payment = LINK_DIVISIBILITY / oracleModule.s_linkDenominator();
+        linkToken.mint(user, payment);
+        vm.prank(user);
+        linkToken.approve(address(oracleModule), payment);
+
+        vm.prank(user);
+        oracleModule.createContestFromOracle(
+            rundownId,
+            sportspageId,
+            jsonoddsId,
+            createContestSourceJS,
+            scoreContestSourceHash,
+            0, // leaderboardId
+            encryptedSecretsUrls,
+            subscriptionId,
+            gasLimit
+        );
+
+        assertEq(contestModule.s_contestIdCounter(), counterBefore + 1, "Contest should be created with secrets");
     }
 }

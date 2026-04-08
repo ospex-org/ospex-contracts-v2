@@ -31,10 +31,10 @@ enum ContestStatus {
 
 /// @notice Represents a market for a contest
 struct ContestMarket {
-    int32 theNumber;                     // Line/spread/total number
-    uint64 upperOdds;                    // Upper odds
-    uint64 lowerOdds;                    // Lower odds
-    uint32 lastUpdated;                     // Winning side
+    int32 lineTicks;                     // Line/spread/total number
+    uint16 upperOdds;                    // Upper odds (reference only)
+    uint16 lowerOdds;                    // Lower odds (reference only)
+    uint32 lastUpdated;
 }
 
 /// @notice League Id
@@ -50,14 +50,21 @@ enum LeagueId {
     WNBA,
     CFL,
     MLS,
-    EPL
+    EPL,
+    FRA1,
+    GER1,
+    ESP1,
+    ITA1,
+    UEFACHAMP,
+    UEFAEURO,
+    FIFA
 }
 
 /// @notice Represents a speculation on a contest outcome
 struct Speculation {
     uint256 contestId;                   // Associated contest ID
     address speculationScorer;           // Scorer contract address
-    int32 theNumber;                     // Line/spread/total number
+    int32 lineTicks;                     // Line/spread/total number
     address speculationCreator;          // Creator address
     SpeculationStatus speculationStatus; // Current status
     WinSide winSide;                     // Winning side
@@ -83,11 +90,8 @@ enum WinSide {
 
 /// @notice User's position in a speculation
 struct Position {
-    uint256 matchedAmount;
-    uint256 unmatchedAmount;
-    uint256 takerAmount;
-    uint128 poolId;
-    uint32 unmatchedExpiry;
+    uint256 riskAmount;         // amount user loses if wrong
+    uint256 profitAmount;       // net winnings if correct
     PositionType positionType;
     bool claimed;
 }
@@ -105,17 +109,11 @@ enum FeeType {
     SpeculationCreation  // Fee for creating a speculation/market
 }
 
-/// @notice Represents an odds pool for a contest
-struct OddsPair {
-    uint128 oddsPairId;       // Odds pair ID
-    uint64 upperOdds;         // Upper odds
-    uint64 lowerOdds;         // Lower odds
-}
-
 /// @notice Represents a sale listing for one side of a matched pair
 struct SaleListing {
     uint256 price;            // Price of the sale listing
-    uint256 amount;           // Amount of position to sell
+    uint256 riskAmount;       // Risk amount of position to sell
+    uint256 profitAmount;     // Profit amount of position to sell
 }
 
 /// @notice Represents a leaderboard and its configuration/state
@@ -133,9 +131,9 @@ struct Leaderboard {
 struct LeaderboardPosition {
     uint256 contestId;            // Contest ID
     uint256 speculationId;        // Speculation ID
-    uint256 amount;               // Amount eligible for leaderboard
+    uint256 riskAmount;
+    uint256 profitAmount;
     address user;                 // User address
-    uint64 odds;                  // Odds at entry (for this position)
     PositionType positionType;    // Position type (Upper/Lower)
 }
 
@@ -143,6 +141,7 @@ struct LeaderboardPosition {
 struct LeaderboardScoring {
     int256 highestROI;
     address[] winners;
+    uint256 snapshotPrizePool;
     mapping(address => int256) userROIs;
     mapping(address => bool) hasClaimed;
 }

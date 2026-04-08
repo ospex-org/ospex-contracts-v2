@@ -22,6 +22,8 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly-80ae59941ada986c49e05f2a8412c3fc1f9075d0
 
       - name: Clone exact dependencies directly
         run: |

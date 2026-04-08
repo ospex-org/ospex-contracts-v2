@@ -32,7 +32,6 @@ contract SpeculationModuleTest is Test {
     MockLeaderboardModule mockLeaderboardModule;
     uint8 constant TOKEN_DECIMALS = 6;
     uint256 constant MIN_AMOUNT = 1;
-    uint256 constant MAX_AMOUNT = 100;
     address speculationCreator = address(0x123);
     address admin = address(0x1234);
 
@@ -70,8 +69,8 @@ contract SpeculationModuleTest is Test {
         mockLeaderboardModule = new MockLeaderboardModule();
         core.registerModule(keccak256("LEADERBOARD_MODULE"), address(mockLeaderboardModule));
 
-        // Register this test contract as ORACLE_MODULE so it can call createSpeculation
-        core.registerModule(keccak256("ORACLE_MODULE"), address(this));
+        // Register this test contract as POSITION_MODULE so it can call createSpeculation
+        core.registerModule(keccak256("POSITION_MODULE"), address(this));
 
         // Grant SPECULATION_MANAGER_ROLE to this contract for forfeitSpeculation tests
         bytes32 SPECULATION_MANAGER_ROLE = keccak256(
@@ -81,6 +80,13 @@ contract SpeculationModuleTest is Test {
         
         // Grant admin role to admin account
         core.grantRole(core.DEFAULT_ADMIN_ROLE(), admin);
+
+        // Register scorer modules so _getModule lookups don't revert
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), address(0xCC01));
+        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), address(0xCC02));
+
+        // Grant SCORER_ROLE to common test scorer addresses
+        core.setScorerRole(address(0xBEEF), true);
 
         // Set up a default verified contest for all tests
         Contest memory defaultContest = Contest({
@@ -101,11 +107,7 @@ contract SpeculationModuleTest is Test {
         assertEq(speculationModule.i_tokenDecimals(), TOKEN_DECIMALS);
         assertEq(
             speculationModule.s_minSpeculationAmount(),
-            MIN_AMOUNT * (10 ** TOKEN_DECIMALS)
-        );
-        assertEq(
-            speculationModule.s_maxSpeculationAmount(),
-            MAX_AMOUNT * (10 ** TOKEN_DECIMALS)
+            10 ** uint256(TOKEN_DECIMALS)
         );
     }
 
@@ -114,13 +116,14 @@ contract SpeculationModuleTest is Test {
             1,
             address(0xBEEF),
             42,
+            address(this),
             leaderboardId
         );
         Speculation memory s = speculationModule.getSpeculation(id);
         assertEq(s.contestId, 1);
         // Note: startTimestamp field removed from Speculation struct
         assertEq(s.speculationScorer, address(0xBEEF));
-        assertEq(s.theNumber, 42);
+        assertEq(s.lineTicks, 42);
         assertEq(s.speculationCreator, address(this));
         assertEq(uint(s.speculationStatus), uint(SpeculationStatus.Open));
         assertEq(uint(s.winSide), uint(WinSide.TBD));
@@ -129,11 +132,13 @@ contract SpeculationModuleTest is Test {
     function testSettleSpeculation_Success() public {
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 id = speculationModule.createSpeculation(
             1,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -162,27 +167,18 @@ contract SpeculationModuleTest is Test {
 
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 id = speculationModule.createSpeculation(
             1,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
-        // Set up the contest to be in Scored state before settling
-        Contest memory contest = Contest({
-            awayScore: 1,
-            homeScore: 0,
-            leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Scored, // Set the contest as scored
-            contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0),
-            rundownId: "",
-            sportspageId: "",
-            jsonoddsId: ""
-        });
-        mockContestModule.setContest(1, contest);
+        // Contest remains Verified (NOT scored) — simulates an unresolved game
+        // The default contest from setUp is already Verified, so no override needed
 
         vm.warp(nowTime + speculationModule.s_voidCooldown() + 1);
         speculationModule.settleSpeculation(id);
@@ -194,11 +190,13 @@ contract SpeculationModuleTest is Test {
     function testSettleSpeculation_RevertsIfNotStarted() public {
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 id = speculationModule.createSpeculation(
             1,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -229,11 +227,13 @@ contract SpeculationModuleTest is Test {
     function testSettleSpeculation_RevertsIfAlreadySettled() public {
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 id = speculationModule.createSpeculation(
             1,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -264,11 +264,13 @@ contract SpeculationModuleTest is Test {
 
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 id = speculationModule.createSpeculation(
             1,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -297,11 +299,13 @@ contract SpeculationModuleTest is Test {
 
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 id = speculationModule.createSpeculation(
             1,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -330,11 +334,13 @@ contract SpeculationModuleTest is Test {
 
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 id = speculationModule.createSpeculation(
             1,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -371,11 +377,13 @@ contract SpeculationModuleTest is Test {
         // Create and settle a speculation
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         uint256 id = speculationModule.createSpeculation(
             1,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -405,23 +413,33 @@ contract SpeculationModuleTest is Test {
 
     function testSetMinSpeculationAmount_Success() public {
         vm.prank(admin);
-        speculationModule.setMinSpeculationAmount(2);
+        speculationModule.setMinSpeculationAmount(2_000_000); // 2 USDC in raw units
         assertEq(
             speculationModule.s_minSpeculationAmount(),
-            2 * (10 ** TOKEN_DECIMALS)
+            2_000_000
         );
+    }
+
+    function testSetMinSpeculationAmount_RevertsIfZero() public {
+        vm.prank(admin);
+        vm.expectRevert(
+            SpeculationModule.SpeculationModule__MinAmountZero.selector
+        );
+        speculationModule.setMinSpeculationAmount(0);
     }
 
     function testSettleSpeculation_RevertsIfContestNotFinalized() public {
         uint32 startTime = uint32(block.timestamp + 1); // speculation starts soon
         // Use a MockScorerModule
         MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
 
         // Create speculation
         uint256 id = speculationModule.createSpeculation(
             1,
             address(mockScorer),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -454,43 +472,6 @@ contract SpeculationModuleTest is Test {
         speculationModule.settleSpeculation(id);
     }
 
-    function testSetMinSpeculationAmount_RevertsIfMinAboveMax() public {
-        vm.prank(admin);
-        speculationModule.setMaxSpeculationAmount(2);
-        vm.prank(admin);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                SpeculationModule.SpeculationModule__MinAboveMax.selector,
-                3 * (10 ** TOKEN_DECIMALS),
-                2 * (10 ** TOKEN_DECIMALS)
-            )
-        );
-        speculationModule.setMinSpeculationAmount(3);
-    }
-
-    function testSetMaxSpeculationAmount_Success() public {
-        vm.prank(admin);
-        speculationModule.setMaxSpeculationAmount(200);
-        assertEq(
-            speculationModule.s_maxSpeculationAmount(),
-            200 * (10 ** TOKEN_DECIMALS)
-        );
-    }
-
-    function testSetMaxSpeculationAmount_RevertsIfMaxBelowMin() public {
-        vm.prank(admin);
-        speculationModule.setMinSpeculationAmount(10);
-        vm.prank(admin);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                SpeculationModule.SpeculationModule__MaxBelowMin.selector,
-                5 * (10 ** TOKEN_DECIMALS),
-                10 * (10 ** TOKEN_DECIMALS)
-            )
-        );
-        speculationModule.setMaxSpeculationAmount(5);
-    }
-
     function testSetVoidCooldown_Success() public {
         vm.prank(admin);
         speculationModule.setVoidCooldown(2 days);
@@ -515,13 +496,14 @@ contract SpeculationModuleTest is Test {
             1,
             address(0xBEEF),
             42,
+            address(this),
             leaderboardId
         );
         Speculation memory s = speculationModule.getSpeculation(id);
         assertEq(s.contestId, 1);
         // Note: startTimestamp field removed from Speculation struct
         assertEq(s.speculationScorer, address(0xBEEF));
-        assertEq(s.theNumber, 42);
+        assertEq(s.lineTicks, 42);
         assertEq(s.speculationCreator, address(this));
         assertEq(uint(s.speculationStatus), uint(SpeculationStatus.Open));
         assertEq(uint(s.winSide), uint(WinSide.TBD));
@@ -540,7 +522,7 @@ contract SpeculationModuleTest is Test {
 
         // Check initial balance of test contract (it gets all tokens from MockERC20 constructor)
         uint256 initialBalance = mockToken.balanceOf(address(this));
-        
+
         // Approve the TreasuryModule to spend the test contract's tokens
         mockToken.approve(address(treasuryModule), fee);
 
@@ -549,18 +531,19 @@ contract SpeculationModuleTest is Test {
             address(treasuryModule),
             abi.encodeWithSelector(
                 treasuryModule.processFee.selector,
-                address(this), // The test contract (ORACLE_MODULE) pays the fee
+                address(this), // The test contract (POSITION_MODULE) pays the fee via speculationCreator
                 fee,
                 FeeType.SpeculationCreation,
                 leaderboardId
             )
         );
 
-        // Call createSpeculation as the ORACLE_MODULE (test contract)
+        // Call createSpeculation as the POSITION_MODULE (test contract)
         uint256 speculationId = speculationModule.createSpeculation(
             1,
             address(0xBEEF),
             42,
+            address(this),
             leaderboardId
         );
 
@@ -582,19 +565,19 @@ contract SpeculationModuleTest is Test {
             address(newCore),
             TOKEN_DECIMALS
         );
-        
-        // Register the speculation module itself and oracle module but NOT the treasury module
+
+        // Register the speculation module itself and POSITION_MODULE but NOT the treasury module
         newCore.registerModule(
             keccak256("SPECULATION_MODULE"),
             address(newSpeculationModule)
         );
-        newCore.registerModule(keccak256("ORACLE_MODULE"), address(this));
-        
+        newCore.registerModule(keccak256("POSITION_MODULE"), address(this));
+
         // Register a mock contest module so we can get past the contest validation
         // This allows us to test the TREASURY_MODULE check specifically
         MockContestModule mockContest = new MockContestModule();
         newCore.registerModule(keccak256("CONTEST_MODULE"), address(mockContest));
-        
+
         // Set up a verified contest
         Contest memory testContest = Contest({
             awayScore: 0,
@@ -608,7 +591,14 @@ contract SpeculationModuleTest is Test {
             jsonoddsId: ""
         });
         mockContest.setContest(1, testContest);
-        
+
+        // Register scorer modules so _getModule lookups for lineTicks validation don't revert
+        newCore.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), address(0xCC01));
+        newCore.registerModule(keccak256("TOTAL_SCORER_MODULE"), address(0xCC02));
+
+        // Grant SCORER_ROLE so we get past the scorer check and hit the missing TREASURY_MODULE
+        newCore.setScorerRole(address(0xBEEF), true);
+
         // Try to create a speculation - this will call _getModule for TREASURY_MODULE
         // which won't be registered, causing the revert
         vm.expectRevert(
@@ -620,17 +610,14 @@ contract SpeculationModuleTest is Test {
         newSpeculationModule.createSpeculation(
             1, // contestId
             address(0xBEEF), // scorer
-            42, // theNumber
+            42, // lineTicks
+            address(this), // speculationCreator
             leaderboardId // leaderboardId
         );
     }
 
-    function testCreateSpeculationWithUnmatchedPair_RevertsWhenCalledByNonPositionModule() public {
-        // First register a mock PositionModule so the authorization check can work
-        address mockPositionModule = address(0x7777);
-        core.registerModule(keccak256("POSITION_MODULE"), mockPositionModule);
-        
-        // Try to call createSpeculationWithUnmatchedPair from a different address (not the PositionModule)
+    function testCreateSpeculation_RevertsWhenCalledByNonPositionModule() public {
+        // Try to call createSpeculation from a different address (not the POSITION_MODULE)
         address nonPositionModule = address(0x999);
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -639,27 +626,18 @@ contract SpeculationModuleTest is Test {
             )
         );
         vm.prank(nonPositionModule);
-        speculationModule.createSpeculationWithUnmatchedPair(
+        speculationModule.createSpeculation(
             1, // contestId
             address(0xBEEF), // scorer
-            42, // theNumber
+            42, // lineTicks
             address(0x123), // speculationCreator
             leaderboardId
         );
     }
 
-    function testCreateSpeculationWithUnmatchedPair_SuccessWhenCalledByPositionModule() public {
-        // Get the PositionModule address
-        address positionModuleAddr = core.getModule(keccak256("POSITION_MODULE"));
-        
-        // Register a mock PositionModule if not already registered
-        if (positionModuleAddr == address(0)) {
-            positionModuleAddr = address(0x7777);
-            core.registerModule(keccak256("POSITION_MODULE"), positionModuleAddr);
-        }
-        
+    function testCreateSpeculation_SuccessWhenCalledByPositionModule() public {
         address creator = address(0x456);
-        
+
         // Approve fee payment from creator
         uint256 fee = treasuryModule.getFeeRate(FeeType.SpeculationCreation);
         if (fee > 0) {
@@ -667,24 +645,266 @@ contract SpeculationModuleTest is Test {
             vm.prank(creator);
             mockToken.approve(address(treasuryModule), fee);
         }
-        
-        // Call from PositionModule
-        vm.prank(positionModuleAddr);
-        uint256 id = speculationModule.createSpeculationWithUnmatchedPair(
+
+        // Call from POSITION_MODULE (this test contract)
+        uint256 id = speculationModule.createSpeculation(
             1, // contestId
             address(0xBEEF), // scorer
-            42, // theNumber
+            42, // lineTicks
             creator, // speculationCreator
             leaderboardId
         );
-        
+
         // Verify speculation was created with correct creator
         Speculation memory s = speculationModule.getSpeculation(id);
         assertEq(s.contestId, 1);
         assertEq(s.speculationScorer, address(0xBEEF));
-        assertEq(s.theNumber, 42);
+        assertEq(s.lineTicks, 42);
         assertEq(s.speculationCreator, creator);
         assertEq(uint(s.speculationStatus), uint(SpeculationStatus.Open));
         assertEq(uint(s.winSide), uint(WinSide.TBD));
+    }
+
+    // ===================== SCORER ROLE GATE =====================
+
+    function testCreateSpeculation_RevertsIfScorerNotApproved() public {
+        address unapprovedScorer = address(0xBAD);
+        // unapprovedScorer has NOT been granted SCORER_ROLE
+
+        vm.expectRevert(
+            SpeculationModule.SpeculationModule__ScorerNotApproved.selector
+        );
+        speculationModule.createSpeculation(
+            1,
+            unapprovedScorer,
+            42,
+            address(this),
+            leaderboardId
+        );
+    }
+
+    function testCreateSpeculation_SucceedsWithApprovedScorer() public {
+        address approvedScorer = address(0xACC);
+        core.setScorerRole(approvedScorer, true);
+
+        uint256 id = speculationModule.createSpeculation(
+            1,
+            approvedScorer,
+            42,
+            address(this),
+            leaderboardId
+        );
+        Speculation memory s = speculationModule.getSpeculation(id);
+        assertEq(s.speculationScorer, approvedScorer);
+    }
+
+    function testCreateSpeculation_RevertsAfterScorerRoleRevoked() public {
+        address scorer = address(0xACC);
+        core.setScorerRole(scorer, true);
+
+        // First creation succeeds
+        speculationModule.createSpeculation(
+            1,
+            scorer,
+            42,
+            address(this),
+            leaderboardId
+        );
+
+        // Revoke the role
+        core.setScorerRole(scorer, false);
+
+        // Second creation with same scorer reverts
+        vm.expectRevert(
+            SpeculationModule.SpeculationModule__ScorerNotApproved.selector
+        );
+        speculationModule.createSpeculation(
+            1,
+            scorer,
+            43, // different lineTicks to avoid SpeculationExists
+            address(this),
+            leaderboardId
+        );
+    }
+
+    // =====================================================================
+    // Fix: Finalized contests settle by scorer even after cooldown (C-4)
+    // =====================================================================
+
+    /// @notice A scored contest settles by scorer even after void cooldown has passed
+    function testSettleSpeculation_ScoredContestSettlesByScorerAfterCooldown() public {
+        MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
+
+        uint256 id = speculationModule.createSpeculation(
+            1, address(mockScorer), 42, address(this), leaderboardId
+        );
+
+        // Contest scored (e.g., late oracle delivery)
+        Contest memory contest = Contest({
+            awayScore: 3, homeScore: 1, leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored, contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0), rundownId: "", sportspageId: "", jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, contest);
+
+        // Warp well past cooldown — should still settle by scorer, not void
+        vm.warp(block.timestamp + speculationModule.s_voidCooldown() + 10 days);
+        speculationModule.settleSpeculation(id);
+
+        Speculation memory s = speculationModule.getSpeculation(id);
+        assertEq(uint(s.speculationStatus), uint(SpeculationStatus.Closed));
+        assertEq(uint(s.winSide), uint(WinSide.Away), "should settle by scorer, not void");
+    }
+
+    /// @notice A manually scored contest settles by scorer even after cooldown
+    function testSettleSpeculation_ManuallyScoredContestSettlesAfterCooldown() public {
+        MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
+        mockScorer.setWinSide(1, 42, WinSide.Home);
+
+        uint256 id = speculationModule.createSpeculation(
+            1, address(mockScorer), 42, address(this), leaderboardId
+        );
+
+        Contest memory contest = Contest({
+            awayScore: 0, homeScore: 2, leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.ScoredManually, contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0), rundownId: "", sportspageId: "", jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, contest);
+
+        vm.warp(block.timestamp + speculationModule.s_voidCooldown() + 10 days);
+        speculationModule.settleSpeculation(id);
+
+        Speculation memory s = speculationModule.getSpeculation(id);
+        assertEq(uint(s.winSide), uint(WinSide.Home), "should settle by scorer, not void");
+    }
+
+    /// @notice Unresolved contest still auto-voids after cooldown (not broken by fix)
+    function testSettleSpeculation_UnresolvedContestStillVoidsAfterCooldown() public {
+        MockScorerModule mockScorer = new MockScorerModule();
+        core.setScorerRole(address(mockScorer), true);
+
+        uint256 id = speculationModule.createSpeculation(
+            1, address(mockScorer), 42, address(this), leaderboardId
+        );
+
+        // Contest stays Verified (no scores yet)
+        vm.warp(block.timestamp + speculationModule.s_voidCooldown() + 1);
+        speculationModule.settleSpeculation(id);
+
+        Speculation memory s = speculationModule.getSpeculation(id);
+        assertEq(uint(s.winSide), uint(WinSide.Void), "unresolved should void");
+    }
+
+    // =====================================================================
+    // Fix: Reject speculation creation on finalized contests (C-5)
+    // =====================================================================
+
+    /// @notice Cannot create speculation on a Scored contest
+    function testCreateSpeculation_RevertsOnScoredContest() public {
+        Contest memory contest = Contest({
+            awayScore: 3, homeScore: 1, leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored, contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0), rundownId: "", sportspageId: "", jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, contest);
+
+        vm.expectRevert(SpeculationModule.SpeculationModule__ContestAlreadyScored.selector);
+        speculationModule.createSpeculation(
+            1, address(0xBEEF), 42, address(this), leaderboardId
+        );
+    }
+
+    /// @notice Cannot create speculation on a ScoredManually contest
+    function testCreateSpeculation_RevertsOnManuallyScoredContest() public {
+        Contest memory contest = Contest({
+            awayScore: 0, homeScore: 2, leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.ScoredManually, contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0), rundownId: "", sportspageId: "", jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, contest);
+
+        vm.expectRevert(SpeculationModule.SpeculationModule__ContestAlreadyScored.selector);
+        speculationModule.createSpeculation(
+            1, address(0xBEEF), 42, address(this), leaderboardId
+        );
+    }
+
+    /// @notice Can still create speculation on a Verified (live/unscored) contest
+    function testCreateSpeculation_SucceedsOnVerifiedContest() public {
+        // Default contest from setUp is Verified
+        uint256 id = speculationModule.createSpeculation(
+            1, address(0xBEEF), 99, address(this), leaderboardId
+        );
+        Speculation memory s = speculationModule.getSpeculation(id);
+        assertEq(s.contestId, 1);
+        assertEq(uint(s.speculationStatus), uint(SpeculationStatus.Open));
+    }
+
+    // --- Scorer-Specific LineTicks Validation Tests ---
+
+    // Helper: register both scorer modules so _getModule doesn't revert
+    address constant MOCK_MONEYLINE = address(0xAA01);
+    address constant MOCK_TOTAL = address(0xAA02);
+
+    function _registerScorerModules() internal {
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), MOCK_MONEYLINE);
+        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), MOCK_TOTAL);
+        core.setScorerRole(MOCK_MONEYLINE, true);
+        core.setScorerRole(MOCK_TOTAL, true);
+    }
+
+    function testCreateSpeculation_RevertsIfMoneylineScorerWithNonZeroLineTicks() public {
+        _registerScorerModules();
+
+        vm.expectRevert(SpeculationModule.SpeculationModule__InvalidLineTicks.selector);
+        speculationModule.createSpeculation(
+            1, MOCK_MONEYLINE, 5, address(this), leaderboardId
+        );
+    }
+
+    function testCreateSpeculation_SucceedsIfMoneylineScorerWithZeroLineTicks() public {
+        _registerScorerModules();
+
+        uint256 id = speculationModule.createSpeculation(
+            1, MOCK_MONEYLINE, 0, address(this), leaderboardId
+        );
+        Speculation memory s = speculationModule.getSpeculation(id);
+        assertEq(s.lineTicks, 0);
+    }
+
+    function testCreateSpeculation_RevertsIfTotalScorerWithNegativeLineTicks() public {
+        _registerScorerModules();
+
+        vm.expectRevert(SpeculationModule.SpeculationModule__InvalidLineTicks.selector);
+        speculationModule.createSpeculation(
+            1, MOCK_TOTAL, -100, address(this), leaderboardId
+        );
+    }
+
+    function testCreateSpeculation_SucceedsIfTotalScorerWithPositiveLineTicks() public {
+        _registerScorerModules();
+
+        uint256 id = speculationModule.createSpeculation(
+            1, MOCK_TOTAL, 2250, address(this), leaderboardId
+        );
+        Speculation memory s = speculationModule.getSpeculation(id);
+        assertEq(s.lineTicks, 2250);
+    }
+
+    function testCreateSpeculation_SpreadScorerAllowsAnyLineTicks() public {
+        _registerScorerModules();
+
+        // Spread scorer (not moneyline or total) should allow negative lineTicks
+        address spreadScorer = address(0xAA03);
+        core.setScorerRole(spreadScorer, true);
+
+        uint256 id = speculationModule.createSpeculation(
+            1, spreadScorer, -35, address(this), leaderboardId
+        );
+        Speculation memory s = speculationModule.getSpeculation(id);
+        assertEq(s.lineTicks, -35);
     }
 }

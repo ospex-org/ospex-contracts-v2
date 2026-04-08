@@ -68,9 +68,9 @@ contract ContestModuleTest is Test {
         core.registerModule(keccak256("LEADERBOARD_MODULE"), address(mockLeaderboardModule));
         
         // Register mock scorer modules for updateContestMarkets tests
-        core.registerModule(keccak256("MONEYLINE_SCORER"), moneylineScorer);
-        core.registerModule(keccak256("SPREAD_SCORER"), spreadScorer);
-        core.registerModule(keccak256("TOTAL_SCORER"), totalScorer);
+        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), moneylineScorer);
+        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), spreadScorer);
+        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), totalScorer);
         
         // Grant admin role to admin account
         core.grantRole(core.DEFAULT_ADMIN_ROLE(), admin);
@@ -343,7 +343,13 @@ contract ContestModuleTest is Test {
         bytes32 scoreManagerRole = keccak256("SCORE_MANAGER_ROLE");
         vm.prank(address(this));
         core.grantRole(scoreManagerRole, scoreManager);
-        vm.expectRevert(); // Just check for any revert for now
+        // setScores uses the onlyOracleModule modifier, so scoreManager is rejected
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ContestModule.ContestModule__NotOracleModule.selector,
+                scoreManager
+            )
+        );
         vm.prank(scoreManager);
         contestModule.setScores(contestId, 33, 44);
     }
@@ -448,24 +454,24 @@ contract ContestModuleTest is Test {
     // --- Update Contest Markets Tests ---
     function testUpdateContestMarkets_Success() public {
         uint256 contestId = 1;
-        
-        // Test values for all three markets
-        uint64 moneylineAwayOdds = 15_000_000; // 1.5
-        uint64 moneylineHomeOdds = 25_000_000; // 2.5
-        int32 spreadNumber = -350; // -3.5 point spread
-        uint64 spreadAwayOdds = 18_000_000; // 1.8
-        uint64 spreadHomeOdds = 22_000_000; // 2.2
-        int32 totalNumber = 22500; // 225.0 total points
-        uint64 overOdds = 19_000_000; // 1.9
-        uint64 underOdds = 21_000_000; // 2.1
-        
+
+        // Test values for all three markets (uint16 tick format)
+        uint16 moneylineAwayOdds = 150; // 1.50
+        uint16 moneylineHomeOdds = 250; // 2.50
+        int32 spreadLineTicks = -35; // -3.5 point spread (10x)
+        uint16 spreadAwayOdds = 180; // 1.80
+        uint16 spreadHomeOdds = 220; // 2.20
+        int32 totalLineTicks = 2250; // 225.0 total points (10x)
+        uint16 overOdds = 190; // 1.90
+        uint16 underOdds = 210; // 2.10
+
         // Expect the ContestMarketsUpdated event
         vm.expectEmit(true, true, true, true);
         emit ContestModule.ContestMarketsUpdated(
             contestId,
             uint32(block.timestamp),
-            spreadNumber,
-            totalNumber,
+            spreadLineTicks,
+            totalLineTicks,
             moneylineAwayOdds,
             moneylineHomeOdds,
             spreadAwayOdds,
@@ -473,36 +479,36 @@ contract ContestModuleTest is Test {
             overOdds,
             underOdds
         );
-        
+
         // Call from oracle module
         vm.prank(oracleModule);
         contestModule.updateContestMarkets(
             contestId,
             moneylineAwayOdds,
             moneylineHomeOdds,
-            spreadNumber,
+            spreadLineTicks,
             spreadAwayOdds,
             spreadHomeOdds,
-            totalNumber,
+            totalLineTicks,
             overOdds,
             underOdds
         );
-        
+
         // Verify all three markets were updated correctly
         ContestMarket memory moneylineMarket = contestModule.getContestMarket(contestId, moneylineScorer);
-        assertEq(moneylineMarket.theNumber, 0); // Moneyline always has theNumber = 0
+        assertEq(moneylineMarket.lineTicks, 0); // Moneyline always has lineTicks = 0
         assertEq(moneylineMarket.upperOdds, moneylineAwayOdds);
         assertEq(moneylineMarket.lowerOdds, moneylineHomeOdds);
         assertEq(moneylineMarket.lastUpdated, uint32(block.timestamp));
-        
+
         ContestMarket memory spreadMarket = contestModule.getContestMarket(contestId, spreadScorer);
-        assertEq(spreadMarket.theNumber, spreadNumber);
+        assertEq(spreadMarket.lineTicks, spreadLineTicks);
         assertEq(spreadMarket.upperOdds, spreadAwayOdds);
         assertEq(spreadMarket.lowerOdds, spreadHomeOdds);
         assertEq(spreadMarket.lastUpdated, uint32(block.timestamp));
-        
+
         ContestMarket memory totalMarket = contestModule.getContestMarket(contestId, totalScorer);
-        assertEq(totalMarket.theNumber, totalNumber);
+        assertEq(totalMarket.lineTicks, totalLineTicks);
         assertEq(totalMarket.upperOdds, overOdds);
         assertEq(totalMarket.lowerOdds, underOdds);
         assertEq(totalMarket.lastUpdated, uint32(block.timestamp));
@@ -519,47 +525,47 @@ contract ContestModuleTest is Test {
         vm.prank(notOracle);
         contestModule.updateContestMarkets(
             1,
-            15_000_000, // moneylineAwayOdds
-            25_000_000, // moneylineHomeOdds
-            -350,       // spreadNumber
-            18_000_000, // spreadAwayOdds
-            22_000_000, // spreadHomeOdds
-            22500,      // totalNumber
-            19_000_000, // overOdds
-            21_000_000  // underOdds
+            150,   // moneylineAwayOdds (tick)
+            250,   // moneylineHomeOdds (tick)
+            -35,   // spreadLineTicks (10x)
+            180,   // spreadAwayOdds (tick)
+            220,   // spreadHomeOdds (tick)
+            2250,  // totalLineTicks (10x)
+            190,   // overOdds (tick)
+            210    // underOdds (tick)
         );
     }
     
     function testUpdateContestMarkets_HandlesEdgeCaseValues() public {
         uint256 contestId = 2;
-        
-        // Test with edge case values
-        uint64 veryLowOdds = 10_500_000; // 1.05 (very low)
-        uint64 veryHighOdds = 50_000_000; // 5.0 (high)
-        int32 negativeSpread = -1500; // -15.0 points
-        int32 highTotal = 50000; // 500.0 points
-        
+
+        // Test with edge case values (uint16 tick format)
+        uint16 veryLowOdds = 105; // 1.05 (very low)
+        uint16 veryHighOdds = 500; // 5.00 (high)
+        int32 negativeSpread = -150; // -15.0 points (10x)
+        int32 highTotal = 5000; // 500.0 points (10x)
+
         vm.prank(oracleModule);
         contestModule.updateContestMarkets(
             contestId,
             veryLowOdds,    // moneylineAwayOdds
             veryHighOdds,   // moneylineHomeOdds
-            negativeSpread, // spreadNumber
+            negativeSpread, // spreadLineTicks
             veryLowOdds,    // spreadAwayOdds
             veryHighOdds,   // spreadHomeOdds
-            highTotal,      // totalNumber
+            highTotal,      // totalLineTicks
             veryLowOdds,    // overOdds
             veryHighOdds    // underOdds
         );
-        
+
         // Verify edge case values were stored correctly
         ContestMarket memory spreadMarket = contestModule.getContestMarket(contestId, spreadScorer);
-        assertEq(spreadMarket.theNumber, negativeSpread);
+        assertEq(spreadMarket.lineTicks, negativeSpread);
         assertEq(spreadMarket.upperOdds, veryLowOdds);
         assertEq(spreadMarket.lowerOdds, veryHighOdds);
-        
+
         ContestMarket memory totalMarket = contestModule.getContestMarket(contestId, totalScorer);
-        assertEq(totalMarket.theNumber, highTotal);
+        assertEq(totalMarket.lineTicks, highTotal);
     }
 
     // --- Set Update Contest Markets Source Hash Tests ---
@@ -607,38 +613,38 @@ contract ContestModuleTest is Test {
     // --- Get Contest Market Tests ---
     function testGetContestMarket_ReturnsCorrectData() public {
         uint256 contestId = 1;
-        
-        // First update markets with known values
+
+        // First update markets with known values (uint16 tick format)
         vm.prank(oracleModule);
         contestModule.updateContestMarkets(
             contestId,
-            16_000_000, // moneylineAwayOdds
-            24_000_000, // moneylineHomeOdds
-            -250,       // spreadNumber (-2.5)
-            17_000_000, // spreadAwayOdds
-            23_000_000, // spreadHomeOdds
-            21000,      // totalNumber (210.0)
-            18_000_000, // overOdds
-            22_000_000  // underOdds
+            160,   // moneylineAwayOdds (tick)
+            240,   // moneylineHomeOdds (tick)
+            -25,   // spreadLineTicks (-2.5, 10x)
+            170,   // spreadAwayOdds (tick)
+            230,   // spreadHomeOdds (tick)
+            2100,  // totalLineTicks (210.0, 10x)
+            180,   // overOdds (tick)
+            220    // underOdds (tick)
         );
-        
+
         // Test all three market retrievals
         ContestMarket memory moneylineMarket = contestModule.getContestMarket(contestId, moneylineScorer);
-        assertEq(moneylineMarket.theNumber, 0); // Moneyline always 0
-        assertEq(moneylineMarket.upperOdds, 16_000_000);
-        assertEq(moneylineMarket.lowerOdds, 24_000_000);
+        assertEq(moneylineMarket.lineTicks, 0); // Moneyline always 0
+        assertEq(moneylineMarket.upperOdds, 160);
+        assertEq(moneylineMarket.lowerOdds, 240);
         assertEq(moneylineMarket.lastUpdated, uint32(block.timestamp));
-        
+
         ContestMarket memory spreadMarket = contestModule.getContestMarket(contestId, spreadScorer);
-        assertEq(spreadMarket.theNumber, -250);
-        assertEq(spreadMarket.upperOdds, 17_000_000);
-        assertEq(spreadMarket.lowerOdds, 23_000_000);
+        assertEq(spreadMarket.lineTicks, -25);
+        assertEq(spreadMarket.upperOdds, 170);
+        assertEq(spreadMarket.lowerOdds, 230);
         assertEq(spreadMarket.lastUpdated, uint32(block.timestamp));
-        
+
         ContestMarket memory totalMarket = contestModule.getContestMarket(contestId, totalScorer);
-        assertEq(totalMarket.theNumber, 21000);
-        assertEq(totalMarket.upperOdds, 18_000_000);
-        assertEq(totalMarket.lowerOdds, 22_000_000);
+        assertEq(totalMarket.lineTicks, 2100);
+        assertEq(totalMarket.upperOdds, 180);
+        assertEq(totalMarket.lowerOdds, 220);
         assertEq(totalMarket.lastUpdated, uint32(block.timestamp));
     }
 
@@ -648,7 +654,7 @@ contract ContestModuleTest is Test {
         
         // Should return empty ContestMarket struct
         ContestMarket memory market = contestModule.getContestMarket(nonExistentContestId, unknownScorer);
-        assertEq(market.theNumber, 0);
+        assertEq(market.lineTicks, 0);
         assertEq(market.upperOdds, 0);
         assertEq(market.lowerOdds, 0);
         assertEq(market.lastUpdated, 0);
@@ -656,12 +662,193 @@ contract ContestModuleTest is Test {
 
     function testGetContestMarket_ReturnsEmptyForUnsetMarket() public view {
         uint256 contestId = 1;
-        
+
         // Get market before any updates (should be empty)
         ContestMarket memory market = contestModule.getContestMarket(contestId, spreadScorer);
-        assertEq(market.theNumber, 0);
+        assertEq(market.lineTicks, 0);
         assertEq(market.upperOdds, 0);
         assertEq(market.lowerOdds, 0);
         assertEq(market.lastUpdated, 0);
+    }
+
+    // =====================================================================
+    // Scoring Immutability Tests (C-7)
+    // =====================================================================
+
+    /// @notice Oracle scores a contest successfully, then a second oracle score reverts
+    function testSetScores_OracleCannotRescore() public {
+        // Create and verify a contest
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest(
+            "rd", "sp", "jo", bytes32("hash"), contestCreator, leaderboardId
+        );
+        vm.prank(oracleModule);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, uint32(block.timestamp));
+
+        // First oracle score succeeds
+        vm.prank(oracleModule);
+        contestModule.setScores(contestId, 100, 95);
+
+        Contest memory c = contestModule.getContest(contestId);
+        assertEq(uint(c.contestStatus), uint(ContestStatus.Scored));
+        assertEq(c.awayScore, 100);
+        assertEq(c.homeScore, 95);
+
+        // Second oracle score attempt reverts
+        vm.prank(oracleModule);
+        vm.expectRevert(
+            abi.encodeWithSelector(ContestModule.ContestModule__AlreadyScored.selector, contestId)
+        );
+        contestModule.setScores(contestId, 110, 90);
+
+        // Scores unchanged
+        Contest memory c2 = contestModule.getContest(contestId);
+        assertEq(c2.awayScore, 100);
+        assertEq(c2.homeScore, 95);
+    }
+
+    /// @notice Manual score cannot overwrite an oracle-scored contest
+    function testScoreContestManually_CannotOverwriteOracleScore() public {
+        // Create and verify a contest
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest(
+            "rd", "sp", "jo", bytes32("hash"), contestCreator, leaderboardId
+        );
+        vm.prank(oracleModule);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, uint32(block.timestamp));
+
+        // Oracle scores the contest
+        vm.prank(oracleModule);
+        contestModule.setScores(contestId, 100, 95);
+
+        // Grant SCORE_MANAGER_ROLE and warp past wait period
+        core.grantRole(keccak256("SCORE_MANAGER_ROLE"), scoreManager);
+        vm.warp(block.timestamp + 3 days);
+
+        // Manual score attempt reverts — contest is Scored, not Verified
+        vm.prank(scoreManager);
+        vm.expectRevert(
+            abi.encodeWithSelector(ContestModule.ContestModule__ContestNotVerified.selector, contestId)
+        );
+        contestModule.scoreContestManually(contestId, 110, 90);
+
+        // Scores unchanged
+        Contest memory c = contestModule.getContest(contestId);
+        assertEq(c.awayScore, 100);
+        assertEq(c.homeScore, 95);
+        assertEq(uint(c.contestStatus), uint(ContestStatus.Scored));
+    }
+
+    /// @notice Oracle cannot overwrite a manually-scored contest either
+    function testSetScores_OracleCannotOverwriteManualScore() public {
+        // Create and verify a contest
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest(
+            "rd", "sp", "jo", bytes32("hash"), contestCreator, leaderboardId
+        );
+        vm.prank(oracleModule);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, uint32(block.timestamp));
+
+        // Score manually
+        core.grantRole(keccak256("SCORE_MANAGER_ROLE"), scoreManager);
+        vm.warp(block.timestamp + 3 days);
+        vm.prank(scoreManager);
+        contestModule.scoreContestManually(contestId, 100, 95);
+
+        assertEq(uint(contestModule.getContest(contestId).contestStatus), uint(ContestStatus.ScoredManually));
+
+        // Oracle attempts to rescore — reverts
+        vm.prank(oracleModule);
+        vm.expectRevert(
+            abi.encodeWithSelector(ContestModule.ContestModule__AlreadyScored.selector, contestId)
+        );
+        contestModule.setScores(contestId, 110, 90);
+    }
+
+    // --- setContestLeagueIdAndStartTime Validation Tests ---
+
+    function testSetContestLeagueIdAndStartTime_RevertsIfUnknownLeague() public {
+        // Create a contest first
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest("rd", "sp", "jo", bytes32("hash"), contestCreator, leaderboardId);
+
+        vm.prank(oracleModule);
+        vm.expectRevert(ContestModule.ContestModule__InvalidValue.selector);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.Unknown, uint32(block.timestamp));
+    }
+
+    function testSetContestLeagueIdAndStartTime_RevertsIfStartTimeZero() public {
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest("rd", "sp", "jo", bytes32("hash"), contestCreator, leaderboardId);
+
+        vm.prank(oracleModule);
+        vm.expectRevert(ContestModule.ContestModule__InvalidValue.selector);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, 0);
+    }
+
+    // --- updateContestMarkets Validation Tests ---
+
+    function testUpdateContestMarkets_RevertsIfAnyOddsZero() public {
+        vm.prank(oracleModule);
+        vm.expectRevert(ContestModule.ContestModule__InvalidMarketData.selector);
+        contestModule.updateContestMarkets(
+            1,
+            0,    // moneylineAwayOdds = 0
+            250,
+            -35,
+            180,
+            220,
+            2250,
+            190,
+            210
+        );
+    }
+
+    function testUpdateContestMarkets_RevertsIfUnderOddsZero() public {
+        vm.prank(oracleModule);
+        vm.expectRevert(ContestModule.ContestModule__InvalidMarketData.selector);
+        contestModule.updateContestMarkets(
+            1,
+            150,
+            250,
+            -35,
+            180,
+            220,
+            2250,
+            190,
+            0     // underOdds = 0
+        );
+    }
+
+    function testUpdateContestMarkets_RevertsIfNegativeTotalLineTicks() public {
+        vm.prank(oracleModule);
+        vm.expectRevert(ContestModule.ContestModule__InvalidMarketData.selector);
+        contestModule.updateContestMarkets(
+            1,
+            150,
+            250,
+            -35,
+            180,
+            220,
+            -10,   // totalLineTicks < 0
+            190,
+            210
+        );
+    }
+
+    // --- createContest All-Empty Source IDs Test ---
+
+    function testCreateContest_RevertsIfAllSourceIdsEmpty() public {
+        vm.prank(oracleModule);
+        vm.expectRevert(ContestModule.ContestModule__InvalidValue.selector);
+        contestModule.createContest("", "", "", bytes32("hash"), contestCreator, leaderboardId);
+    }
+
+    function testCreateContest_SucceedsWithOneSourceId() public {
+        // At least one non-empty source ID should succeed
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest("", "", "jo", bytes32("hash"), contestCreator, leaderboardId);
+        Contest memory c = contestModule.getContest(contestId);
+        assertEq(c.jsonoddsId, "jo");
     }
 }

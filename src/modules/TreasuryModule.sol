@@ -2,7 +2,9 @@
 pragma solidity ^0.8.20;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {
+    SafeERC20
+} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ITreasuryModule} from "../interfaces/ITreasuryModule.sol";
 import {ILeaderboardModule} from "../interfaces/ILeaderboardModule.sol";
 import {OspexCore} from "../core/OspexCore.sol";
@@ -117,8 +119,10 @@ contract TreasuryModule is ITreasuryModule {
 
     /// @notice Modifier to ensure only the LeaderboardModule contract can call the function
     modifier onlyLeaderboardModule() {
-        if (msg.sender != address(i_ospexCore.getModule(keccak256("LEADERBOARD_MODULE"))))
-            revert TreasuryModule__NotLeaderboardModule();
+        if (
+            msg.sender !=
+            address(i_ospexCore.getModule(keccak256("LEADERBOARD_MODULE")))
+        ) revert TreasuryModule__NotLeaderboardModule();
         _;
     }
 
@@ -278,13 +282,7 @@ contract TreasuryModule is ITreasuryModule {
         );
         i_ospexCore.emitCoreEvent(
             keccak256("LEADERBOARD_ENTRY_FEE_PROCESSED"),
-            abi.encode(
-                payer,
-                amount,
-                protocolCut,
-                leaderboardId,
-                remaining
-            )
+            abi.encode(payer, amount, protocolCut, leaderboardId, remaining)
         );
     }
 
@@ -347,6 +345,7 @@ contract TreasuryModule is ITreasuryModule {
         address to,
         uint256 share
     ) external override onlyLeaderboardModule {
+        if (to == address(0)) revert TreasuryModule__InvalidReceiver();
         if (share == 0) revert TreasuryModule__InsufficientBalance();
         s_leaderboardPrizePools[leaderboardId] -= share;
         i_token.safeTransfer(to, share);

@@ -14,12 +14,12 @@ interface IScorerModule {
     /**
      * @notice Determines the winning side of a speculation based on contest outcome
      * @param contestId The ID of the contest to score
-     * @param theNumber The line/spread/total number for the speculation
+     * @param lineTicks The line/spread/total number for the speculation
      * @return WinSide The winning side of the speculation
      */
 
     function determineWinSide(
         uint256 contestId,
-        int32 theNumber
+        int32 lineTicks
     ) external view returns (WinSide);
 }

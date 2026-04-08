@@ -39,20 +39,24 @@ contract SpeculationModule is ISpeculationModule {
     error SpeculationModule__VoidCooldownBelowMinimum(uint32 cooldown);
     /// @notice Error for speculation not open
     error SpeculationModule__SpeculationNotOpen();
+    /// @notice Error for contest already scored
+    error SpeculationModule__ContestAlreadyScored();
     /// @notice Error for contest not finalized
     error SpeculationModule__ContestNotFinalized(uint256 contestId);
     /// @notice Error for contest not verified
     error SpeculationModule__ContestNotVerified();
-    /// @notice Error for minimum above maximum
-    error SpeculationModule__MinAboveMax(uint256 minAmount, uint256 maxAmount);
-    /// @notice Error for maximum below minimum
-    error SpeculationModule__MaxBelowMin(uint256 maxAmount, uint256 minAmount);
+    /// @notice Error for setting minimum to zero
+    error SpeculationModule__MinAmountZero();
     /// @notice Error for not admin
     error SpeculationModule__NotAdmin(address admin);
     /// @notice Error for invalid address
     error SpeculationModule__InvalidAddress();
     /// @notice Error for module not set
     error SpeculationModule__ModuleNotSet(bytes32 moduleType);
+    /// @notice Error for unapproved scorer address
+    error SpeculationModule__ScorerNotApproved();
+    /// @notice Error for invalid line ticks
+    error SpeculationModule__InvalidLineTicks();
 
     // --- Constants ---
     /// @notice The role of the Speculation Manager Role
@@ -72,13 +76,11 @@ contract SpeculationModule is ISpeculationModule {
     uint32 public s_voidCooldown = 3 days;
     /// @notice The minimum void cooldown
     uint32 public constant MIN_VOID_COOLDOWN = 1 days;
-    /// @notice The maximum speculation amount
-    uint256 public s_maxSpeculationAmount;
     /// @notice The minimum speculation amount
     uint256 public s_minSpeculationAmount;
     /// @notice The speculations
     mapping(uint256 => Speculation) public s_speculations;
-    /// @notice Reverse lookup: contestId => scorer => theNumber => speculationId
+    /// @notice Reverse lookup: contestId => scorer => lineTicks => speculationId
     mapping(uint256 => mapping(address => mapping(int32 => uint256)))
         public s_speculationLookup;
 
@@ -88,14 +90,14 @@ contract SpeculationModule is ISpeculationModule {
      * @param speculationId The ID of the speculation
      * @param contestId The ID of the contest
      * @param scorer The scorer of the speculation
-     * @param theNumber The number of the speculation
+     * @param lineTicks The number of the speculation (10x)
      * @param speculationCreator The creator of the speculation
      */
     event SpeculationCreated(
         uint256 indexed speculationId,
         uint256 indexed contestId,
         address scorer,
-        int32 theNumber,
+        int32 lineTicks,
         address speculationCreator
     );
 
@@ -126,12 +128,6 @@ contract SpeculationModule is ISpeculationModule {
      * @param newVoidCooldown The new void cooldown
      */
     event VoidCooldownSet(uint32 newVoidCooldown);
-
-    /**
-     * @notice Event for maximum speculation amount set
-     * @param newAmount The new maximum speculation amount
-     */
-    event MaxSpeculationAmountSet(uint256 newAmount);
 
     /**
      * @notice Event for minimum speculation amount set
@@ -177,8 +173,7 @@ contract SpeculationModule is ISpeculationModule {
         }
         i_ospexCore = OspexCore(ospexCore);
         i_tokenDecimals = tokenDecimals;
-        s_minSpeculationAmount = 1 * (10 ** tokenDecimals);
-        s_maxSpeculationAmount = 100 * (10 ** tokenDecimals);
+        s_minSpeculationAmount = 10 ** uint256(tokenDecimals);
     }
 
     // --- IModule ---
@@ -195,66 +190,47 @@ contract SpeculationModule is ISpeculationModule {
      * @notice Creates a speculation
      * @param contestId The ID of the contest
      * @param scorer The scorer of the speculation
-     * @param theNumber The number of the speculation
+     * @param lineTicks The line number of the speculation (10x)
+     * @param speculationCreator The address of the speculation creator
      * @param leaderboardId The leaderboard ID (where the fee will be allocated)
      * @return speculationId The ID of the speculation
      */
     function createSpeculation(
         uint256 contestId,
         address scorer,
-        int32 theNumber,
-        uint256 leaderboardId
-    ) external override returns (uint256) {
-        return
-            _createSpeculation(
-                contestId,
-                scorer,
-                theNumber,
-                msg.sender,
-                leaderboardId
-            );
-    }
-
-    // --- ISpeculationModule ---
-    /**
-     * @notice Creates a speculation, called from Position Module when creating an unmatched pair
-     * @param contestId The ID of the contest
-     * @param scorer The scorer of the speculation
-     * @param theNumber The number of the speculation
-     * @param speculationCreator The creator of the speculation
-     * @param leaderboardId The leaderboard ID (where the fee will be allocated)
-     * @return speculationId The ID of the speculation
-     */
-    function createSpeculationWithUnmatchedPair(
-        uint256 contestId,
-        address scorer,
-        int32 theNumber,
+        int32 lineTicks,
         address speculationCreator,
         uint256 leaderboardId
     ) external override returns (uint256) {
         if (msg.sender != _getModule(keccak256("POSITION_MODULE"))) {
             revert SpeculationModule__NotAuthorized(msg.sender);
         }
-        return _createSpeculation(
-            contestId,
-            scorer,
-            theNumber,
-            speculationCreator,
-            leaderboardId
-        );
+        return
+            _createSpeculation(
+                contestId,
+                scorer,
+                lineTicks,
+                speculationCreator,
+                leaderboardId
+            );
     }
 
+    // --- ISpeculationModule ---
     /**
      * @notice Settles a speculation
      * @param speculationId The ID of the speculation
      */
     function settleSpeculation(uint256 speculationId) external override {
+        IContestModule contestModule = IContestModule(
+            _getModule(keccak256("CONTEST_MODULE"))
+        );
+
         Speculation storage s = s_speculations[speculationId];
 
         // Get contest start time for timing validation
-        uint32 contestStartTime = IContestModule(
-            _getModule(keccak256("CONTEST_MODULE"))
-        ).s_contestStartTimes(s.contestId);
+        uint32 contestStartTime = contestModule.s_contestStartTimes(
+            s.contestId
+        );
 
         if (uint32(block.timestamp) < contestStartTime) {
             revert SpeculationModule__SpeculationNotStarted();
@@ -262,6 +238,31 @@ contract SpeculationModule is ISpeculationModule {
         if (s.speculationStatus == SpeculationStatus.Closed) {
             revert SpeculationModule__AlreadySettled();
         }
+
+        // Get contest status from ContestModule
+        Contest memory contest = contestModule.getContest(s.contestId);
+
+        if (
+            contest.contestStatus == ContestStatus.Scored ||
+            contest.contestStatus == ContestStatus.ScoredManually
+        ) {
+            // Call the scorer module
+            IScorerModule scorer = IScorerModule(s.speculationScorer);
+            s.winSide = scorer.determineWinSide(s.contestId, s.lineTicks);
+            s.speculationStatus = SpeculationStatus.Closed;
+
+            emit SpeculationSettled(
+                speculationId,
+                s.winSide,
+                s.speculationScorer
+            );
+            i_ospexCore.emitCoreEvent(
+                keccak256("SPECULATION_SETTLED"),
+                abi.encode(speculationId, s.winSide, s.speculationScorer)
+            );
+            return;
+        }
+
         // Auto-void if voidCooldown has passed
         if (uint32(block.timestamp) >= contestStartTime + s_voidCooldown) {
             s.speculationStatus = SpeculationStatus.Closed;
@@ -279,27 +280,7 @@ contract SpeculationModule is ISpeculationModule {
             return;
         }
 
-        // Get contest status from ContestModule
-        Contest memory contest = IContestModule(
-            _getModule(keccak256("CONTEST_MODULE"))
-        ).getContest(s.contestId);
-        if (
-            !(contest.contestStatus == ContestStatus.Scored ||
-                contest.contestStatus == ContestStatus.ScoredManually)
-        ) {
-            revert SpeculationModule__ContestNotFinalized(s.contestId);
-        }
-
-        // Call the scorer module
-        IScorerModule scorer = IScorerModule(s.speculationScorer);
-        s.winSide = scorer.determineWinSide(s.contestId, s.theNumber);
-        s.speculationStatus = SpeculationStatus.Closed;
-
-        emit SpeculationSettled(speculationId, s.winSide, s.speculationScorer);
-        i_ospexCore.emitCoreEvent(
-            keccak256("SPECULATION_SETTLED"),
-            abi.encode(speculationId, s.winSide, s.speculationScorer)
-        );
+        revert SpeculationModule__ContestNotFinalized(s.contestId);
     }
 
     /**
@@ -336,7 +317,7 @@ contract SpeculationModule is ISpeculationModule {
      * @notice Internal function to create a speculation
      * @param contestId The ID of the contest
      * @param scorer The scorer of the speculation
-     * @param theNumber The number of the speculation
+     * @param lineTicks The line number of the speculation (10x)
      * @param speculationCreator The creator of the speculation
      * @param leaderboardId The leaderboard ID (where the fee will be allocated)
      * @return speculationId The ID of the speculation
@@ -344,11 +325,11 @@ contract SpeculationModule is ISpeculationModule {
     function _createSpeculation(
         uint256 contestId,
         address scorer,
-        int32 theNumber,
+        int32 lineTicks,
         address speculationCreator,
         uint256 leaderboardId
     ) internal returns (uint256) {
-        if (s_speculationLookup[contestId][scorer][theNumber] != 0) {
+        if (s_speculationLookup[contestId][scorer][lineTicks] != 0) {
             revert SpeculationModule__SpeculationExists();
         }
 
@@ -358,6 +339,28 @@ contract SpeculationModule is ISpeculationModule {
         ).getContest(contestId);
         if (contest.contestStatus == ContestStatus.Unverified) {
             revert SpeculationModule__ContestNotVerified();
+        }
+
+        // Validate contest is not already scored
+        if (
+            contest.contestStatus == ContestStatus.Scored ||
+            contest.contestStatus == ContestStatus.ScoredManually
+        ) {
+            revert SpeculationModule__ContestAlreadyScored();
+        }
+
+        // Validate scorer is an approved scorer contract
+        if (!i_ospexCore.hasScorerRole(scorer)) {
+            revert SpeculationModule__ScorerNotApproved();
+        }
+
+        if (
+            (scorer == _getModule(keccak256("MONEYLINE_SCORER_MODULE")) &&
+                lineTicks != 0) ||
+            (scorer == _getModule(keccak256("TOTAL_SCORER_MODULE")) &&
+                lineTicks < 0)
+        ) {
+            revert SpeculationModule__InvalidLineTicks();
         }
 
         // Charge the speculation creation fee
@@ -378,20 +381,20 @@ contract SpeculationModule is ISpeculationModule {
         s_speculations[speculationId] = Speculation({
             contestId: contestId,
             speculationScorer: scorer,
-            theNumber: theNumber,
+            lineTicks: lineTicks,
             speculationCreator: speculationCreator,
             speculationStatus: SpeculationStatus.Open,
             winSide: WinSide.TBD
         });
 
         // Populate reverse lookup
-        s_speculationLookup[contestId][scorer][theNumber] = speculationId;
+        s_speculationLookup[contestId][scorer][lineTicks] = speculationId;
 
         emit SpeculationCreated(
             speculationId,
             contestId,
             scorer,
-            theNumber,
+            lineTicks,
             speculationCreator
         );
         // Emit protocol-wide core event
@@ -401,7 +404,7 @@ contract SpeculationModule is ISpeculationModule {
                 speculationId,
                 contestId,
                 scorer,
-                theNumber,
+                lineTicks,
                 speculationCreator
             )
         );
@@ -423,60 +426,35 @@ contract SpeculationModule is ISpeculationModule {
      * @notice Gets a speculation ID by contest parameters
      * @param contestId The ID of the contest
      * @param scorer The scorer of the speculation
-     * @param theNumber The number of the speculation
+     * @param lineTicks The line number of the speculation (10x)
      * @return speculationId The ID of the speculation (0 if doesn't exist)
      */
     function getSpeculationId(
         uint256 contestId,
         address scorer,
-        int32 theNumber
+        int32 lineTicks
     ) external view override returns (uint256) {
-        return s_speculationLookup[contestId][scorer][theNumber];
+        return s_speculationLookup[contestId][scorer][lineTicks];
     }
 
-    /**
-     * @notice Sets the minimum speculation amount
-     * @param minAmount The new minimum speculation amount
-     */
+    /// @notice Sets the minimum speculation amount in raw token units.
+    /// @dev Accepts the value in the token's smallest denomination (e.g. 1000000 = 1 USDC
+    ///      with 6 decimals, 500000 = 0.50 USDC). This allows fractional minimums.
+    ///      Cannot be set to zero — a positive minimum is required to prevent dust.
+    ///      The contract is token-decimal-agnostic; if redeployed with an 18-decimal
+    ///      token, pass the value in that token's smallest unit accordingly.
+    /// @param minAmount The new minimum (in token's smallest units, must be > 0)
     function setMinSpeculationAmount(
         uint256 minAmount
     ) external override onlyAdmin {
-        uint256 minWithDecimals = minAmount * (10 ** i_tokenDecimals);
-        if (minWithDecimals > s_maxSpeculationAmount) {
-            revert SpeculationModule__MinAboveMax(
-                minWithDecimals,
-                s_maxSpeculationAmount
-            );
+        if (minAmount == 0) {
+            revert SpeculationModule__MinAmountZero();
         }
-        s_minSpeculationAmount = minWithDecimals;
-        emit MinSpeculationAmountSet(minWithDecimals);
-        // Emit protocol-wide core event
+        s_minSpeculationAmount = minAmount;
+        emit MinSpeculationAmountSet(minAmount);
         i_ospexCore.emitCoreEvent(
             keccak256("MIN_SPECULATION_AMOUNT_SET"),
-            abi.encode(minWithDecimals)
-        );
-    }
-
-    /**
-     * @notice Sets the maximum speculation amount
-     * @param maxAmount The new maximum speculation amount
-     */
-    function setMaxSpeculationAmount(
-        uint256 maxAmount
-    ) external override onlyAdmin {
-        uint256 maxWithDecimals = maxAmount * (10 ** i_tokenDecimals);
-        if (maxWithDecimals < s_minSpeculationAmount) {
-            revert SpeculationModule__MaxBelowMin(
-                maxWithDecimals,
-                s_minSpeculationAmount
-            );
-        }
-        s_maxSpeculationAmount = maxWithDecimals;
-        emit MaxSpeculationAmountSet(maxWithDecimals);
-        // Emit protocol-wide core event
-        i_ospexCore.emitCoreEvent(
-            keccak256("MAX_SPECULATION_AMOUNT_SET"),
-            abi.encode(maxWithDecimals)
+            abi.encode(minAmount)
         );
     }
 

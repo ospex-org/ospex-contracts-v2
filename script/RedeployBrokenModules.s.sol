@@ -12,6 +12,7 @@ import "../src/modules/OracleModule.sol";
 import "../src/modules/PositionModule.sol";
 import "../src/modules/LeaderboardModule.sol";
 import "../src/modules/RulesModule.sol";
+import "../src/modules/MatchingModule.sol";
 
 // For setting max speculation amount
 import "../src/modules/SpeculationModule.sol";
@@ -36,9 +37,6 @@ contract RedeployBrokenModules is Script {
     // DON ID for Chainlink Functions
     bytes32 constant DON_ID = bytes32("fun-polygon-mainnet-1");
     
-    // New max speculation amount (in whole USDC, will be multiplied by 10^6)
-    uint256 constant NEW_MAX_SPECULATION_AMOUNT = 3; // 3 USDC
-
     function run() external {
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
         
@@ -72,6 +70,9 @@ contract RedeployBrokenModules is Script {
         address newRulesModule = address(new RulesModule(OSPEX_CORE));
         console.log("New RulesModule:", newRulesModule);
 
+        address newMatchingModule = address(new MatchingModule(OSPEX_CORE));
+        console.log("New MatchingModule:", newMatchingModule);
+
         // 2. Re-register modules in OspexCore (overwrites old registrations)
         console.log("\n=== Re-registering Modules ===");
         
@@ -89,12 +90,22 @@ contract RedeployBrokenModules is Script {
         core.registerModule(keccak256("RULES_MODULE"), newRulesModule);
         console.log("Registered RULES_MODULE");
 
-        // 3. Set max speculation amount on SpeculationModule
-        console.log("\n=== Setting Max Speculation Amount ===");
-        
-        SpeculationModule speculationModule = SpeculationModule(SPECULATION_MODULE);
-        speculationModule.setMaxSpeculationAmount(NEW_MAX_SPECULATION_AMOUNT);
-        console.log("Set max speculation amount to:", NEW_MAX_SPECULATION_AMOUNT, "USDC");
+        core.registerModule(keccak256("MATCHING_MODULE"), newMatchingModule);
+        console.log("Registered MATCHING_MODULE");
+
+        // Grant scorer role to existing scorer modules
+        address moneylineScorer = core.getModule(keccak256("MONEYLINE_SCORER_MODULE"));
+        address spreadScorer = core.getModule(keccak256("SPREAD_SCORER_MODULE"));
+        address totalScorer = core.getModule(keccak256("TOTAL_SCORER_MODULE"));
+
+        core.setScorerRole(moneylineScorer, true);
+        console.log("Granted SCORER_ROLE to MoneylineScorerModule:", moneylineScorer);
+
+        core.setScorerRole(spreadScorer, true);
+        console.log("Granted SCORER_ROLE to SpreadScorerModule:", spreadScorer);
+
+        core.setScorerRole(totalScorer, true);
+        console.log("Granted SCORER_ROLE to TotalScorerModule:", totalScorer);
 
         vm.stopBroadcast();
 
@@ -104,7 +115,8 @@ contract RedeployBrokenModules is Script {
         console.log("New PositionModule:", newPositionModule);
         console.log("New LeaderboardModule:", newLeaderboardModule);
         console.log("New RulesModule:", newRulesModule);
-        
+        console.log("New MatchingModule:", newMatchingModule);
+
         console.log("\n=== CRITICAL NEXT STEPS ===");
         console.log("1. Add NEW OracleModule as consumer to Chainlink subscription 191:");
         console.log("   Address:", newOracleModule);
@@ -118,5 +130,6 @@ contract RedeployBrokenModules is Script {
         console.log("POSITION_MODULE_ADDRESS=", newPositionModule);
         console.log("LEADERBOARD_MODULE_ADDRESS=", newLeaderboardModule);
         console.log("RULES_MODULE_ADDRESS=", newRulesModule);
+        console.log("MATCHING_MODULE_ADDRESS=", newMatchingModule);
     }
 }

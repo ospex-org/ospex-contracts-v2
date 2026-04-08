@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.20;
 
-import {Contest, ContestStatus, ContestMarket, FeeType, LeagueId} from "../core/OspexTypes.sol";
+import {
+    Contest,
+    ContestStatus,
+    ContestMarket,
+    FeeType,
+    LeagueId
+} from "../core/OspexTypes.sol";
 import {OspexCore} from "../core/OspexCore.sol";
 import {IContestModule} from "../interfaces/IContestModule.sol";
 import {ITreasuryModule} from "../interfaces/ITreasuryModule.sol";
@@ -39,6 +45,12 @@ contract ContestModule is IContestModule {
     error ContestModule__InvalidCreateContestSourceHash();
     /// @notice Error for invalid update contest markets source hash
     error ContestModule__InvalidUpdateContestMarketsSourceHash();
+    /// @notice Error for contest already scored
+    error ContestModule__AlreadyScored(uint256 contestId);
+    /// @notice Error for invalid value (ie bad league or start time)
+    error ContestModule__InvalidValue();
+    /// @notice Error for invalid market data
+    error ContestModule__InvalidMarketData();
 
     // --- Constants ---
     /// @notice The role of the ScoreManager, for manual score setting
@@ -96,8 +108,8 @@ contract ContestModule is IContestModule {
      * @notice Emitted when a contest's market is updated
      * @param contestId The ID of the contest
      * @param lastUpdated Timestamp of the last update
-     * @param spreadNumber The current spread number
-     * @param totalNumber The current total number
+     * @param spreadLineTicks The current spread line ticks (10x)
+     * @param totalLineTicks The current total line ticks (10x)
      * @param moneylineAwayOdds The current moneyline odds for the away team
      * @param moneylineHomeOdds The current moneyline odds for the home team
      * @param spreadAwayOdds The current spread odds for the away team
@@ -108,14 +120,14 @@ contract ContestModule is IContestModule {
     event ContestMarketsUpdated(
         uint256 indexed contestId,
         uint32 lastUpdated,
-        int32 spreadNumber,
-        int32 totalNumber,
-        uint64 moneylineAwayOdds,
-        uint64 moneylineHomeOdds,
-        uint64 spreadAwayOdds,
-        uint64 spreadHomeOdds,
-        uint64 overOdds,
-        uint64 underOdds
+        int32 spreadLineTicks,
+        int32 totalLineTicks,
+        uint16 moneylineAwayOdds,
+        uint16 moneylineHomeOdds,
+        uint16 spreadAwayOdds,
+        uint16 spreadHomeOdds,
+        uint16 overOdds,
+        uint16 underOdds
     );
 
     /**
@@ -233,6 +245,13 @@ contract ContestModule is IContestModule {
         address contestCreator,
         uint256 leaderboardId
     ) external override onlyOracleModule returns (uint256 contestId) {
+        if (
+            bytes(rundownId).length == 0 &&
+            bytes(sportspageId).length == 0 &&
+            bytes(jsonoddsId).length == 0
+        ) {
+            revert ContestModule__InvalidValue();
+        }
         // Charge the contest creation fee
         uint256 feeAmount = ITreasuryModule(
             _getModule(keccak256("TREASURY_MODULE"))
@@ -285,37 +304,51 @@ contract ContestModule is IContestModule {
     /**
      * @notice Updates all market data for a contest from oracle response
      * @dev Updates moneyline, spread, and total markets for all known scorers
+     * @dev All odds must be greater than 0 (ie odds must exist) and total line ticks must be greater than 0
      * @param contestId The contest identifier
-     * @param moneylineAwayOdds Scaled decimal odds for away team moneyline
-     * @param moneylineHomeOdds Scaled decimal odds for home team moneyline
-     * @param spreadNumber The point spread
-     * @param spreadAwayOdds Scaled decimal odds for away spread
-     * @param spreadHomeOdds Scaled decimal odds for home spread
-     * @param totalNumber The total points
-     * @param overOdds Scaled decimal odds for over
-     * @param underOdds Scaled decimal odds for under
+     * @param moneylineAwayOdds Odds tick for away team moneyline
+     * @param moneylineHomeOdds Odds tick for home team moneyline
+     * @param spreadLineTicks The point spread (10x)
+     * @param spreadAwayOdds Odds tick for away spread
+     * @param spreadHomeOdds Odds tick for home spread
+     * @param totalLineTicks The total points (10x)
+     * @param overOdds Odds tick for over
+     * @param underOdds Odds tick for under
      */
     function updateContestMarkets(
         uint256 contestId,
-        uint64 moneylineAwayOdds,
-        uint64 moneylineHomeOdds,
-        int32 spreadNumber,
-        uint64 spreadAwayOdds,
-        uint64 spreadHomeOdds,
-        int32 totalNumber,
-        uint64 overOdds,
-        uint64 underOdds
+        uint16 moneylineAwayOdds,
+        uint16 moneylineHomeOdds,
+        int32 spreadLineTicks,
+        uint16 spreadAwayOdds,
+        uint16 spreadHomeOdds,
+        int32 totalLineTicks,
+        uint16 overOdds,
+        uint16 underOdds
     ) external override onlyOracleModule {
+        if (
+            moneylineAwayOdds == 0 ||
+            moneylineHomeOdds == 0 ||
+            spreadAwayOdds == 0 ||
+            spreadHomeOdds == 0 ||
+            overOdds == 0 ||
+            underOdds == 0 ||
+            totalLineTicks < 0
+        ) {
+            revert ContestModule__InvalidMarketData();
+        }
         uint32 timestamp = uint32(block.timestamp);
 
         // Get scorer addresses from core registry
-        address moneylineScorer = _getModule(keccak256("MONEYLINE_SCORER"));
-        address spreadScorer = _getModule(keccak256("SPREAD_SCORER"));
-        address totalScorer = _getModule(keccak256("TOTAL_SCORER"));
+        address moneylineScorer = _getModule(
+            keccak256("MONEYLINE_SCORER_MODULE")
+        );
+        address spreadScorer = _getModule(keccak256("SPREAD_SCORER_MODULE"));
+        address totalScorer = _getModule(keccak256("TOTAL_SCORER_MODULE"));
 
-        // Update moneyline market (theNumber = 0 for moneylines)
+        // Update moneyline market (lineTicks = 0 for moneylines)
         s_contestMarket[contestId][moneylineScorer] = ContestMarket({
-            theNumber: 0,
+            lineTicks: 0,
             upperOdds: moneylineAwayOdds,
             lowerOdds: moneylineHomeOdds,
             lastUpdated: timestamp
@@ -323,7 +356,7 @@ contract ContestModule is IContestModule {
 
         // Update spread market
         s_contestMarket[contestId][spreadScorer] = ContestMarket({
-            theNumber: spreadNumber,
+            lineTicks: spreadLineTicks,
             upperOdds: spreadAwayOdds,
             lowerOdds: spreadHomeOdds,
             lastUpdated: timestamp
@@ -331,7 +364,7 @@ contract ContestModule is IContestModule {
 
         // Update total market
         s_contestMarket[contestId][totalScorer] = ContestMarket({
-            theNumber: totalNumber,
+            lineTicks: totalLineTicks,
             upperOdds: overOdds,
             lowerOdds: underOdds,
             lastUpdated: timestamp
@@ -341,8 +374,8 @@ contract ContestModule is IContestModule {
         emit ContestMarketsUpdated(
             contestId,
             timestamp,
-            spreadNumber,
-            totalNumber,
+            spreadLineTicks,
+            totalLineTicks,
             moneylineAwayOdds,
             moneylineHomeOdds,
             spreadAwayOdds,
@@ -357,8 +390,8 @@ contract ContestModule is IContestModule {
             abi.encode(
                 contestId,
                 timestamp,
-                spreadNumber,
-                totalNumber,
+                spreadLineTicks,
+                totalLineTicks,
                 moneylineAwayOdds,
                 moneylineHomeOdds,
                 spreadAwayOdds,
@@ -436,6 +469,9 @@ contract ContestModule is IContestModule {
         LeagueId leagueId,
         uint32 startTime
     ) external override onlyOracleModule {
+        if (leagueId == LeagueId.Unknown || startTime == 0) {
+            revert ContestModule__InvalidValue();
+        }
         s_contests[contestId].leagueId = leagueId;
         s_contestStartTimes[contestId] = startTime;
         s_contests[contestId].contestStatus = ContestStatus.Verified;
@@ -448,11 +484,15 @@ contract ContestModule is IContestModule {
 
     /**
      * @inheritdoc IContestModule
-     * @dev Only callable by the OracleModule, except for manual override after MANUAL_SCORE_WAIT_PERIOD by SCORE_MANAGER_ROLE
      */
 
     /**
-     * @notice Sets the scores of a contest
+     * @notice Sets the final oracle score for a contest
+     * @dev Oracle-set scores are immutable once written. This intentionally favors
+     *      settlement finality over discretionary score correction. If upstream data sources
+     *      disagree, scoring should fail before this function is reached. If a wrong but
+     *      internally consistent result is submitted first, the protocol accepts that as
+     *      oracle risk rather than allowing on-chain score overwrites.
      * @param contestId The ID of the contest
      * @param awayScore The away score
      * @param homeScore The home score
@@ -462,6 +502,12 @@ contract ContestModule is IContestModule {
         uint32 awayScore,
         uint32 homeScore
     ) external override onlyOracleModule {
+        if (
+            s_contests[contestId].contestStatus == ContestStatus.Scored ||
+            s_contests[contestId].contestStatus == ContestStatus.ScoredManually
+        ) {
+            revert ContestModule__AlreadyScored(contestId);
+        }
         s_contests[contestId].awayScore = awayScore;
         s_contests[contestId].homeScore = homeScore;
         s_contests[contestId].contestStatus = ContestStatus.Scored;
@@ -537,6 +583,17 @@ contract ContestModule is IContestModule {
         uint256 contestId
     ) external view override returns (Contest memory contest) {
         contest = s_contests[contestId];
+    }
+
+    /**
+     * @notice Checks if a contest has been scored
+     * @param contestId The ID of the contest
+     * @return True if the contest has been scored
+     */
+    function isContestScored(uint256 contestId) external view override returns (bool) {
+        return
+            s_contests[contestId].contestStatus == ContestStatus.Scored ||
+            s_contests[contestId].contestStatus == ContestStatus.ScoredManually;
     }
 
     /**

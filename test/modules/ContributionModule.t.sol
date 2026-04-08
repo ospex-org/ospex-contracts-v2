@@ -140,17 +140,15 @@ contract ContributionModuleTest is Test {
         emit ContributionModule.ContributionMade(
             1, // speculationId
             contributor,
-            123, // oddsPairId
             PositionType.Upper,
             50_000 // amount
         );
-        
+
         // Make the contribution as an authorized module
         vm.prank(authorizedModule);
         contributionModule.handleContribution(
             1, // speculationId
             contributor,
-            123, // oddsPairId
             PositionType.Upper,
             50_000 // amount
         );
@@ -174,7 +172,6 @@ contract ContributionModuleTest is Test {
         contributionModule.handleContribution(
             1, // speculationId
             contributor,
-            123, // oddsPairId
             PositionType.Upper,
             50_000 // amount
         );
@@ -191,24 +188,22 @@ contract ContributionModuleTest is Test {
         contributionModule.handleContribution(
             1, // speculationId
             contributor,
-            123, // oddsPairId
             PositionType.Upper,
             50_000 // amount
         );
     }
-    
+
     function testHandleContribution_RevertsIfReceiverNotSet() public {
         // Setup: Set token but not receiver
         vm.prank(admin);
         contributionModule.setContributionToken(address(token));
-        
+
         // Try to make a contribution as authorized module
         vm.prank(authorizedModule);
         vm.expectRevert(ContributionModule.ContributionModule__InvalidAddress.selector);
         contributionModule.handleContribution(
             1, // speculationId
             contributor,
-            123, // oddsPairId
             PositionType.Upper,
             50_000 // amount
         );
@@ -216,15 +211,17 @@ contract ContributionModuleTest is Test {
     
     function testHandleContribution_ZeroAmountNoop() public {
         // Even with token and receiver not set, zero amount should do nothing
+        uint256 contributorBalanceBefore = token.balanceOf(contributor);
+
         vm.prank(authorizedModule);
         contributionModule.handleContribution(
             1, // speculationId
             contributor,
-            123, // oddsPairId
             PositionType.Upper,
             0 // amount = 0
         );
-        // No token transfers should happen
+
+        assertEq(token.balanceOf(contributor), contributorBalanceBefore, "Contributor balance should be unchanged");
     }
     
     function testHandleContribution_EventEmissionAndCoreEvent() public {
@@ -243,11 +240,10 @@ contract ContributionModuleTest is Test {
         emit ContributionModule.ContributionMade(
             1, // speculationId
             contributor,
-            123, // oddsPairId
             PositionType.Upper,
             50_000 // amount
         );
-        
+
         // Also expect emitCoreEvent to be called
         vm.expectCall(
             address(core),
@@ -257,19 +253,17 @@ contract ContributionModuleTest is Test {
                 abi.encode(
                     1, // speculationId
                     contributor,
-                    123, // oddsPairId
                     PositionType.Upper,
                     50_000 // amount
                 )
             )
         );
-        
+
         // Make the contribution as authorized module
         vm.prank(authorizedModule);
         contributionModule.handleContribution(
             1, // speculationId
             contributor,
-            123, // oddsPairId
             PositionType.Upper,
             50_000 // amount
         );
@@ -292,7 +286,6 @@ contract ContributionModuleTest is Test {
         contributionModule.handleContribution(
             1, // speculationId
             contributor,
-            123, // oddsPairId
             PositionType.Upper,
             50_000 // amount > allowance
         );
@@ -327,7 +320,6 @@ contract ContributionModuleTest is Test {
         contributionModule.handleContribution(
             1, // speculationId
             contributor,
-            123, // oddsPairId
             PositionType.Upper,
             50_000 // amount > balance
         );

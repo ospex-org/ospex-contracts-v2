@@ -3,6 +3,8 @@ pragma solidity ^0.8.19;
 
 import "forge-std/Test.sol";
 import "../../src/core/OspexCore.sol";
+import {FeeType} from "../../src/core/OspexTypes.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
 contract OspexCoreTest is Test {
     OspexCore core;
@@ -33,8 +35,14 @@ contract OspexCoreTest is Test {
     }
 
     function testRegisterModule_RevertsIfNotModuleAdmin() public {
+        // Pre-compute role to avoid vm.prank being consumed by the view call
+        bytes32 role = core.MODULE_ADMIN_ROLE();
+        vm.expectRevert(abi.encodeWithSelector(
+            IAccessControl.AccessControlUnauthorizedAccount.selector,
+            address(0xBAD),
+            role
+        ));
         vm.prank(address(0xBAD));
-        vm.expectRevert();
         core.registerModule(MODULE_TYPE, dummyModule1);
     }
 
@@ -55,6 +63,7 @@ contract OspexCoreTest is Test {
         assertTrue(core.s_isModuleRegistered(dummyModule1));
         core.registerModule(MODULE_TYPE, dummyModule2);
         assertFalse(core.s_isModuleRegistered(dummyModule1));
+        assertTrue(core.s_isRetiredModule(dummyModule1));
         assertTrue(core.s_isModuleRegistered(dummyModule2));
         vm.stopPrank();
     }
@@ -104,8 +113,13 @@ contract OspexCoreTest is Test {
      */
     function testProposeAdmin_RevertsIfNotAdmin() public {
         address newAdmin = address(0xB0B);
+        bytes32 role = core.DEFAULT_ADMIN_ROLE();
+        vm.expectRevert(abi.encodeWithSelector(
+            IAccessControl.AccessControlUnauthorizedAccount.selector,
+            address(0xBAD),
+            role
+        ));
         vm.prank(address(0xBAD));
-        vm.expectRevert();
         core.proposeAdmin(newAdmin);
     }
 
@@ -245,8 +259,13 @@ contract OspexCoreTest is Test {
         core.acceptAdmin();
 
         // Old admin cannot propose anymore
+        bytes32 role = core.DEFAULT_ADMIN_ROLE();
+        vm.expectRevert(abi.encodeWithSelector(
+            IAccessControl.AccessControlUnauthorizedAccount.selector,
+            admin,
+            role
+        ));
         vm.prank(admin);
-        vm.expectRevert();
         core.proposeAdmin(address(0xD0D));
     }
 
@@ -257,8 +276,8 @@ contract OspexCoreTest is Test {
 
         bytes32 eventType = keccak256("TEST_EVENT");
         bytes memory eventData = abi.encodePacked(uint256(123));
-        vm.expectEmit(true, false, false, true);
-        emit OspexCore.CoreEventEmitted(eventType, eventData);
+        vm.expectEmit(true, true, false, true);
+        emit OspexCore.CoreEventEmitted(eventType, address(this), eventData);
         core.emitCoreEvent(eventType, eventData);
     }
 
@@ -278,8 +297,8 @@ contract OspexCoreTest is Test {
         bytes32 eventType = keccak256("REGISTERED_EVENT");
         bytes memory eventData = abi.encodePacked(uint256(456));
         vm.prank(dummyModule1);
-        vm.expectEmit(true, false, false, true);
-        emit OspexCore.CoreEventEmitted(eventType, eventData);
+        vm.expectEmit(true, true, false, true);
+        emit OspexCore.CoreEventEmitted(eventType, dummyModule1, eventData);
         core.emitCoreEvent(eventType, eventData);
     }
 
@@ -327,8 +346,13 @@ contract OspexCoreTest is Test {
 
     function testSetMarketRole_RevertsIfNotAdmin() public {
         address market = address(0xCAFE);
+        bytes32 role = core.DEFAULT_ADMIN_ROLE();
+        vm.expectRevert(abi.encodeWithSelector(
+            IAccessControl.AccessControlUnauthorizedAccount.selector,
+            address(0xBAD),
+            role
+        ));
         vm.prank(address(0xBAD));
-        vm.expectRevert();
         core.setMarketRole(market, true);
     }
 
@@ -340,5 +364,154 @@ contract OspexCoreTest is Test {
         vm.prank(admin);
         core.setMarketRole(market, false);
         assertFalse(core.hasMarketRole(market));
+    }
+
+    // --- RETIRED MODULE TESTS ---
+
+    /**
+     * @notice Swapping a module retires the old one and emits ModuleRetired
+     */
+    function testRegisterModule_RetiresOldModule_EmitsEvent() public {
+        vm.startPrank(admin);
+        core.registerModule(MODULE_TYPE, dummyModule1);
+
+        vm.expectEmit(true, true, false, true);
+        emit OspexCore.ModuleRetired(MODULE_TYPE, dummyModule1);
+        core.registerModule(MODULE_TYPE, dummyModule2);
+        vm.stopPrank();
+
+        // Old module is retired, not registered
+        assertFalse(core.s_isModuleRegistered(dummyModule1));
+        assertTrue(core.s_isRetiredModule(dummyModule1));
+        // New module is registered, not retired
+        assertTrue(core.s_isModuleRegistered(dummyModule2));
+        assertFalse(core.s_isRetiredModule(dummyModule2));
+    }
+
+    /**
+     * @notice Re-registering the same address for the same type does not retire it
+     */
+    function testRegisterModule_SameAddress_DoesNotRetire() public {
+        vm.startPrank(admin);
+        core.registerModule(MODULE_TYPE, dummyModule1);
+        // Register same address again — should be a no-op on retirement
+        core.registerModule(MODULE_TYPE, dummyModule1);
+        vm.stopPrank();
+
+        assertTrue(core.s_isModuleRegistered(dummyModule1));
+        assertFalse(core.s_isRetiredModule(dummyModule1));
+    }
+
+    /**
+     * @notice A retired module can still call emitCoreEvent
+     * @dev This is the core fix: claims from a replaced PositionModule must not revert
+     */
+    function testEmitCoreEvent_RetiredModule_Succeeds() public {
+        // Register then replace dummyModule1
+        vm.startPrank(admin);
+        core.registerModule(MODULE_TYPE, dummyModule1);
+        core.registerModule(MODULE_TYPE, dummyModule2);
+        vm.stopPrank();
+
+        // dummyModule1 is now retired — emitCoreEvent should still work
+        bytes32 eventType = keccak256("POSITION_CLAIMED");
+        bytes memory eventData = abi.encode(uint256(1), address(0xBEEF), uint256(100));
+        vm.prank(dummyModule1);
+        vm.expectEmit(true, true, false, true);
+        emit OspexCore.CoreEventEmitted(eventType, dummyModule1, eventData);
+        core.emitCoreEvent(eventType, eventData);
+    }
+
+    /**
+     * @notice The emitter field in CoreEventEmitted distinguishes retired vs active modules
+     */
+    function testEmitCoreEvent_EmitterField_DistinguishesModuleGenerations() public {
+        vm.startPrank(admin);
+        core.registerModule(MODULE_TYPE, dummyModule1);
+        core.registerModule(MODULE_TYPE, dummyModule2);
+        vm.stopPrank();
+
+        bytes32 eventType = keccak256("POSITION_CLAIMED");
+        bytes memory eventData = abi.encode(uint256(42));
+
+        // Retired module emits with its own address
+        vm.prank(dummyModule1);
+        vm.expectEmit(true, true, false, true);
+        emit OspexCore.CoreEventEmitted(eventType, dummyModule1, eventData);
+        core.emitCoreEvent(eventType, eventData);
+
+        // Active module emits with its own address
+        vm.prank(dummyModule2);
+        vm.expectEmit(true, true, false, true);
+        emit OspexCore.CoreEventEmitted(eventType, dummyModule2, eventData);
+        core.emitCoreEvent(eventType, eventData);
+    }
+
+    /**
+     * @notice A retired module cannot call processFee — retired permissions are narrow
+     */
+    function testProcessFee_RetiredModule_Reverts() public {
+        vm.startPrank(admin);
+        core.registerModule(MODULE_TYPE, dummyModule1);
+        core.registerModule(MODULE_TYPE, dummyModule2);
+        vm.stopPrank();
+
+        // dummyModule1 is retired — processFee should revert
+        vm.prank(dummyModule1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                OspexCore.OspexCore__NotRegisteredModule.selector,
+                dummyModule1
+            )
+        );
+        core.processFee(address(0xBEEF), 100, FeeType.ContestCreation, 0);
+    }
+
+    /**
+     * @notice A retired module cannot call processLeaderboardEntryFee
+     */
+    function testProcessLeaderboardEntryFee_RetiredModule_Reverts() public {
+        vm.startPrank(admin);
+        core.registerModule(MODULE_TYPE, dummyModule1);
+        core.registerModule(MODULE_TYPE, dummyModule2);
+        vm.stopPrank();
+
+        vm.prank(dummyModule1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                OspexCore.OspexCore__NotRegisteredModule.selector,
+                dummyModule1
+            )
+        );
+        core.processLeaderboardEntryFee(address(0xBEEF), 100, 0);
+    }
+
+    /**
+     * @notice An address that was never registered or retired cannot call emitCoreEvent
+     */
+    function testEmitCoreEvent_NeverRegistered_Reverts() public {
+        // dummyModule1 was never registered — should revert
+        vm.prank(dummyModule1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                OspexCore.OspexCore__NotRegisteredModule.selector,
+                dummyModule1
+            )
+        );
+        core.emitCoreEvent(keccak256("TEST"), "");
+    }
+
+    /**
+     * @notice isRegisteredModule returns false for retired modules
+     * @dev Retired is a separate status — not "registered" in the active sense
+     */
+    function testIsRegisteredModule_RetiredModule_ReturnsFalse() public {
+        vm.startPrank(admin);
+        core.registerModule(MODULE_TYPE, dummyModule1);
+        core.registerModule(MODULE_TYPE, dummyModule2);
+        vm.stopPrank();
+
+        assertFalse(core.isRegisteredModule(dummyModule1));
+        assertTrue(core.s_isRetiredModule(dummyModule1));
     }
 }
