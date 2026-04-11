@@ -11,12 +11,11 @@ import {ContestModule} from "../src/modules/ContestModule.sol";
  * @dev Run with: forge script script/contest/CreateContest.s.sol:CreateContest --rpc-url [RPC_URL] --broadcast --account [ACCOUNT]
  */
 contract CreateContestV22 is Script {
-    // Address of deployed contest manager on Amoy
-    address constant ORACLE_MODULE = 0xc8536E7cca2af6E9B632167810Ff55CD203a5a81;
-    address constant CONTEST_MODULE =
-        0x8bE406158D7709A72f1331F3186881C19e0e6193;
+    // Amoy v2.3 deployment (2026-04-10)
+    address constant ORACLE_MODULE = 0x18F8BFfB2250635A419982eAe69099d97f596F8F;
+    address constant CONTEST_MODULE = 0x817f555E131042F0dbCc5F6C6b9F9E30bC9aBe62;
     bytes constant ENCRYPTED_SECRETS_URLS =
-        hex"53962f740dd4581471242d29d2a1994902f54872f87f69338234dcdca17201d64cb1448a421faac63ee5ecded2d534292a9d2d2d7e005ed13f0ae6e9b697422837494053436d7b68a0dd60d8e57f30254c2c54a5d8fa832e9a17b4e038c5107aaecd787310f8f877c21f9c3984cfae295a558ae6d1a7c69ccbbaeabe174e1cd6b078a58705f416552e9eb8b11127971aa324b0fcf86f2b64b6a63074895477b0880f560799e48f8ad67e71cbc3127d6e57da064b620196f3fe1b9fcea28aa2b5a592b760b197981805683ffe9c25ce46c7";
+        hex"d32013655bd4b1e55a6bf1b7e9df07280379d299a2e13b2e6aa7f033eb350502373d4e9b4d0feb9815338c6806e04f17636b64b989ce8065060163d51309b71324fb7c8952361b9eb91bb743b58596c404886518e9c0541b905f235f8db209fadd41615c1f436fbfc4cbfbb84124a4921ac3e83ad351189e145317ce17e49ecaeae9919bd6d44a3436de52df4f441e1ba9f5d74d562a541cadbaef5963a206490e2d2fd62b291d3d79ef98521ee0ed50345f6f7aab1d0d0a78af95a015ec051dd00eda0fd3eff0beb853c2d3a5b94a6589";
 
     // Function to read the file content as a string during script compilation
     function getSourceCode() internal view returns (string memory) {
@@ -64,19 +63,20 @@ contract CreateContestV22 is Script {
         }
 
         // Log information before creating the contest
+        // Phoenix Suns @ Los Angeles Lakers — NBA — 2026-04-11 02:30 UTC
         console.log("\nCreating contest with following parameters:");
-        console.log("RundownId: e5c7f9793d24c6c9fbf9976cd900ef84");
-        console.log("SportspageId: 324283");
-        console.log("JsonoddsId: a50f184a-ffda-4682-a0cb-9476e50f617d");
+        console.log("RundownId: afe40b8598c5675226a0f6b6acacf820");
+        console.log("SportspageId: 329277");
+        console.log("JsonoddsId: c76d1939-52b3-4df2-b64c-026ca51e852e");
         console.log("SubscriptionId: 416");
         console.log("GasLimit: 300000");
 
         // Try to create a contest and catch any errors
         try
             oracleModule.createContestFromOracle(
-                "e5c7f9793d24c6c9fbf9976cd900ef84",
-                "324283",
-                "a50f184a-ffda-4682-a0cb-9476e50f617d",
+                "afe40b8598c5675226a0f6b6acacf820",
+                "329277",
+                "c76d1939-52b3-4df2-b64c-026ca51e852e",
                 sourceCode,
                 bytes32(
                     0xcb2a11db3190c322239b52afb3caefccfccd850566834819b012c5520f8d31cd

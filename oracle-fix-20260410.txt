@@ -1,0 +1,136 @@
+vince@LAPTOP-4KRODEML MINGW64 ~/Documents/solidity/ospex-matched-pairs/ospex-foundry-matched-pairs (main)
+$ OSPEX_CORE_ADDRESS=0x2c70Dfe7203620B66feb13D54cBeDdFd026C886F forge script script/UpdateOracleModule.s.sol:UpdateOracleModule \
+> --rpc-url https://polygon-amoy.g.alchemy.com/v2/MCwR7_IJpLl2ke3uGB3Ru2sFbejLtBJF \
+> --account my-deployer \
+> --broadcast \
+> --via-ir \
+> --optimize \
+> -vvvvv
+Warning: This is a nightly build of Foundry. It is recommended to use the latest stable version. To mute this warning set `FOUNDRY_DISABLE_NIGHTLY_WARNING` in your environment. 
+
+Enter keystore password:
+
+[⠒] Compiling...
+No files changed, compilation skipped
+Warning: Detected artifacts built from source files that no longer exist. Run `forge clean` to make sure builds are in sync with project files.
+ - C:/Users/vince/Documents/solidity/ospex-matched-pairs/ospex-foundry-matched-pairs\script/DecodeContestMarket.s.sol
+Warning: EIP-3855 is not supported in one or more of the RPCs used.
+Unsupported Chain IDs: 80002.
+Contracts deployed with a Solidity version equal or higher than 0.8.20 might not work properly.
+For more information, please see https://eips.ethereum.org/EIPS/eip-3855
+Traces:
+  [2614777] UpdateOracleModule::run()
+    ├─ [0] VM::envOr("DEPLOYER", 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3) [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] VM::envOr("OSPEX_CORE_ADDRESS", 0x829A2B2deaBd3b06f6E5938220eCfB450CE75e24) [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] console::log("=== UPDATE ORACLE MODULE ===") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("Deployer:", 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("OspexCore:", 0x2c70Dfe7203620B66feb13D54cBeDdFd026C886F) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("LINK Token:", 0x0Fd9e8d3aF1aaee056EB9e802c3A762a667b1904) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("Functions Router:", 0xC22a79eBA640940ABB6dF0f7982cc119578E11De) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("DON ID:", "fun-polygon-amoy-1\0\0\0\0\0\0\0\0\0\0\0\0\0\0") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] VM::startBroadcast(0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3)
+    │   └─ ← [Return]
+    ├─ [2498123] → new OracleModule@0x18F8BFfB2250635A419982eAe69099d97f596F8F
+    │   └─ ← [Return] 12252 bytes of code
+    ├─ [0] console::log("OracleModule deployed:", OracleModule: [0x18F8BFfB2250635A419982eAe69099d97f596F8F]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [60793] 0x2c70Dfe7203620B66feb13D54cBeDdFd026C886F::registerModule(0x1b0b024d4729631561dfd4dc02330bfda3b6fc05e9e5c0b1f1401290cabea677, OracleModule: [0x18F8BFfB2250635A419982eAe69099d97f596F8F])      
+    │   ├─ emit ModuleRetired(moduleType: 0x1b0b024d4729631561dfd4dc02330bfda3b6fc05e9e5c0b1f1401290cabea677, retiredAddress: 0xf102f04959743Fd211f79e3b9bE053de510A94dc)
+    │   ├─ emit ModuleRegistered(moduleType: 0x1b0b024d4729631561dfd4dc02330bfda3b6fc05e9e5c0b1f1401290cabea677, moduleAddress: OracleModule: [0x18F8BFfB2250635A419982eAe69099d97f596F8F])
+    │   └─ ← [Return]
+    ├─ [0] console::log("OracleModule registered") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("\n=== UPDATE COMPLETE ===") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("ORACLE_MODULE_ADDRESS=", OracleModule: [0x18F8BFfB2250635A419982eAe69099d97f596F8F]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("\n=== NEXT STEPS ===") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("1. Fund the new OracleModule with LINK tokens") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("2. Approve LINK spending for the new OracleModule") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("3. Update frontend and MCP server configs with new address") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] VM::stopBroadcast()
+    │   └─ ← [Return]
+    └─ ← [Return]
+
+
+Script ran successfully.
+
+== Logs ==
+  === UPDATE ORACLE MODULE ===
+  Deployer: 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3
+  OspexCore: 0x2c70Dfe7203620B66feb13D54cBeDdFd026C886F
+  LINK Token: 0x0Fd9e8d3aF1aaee056EB9e802c3A762a667b1904
+  Functions Router: 0xC22a79eBA640940ABB6dF0f7982cc119578E11De
+  DON ID: fun-polygon-amoy-1
+  OracleModule deployed: 0x18F8BFfB2250635A419982eAe69099d97f596F8F
+  OracleModule registered
+
+=== UPDATE COMPLETE ===
+  ORACLE_MODULE_ADDRESS= 0x18F8BFfB2250635A419982eAe69099d97f596F8F
+
+=== NEXT STEPS ===
+  1. Fund the new OracleModule with LINK tokens
+  2. Approve LINK spending for the new OracleModule
+  3. Update frontend and MCP server configs with new address
+
+## Setting up 1 EVM.
+==========================
+Simulated On-chain Traces:
+
+  [2498123] → new OracleModule@0x18F8BFfB2250635A419982eAe69099d97f596F8F
+    └─ ← [Return] 12252 bytes of code
+
+  [60793] 0x2c70Dfe7203620B66feb13D54cBeDdFd026C886F::registerModule(0x1b0b024d4729631561dfd4dc02330bfda3b6fc05e9e5c0b1f1401290cabea677, OracleModule: [0x18F8BFfB2250635A419982eAe69099d97f596F8F])
+    ├─ emit ModuleRetired(moduleType: 0x1b0b024d4729631561dfd4dc02330bfda3b6fc05e9e5c0b1f1401290cabea677, retiredAddress: 0xf102f04959743Fd211f79e3b9bE053de510A94dc)
+    ├─ emit ModuleRegistered(moduleType: 0x1b0b024d4729631561dfd4dc02330bfda3b6fc05e9e5c0b1f1401290cabea677, moduleAddress: OracleModule: [0x18F8BFfB2250635A419982eAe69099d97f596F8F])
+    └─ ← [Return]
+
+
+==========================
+
+Chain 80002
+
+Estimated gas price: 200.000000063 gwei
+
+Estimated total gas used for script: 3689300
+
+Estimated amount required: 0.7378600002324259 POL
+
+==========================
+
+##### amoy
+✅  [Success] Hash: 0x6c59857355bcb3c2be35492ce030c6c09e82f35128cb647aa77e9313df419c5d
+Function: registerModule(bytes32,address)
+Block: 36383720                                                                                                                                                                                                
+Paid: 0.0155874 POL (77937 gas * 200 gwei)
+
+                                                                                                                                                                                                               
+##### amoy                                                                                                                                                                                                     
+✅  [Success] Hash: 0xa127dc3e94a963dd1991abb67a221c4449e7a3c5743d27d9faf9a8c26244a024                                                                                                                         
+Contract: OracleModule
+Contract Address: 0x18F8BFfB2250635A419982eAe69099d97f596F8F
+Block: 36383720
+Paid: 0.550049 POL (2750245 gas * 200 gwei)
+
+✅ Sequence #1 on amoy | Total Paid: 0.5656364 POL (2828182 gas * avg 200 gwei)                                                                                                                                
+                                                                                                                                                                                                               
+                                                                                                                                                                                                               
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: C:/Users/vince/Documents/solidity/ospex-matched-pairs/ospex-foundry-matched-pairs/broadcast\UpdateOracleModule.s.sol\80002\run-latest.json
+
+Sensitive values saved to: C:/Users/vince/Documents/solidity/ospex-matched-pairs/ospex-foundry-matched-pairs/cache\UpdateOracleModule.s.sol\80002\run-latest.json

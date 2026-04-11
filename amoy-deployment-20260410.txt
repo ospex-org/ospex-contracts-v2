@@ -1,0 +1,768 @@
+forge script script/DeployAmoy.s.sol:DeployAmoy --rpc-url https://polygon-amoy.g.alchemy.com/v2/MCwR7_IJpLl2ke3uGB3Ru2sFbejLtBJF --account my-deployer --broadcast --via-ir --optimize -vvvvv
+Warning: This is a nightly build of Foundry. It is recommended to use the latest stable version. To mute this warning set `FOUNDRY_DISABLE_NIGHTLY_WARNING` in your environment. 
+
+Enter keystore password:
+
+[⠒] Compiling...
+No files changed, compilation skipped
+Warning: Detected artifacts built from source files that no longer exist. Run `forge clean` to make sure builds are in sync with project files.
+ - C:/Users/vince/Documents/solidity/ospex-matched-pairs/ospex-foundry-matched-pairs\script/DecodeContestMarket.s.sol
+Warning: EIP-3855 is not supported in one or more of the RPCs used.
+Unsupported Chain IDs: 80002.
+Contracts deployed with a Solidity version equal or higher than 0.8.20 might not work properly.
+For more information, please see https://eips.ethereum.org/EIPS/eip-3855
+Traces:
+  [19331887] DeployAmoy::run()
+    ├─ [0] VM::envOr("DEPLOYER_ADDRESS", 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3) [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] console::log("=== Ospex v2 Deployment ===") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("Network: Polygon Amoy Testnet (Chain ID 80002)") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("Deployer:", 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("Deployer balance:", 49845471785050146533 [4.984e19]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] VM::startBroadcast(0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3)
+    │   └─ ← [Return]
+    ├─ [0] console::log("\n--- Using existing USDC token ---") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("USDC:", 0xB1D1c0A8Cc8BB165b34735972E798f64A785eaF8) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("\n--- Deploying OspexCore ---") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [920258] → new OspexCore@0x2c70Dfe7203620B66feb13D54cBeDdFd026C886F
+    │   ├─ emit RoleGranted(role: 0x0000000000000000000000000000000000000000000000000000000000000000, account: 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3, sender: 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3) 
+    │   ├─ emit RoleGranted(role: 0xf83fbdecd7018694593b521db8f6c864cd19f8450388b844650c68334dac9ab5, account: 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3, sender: 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3) 
+    │   └─ ← [Return] 4242 bytes of code
+    ├─ [0] console::log("OspexCore:", OspexCore: [0x2c70Dfe7203620B66feb13D54cBeDdFd026C886F]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("\n--- Deploying simple modules ---") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [513123] → new ContributionModule@0x1371ad71E0bBdC35b5572366A6fE880CBe234870
+    │   └─ ← [Return] 2451 bytes of code
+    ├─ [0] console::log("ContributionModule:", ContributionModule: [0x1371ad71E0bBdC35b5572366A6fE880CBe234870]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [2647399] → new LeaderboardModule@0xD2cCCAa6269Eda93A979403C816fbEBe47eC7640
+    │   └─ ← [Return] 12999 bytes of code
+    ├─ [0] console::log("LeaderboardModule:", LeaderboardModule: [0xD2cCCAa6269Eda93A979403C816fbEBe47eC7640]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [2273076] → new RulesModule@0xea53575acB2A1FD394323e38ca2411a4944617c2
+    │   └─ ← [Return] 11351 bytes of code
+    ├─ [0] console::log("RulesModule:", RulesModule: [0xea53575acB2A1FD394323e38ca2411a4944617c2]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [249149] → new MoneylineScorerModule@0x344c7D92A74Cbb9996D52Dfa9AcE01f39D661C63
+    │   └─ ← [Return] 1243 bytes of code
+    ├─ [0] console::log("MoneylineScorerModule:", MoneylineScorerModule: [0x344c7D92A74Cbb9996D52Dfa9AcE01f39D661C63]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [268968] → new SpreadScorerModule@0x1C6C1dD4F19B7d81678207A7A49EADc9594aED06
+    │   └─ ← [Return] 1342 bytes of code
+    ├─ [0] console::log("SpreadScorerModule:", SpreadScorerModule: [0x1C6C1dD4F19B7d81678207A7A49EADc9594aED06]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [260362] → new TotalScorerModule@0x11976a0a5c1Da02aFb0aB61f420a3964783ac0D3
+    │   └─ ← [Return] 1299 bytes of code
+    ├─ [0] console::log("TotalScorerModule:", TotalScorerModule: [0x11976a0a5c1Da02aFb0aB61f420a3964783ac0D3]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [1227270] → new MatchingModule@0xe541F1FCB88B0c566d3581300F05CC2D975393ad
+    │   └─ ← [Return] 6012 bytes of code
+    ├─ [0] console::log("MatchingModule:", MatchingModule: [0xe541F1FCB88B0c566d3581300F05CC2D975393ad]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("\n--- Deploying modules with dependencies ---") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [1076855] → new TreasuryModule@0xe967238674a11D6C7B365f1164ad84629d42daEA
+    │   └─ ← [Return] 5253 bytes of code
+    ├─ [0] console::log("TreasuryModule:", TreasuryModule: [0xe967238674a11D6C7B365f1164ad84629d42daEA]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [1414973] → new SpeculationModule@0x47Ef57d1571C38AE1d071c1AB4ddfceaf7cBe538
+    │   └─ ← [Return] 6844 bytes of code
+    ├─ [0] console::log("SpeculationModule:", SpeculationModule: [0x47Ef57d1571C38AE1d071c1AB4ddfceaf7cBe538]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [1373306] → new PositionModule@0x0ca5A1e9b6b6b1c928D87820ED511C9bB035F6B1
+    │   └─ ← [Return] 6746 bytes of code
+    ├─ [0] console::log("PositionModule:", PositionModule: [0x0ca5A1e9b6b6b1c928D87820ED511C9bB035F6B1]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [1482005] → new SecondaryMarketModule@0x93475B2Eedf09376856862bB341Eb866C224EDD7
+    │   └─ ← [Return] 7178 bytes of code
+    ├─ [0] console::log("SecondaryMarketModule:", SecondaryMarketModule: [0x93475B2Eedf09376856862bB341Eb866C224EDD7]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [1865065] → new ContestModule@0x817f555E131042F0dbCc5F6C6b9F9E30bC9aBe62
+    │   └─ ← [Return] 9092 bytes of code
+    ├─ [0] console::log("ContestModule:", ContestModule: [0x817f555E131042F0dbCc5F6C6b9F9E30bC9aBe62]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [2498123] → new OracleModule@0xf102f04959743Fd211f79e3b9bE053de510A94dc
+    │   └─ ← [Return] 12252 bytes of code
+    ├─ [0] console::log("OracleModule:", OracleModule: [0xf102f04959743Fd211f79e3b9bE053de510A94dc]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("\nAll 13 modules deployed.") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("\n--- Registering modules with OspexCore ---") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [47079] OspexCore::registerModule(0x0c1f3a2fb8d5cb85f06f67a78424b420c7a88acd1df03770d5da98ff6a648202, TreasuryModule: [0xe967238674a11D6C7B365f1164ad84629d42daEA])
+    │   ├─ emit ModuleRegistered(moduleType: 0x0c1f3a2fb8d5cb85f06f67a78424b420c7a88acd1df03770d5da98ff6a648202, moduleAddress: TreasuryModule: [0xe967238674a11D6C7B365f1164ad84629d42daEA])
+    │   └─ ← [Return]
+    ├─ [47079] OspexCore::registerModule(0x1b0b024d4729631561dfd4dc02330bfda3b6fc05e9e5c0b1f1401290cabea677, OracleModule: [0xf102f04959743Fd211f79e3b9bE053de510A94dc])
+    │   ├─ emit ModuleRegistered(moduleType: 0x1b0b024d4729631561dfd4dc02330bfda3b6fc05e9e5c0b1f1401290cabea677, moduleAddress: OracleModule: [0xf102f04959743Fd211f79e3b9bE053de510A94dc])
+    │   └─ ← [Return]
+    ├─ [47079] OspexCore::registerModule(0xcf4380c3644cbbdee3cb3ab0bc7d20abb63598788869c8d34407ba532c2f95a6, SpeculationModule: [0x47Ef57d1571C38AE1d071c1AB4ddfceaf7cBe538])
+    │   ├─ emit ModuleRegistered(moduleType: 0xcf4380c3644cbbdee3cb3ab0bc7d20abb63598788869c8d34407ba532c2f95a6, moduleAddress: SpeculationModule: [0x47Ef57d1571C38AE1d071c1AB4ddfceaf7cBe538])
+    │   └─ ← [Return]
+    ├─ [47079] OspexCore::registerModule(0x182d49e8f1ba343facbac18b56a4a0f869e2f54f3165879cb5d067f4ff67ee19, PositionModule: [0x0ca5A1e9b6b6b1c928D87820ED511C9bB035F6B1])
+    │   ├─ emit ModuleRegistered(moduleType: 0x182d49e8f1ba343facbac18b56a4a0f869e2f54f3165879cb5d067f4ff67ee19, moduleAddress: PositionModule: [0x0ca5A1e9b6b6b1c928D87820ED511C9bB035F6B1])
+    │   └─ ← [Return]
+    ├─ [47079] OspexCore::registerModule(0x86b5238312c77f984fd459a72ebd4fbba99f6fdedf2f6a6f8acf9e987b6aca7b, SecondaryMarketModule: [0x93475B2Eedf09376856862bB341Eb866C224EDD7])
+    │   ├─ emit ModuleRegistered(moduleType: 0x86b5238312c77f984fd459a72ebd4fbba99f6fdedf2f6a6f8acf9e987b6aca7b, moduleAddress: SecondaryMarketModule: [0x93475B2Eedf09376856862bB341Eb866C224EDD7])
+    │   └─ ← [Return]
+    ├─ [47079] OspexCore::registerModule(0xb853e7f1ca7c39b3d60a4a01169293d298c5bac9d91781182e553e486b426238, ContestModule: [0x817f555E131042F0dbCc5F6C6b9F9E30bC9aBe62])
+    │   ├─ emit ModuleRegistered(moduleType: 0xb853e7f1ca7c39b3d60a4a01169293d298c5bac9d91781182e553e486b426238, moduleAddress: ContestModule: [0x817f555E131042F0dbCc5F6C6b9F9E30bC9aBe62])
+    │   └─ ← [Return]
+    ├─ [47079] OspexCore::registerModule(0x6569d446b71b6fe6152e35aca1137b8d15449507246ab2446a6380aa76ab8bee, ContributionModule: [0x1371ad71E0bBdC35b5572366A6fE880CBe234870])
+    │   ├─ emit ModuleRegistered(moduleType: 0x6569d446b71b6fe6152e35aca1137b8d15449507246ab2446a6380aa76ab8bee, moduleAddress: ContributionModule: [0x1371ad71E0bBdC35b5572366A6fE880CBe234870])
+    │   └─ ← [Return]
+    ├─ [47079] OspexCore::registerModule(0x135db7d1e2a894eabefefde819385a5f056f9cb71309038a80d5dedc9f34a6c9, LeaderboardModule: [0xD2cCCAa6269Eda93A979403C816fbEBe47eC7640])
+    │   ├─ emit ModuleRegistered(moduleType: 0x135db7d1e2a894eabefefde819385a5f056f9cb71309038a80d5dedc9f34a6c9, moduleAddress: LeaderboardModule: [0xD2cCCAa6269Eda93A979403C816fbEBe47eC7640])
+    │   └─ ← [Return]
+    ├─ [47079] OspexCore::registerModule(0x02e535fc21bfb82c317d4b9b99a239b99fa71e2bea1572ff170afdcd61f78a34, RulesModule: [0xea53575acB2A1FD394323e38ca2411a4944617c2])
+    │   ├─ emit ModuleRegistered(moduleType: 0x02e535fc21bfb82c317d4b9b99a239b99fa71e2bea1572ff170afdcd61f78a34, moduleAddress: RulesModule: [0xea53575acB2A1FD394323e38ca2411a4944617c2])
+    │   └─ ← [Return]
+    ├─ [47079] OspexCore::registerModule(0x8b02a8694c7973cae76e0aaa43157a85760a36598bbbf596247b460b7c9db24e, MoneylineScorerModule: [0x344c7D92A74Cbb9996D52Dfa9AcE01f39D661C63])
+    │   ├─ emit ModuleRegistered(moduleType: 0x8b02a8694c7973cae76e0aaa43157a85760a36598bbbf596247b460b7c9db24e, moduleAddress: MoneylineScorerModule: [0x344c7D92A74Cbb9996D52Dfa9AcE01f39D661C63])
+    │   └─ ← [Return]
+    ├─ [47079] OspexCore::registerModule(0x9958b1c66847463b48b605316a4f9b35bed8bcfef3f9eccb785e95e85e3dc7ca, SpreadScorerModule: [0x1C6C1dD4F19B7d81678207A7A49EADc9594aED06])
+    │   ├─ emit ModuleRegistered(moduleType: 0x9958b1c66847463b48b605316a4f9b35bed8bcfef3f9eccb785e95e85e3dc7ca, moduleAddress: SpreadScorerModule: [0x1C6C1dD4F19B7d81678207A7A49EADc9594aED06])
+    │   └─ ← [Return]
+    ├─ [47079] OspexCore::registerModule(0x72d978bbccb9ddac4961558836670726471e174959bebeca601d2f0f5e6a697a, TotalScorerModule: [0x11976a0a5c1Da02aFb0aB61f420a3964783ac0D3])
+    │   ├─ emit ModuleRegistered(moduleType: 0x72d978bbccb9ddac4961558836670726471e174959bebeca601d2f0f5e6a697a, moduleAddress: TotalScorerModule: [0x11976a0a5c1Da02aFb0aB61f420a3964783ac0D3])
+    │   └─ ← [Return]
+    ├─ [47079] OspexCore::registerModule(0xa1326d0c5166785cdcae1676162883d8566a23dc474bf97158b09dc4ed64d7d9, MatchingModule: [0xe541F1FCB88B0c566d3581300F05CC2D975393ad])
+    │   ├─ emit ModuleRegistered(moduleType: 0xa1326d0c5166785cdcae1676162883d8566a23dc474bf97158b09dc4ed64d7d9, moduleAddress: MatchingModule: [0xe541F1FCB88B0c566d3581300F05CC2D975393ad])
+    │   └─ ← [Return]
+    ├─ [0] console::log("All 13 modules registered.") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("\n--- Granting SCORER_ROLE to scorer modules ---") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [24987] OspexCore::setScorerRole(MoneylineScorerModule: [0x344c7D92A74Cbb9996D52Dfa9AcE01f39D661C63], true)
+    │   ├─ emit RoleGranted(role: 0x7f3f5c26f2e002e717c4feeca3fac851759df70cd9d703d83098f12a7ad024ca, account: MoneylineScorerModule: [0x344c7D92A74Cbb9996D52Dfa9AcE01f39D661C63], sender: 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3)
+    │   └─ ← [Stop]
+    ├─ [24987] OspexCore::setScorerRole(SpreadScorerModule: [0x1C6C1dD4F19B7d81678207A7A49EADc9594aED06], true)
+    │   ├─ emit RoleGranted(role: 0x7f3f5c26f2e002e717c4feeca3fac851759df70cd9d703d83098f12a7ad024ca, account: SpreadScorerModule: [0x1C6C1dD4F19B7d81678207A7A49EADc9594aED06], sender: 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3)
+    │   └─ ← [Stop]
+    ├─ [24987] OspexCore::setScorerRole(TotalScorerModule: [0x11976a0a5c1Da02aFb0aB61f420a3964783ac0D3], true)
+    │   ├─ emit RoleGranted(role: 0x7f3f5c26f2e002e717c4feeca3fac851759df70cd9d703d83098f12a7ad024ca, account: TotalScorerModule: [0x11976a0a5c1Da02aFb0aB61f420a3964783ac0D3], sender: 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3)
+    │   └─ ← [Stop]
+    ├─ [0] console::log("SCORER_ROLE granted to Moneyline, Spread, Total scorer modules.") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("\n--- Post-deploy verification ---") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [718] OspexCore::getModule(0x0c1f3a2fb8d5cb85f06f67a78424b420c7a88acd1df03770d5da98ff6a648202) [staticcall]
+    │   └─ ← [Return] TreasuryModule: [0xe967238674a11D6C7B365f1164ad84629d42daEA]
+    ├─ [718] OspexCore::getModule(0x1b0b024d4729631561dfd4dc02330bfda3b6fc05e9e5c0b1f1401290cabea677) [staticcall]
+    │   └─ ← [Return] OracleModule: [0xf102f04959743Fd211f79e3b9bE053de510A94dc]
+    ├─ [718] OspexCore::getModule(0xcf4380c3644cbbdee3cb3ab0bc7d20abb63598788869c8d34407ba532c2f95a6) [staticcall]
+    │   └─ ← [Return] SpeculationModule: [0x47Ef57d1571C38AE1d071c1AB4ddfceaf7cBe538]
+    ├─ [718] OspexCore::getModule(0x182d49e8f1ba343facbac18b56a4a0f869e2f54f3165879cb5d067f4ff67ee19) [staticcall]
+    │   └─ ← [Return] PositionModule: [0x0ca5A1e9b6b6b1c928D87820ED511C9bB035F6B1]
+    ├─ [718] OspexCore::getModule(0x86b5238312c77f984fd459a72ebd4fbba99f6fdedf2f6a6f8acf9e987b6aca7b) [staticcall]
+    │   └─ ← [Return] SecondaryMarketModule: [0x93475B2Eedf09376856862bB341Eb866C224EDD7]
+    ├─ [718] OspexCore::getModule(0xb853e7f1ca7c39b3d60a4a01169293d298c5bac9d91781182e553e486b426238) [staticcall]
+    │   └─ ← [Return] ContestModule: [0x817f555E131042F0dbCc5F6C6b9F9E30bC9aBe62]
+    ├─ [718] OspexCore::getModule(0x6569d446b71b6fe6152e35aca1137b8d15449507246ab2446a6380aa76ab8bee) [staticcall]
+    │   └─ ← [Return] ContributionModule: [0x1371ad71E0bBdC35b5572366A6fE880CBe234870]
+    ├─ [718] OspexCore::getModule(0x135db7d1e2a894eabefefde819385a5f056f9cb71309038a80d5dedc9f34a6c9) [staticcall]
+    │   └─ ← [Return] LeaderboardModule: [0xD2cCCAa6269Eda93A979403C816fbEBe47eC7640]
+    ├─ [718] OspexCore::getModule(0x02e535fc21bfb82c317d4b9b99a239b99fa71e2bea1572ff170afdcd61f78a34) [staticcall]
+    │   └─ ← [Return] RulesModule: [0xea53575acB2A1FD394323e38ca2411a4944617c2]
+    ├─ [718] OspexCore::getModule(0x8b02a8694c7973cae76e0aaa43157a85760a36598bbbf596247b460b7c9db24e) [staticcall]
+    │   └─ ← [Return] MoneylineScorerModule: [0x344c7D92A74Cbb9996D52Dfa9AcE01f39D661C63]
+    ├─ [718] OspexCore::getModule(0x9958b1c66847463b48b605316a4f9b35bed8bcfef3f9eccb785e95e85e3dc7ca) [staticcall]
+    │   └─ ← [Return] SpreadScorerModule: [0x1C6C1dD4F19B7d81678207A7A49EADc9594aED06]
+    ├─ [718] OspexCore::getModule(0x72d978bbccb9ddac4961558836670726471e174959bebeca601d2f0f5e6a697a) [staticcall]
+    │   └─ ← [Return] TotalScorerModule: [0x11976a0a5c1Da02aFb0aB61f420a3964783ac0D3]
+    ├─ [718] OspexCore::getModule(0xa1326d0c5166785cdcae1676162883d8566a23dc474bf97158b09dc4ed64d7d9) [staticcall]
+    │   └─ ← [Return] MatchingModule: [0xe541F1FCB88B0c566d3581300F05CC2D975393ad]
+    ├─ [1087] OspexCore::hasScorerRole(MoneylineScorerModule: [0x344c7D92A74Cbb9996D52Dfa9AcE01f39D661C63]) [staticcall]
+    │   └─ ← [Return] true
+    ├─ [1087] OspexCore::hasScorerRole(SpreadScorerModule: [0x1C6C1dD4F19B7d81678207A7A49EADc9594aED06]) [staticcall]
+    │   └─ ← [Return] true
+    ├─ [1087] OspexCore::hasScorerRole(TotalScorerModule: [0x11976a0a5c1Da02aFb0aB61f420a3964783ac0D3]) [staticcall]
+    │   └─ ← [Return] true
+    ├─ [479] OspexCore::isRegisteredModule(TreasuryModule: [0xe967238674a11D6C7B365f1164ad84629d42daEA]) [staticcall]
+    │   └─ ← [Return] true
+    ├─ [479] OspexCore::isRegisteredModule(OracleModule: [0xf102f04959743Fd211f79e3b9bE053de510A94dc]) [staticcall]
+    │   └─ ← [Return] true
+    ├─ [479] OspexCore::isRegisteredModule(PositionModule: [0x0ca5A1e9b6b6b1c928D87820ED511C9bB035F6B1]) [staticcall]
+    │   └─ ← [Return] true
+    ├─ [479] OspexCore::isRegisteredModule(MatchingModule: [0xe541F1FCB88B0c566d3581300F05CC2D975393ad]) [staticcall]
+    │   └─ ← [Return] true
+    ├─ [0] console::log("All 13 module registrations verified.") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("All 3 scorer role assignments verified.") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("Verification PASSED.") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("\n============================================================") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  DEPLOYMENT SUMMARY - Polygon Amoy Testnet (Chain ID 80002)") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("============================================================") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("\nDeployer / Admin:", 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("LINK:", 0x0Fd9e8d3aF1aaee056EB9e802c3A762a667b1904) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("Functions Router:", 0xA9d587a00A31A52Ed70D6026794a8FC5E2F5dCb0) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("USDC:", 0xB1D1c0A8Cc8BB165b34735972E798f64A785eaF8) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("\nCore:") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  OspexCore:", OspexCore: [0x2c70Dfe7203620B66feb13D54cBeDdFd026C886F]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("\nModules:") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  TreasuryModule:", TreasuryModule: [0xe967238674a11D6C7B365f1164ad84629d42daEA]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  OracleModule:", OracleModule: [0xf102f04959743Fd211f79e3b9bE053de510A94dc]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  SpeculationModule:", SpeculationModule: [0x47Ef57d1571C38AE1d071c1AB4ddfceaf7cBe538]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  PositionModule:", PositionModule: [0x0ca5A1e9b6b6b1c928D87820ED511C9bB035F6B1]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  SecondaryMarketModule:", SecondaryMarketModule: [0x93475B2Eedf09376856862bB341Eb866C224EDD7]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  ContestModule:", ContestModule: [0x817f555E131042F0dbCc5F6C6b9F9E30bC9aBe62]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  ContributionModule:", ContributionModule: [0x1371ad71E0bBdC35b5572366A6fE880CBe234870]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  LeaderboardModule:", LeaderboardModule: [0xD2cCCAa6269Eda93A979403C816fbEBe47eC7640]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  RulesModule:", RulesModule: [0xea53575acB2A1FD394323e38ca2411a4944617c2]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  MoneylineScorerModule:", MoneylineScorerModule: [0x344c7D92A74Cbb9996D52Dfa9AcE01f39D661C63]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  SpreadScorerModule:", SpreadScorerModule: [0x1C6C1dD4F19B7d81678207A7A49EADc9594aED06]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  TotalScorerModule:", TotalScorerModule: [0x11976a0a5c1Da02aFb0aB61f420a3964783ac0D3]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  MatchingModule:", MatchingModule: [0xe541F1FCB88B0c566d3581300F05CC2D975393ad]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("\n============================================================") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  CRITICAL NEXT STEPS") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("============================================================") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("1. Add OracleModule as consumer on Chainlink subscription 416") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("   Dashboard: https://functions.chain.link/polygon-amoy/416") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("2. Fund OracleModule with LINK for Chainlink Functions requests") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("3. Upload Chainlink Functions secrets (offchain-secrets) for Amoy") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("4. Update ospex-fdb Firebase functions with new contract addresses") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("5. Update ospex-agent-server .env with new contract addresses") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("6. Update ospex-lovable frontend config with new contract addresses") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("7. Test contest creation -> speculation -> position -> scoring flow") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("\n============================================================") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  FRONTEND / AGENT SERVER CONFIG") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("============================================================") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("OSPEX_CORE_ADDRESS=", OspexCore: [0x2c70Dfe7203620B66feb13D54cBeDdFd026C886F]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("USDC_ADDRESS=", 0xB1D1c0A8Cc8BB165b34735972E798f64A785eaF8) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("TREASURY_MODULE_ADDRESS=", TreasuryModule: [0xe967238674a11D6C7B365f1164ad84629d42daEA]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("ORACLE_MODULE_ADDRESS=", OracleModule: [0xf102f04959743Fd211f79e3b9bE053de510A94dc]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("SPECULATION_MODULE_ADDRESS=", SpeculationModule: [0x47Ef57d1571C38AE1d071c1AB4ddfceaf7cBe538]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("POSITION_MODULE_ADDRESS=", PositionModule: [0x0ca5A1e9b6b6b1c928D87820ED511C9bB035F6B1]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("SECONDARY_MARKET_MODULE_ADDRESS=", SecondaryMarketModule: [0x93475B2Eedf09376856862bB341Eb866C224EDD7]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("CONTEST_MODULE_ADDRESS=", ContestModule: [0x817f555E131042F0dbCc5F6C6b9F9E30bC9aBe62]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("MATCHING_MODULE_ADDRESS=", MatchingModule: [0xe541F1FCB88B0c566d3581300F05CC2D975393ad]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] VM::stopBroadcast()
+    │   └─ ← [Return]
+    └─ ← [Return]
+
+
+Script ran successfully.
+
+== Logs ==
+  === Ospex v2 Deployment ===
+  Network: Polygon Amoy Testnet (Chain ID 80002)
+  Deployer: 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3
+  Deployer balance: 49845471785050146533
+
+--- Using existing USDC token ---
+  USDC: 0xB1D1c0A8Cc8BB165b34735972E798f64A785eaF8
+
+--- Deploying OspexCore ---
+  OspexCore: 0x2c70Dfe7203620B66feb13D54cBeDdFd026C886F
+
+--- Deploying simple modules ---
+  ContributionModule: 0x1371ad71E0bBdC35b5572366A6fE880CBe234870
+  LeaderboardModule: 0xD2cCCAa6269Eda93A979403C816fbEBe47eC7640
+  RulesModule: 0xea53575acB2A1FD394323e38ca2411a4944617c2
+  MoneylineScorerModule: 0x344c7D92A74Cbb9996D52Dfa9AcE01f39D661C63
+  SpreadScorerModule: 0x1C6C1dD4F19B7d81678207A7A49EADc9594aED06
+  TotalScorerModule: 0x11976a0a5c1Da02aFb0aB61f420a3964783ac0D3
+  MatchingModule: 0xe541F1FCB88B0c566d3581300F05CC2D975393ad
+
+--- Deploying modules with dependencies ---
+  TreasuryModule: 0xe967238674a11D6C7B365f1164ad84629d42daEA
+  SpeculationModule: 0x47Ef57d1571C38AE1d071c1AB4ddfceaf7cBe538
+  PositionModule: 0x0ca5A1e9b6b6b1c928D87820ED511C9bB035F6B1
+  SecondaryMarketModule: 0x93475B2Eedf09376856862bB341Eb866C224EDD7
+  ContestModule: 0x817f555E131042F0dbCc5F6C6b9F9E30bC9aBe62
+  OracleModule: 0xf102f04959743Fd211f79e3b9bE053de510A94dc
+
+All 13 modules deployed.
+
+--- Registering modules with OspexCore ---
+  All 13 modules registered.
+
+--- Granting SCORER_ROLE to scorer modules ---
+  SCORER_ROLE granted to Moneyline, Spread, Total scorer modules.
+
+--- Post-deploy verification ---
+  All 13 module registrations verified.
+  All 3 scorer role assignments verified.
+  Verification PASSED.
+
+============================================================
+    DEPLOYMENT SUMMARY - Polygon Amoy Testnet (Chain ID 80002)
+  ============================================================
+
+Deployer / Admin: 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3
+  LINK: 0x0Fd9e8d3aF1aaee056EB9e802c3A762a667b1904
+  Functions Router: 0xA9d587a00A31A52Ed70D6026794a8FC5E2F5dCb0
+  USDC: 0xB1D1c0A8Cc8BB165b34735972E798f64A785eaF8
+
+Core:
+    OspexCore: 0x2c70Dfe7203620B66feb13D54cBeDdFd026C886F
+  
+Modules:
+    TreasuryModule: 0xe967238674a11D6C7B365f1164ad84629d42daEA
+    OracleModule: 0xf102f04959743Fd211f79e3b9bE053de510A94dc
+    SpeculationModule: 0x47Ef57d1571C38AE1d071c1AB4ddfceaf7cBe538
+    PositionModule: 0x0ca5A1e9b6b6b1c928D87820ED511C9bB035F6B1
+    SecondaryMarketModule: 0x93475B2Eedf09376856862bB341Eb866C224EDD7
+    ContestModule: 0x817f555E131042F0dbCc5F6C6b9F9E30bC9aBe62
+    ContributionModule: 0x1371ad71E0bBdC35b5572366A6fE880CBe234870
+    LeaderboardModule: 0xD2cCCAa6269Eda93A979403C816fbEBe47eC7640
+    RulesModule: 0xea53575acB2A1FD394323e38ca2411a4944617c2
+    MoneylineScorerModule: 0x344c7D92A74Cbb9996D52Dfa9AcE01f39D661C63
+    SpreadScorerModule: 0x1C6C1dD4F19B7d81678207A7A49EADc9594aED06
+    TotalScorerModule: 0x11976a0a5c1Da02aFb0aB61f420a3964783ac0D3
+    MatchingModule: 0xe541F1FCB88B0c566d3581300F05CC2D975393ad
+
+============================================================
+    CRITICAL NEXT STEPS
+  ============================================================
+  1. Add OracleModule as consumer on Chainlink subscription 416
+     Dashboard: https://functions.chain.link/polygon-amoy/416
+  2. Fund OracleModule with LINK for Chainlink Functions requests
+  3. Upload Chainlink Functions secrets (offchain-secrets) for Amoy
+  4. Update ospex-fdb Firebase functions with new contract addresses
+  5. Update ospex-agent-server .env with new contract addresses
+  6. Update ospex-lovable frontend config with new contract addresses
+  7. Test contest creation -> speculation -> position -> scoring flow
+
+============================================================
+    FRONTEND / AGENT SERVER CONFIG
+  ============================================================
+  OSPEX_CORE_ADDRESS= 0x2c70Dfe7203620B66feb13D54cBeDdFd026C886F
+  USDC_ADDRESS= 0xB1D1c0A8Cc8BB165b34735972E798f64A785eaF8
+  TREASURY_MODULE_ADDRESS= 0xe967238674a11D6C7B365f1164ad84629d42daEA
+  ORACLE_MODULE_ADDRESS= 0xf102f04959743Fd211f79e3b9bE053de510A94dc
+  SPECULATION_MODULE_ADDRESS= 0x47Ef57d1571C38AE1d071c1AB4ddfceaf7cBe538
+  POSITION_MODULE_ADDRESS= 0x0ca5A1e9b6b6b1c928D87820ED511C9bB035F6B1
+  SECONDARY_MARKET_MODULE_ADDRESS= 0x93475B2Eedf09376856862bB341Eb866C224EDD7
+  CONTEST_MODULE_ADDRESS= 0x817f555E131042F0dbCc5F6C6b9F9E30bC9aBe62
+  MATCHING_MODULE_ADDRESS= 0xe541F1FCB88B0c566d3581300F05CC2D975393ad
+
+## Setting up 1 EVM.
+==========================
+Simulated On-chain Traces:
+
+  [920258] → new OspexCore@0x2c70Dfe7203620B66feb13D54cBeDdFd026C886F
+    ├─ emit RoleGranted(role: 0x0000000000000000000000000000000000000000000000000000000000000000, account: 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3, sender: 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3)     
+    ├─ emit RoleGranted(role: 0xf83fbdecd7018694593b521db8f6c864cd19f8450388b844650c68334dac9ab5, account: 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3, sender: 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3)     
+    └─ ← [Return] 4242 bytes of code
+
+  [513123] → new ContributionModule@0x1371ad71E0bBdC35b5572366A6fE880CBe234870
+    └─ ← [Return] 2451 bytes of code
+
+  [2647399] → new LeaderboardModule@0xD2cCCAa6269Eda93A979403C816fbEBe47eC7640
+    └─ ← [Return] 12999 bytes of code
+
+  [2273076] → new RulesModule@0xea53575acB2A1FD394323e38ca2411a4944617c2
+    └─ ← [Return] 11351 bytes of code
+
+  [249149] → new MoneylineScorerModule@0x344c7D92A74Cbb9996D52Dfa9AcE01f39D661C63
+    └─ ← [Return] 1243 bytes of code
+
+  [268968] → new SpreadScorerModule@0x1C6C1dD4F19B7d81678207A7A49EADc9594aED06
+    └─ ← [Return] 1342 bytes of code
+
+  [260362] → new TotalScorerModule@0x11976a0a5c1Da02aFb0aB61f420a3964783ac0D3
+    └─ ← [Return] 1299 bytes of code
+
+  [1227270] → new MatchingModule@0xe541F1FCB88B0c566d3581300F05CC2D975393ad
+    └─ ← [Return] 6012 bytes of code
+
+  [1076855] → new TreasuryModule@0xe967238674a11D6C7B365f1164ad84629d42daEA
+    └─ ← [Return] 5253 bytes of code
+
+  [1414973] → new SpeculationModule@0x47Ef57d1571C38AE1d071c1AB4ddfceaf7cBe538
+    └─ ← [Return] 6844 bytes of code
+
+  [1373306] → new PositionModule@0x0ca5A1e9b6b6b1c928D87820ED511C9bB035F6B1
+    └─ ← [Return] 6746 bytes of code
+
+  [1482005] → new SecondaryMarketModule@0x93475B2Eedf09376856862bB341Eb866C224EDD7
+    └─ ← [Return] 7178 bytes of code
+
+  [1865065] → new ContestModule@0x817f555E131042F0dbCc5F6C6b9F9E30bC9aBe62
+    └─ ← [Return] 9092 bytes of code
+
+  [2498123] → new OracleModule@0xf102f04959743Fd211f79e3b9bE053de510A94dc
+    └─ ← [Return] 12252 bytes of code
+
+  [49079] OspexCore::registerModule(0x0c1f3a2fb8d5cb85f06f67a78424b420c7a88acd1df03770d5da98ff6a648202, TreasuryModule: [0xe967238674a11D6C7B365f1164ad84629d42daEA])
+    ├─ emit ModuleRegistered(moduleType: 0x0c1f3a2fb8d5cb85f06f67a78424b420c7a88acd1df03770d5da98ff6a648202, moduleAddress: TreasuryModule: [0xe967238674a11D6C7B365f1164ad84629d42daEA])
+    └─ ← [Return]
+
+  [49079] OspexCore::registerModule(0x1b0b024d4729631561dfd4dc02330bfda3b6fc05e9e5c0b1f1401290cabea677, OracleModule: [0xf102f04959743Fd211f79e3b9bE053de510A94dc])
+    ├─ emit ModuleRegistered(moduleType: 0x1b0b024d4729631561dfd4dc02330bfda3b6fc05e9e5c0b1f1401290cabea677, moduleAddress: OracleModule: [0xf102f04959743Fd211f79e3b9bE053de510A94dc])
+    └─ ← [Return]
+
+  [49079] OspexCore::registerModule(0xcf4380c3644cbbdee3cb3ab0bc7d20abb63598788869c8d34407ba532c2f95a6, SpeculationModule: [0x47Ef57d1571C38AE1d071c1AB4ddfceaf7cBe538])
+    ├─ emit ModuleRegistered(moduleType: 0xcf4380c3644cbbdee3cb3ab0bc7d20abb63598788869c8d34407ba532c2f95a6, moduleAddress: SpeculationModule: [0x47Ef57d1571C38AE1d071c1AB4ddfceaf7cBe538])
+    └─ ← [Return]
+
+  [49079] OspexCore::registerModule(0x182d49e8f1ba343facbac18b56a4a0f869e2f54f3165879cb5d067f4ff67ee19, PositionModule: [0x0ca5A1e9b6b6b1c928D87820ED511C9bB035F6B1])
+    ├─ emit ModuleRegistered(moduleType: 0x182d49e8f1ba343facbac18b56a4a0f869e2f54f3165879cb5d067f4ff67ee19, moduleAddress: PositionModule: [0x0ca5A1e9b6b6b1c928D87820ED511C9bB035F6B1])
+    └─ ← [Return]
+
+  [49079] OspexCore::registerModule(0x86b5238312c77f984fd459a72ebd4fbba99f6fdedf2f6a6f8acf9e987b6aca7b, SecondaryMarketModule: [0x93475B2Eedf09376856862bB341Eb866C224EDD7])
+    ├─ emit ModuleRegistered(moduleType: 0x86b5238312c77f984fd459a72ebd4fbba99f6fdedf2f6a6f8acf9e987b6aca7b, moduleAddress: SecondaryMarketModule: [0x93475B2Eedf09376856862bB341Eb866C224EDD7])
+    └─ ← [Return]
+
+  [49079] OspexCore::registerModule(0xb853e7f1ca7c39b3d60a4a01169293d298c5bac9d91781182e553e486b426238, ContestModule: [0x817f555E131042F0dbCc5F6C6b9F9E30bC9aBe62])
+    ├─ emit ModuleRegistered(moduleType: 0xb853e7f1ca7c39b3d60a4a01169293d298c5bac9d91781182e553e486b426238, moduleAddress: ContestModule: [0x817f555E131042F0dbCc5F6C6b9F9E30bC9aBe62])
+    └─ ← [Return]
+
+  [49079] OspexCore::registerModule(0x6569d446b71b6fe6152e35aca1137b8d15449507246ab2446a6380aa76ab8bee, ContributionModule: [0x1371ad71E0bBdC35b5572366A6fE880CBe234870])
+    ├─ emit ModuleRegistered(moduleType: 0x6569d446b71b6fe6152e35aca1137b8d15449507246ab2446a6380aa76ab8bee, moduleAddress: ContributionModule: [0x1371ad71E0bBdC35b5572366A6fE880CBe234870])
+    └─ ← [Return]
+
+  [49079] OspexCore::registerModule(0x135db7d1e2a894eabefefde819385a5f056f9cb71309038a80d5dedc9f34a6c9, LeaderboardModule: [0xD2cCCAa6269Eda93A979403C816fbEBe47eC7640])
+    ├─ emit ModuleRegistered(moduleType: 0x135db7d1e2a894eabefefde819385a5f056f9cb71309038a80d5dedc9f34a6c9, moduleAddress: LeaderboardModule: [0xD2cCCAa6269Eda93A979403C816fbEBe47eC7640])
+    └─ ← [Return]
+
+  [49079] OspexCore::registerModule(0x02e535fc21bfb82c317d4b9b99a239b99fa71e2bea1572ff170afdcd61f78a34, RulesModule: [0xea53575acB2A1FD394323e38ca2411a4944617c2])
+    ├─ emit ModuleRegistered(moduleType: 0x02e535fc21bfb82c317d4b9b99a239b99fa71e2bea1572ff170afdcd61f78a34, moduleAddress: RulesModule: [0xea53575acB2A1FD394323e38ca2411a4944617c2])
+    └─ ← [Return]
+
+  [49079] OspexCore::registerModule(0x8b02a8694c7973cae76e0aaa43157a85760a36598bbbf596247b460b7c9db24e, MoneylineScorerModule: [0x344c7D92A74Cbb9996D52Dfa9AcE01f39D661C63])
+    ├─ emit ModuleRegistered(moduleType: 0x8b02a8694c7973cae76e0aaa43157a85760a36598bbbf596247b460b7c9db24e, moduleAddress: MoneylineScorerModule: [0x344c7D92A74Cbb9996D52Dfa9AcE01f39D661C63])
+    └─ ← [Return]
+
+  [49079] OspexCore::registerModule(0x9958b1c66847463b48b605316a4f9b35bed8bcfef3f9eccb785e95e85e3dc7ca, SpreadScorerModule: [0x1C6C1dD4F19B7d81678207A7A49EADc9594aED06])
+    ├─ emit ModuleRegistered(moduleType: 0x9958b1c66847463b48b605316a4f9b35bed8bcfef3f9eccb785e95e85e3dc7ca, moduleAddress: SpreadScorerModule: [0x1C6C1dD4F19B7d81678207A7A49EADc9594aED06])
+    └─ ← [Return]
+
+  [49079] OspexCore::registerModule(0x72d978bbccb9ddac4961558836670726471e174959bebeca601d2f0f5e6a697a, TotalScorerModule: [0x11976a0a5c1Da02aFb0aB61f420a3964783ac0D3])
+    ├─ emit ModuleRegistered(moduleType: 0x72d978bbccb9ddac4961558836670726471e174959bebeca601d2f0f5e6a697a, moduleAddress: TotalScorerModule: [0x11976a0a5c1Da02aFb0aB61f420a3964783ac0D3])
+    └─ ← [Return]
+
+  [49079] OspexCore::registerModule(0xa1326d0c5166785cdcae1676162883d8566a23dc474bf97158b09dc4ed64d7d9, MatchingModule: [0xe541F1FCB88B0c566d3581300F05CC2D975393ad])
+    ├─ emit ModuleRegistered(moduleType: 0xa1326d0c5166785cdcae1676162883d8566a23dc474bf97158b09dc4ed64d7d9, moduleAddress: MatchingModule: [0xe541F1FCB88B0c566d3581300F05CC2D975393ad])
+    └─ ← [Return]
+
+  [26987] OspexCore::setScorerRole(MoneylineScorerModule: [0x344c7D92A74Cbb9996D52Dfa9AcE01f39D661C63], true)
+    ├─ emit RoleGranted(role: 0x7f3f5c26f2e002e717c4feeca3fac851759df70cd9d703d83098f12a7ad024ca, account: MoneylineScorerModule: [0x344c7D92A74Cbb9996D52Dfa9AcE01f39D661C63], sender: 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3)
+    └─ ← [Stop]
+
+  [26987] OspexCore::setScorerRole(SpreadScorerModule: [0x1C6C1dD4F19B7d81678207A7A49EADc9594aED06], true)
+    ├─ emit RoleGranted(role: 0x7f3f5c26f2e002e717c4feeca3fac851759df70cd9d703d83098f12a7ad024ca, account: SpreadScorerModule: [0x1C6C1dD4F19B7d81678207A7A49EADc9594aED06], sender: 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3)
+    └─ ← [Stop]
+
+  [26987] OspexCore::setScorerRole(TotalScorerModule: [0x11976a0a5c1Da02aFb0aB61f420a3964783ac0D3], true)
+    ├─ emit RoleGranted(role: 0x7f3f5c26f2e002e717c4feeca3fac851759df70cd9d703d83098f12a7ad024ca, account: TotalScorerModule: [0x11976a0a5c1Da02aFb0aB61f420a3964783ac0D3], sender: 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3)
+    └─ ← [Stop]
+
+
+==========================
+
+Chain 80002
+
+Estimated gas price: 200.000000063 gwei
+
+Estimated total gas used for script: 27815636
+
+Estimated amount required: 5.563127201752385068 POL
+
+==========================
+
+##### amoy
+✅  [Success] Hash: 0x33e9152dcddd73044d005fbbb750044e153552ae44c974080f2c4e74fd471a3c
+Contract: LeaderboardModule
+Contract Address: 0x344c7D92A74Cbb9996D52Dfa9AcE01f39D661C63
+Block: 36381379
+Paid: 0.0647894 POL (323947 gas * 200 gwei)
+
+                                                                                                                                                                                                               
+##### amoy                                                                                                                                                                                                     
+✅  [Success] Hash: 0xba65524e0e192c52401da50288af37dde556d23f770fedb01f9dbfca131f07a6                                                                                                                         
+Contract: TotalScorerModule                                                                                                                                                                                    
+Contract Address: 0x1C6C1dD4F19B7d81678207A7A49EADc9594aED06                                                                                                                                                   
+Block: 36381379                                                                                                                                                                                                
+Paid: 0.0690712 POL (345356 gas * 200 gwei)                                                                                                                                                                    
+                                                                                                                                                                                                               
+
+##### amoy
+✅  [Success] Hash: 0xcea79f983e564e07f0d46402feb4aa627a1edc4c9397d3695ae689335e7c5136
+Contract: OspexCore
+Contract Address: 0x2c70Dfe7203620B66feb13D54cBeDdFd026C886F
+Block: 36381379
+Paid: 0.2095184 POL (1047592 gas * 200 gwei)
+
+
+##### amoy
+✅  [Success] Hash: 0x0b8e640ed7f89722857954224f68075559fbf31945fae6fda5699e64849c479f
+Contract: RulesModule
+Contract Address: 0x11976a0a5c1Da02aFb0aB61f420a3964783ac0D3
+Block: 36381379
+Paid: 0.067212 POL (336060 gas * 200 gwei)
+
+
+##### amoy
+✅  [Success] Hash: 0x4976371a2b0f5631e2f724c0fdce3b2419124b1a86ce95c3e342a24c9ef8508b
+Contract: MatchingModule
+Block: 36381381
+Paid: 0.0142046 POL (71023 gas * 200 gwei)
+
+                                                                                                                                                                                                               
+##### amoy                                                                                                                                                                                                     
+✅  [Success] Hash: 0x2f03c22662032e0384674798fbaa713c58587633ad81f45e92090d4abc7937e3                                                                                                                         
+Contract: SpreadScorerModule                                                                                                                                                                                   
+Block: 36381381                                                                                                                                                                                                
+Paid: 0.0097118 POL (48559 gas * 200 gwei)                                                                                                                                                                     
+                                                                                                                                                                                                               
+                                                                                                                                                                                                               
+##### amoy                                                                                                                                                                                                     
+✅  [Success] Hash: 0xd48b632814ccda763bae7bfe3055fab0e073fd3dbe336f68c0736d7da0d0c52b                                                                                                                         
+Contract: ContributionModule                                                                                                                                                                                   
+Block: 36381381                                                                                                                                                                                                
+Paid: 0.0142046 POL (71023 gas * 200 gwei)                                                                                                                                                                     
+
+
+##### amoy
+✅  [Success] Hash: 0x8a785eae73e31823cedac692f8cec357c9cff7ea9b2920d5bd1014233ff4541e
+Contract: SecondaryMarketModule
+Block: 36381381
+Paid: 0.0142046 POL (71023 gas * 200 gwei)
+
+
+##### amoy
+✅  [Success] Hash: 0xdf043e9b8a1fdea3a839453e1fb78d524bbcfcdb6547c484da6e16f73c42be63
+Contract: SpeculationModule
+Contract Address: 0xe967238674a11D6C7B365f1164ad84629d42daEA
+Block: 36381381                                                                                                                                                                                                
+Paid: 0.2429502 POL (1214751 gas * 200 gwei)
+
+                                                                                                                                                                                                               
+##### amoy                                                                                                                                                                                                     
+✅  [Success] Hash: 0xccc56c09967d8c4663758dcef593bf6355af1547b7e374df5f69e89ac2bdb6dc                                                                                                                         
+Contract: MoneylineScorerModule                                                                                                                                                                                
+Contract Address: 0x1371ad71E0bBdC35b5572366A6fE880CBe234870
+Block: 36381379
+Paid: 0.121497 POL (607485 gas * 200 gwei)
+
+
+##### amoy
+✅  [Success] Hash: 0x706bd8c4f36af3c9de4aaaaa0401ce48d4aea7abc973652cfa40f552207ac5c6
+Contract: OracleModule
+Block: 36381381
+Paid: 0.0097118 POL (48559 gas * 200 gwei)
+
+
+##### amoy
+✅  [Success] Hash: 0x3e4ebef214a56662c4439605479a11f253cae0817880a398182a3946c1db7a8c
+Contract: PositionModule
+Block: 36381381
+Paid: 0.0142046 POL (71023 gas * 200 gwei)
+
+
+##### amoy
+✅  [Success] Hash: 0xe5f7e8ae13d025a2e63a56ff3dc7868978bf9a24722b49a9780559593123f459
+Contract: OspexCore
+Function: registerModule(bytes32,address)
+Block: 36381381
+Paid: 0.0142046 POL (71023 gas * 200 gwei)
+
+                                                                                                                                                                                                               
+##### amoy                                                                                                                                                                                                     
+✅  [Success] Hash: 0x800aab0d82c679d1c3a35af0a38141cea40c5182e33fdc0ea5a8da6259908455                                                                                                                         
+Contract: TreasuryModule
+Block: 36381381
+Paid: 0.0142046 POL (71023 gas * 200 gwei)
+
+
+##### amoy
+✅  [Success] Hash: 0x4f2965514f22977f590f59254caf7072be34f7275290d6cff35507daca766f98
+Contract: OspexCore
+Function: registerModule(bytes32,address)
+Block: 36381381
+Paid: 0.0142046 POL (71023 gas * 200 gwei)
+
+                                                                                                                                                                                                               
+##### amoy                                                                                                                                                                                                     
+✅  [Success] Hash: 0x8893a3c72e2c91d0184db1e1693c0fafd000a8bce0f286215309544eae685906
+Contract: OspexCore
+Function: registerModule(bytes32,address)
+Contract Address: 0x817f555E131042F0dbCc5F6C6b9F9E30bC9aBe62
+Block: 36381381
+Paid: 0.4124998 POL (2062499 gas * 200 gwei)
+
+                                                                                                                                                                                                               
+##### amoy                                                                                                                                                                                                     
+✅  [Success] Hash: 0xdab75eff9b3d4cc06720cbff5e9ecb07159c0bf47a202bac4af4a2c6d7d4e89f
+Contract: OspexCore
+Function: registerModule(bytes32,address)
+Contract Address: 0xD2cCCAa6269Eda93A979403C816fbEBe47eC7640
+Block: 36381379
+Paid: 0.581261 POL (2906305 gas * 200 gwei)
+
+
+##### amoy
+✅  [Success] Hash: 0x1ffc8cdca9a4c8f3f1576ae6c2d0f8c959f8c8750071b9da46b9760fda288380
+Contract: OspexCore
+Function: registerModule(bytes32,address)
+Contract Address: 0x0ca5A1e9b6b6b1c928D87820ED511C9bB035F6B1
+Block: 36381381
+Paid: 0.30717 POL (1535850 gas * 200 gwei)
+
+
+##### amoy
+✅  [Success] Hash: 0x8afcbac20e0a78d7af7530195a7e2738cee3342ba91c19f529f95e735f859a07
+Contract: OspexCore
+Function: registerModule(bytes32,address)
+Contract Address: 0x93475B2Eedf09376856862bB341Eb866C224EDD7
+Block: 36381381
+Paid: 0.3301938 POL (1650969 gas * 200 gwei)
+
+
+##### amoy
+✅  [Success] Hash: 0x703acd13707d900d25f82ada682e4f9bfcc4ab2eadb3003bedb36d720302963d
+Contract: OspexCore
+Function: registerModule(bytes32,address)
+Contract Address: 0xea53575acB2A1FD394323e38ca2411a4944617c2
+Block: 36381379
+Paid: 0.5014408 POL (2507204 gas * 200 gwei)
+
+
+##### amoy
+✅  [Success] Hash: 0xbc3df9ddf3006dde975cc126305395425300913a2a28b7a54d7153fea607b243
+Contract: OspexCore
+Function: setScorerRole(address,bool)
+Contract Address: 0xf102f04959743Fd211f79e3b9bE053de510A94dc
+Block: 36381381
+Paid: 0.550049 POL (2750245 gas * 200 gwei)
+
+
+##### amoy
+✅  [Success] Hash: 0xb26ef4cfbae001f18b2b205dd75872b217570260f6010099d1fa1d6cb3aa7700
+Contract: OspexCore
+Function: setScorerRole(address,bool)
+Contract Address: 0xe541F1FCB88B0c566d3581300F05CC2D975393ad
+Block: 36381381
+Paid: 0.278698 POL (1393490 gas * 200 gwei)
+
+
+##### amoy
+✅  [Success] Hash: 0xaff61a9772cf1ee34159b44261babc2e69fa9dc0b47b0f7716d29515addaa55f
+Contract: OspexCore
+Function: setScorerRole(address,bool)
+Contract Address: 0x47Ef57d1571C38AE1d071c1AB4ddfceaf7cBe538
+Block: 36381381
+Paid: 0.3158254 POL (1579127 gas * 200 gwei)
+
+
+##### amoy
+✅  [Success] Hash: 0x879be65e500d2cea519af820d1fb40755996bf3e13a3a6664b2afe5e69279e31
+Contract: OspexCore
+Function: registerModule(bytes32,address)
+Block: 36381381
+Paid: 0.0142046 POL (71023 gas * 200 gwei)
+
+
+##### amoy
+✅  [Success] Hash: 0x657ca4c1fd2e2445d90c6e863e9692872e5d90fd96b1301af5c20902f2c746d5
+Contract: OspexCore
+Function: registerModule(bytes32,address)
+Block: 36381381
+Paid: 0.0142046 POL (71023 gas * 200 gwei)
+
+
+##### amoy
+✅  [Success] Hash: 0xc37e2628d09487d96d683c642393de461b305d81e14981c93121bed4205297af
+Contract: OspexCore
+Function: registerModule(bytes32,address)
+Block: 36381381
+Paid: 0.0142046 POL (71023 gas * 200 gwei)
+
+
+##### amoy
+✅  [Success] Hash: 0x6ad9f0ab418bd562614c8e813ca9065680ec1f778b5c869b2ebc366431e7444b
+Contract: OspexCore
+Function: registerModule(bytes32,address)
+Block: 36381381
+Paid: 0.0142046 POL (71023 gas * 200 gwei)
+
+
+##### amoy
+✅  [Success] Hash: 0x01f7af860196a9a93f9897bea61aec83ba592d52ac30601c91faa5da0b313c6f
+Contract: ContestModule
+Block: 36381381
+Paid: 0.0142046 POL (71023 gas * 200 gwei)
+
+
+##### amoy
+✅  [Success] Hash: 0xc894d4b84f36c06e913bf806b48471c60bf912ae62482aa9a29fb72a0b446043
+Contract: OspexCore
+Function: registerModule(bytes32,address)
+Block: 36381381
+Paid: 0.0097118 POL (48559 gas * 200 gwei)
+
+
+##### amoy
+✅  [Success] Hash: 0x9269a1c02abd33948fa125c196da2984c79182b0831cd695a8a4b0dd0b8cbedf
+Contract: OspexCore
+Function: registerModule(bytes32,address)
+Block: 36381381
+Paid: 0.0142046 POL (71023 gas * 200 gwei)
+
+✅ Sequence #1 on amoy | Total Paid: 4.2659712 POL (21329856 gas * avg 200 gwei)                                                                                                                               
+                                                                                                                                                                                                               
+                                                                                                                                                                                                               
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: C:/Users/vince/Documents/solidity/ospex-matched-pairs/ospex-foundry-matched-pairs/broadcast\DeployAmoy.s.sol\80002\run-latest.json
+
+Sensitive values saved to: C:/Users/vince/Documents/solidity/ospex-matched-pairs/ospex-foundry-matched-pairs/cache\DeployAmoy.s.sol\80002\run-latest.json
