@@ -5,7 +5,6 @@ import "forge-std/Test.sol";
 import {SecondaryMarketModule} from "../../src/modules/SecondaryMarketModule.sol";
 import {SpeculationModule} from "../../src/modules/SpeculationModule.sol";
 import {PositionModule} from "../../src/modules/PositionModule.sol";
-import {ContributionModule} from "../../src/modules/ContributionModule.sol";
 import {TreasuryModule} from "../../src/modules/TreasuryModule.sol";
 import {OracleModule} from "../../src/modules/OracleModule.sol";
 import {OspexCore} from "../../src/core/OspexCore.sol";
@@ -31,7 +30,6 @@ contract SecondaryMarketModuleTest is Test {
     OspexCore public core;
     MockERC20 public token;
     SpeculationModule public speculationModule;
-    ContributionModule public contributionModule;
     PositionModule public positionModule;
     SecondaryMarketModule public market;
     MockContestModule public mockContestModule;
@@ -39,80 +37,83 @@ contract SecondaryMarketModuleTest is Test {
     OracleModule public oracleModule;
     MockFunctionsRouter public mockRouter;
     MockLinkToken public mockLinkToken;
-    address public admin = address(0x1234);
     address public seller = address(0x1);
     address public buyer = address(0x2);
     address public nonAdmin = address(0x3);
     uint256 public speculationId;
     PositionType public positionType = PositionType.Upper;
-    uint256 public minSaleAmount = 1e6; // 1 USDC
 
-    // leaderboard Id and allocation set to 0 for testing
-    uint256 leaderboardId = 0;
+    // Registered scorer module addresses
+    address moneylineScorerAddr;
+    address spreadScorerAddr;
+    address totalScorerAddr;
 
     function setUp() public {
         // Deploy core and modules
         core = new OspexCore();
 
-        // Grant admin role to admin account
-        core.grantRole(core.DEFAULT_ADMIN_ROLE(), admin);
-
         token = new MockERC20();
-        speculationModule = new SpeculationModule(address(core), 6);
-        contributionModule = new ContributionModule(address(core));
+        speculationModule = new SpeculationModule(address(core), 6, 3 days, 1_000_000);
         positionModule = new PositionModule(
             address(core),
             address(token)
         );
-        treasuryModule = new TreasuryModule(address(core), address(0x1), address(0x2));
+        treasuryModule = new TreasuryModule(
+            address(core), address(token), address(0xFEED),
+            1_000_000, 500_000, 500_000
+        );
 
         // Create mock Chainlink contracts
         mockRouter = new MockFunctionsRouter(address(0x456)); // dummy linkToken for router
         mockLinkToken = new MockLinkToken();
         bytes32 donId = bytes32(uint256(0x1234));
 
-        // Create and register OracleModule with proper mocks
+        // Create OracleModule with proper mocks
         oracleModule = new OracleModule(
             address(core),
             address(mockRouter),
             address(mockLinkToken),
-            donId
-        );
-        core.registerModule(
-            keccak256("ORACLE_MODULE"),
-            address(oracleModule)
-        );
-
-        // Register modules for event emission
-        core.registerModule(
-            keccak256("POSITION_MODULE"),
-            address(positionModule)
-        );
-        core.registerModule(
-            keccak256("SPECULATION_MODULE"),
-            address(speculationModule)
-        );
-        core.registerModule(
-            keccak256("CONTRIBUTION_MODULE"),
-            address(contributionModule)
-        );
-        core.registerModule(
-            keccak256("TREASURY_MODULE"),
-            address(treasuryModule)
-        );
-
-        // Register test contract as MATCHING_MODULE so it can call recordFill
-        core.registerModule(
-            keccak256("MATCHING_MODULE"),
-            address(this)
+            donId,
+            1e18
         );
 
         // Create and register MockContestModule
         mockContestModule = new MockContestModule();
-        core.registerModule(
-            keccak256("CONTEST_MODULE"),
-            address(mockContestModule)
+
+        // Register mock leaderboard module (needed for transfer lock checks)
+        MockLeaderboardModuleSM mockLeaderboard = new MockLeaderboardModuleSM();
+
+        // Deploy secondary market module (2 params: core, token)
+        market = new SecondaryMarketModule(
+            address(core),
+            address(token)
         );
+
+        // Create mock scorer modules for approved-scorer checks
+        MockScorerModule mockMoneyline = new MockScorerModule();
+        MockScorerModule mockSpread = new MockScorerModule();
+        MockScorerModule mockTotal = new MockScorerModule();
+        moneylineScorerAddr = address(mockMoneyline);
+        spreadScorerAddr = address(mockSpread);
+        totalScorerAddr = address(mockTotal);
+
+        // Bootstrap all 12 modules
+        bytes32[] memory types = new bytes32[](12);
+        address[] memory addrs = new address[](12);
+        types[0]  = core.CONTEST_MODULE();           addrs[0]  = address(mockContestModule);
+        types[1]  = core.SPECULATION_MODULE();        addrs[1]  = address(speculationModule);
+        types[2]  = core.POSITION_MODULE();           addrs[2]  = address(positionModule);
+        types[3]  = core.MATCHING_MODULE();           addrs[3]  = address(this); // test contract acts as MATCHING_MODULE
+        types[4]  = core.ORACLE_MODULE();             addrs[4]  = address(oracleModule);
+        types[5]  = core.TREASURY_MODULE();           addrs[5]  = address(treasuryModule);
+        types[6]  = core.LEADERBOARD_MODULE();        addrs[6]  = address(mockLeaderboard);
+        types[7]  = core.RULES_MODULE();              addrs[7]  = address(0xD007);
+        types[8]  = core.SECONDARY_MARKET_MODULE();   addrs[8]  = address(market);
+        types[9]  = core.MONEYLINE_SCORER_MODULE();   addrs[9]  = moneylineScorerAddr;
+        types[10] = core.SPREAD_SCORER_MODULE();      addrs[10] = spreadScorerAddr;
+        types[11] = core.TOTAL_SCORER_MODULE();       addrs[11] = totalScorerAddr;
+        core.bootstrapModules(types, addrs);
+        core.finalize();
 
         // Set up a verified contest for speculation creation
         Contest memory contest = Contest({
@@ -122,40 +123,18 @@ contract SecondaryMarketModuleTest is Test {
             contestStatus: ContestStatus.Verified,
             contestCreator: address(this),
             scoreContestSourceHash: bytes32(0),
+            marketUpdateSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""
         });
         mockContestModule.setContest(1, contest);
 
-        // Register mock leaderboard module (needed for transfer lock checks)
-        MockLeaderboardModuleSM mockLeaderboard = new MockLeaderboardModuleSM();
-        core.registerModule(keccak256("LEADERBOARD_MODULE"), address(mockLeaderboard));
-
-        // Deploy secondary market module
-        market = new SecondaryMarketModule(
-            address(core),
-            address(token),
-            minSaleAmount
-        );
-        core.registerModule(
-            keccak256("SECONDARY_MARKET_MODULE"),
-            address(market)
-        );
-        core.setMarketRole(address(market), true);
-
-        // Register scorer modules so _getModule lookups don't revert
-        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), address(0xCC01));
-        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), address(0xCC02));
-
-        core.setScorerRole(address(0xBEEF), true);
-
         // Fund seller and buyer
         token.mint(seller, 1000e6);
         token.mint(buyer, 1000e6);
 
         // Give accounts some ETH
-        vm.deal(admin, 10 ether);
         vm.deal(seller, 10 ether);
         vm.deal(buyer, 10 ether);
 
@@ -165,22 +144,25 @@ contract SecondaryMarketModuleTest is Test {
         vm.prank(buyer);
         token.approve(address(positionModule), type(uint256).max);
 
+        // Seller and buyer approve TreasuryModule for speculation creation fees
+        vm.prank(seller);
+        token.approve(address(treasuryModule), type(uint256).max);
+        vm.prank(buyer);
+        token.approve(address(treasuryModule), type(uint256).max);
+
         // Create matched pair via recordFill: seller is maker (Upper), buyer is taker (Lower)
         // At 1.10 odds: makerRisk=10e6, takerRisk=1e6
         // Seller position: {riskAmount:10e6, profitAmount:1e6, Upper}
         // Buyer position:  {riskAmount:1e6, profitAmount:10e6, Lower}
         speculationId = positionModule.recordFill(
-            1,                  // contestId
-            address(0xBEEF),    // scorer
-            42,                 // lineTicks
-            leaderboardId,
-            positionType,       // makerPositionType = Upper
-            seller,             // maker
-            10e6,               // makerRisk
-            buyer,              // taker
-            1e6,                // takerRisk
-            0,                  // makerContributionAmount
-            0                   // takerContributionAmount
+            1,                    // contestId
+            moneylineScorerAddr,  // scorer (must be a registered scorer module)
+            0,                    // lineTicks (0 for moneyline)
+            positionType,         // makerPositionType = Upper
+            seller,               // maker
+            10e6,                 // makerRisk
+            buyer,                // taker
+            1e6                   // takerRisk
         );
     }
 
@@ -189,14 +171,12 @@ contract SecondaryMarketModuleTest is Test {
         uint256 price = 5e6; // 5 USDC
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        uint256 contributionAmount = 0;
         market.listPositionForSale(
             speculationId,
             positionType,
             price,
             riskAmount,
-            profitAmount,
-            contributionAmount
+            profitAmount
         );
         SaleListing memory listing = market.getSaleListing(
             speculationId,
@@ -217,7 +197,6 @@ contract SecondaryMarketModuleTest is Test {
         uint256 price = 0;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        uint256 contributionAmount = 0;
         vm.expectRevert(
             SecondaryMarketModule.SecondaryMarketModule__InvalidAmount.selector
         );
@@ -226,30 +205,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             price,
             riskAmount,
-            profitAmount,
-            contributionAmount
-        );
-        vm.stopPrank();
-    }
-
-    function testListPositionForSale_RevertsIfAmountBelowMin() public {
-        vm.startPrank(seller);
-        uint256 price = 5e6;
-        uint256 riskAmount = minSaleAmount - 1;
-        uint256 profitAmount = 1e6;
-        uint256 contributionAmount = 0;
-        vm.expectRevert(
-            SecondaryMarketModule
-                .SecondaryMarketModule__SaleAmountBelowMinimum
-                .selector
-        );
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount,
-            contributionAmount
+            profitAmount
         );
         vm.stopPrank();
     }
@@ -260,7 +216,6 @@ contract SecondaryMarketModuleTest is Test {
         uint256 price = 5e6;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        uint256 contributionAmount = 0;
         vm.expectRevert(
             abi.encodeWithSelector(
                 SecondaryMarketModule
@@ -274,10 +229,60 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             price,
             riskAmount,
-            profitAmount,
-            contributionAmount
+            profitAmount
         );
         vm.stopPrank();
+    }
+
+    function testListPositionForSale_RevertsIfPositionClaimed() public {
+        // First settle and claim the position
+        vm.warp(block.timestamp + 1 hours);
+        Contest memory scored = Contest({
+            awayScore: 3, homeScore: 1, leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored, contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
+            rundownId: "", sportspageId: "", jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, scored);
+        speculationModule.settleSpeculation(speculationId);
+
+        // Claim the position
+        vm.prank(seller);
+        positionModule.claimPosition(speculationId, positionType);
+
+        // Try to list — should revert (speculation not active since it's settled)
+        vm.prank(seller);
+        vm.expectRevert(
+            SecondaryMarketModule.SecondaryMarketModule__SpeculationNotActive.selector
+        );
+        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
+    }
+
+    function testBuyPosition_RevertsIfPositionClaimed() public {
+        // List first
+        vm.prank(seller);
+        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
+
+        // Settle and claim
+        vm.warp(block.timestamp + 1 hours);
+        Contest memory scored = Contest({
+            awayScore: 3, homeScore: 1, leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored, contestCreator: address(this),
+            scoreContestSourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
+            rundownId: "", sportspageId: "", jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, scored);
+        speculationModule.settleSpeculation(speculationId);
+
+        vm.prank(seller);
+        positionModule.claimPosition(speculationId, positionType);
+
+        // Try to buy — should revert (speculation not active since it's settled)
+        vm.prank(buyer);
+        vm.expectRevert(
+            SecondaryMarketModule.SecondaryMarketModule__SpeculationNotActive.selector
+        );
+        market.buyPosition(speculationId, seller, positionType, 5e6);
     }
 
     // 2. Buying a Position
@@ -291,8 +296,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             price,
             riskAmount,
-            profitAmount,
-            0
+            profitAmount
         );
         vm.expectRevert(
             SecondaryMarketModule
@@ -318,8 +322,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             price,
             riskAmount,
-            profitAmount,
-            0
+            profitAmount
         );
         vm.stopPrank();
         vm.startPrank(buyer);
@@ -342,8 +345,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             price,
             riskAmount,
-            profitAmount,
-            0
+            profitAmount
         );
         vm.stopPrank();
         vm.startPrank(buyer);
@@ -407,24 +409,16 @@ contract SecondaryMarketModuleTest is Test {
     }
 
     function testUpdateListing_RevertsIfSpeculationNotOpen() public {
-        // Create a MockScorerModule for this test
-        MockScorerModule mockScorer = new MockScorerModule();
-        core.setScorerRole(address(mockScorer), true);
-
-        // Create a new speculation via recordFill with the mock scorer
-        // Need to fund seller/buyer again for this new fill
+        // Create a new speculation via recordFill with a spread scorer
         uint256 testSpecId = positionModule.recordFill(
-            1,                  // contestId
-            address(mockScorer),// scorer
-            42,                 // lineTicks
-            leaderboardId,
-            positionType,       // makerPositionType = Upper
-            seller,             // maker
-            10e6,               // makerRisk
-            buyer,              // taker
-            1e6,                // takerRisk
-            0,                  // makerContributionAmount
-            0                   // takerContributionAmount
+            1,                    // contestId
+            spreadScorerAddr,     // scorer (registered spread scorer)
+            42,                   // lineTicks
+            positionType,         // makerPositionType = Upper
+            seller,               // maker
+            10e6,                 // makerRisk
+            buyer,                // taker
+            1e6                   // takerRisk
         );
 
         // Now seller can list the position with the matched amount
@@ -434,8 +428,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             1e6, // price
             1e6, // riskAmount
-            1e6, // profitAmount
-            0    // contribution
+            1e6  // profitAmount
         );
         vm.stopPrank();
 
@@ -450,14 +443,14 @@ contract SecondaryMarketModuleTest is Test {
             contestStatus: ContestStatus.Scored, // Set to Scored
             contestCreator: address(this),
             scoreContestSourceHash: bytes32(0),
+            marketUpdateSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""
         });
         mockContestModule.setContest(1, contest);
 
-        // Settle the speculation to close it
-        vm.prank(address(core));
+        // Settle the speculation to close it (permissionless)
         speculationModule.settleSpeculation(testSpecId);
 
         // Try to update the listing after speculation is closed
@@ -480,19 +473,7 @@ contract SecondaryMarketModuleTest is Test {
         vm.stopPrank();
     }
 
-    // 6. Admin Functions
-    function testSetMinSaleAmount_RevertsIfNotAdmin() public {
-        vm.prank(nonAdmin);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                SecondaryMarketModule.SecondaryMarketModule__NotAdmin.selector,
-                nonAdmin
-            )
-        );
-        market.setMinSaleAmount(1e6);
-    }
-
-    // 7. View Functions
+    // 6. View Functions
     function testGetSaleListing_ReturnsCorrectListing() public {
         vm.startPrank(seller);
         uint256 price = 5e6;
@@ -503,8 +484,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             price,
             riskAmount,
-            profitAmount,
-            0
+            profitAmount
         );
         SaleListing memory listing = market.getSaleListing(
             speculationId,
@@ -528,8 +508,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             price,
             riskAmount,
-            profitAmount,
-            0
+            profitAmount
         );
         vm.stopPrank();
         vm.startPrank(buyer);
@@ -556,7 +535,7 @@ contract SecondaryMarketModuleTest is Test {
         assertEq(sellerPos.profitAmount, 1e6 - 1e6, "Seller profit should decrease");
     }
 
-    // 8. Event Emission (example for listing)
+    // 7. Event Emission (example for listing)
     function testListPositionForSale_EmitsEvents() public {
         vm.startPrank(seller);
         uint256 price = 5e6;
@@ -593,8 +572,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             price,
             riskAmount,
-            profitAmount,
-            0
+            profitAmount
         );
         vm.stopPrank();
     }
@@ -613,8 +591,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             price,
             riskAmount,
-            profitAmount,
-            0
+            profitAmount
         );
         vm.stopPrank();
         vm.startPrank(buyer);
@@ -673,8 +650,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             price,
             riskAmount,
-            profitAmount,
-            0
+            profitAmount
         );
         // Cancel listing
         vm.expectEmit(true, true, false, true);
@@ -708,8 +684,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             price,
             riskAmount,
-            profitAmount,
-            0
+            profitAmount
         );
         // Try to cancel a listing for a different positionType (Lower) that doesn't exist
         vm.expectRevert(
@@ -721,26 +696,21 @@ contract SecondaryMarketModuleTest is Test {
         vm.stopPrank();
     }
     function testCancelListing_RevertsIfPositionClaimed() public {
-        // Create a separate fill with MockScorerModule so we can settle and claim
-        MockScorerModule mockScorer = new MockScorerModule();
-        core.setScorerRole(address(mockScorer), true);
-
+        // Create a separate fill with spread scorer so we can settle and claim
         uint256 testSpecId = positionModule.recordFill(
-            1,                   // contestId
-            address(mockScorer), // scorer (MockScorerModule defaults to Away = Upper wins)
-            42,                  // lineTicks
-            leaderboardId,
-            positionType,        // makerPositionType = Upper
-            seller,              // maker
-            10e6,                // makerRisk
-            buyer,               // taker
-            1e6,                 // takerRisk
-            0, 0
+            1,                     // contestId
+            spreadScorerAddr,      // scorer (registered spread scorer - defaults to Away = Upper wins)
+            42,                    // lineTicks
+            positionType,          // makerPositionType = Upper
+            seller,                // maker
+            10e6,                  // makerRisk
+            buyer,                 // taker
+            1e6                    // takerRisk
         );
 
         // Seller lists the position
         vm.prank(seller);
-        market.listPositionForSale(testSpecId, positionType, 5e6, 10e6, 1e6, 0);
+        market.listPositionForSale(testSpecId, positionType, 5e6, 10e6, 1e6);
 
         // Settle: warp past start, set contest as Scored, MockScorerModule returns Away (Upper wins)
         vm.warp(block.timestamp + 1 hours);
@@ -751,6 +721,7 @@ contract SecondaryMarketModuleTest is Test {
             contestStatus: ContestStatus.Scored,
             contestCreator: address(this),
             scoreContestSourceHash: bytes32(0),
+            marketUpdateSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""
@@ -762,7 +733,7 @@ contract SecondaryMarketModuleTest is Test {
         vm.prank(seller);
         positionModule.claimPosition(testSpecId, positionType);
 
-        // Now try to cancel the listing — position is claimed, should revert
+        // Now try to cancel the listing -- position is claimed, should revert
         vm.prank(seller);
         vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__PositionAlreadyClaimed.selector);
         market.cancelListing(testSpecId, positionType);
@@ -779,8 +750,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             price,
             riskAmount,
-            profitAmount,
-            0
+            profitAmount
         );
         uint256 newPrice = 6e6;
         uint256 newRiskAmount = 8e6;
@@ -840,8 +810,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             price,
             riskAmount,
-            profitAmount,
-            0
+            profitAmount
         );
         uint256 newRiskAmount = 20e6;
         vm.expectRevert(
@@ -861,54 +830,8 @@ contract SecondaryMarketModuleTest is Test {
         );
         vm.stopPrank();
     }
-    function testUpdateListing_RevertsIfNewRiskAmountBelowMin() public {
-        vm.startPrank(seller);
-        uint256 price = 5e6;
-        uint256 riskAmount = 10e6;
-        uint256 profitAmount = 1e6;
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount,
-            0
-        );
-        uint256 newRiskAmount = minSaleAmount - 1;
-        vm.expectRevert(
-            SecondaryMarketModule
-                .SecondaryMarketModule__SaleAmountBelowMinimum
-                .selector
-        );
-        market.updateListing(
-            speculationId,
-            positionType,
-            0,
-            newRiskAmount,
-            0
-        );
-        vm.stopPrank();
-    }
-    // 4. setMinSaleAmount
-    function testSetMinSaleAmount_HappyPath() public {
-        vm.prank(admin);
-        market.setMinSaleAmount(2e6);
-        assertEq(
-            market.s_minSaleAmount(),
-            2e6,
-            "Min sale amount should update"
-        );
-    }
-    function testSetMinSaleAmount_RevertsIfZero() public {
-        vm.prank(admin);
-        vm.expectRevert(
-            SecondaryMarketModule
-                .SecondaryMarketModule__InvalidMinSaleAmount
-                .selector
-        );
-        market.setMinSaleAmount(0);
-    }
-    // 5. getModuleType
+
+    // 4. getModuleType
     function testGetModuleType_ReturnsCorrectType() public view {
         assertEq(
             market.getModuleType(),
@@ -917,7 +840,7 @@ contract SecondaryMarketModuleTest is Test {
         );
     }
 
-    // 6. buyPosition happy path
+    // 5. buyPosition happy path
     function testBuyPosition_HappyPathAndEvents() public {
         vm.startPrank(seller);
         uint256 price = 5e6;
@@ -928,8 +851,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             price,
             riskAmount,
-            profitAmount,
-            0
+            profitAmount
         );
         vm.stopPrank();
         vm.startPrank(buyer);
@@ -999,54 +921,13 @@ contract SecondaryMarketModuleTest is Test {
         vm.expectRevert(
             SecondaryMarketModule.SecondaryMarketModule__InvalidAddress.selector
         );
-        new SecondaryMarketModule(zero, valid, 1);
+        new SecondaryMarketModule(zero, valid);
         vm.expectRevert(
             SecondaryMarketModule.SecondaryMarketModule__InvalidAddress.selector
         );
-        new SecondaryMarketModule(valid, zero, 1);
+        new SecondaryMarketModule(valid, zero);
     }
-    function testConstructor_RevertsOnZeroMinSaleAmount() public {
-        address valid = address(token);
-        vm.expectRevert(
-            SecondaryMarketModule
-                .SecondaryMarketModule__InvalidMinSaleAmount
-                .selector
-        );
-        new SecondaryMarketModule(valid, valid, 0);
-    }
-    function testListPositionForSale_WithContributionAmount() public {
-        // Set a valid contribution token and receiver
-        vm.prank(admin);
-        contributionModule.setContributionToken(address(token));
-        vm.prank(admin);
-        contributionModule.setContributionReceiver(address(0xBEEF));
 
-        vm.startPrank(seller);
-        uint256 price = 5e6;
-        uint256 riskAmount = 1e6;
-        uint256 profitAmount = 1e6;
-        uint256 contributionAmount = 1e6;
-        // Approve the contributionModule to spend seller's tokens
-        token.approve(address(contributionModule), contributionAmount);
-
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount,
-            contributionAmount
-        );
-        SaleListing memory listing = market.getSaleListing(
-            speculationId,
-            seller,
-            positionType
-        );
-        assertEq(listing.price, price, "Price should match");
-        assertEq(listing.riskAmount, riskAmount, "Risk amount should match");
-        assertEq(listing.profitAmount, profitAmount, "Profit amount should match");
-        vm.stopPrank();
-    }
     function testBuyPosition_PartialBuyReducesListing() public {
         vm.startPrank(seller);
         uint256 price = 10e6;
@@ -1057,8 +938,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             price,
             riskAmount,
-            profitAmount,
-            0
+            profitAmount
         );
         vm.stopPrank();
         vm.startPrank(buyer);
@@ -1113,8 +993,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             price,
             riskAmount,
-            profitAmount,
-            0
+            profitAmount
         );
         uint256 newPrice = 6e6;
         market.updateListing(
@@ -1144,8 +1023,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             price,
             riskAmount,
-            profitAmount,
-            0
+            profitAmount
         );
         uint256 newRiskAmount = 8e6;
         market.updateListing(
@@ -1175,8 +1053,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             price,
             riskAmount,
-            profitAmount,
-            0
+            profitAmount
         );
         market.updateListing(speculationId, positionType, 0, 0, 0);
         SaleListing memory listing = market.getSaleListing(
@@ -1199,8 +1076,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             price,
             riskAmount,
-            profitAmount,
-            0
+            profitAmount
         );
         uint256 newPrice = 6e6;
         uint256 newRiskAmount = 8e6;
@@ -1228,15 +1104,16 @@ contract SecondaryMarketModuleTest is Test {
         OspexCore newCore = new OspexCore();
         SecondaryMarketModule newMarket = new SecondaryMarketModule(
             address(newCore),
-            address(token),
-            minSaleAmount
+            address(token)
         );
 
-        // Register the market itself but NOT the speculation module
-        newCore.registerModule(
-            keccak256("SECONDARY_MARKET_MODULE"),
-            address(newMarket)
-        );
+        // Bootstrap only the market itself but NOT the speculation module
+        // We need all 12 modules registered, but we use dummy addresses for most
+        // and intentionally skip finalize so speculation module lookup fails
+        // Actually: the module lookup via getModule returns address(0) when not registered,
+        // so we just need to NOT register SPECULATION_MODULE.
+        // But bootstrapModules requires all 12 for finalize(). So instead, just call
+        // listPositionForSale on a non-finalized core that doesn't have SPECULATION_MODULE.
 
         // Try to list a position - this will call _getModule for SPECULATION_MODULE
         // which won't be registered, causing the revert
@@ -1252,8 +1129,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             5e6, // price
             10e6, // riskAmount
-            1e6, // profitAmount
-            0 // contribution
+            1e6  // profitAmount
         );
         vm.stopPrank();
     }
@@ -1285,8 +1161,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             totalPrice,
             totalRiskAmount,
-            totalProfitAmount,
-            0
+            totalProfitAmount
         );
         vm.stopPrank();
 
@@ -1414,8 +1289,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             totalPrice,
             totalRiskAmount,
-            totalProfitAmount,
-            0
+            totalProfitAmount
         );
         vm.stopPrank();
 
@@ -1454,7 +1328,7 @@ contract SecondaryMarketModuleTest is Test {
     function testBuyPosition_RevertsIfPurchasePriceZero() public {
         // List 10 USDC risk at price 1 (1 raw unit = 0.000001 USDC)
         vm.startPrank(seller);
-        market.listPositionForSale(speculationId, positionType, 1, 10e6, 1e6, 0);
+        market.listPositionForSale(speculationId, positionType, 1, 10e6, 1e6);
         vm.stopPrank();
 
         // Buy 1 raw unit of risk: purchasePrice = (1 * 1) / 10e6 = 0
@@ -1465,63 +1339,11 @@ contract SecondaryMarketModuleTest is Test {
         vm.stopPrank();
     }
 
-    /// @notice buyRiskAmount below s_minSaleAmount reverts
-    function testBuyPosition_RevertsIfBuyBelowMinSaleAmount() public {
-        // List 10 USDC risk at 5 USDC price
-        vm.startPrank(seller);
-        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6, 0);
-        vm.stopPrank();
-
-        // Try to buy 0.5 USDC risk (below 1 USDC min)
-        vm.startPrank(buyer);
-        token.approve(address(market), type(uint256).max);
-        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__SaleAmountBelowMinimum.selector);
-        market.buyPosition(speculationId, seller, positionType, 500_000);
-        vm.stopPrank();
-    }
-
-    /// @notice Partial buy that would leave remainder below s_minSaleAmount reverts
-    function testBuyPosition_RevertsIfRemainderBelowMin() public {
-        // List 2 USDC risk at 2 USDC price
-        vm.startPrank(seller);
-        market.listPositionForSale(speculationId, positionType, 2e6, 2e6, 1e6, 0);
-        vm.stopPrank();
-
-        // Buy 1.5 USDC risk — remainder would be 0.5 USDC (below 1 USDC min)
-        vm.startPrank(buyer);
-        token.approve(address(market), type(uint256).max);
-        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__RemainderBelowMinimum.selector);
-        market.buyPosition(speculationId, seller, positionType, 1_500_000);
-        vm.stopPrank();
-    }
-
-    /// @notice Valid partial buy above minimum succeeds
-    function testBuyPosition_ValidPartialBuySucceeds() public {
-        // List 10 USDC risk at 5 USDC price
-        vm.startPrank(seller);
-        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6, 0);
-        vm.stopPrank();
-
-        // Buy 5 USDC risk — remainder is 5 USDC (above min), succeeds
-        vm.startPrank(buyer);
-        token.approve(address(market), type(uint256).max);
-        market.buyPosition(speculationId, seller, positionType, 5e6);
-        vm.stopPrank();
-
-        // Verify listing remainder
-        SaleListing memory listing = market.getSaleListing(speculationId, seller, positionType);
-        assertEq(listing.riskAmount, 5e6, "remainder risk");
-
-        // Verify buyer got the position
-        Position memory buyerPos = positionModule.getPosition(speculationId, buyer, positionType);
-        assertEq(buyerPos.riskAmount, 5e6, "buyer risk");
-    }
-
     /// @notice Full buy (exact listing amount) succeeds and deletes listing
     function testBuyPosition_FullBuySucceeds() public {
         // List 5 USDC risk at 3 USDC price
         vm.startPrank(seller);
-        market.listPositionForSale(speculationId, positionType, 3e6, 5e6, 1e6, 0);
+        market.listPositionForSale(speculationId, positionType, 3e6, 5e6, 1e6);
         vm.stopPrank();
 
         // Buy the full amount
@@ -1538,5 +1360,98 @@ contract SecondaryMarketModuleTest is Test {
         // Buyer has the full position
         Position memory buyerPos = positionModule.getPosition(speculationId, buyer, positionType);
         assertEq(buyerPos.riskAmount, 5e6, "buyer got full risk");
+    }
+
+    // =========================================================================
+    // Branch Coverage Tests
+    // =========================================================================
+
+    // --- listPositionForSale: profitAmount > position.profitAmount ---
+    function testListPositionForSale_RevertsIfProfitAmountAbovePosition() public {
+        vm.prank(seller);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SecondaryMarketModule.SecondaryMarketModule__AmountAboveMaximum.selector,
+                999e6 // profitAmount exceeding position
+            )
+        );
+        // seller has riskAmount=10e6, profitAmount=1e6
+        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 999e6);
+    }
+
+    // --- listPositionForSale: position already claimed (mock position as claimed while spec is Open) ---
+    function testListPositionForSale_RevertsIfPositionClaimedWhileSpecOpen() public {
+        // Mock getPosition to return a claimed position while speculation stays Open
+        vm.mockCall(
+            address(positionModule),
+            abi.encodeWithSignature("getPosition(uint256,address,uint8)", speculationId, seller, uint8(positionType)),
+            abi.encode(Position({riskAmount: 10e6, profitAmount: 1e6, positionType: positionType, claimed: true}))
+        );
+        vm.prank(seller);
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__PositionAlreadyClaimed.selector);
+        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
+    }
+
+    // --- buyPosition: listing not active (no listing exists) ---
+    function testBuyPosition_RevertsIfListingNotActive() public {
+        // No listing created — try to buy directly
+        vm.prank(buyer);
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__ListingNotActive.selector);
+        market.buyPosition(speculationId, seller, positionType, 5e6);
+    }
+
+    // --- buyPosition: position claimed while spec Open ---
+    function testBuyPosition_RevertsIfPositionClaimedWhileSpecOpen() public {
+        // Create listing
+        vm.prank(seller);
+        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
+
+        // Mock getPosition to return claimed=true
+        vm.mockCall(
+            address(positionModule),
+            abi.encodeWithSignature("getPosition(uint256,address,uint8)", speculationId, seller, uint8(positionType)),
+            abi.encode(Position({riskAmount: 10e6, profitAmount: 1e6, positionType: positionType, claimed: true}))
+        );
+
+        vm.prank(buyer);
+        token.approve(address(market), 5e6);
+        vm.prank(buyer);
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__PositionAlreadyClaimed.selector);
+        market.buyPosition(speculationId, seller, positionType, 5e6);
+    }
+
+    // --- updateListing: position claimed while spec Open ---
+    function testUpdateListing_RevertsIfPositionClaimedWhileSpecOpen() public {
+        // Create listing
+        vm.prank(seller);
+        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
+
+        // Mock getPosition to return claimed=true
+        vm.mockCall(
+            address(positionModule),
+            abi.encodeWithSignature("getPosition(uint256,address,uint8)", speculationId, seller, uint8(positionType)),
+            abi.encode(Position({riskAmount: 10e6, profitAmount: 1e6, positionType: positionType, claimed: true}))
+        );
+
+        vm.prank(seller);
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__PositionAlreadyClaimed.selector);
+        market.updateListing(speculationId, positionType, 6e6, 0, 0);
+    }
+
+    // --- updateListing: newProfitAmount > position.profitAmount ---
+    function testUpdateListing_RevertsIfNewProfitAmountAbovePosition() public {
+        // Create listing first
+        vm.prank(seller);
+        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
+
+        // Try to update profit to exceed position (seller's profitAmount is 1e6)
+        vm.prank(seller);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SecondaryMarketModule.SecondaryMarketModule__AmountAboveMaximum.selector,
+                999e6
+            )
+        );
+        market.updateListing(speculationId, positionType, 0, 0, 999e6);
     }
 }

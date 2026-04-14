@@ -5,7 +5,6 @@ import "forge-std/Test.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {PositionModule} from "../../src/modules/PositionModule.sol";
 import {OspexCore} from "../../src/core/OspexCore.sol";
-import {ContributionModule} from "../../src/modules/ContributionModule.sol";
 import {SpeculationModule} from "../../src/modules/SpeculationModule.sol";
 import {TreasuryModule} from "../../src/modules/TreasuryModule.sol";
 import {
@@ -36,7 +35,6 @@ contract SolvencyFuzz is Test {
     OspexCore core;
     MockERC20 token;
     SpeculationModule speculationModule;
-    ContributionModule contributionModule;
     PositionModule positionModule;
     TreasuryModule treasuryModule;
     MockContestModule mockContestModule;
@@ -47,8 +45,6 @@ contract SolvencyFuzz is Test {
     address taker = address(0xCAFE);
     address protocolReceiver = address(0xFEED);
 
-    uint256 leaderboardId = 0;
-
     function setUp() public {
         core = new OspexCore();
         token = new MockERC20();
@@ -57,30 +53,33 @@ contract SolvencyFuzz is Test {
         token.mint(maker, 1_000_000_000_000); // 1M USDC
         token.mint(taker, 1_000_000_000_000); // 1M USDC
 
-        speculationModule = new SpeculationModule(address(core), 6);
-        contributionModule = new ContributionModule(address(core));
+        speculationModule = new SpeculationModule(address(core), 6, 3600, 1_000_000);
         positionModule = new PositionModule(address(core), address(token));
-        treasuryModule = new TreasuryModule(address(core), address(token), protocolReceiver);
+        treasuryModule = new TreasuryModule(
+            address(core), address(token), protocolReceiver,
+            1_000_000, 500_000, 500_000
+        );
         mockContestModule = new MockContestModule();
         mockLeaderboardModule = new MockLeaderboardModuleFuzz();
         mockScorer = new MockScorerModule();
 
-        // Register modules
-        core.registerModule(keccak256("POSITION_MODULE"), address(positionModule));
-        core.registerModule(keccak256("SPECULATION_MODULE"), address(speculationModule));
-        core.registerModule(keccak256("CONTRIBUTION_MODULE"), address(contributionModule));
-        core.registerModule(keccak256("TREASURY_MODULE"), address(treasuryModule));
-        core.registerModule(keccak256("CONTEST_MODULE"), address(mockContestModule));
-        core.registerModule(keccak256("LEADERBOARD_MODULE"), address(mockLeaderboardModule));
-
-        // Register this test contract as MATCHING_MODULE so it can call recordFill
-        core.registerModule(keccak256("MATCHING_MODULE"), address(this));
-
-        // Register scorer modules so _getModule lookups don't revert
-        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), address(0xCC01));
-        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), address(0xCC02));
-
-        core.setScorerRole(address(mockScorer), true);
+        // Bootstrap all 12 modules
+        bytes32[] memory types = new bytes32[](12);
+        address[] memory addrs = new address[](12);
+        types[0]  = core.CONTEST_MODULE();           addrs[0]  = address(mockContestModule);
+        types[1]  = core.SPECULATION_MODULE();        addrs[1]  = address(speculationModule);
+        types[2]  = core.POSITION_MODULE();           addrs[2]  = address(positionModule);
+        types[3]  = core.MATCHING_MODULE();           addrs[3]  = address(this); // test contract acts as MATCHING_MODULE
+        types[4]  = core.ORACLE_MODULE();             addrs[4]  = address(0xD004);
+        types[5]  = core.TREASURY_MODULE();           addrs[5]  = address(treasuryModule);
+        types[6]  = core.LEADERBOARD_MODULE();        addrs[6]  = address(mockLeaderboardModule);
+        types[7]  = core.RULES_MODULE();              addrs[7]  = address(0xD007);
+        types[8]  = core.SECONDARY_MARKET_MODULE();   addrs[8]  = address(0xD008);
+        types[9]  = core.MONEYLINE_SCORER_MODULE();   addrs[9]  = address(0xCC01);
+        types[10] = core.SPREAD_SCORER_MODULE();      addrs[10] = address(mockScorer);
+        types[11] = core.TOTAL_SCORER_MODULE();       addrs[11] = address(0xCC02);
+        core.bootstrapModules(types, addrs);
+        core.finalize();
 
         // Set up a verified contest
         Contest memory contest = Contest({
@@ -90,6 +89,7 @@ contract SolvencyFuzz is Test {
             contestStatus: ContestStatus.Verified,
             contestCreator: address(this),
             scoreContestSourceHash: bytes32(0),
+            marketUpdateSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""
@@ -101,6 +101,12 @@ contract SolvencyFuzz is Test {
         token.approve(address(positionModule), type(uint256).max);
         vm.prank(taker);
         token.approve(address(positionModule), type(uint256).max);
+
+        // Approve TreasuryModule for speculation creation split fees
+        vm.prank(maker);
+        token.approve(address(treasuryModule), type(uint256).max);
+        vm.prank(taker);
+        token.approve(address(treasuryModule), type(uint256).max);
     }
 
     /// @notice Fuzz test: for any valid oddsTick and makerRisk, total payouts == total deposited
@@ -131,13 +137,11 @@ contract SolvencyFuzz is Test {
             1,                    // contestId
             address(mockScorer),  // scorer
             lineTicks,
-            leaderboardId,
             PositionType.Upper,   // maker is Upper
             maker,
             makerRisk,
             taker,
-            takerRisk,
-            0, 0                  // no contributions
+            takerRisk
         );
 
         // Verify positions created correctly
@@ -158,6 +162,7 @@ contract SolvencyFuzz is Test {
             contestStatus: ContestStatus.Scored,
             contestCreator: address(this),
             scoreContestSourceHash: bytes32(0),
+            marketUpdateSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""
@@ -190,6 +195,7 @@ contract SolvencyFuzz is Test {
             contestStatus: ContestStatus.Verified,
             contestCreator: address(this),
             scoreContestSourceHash: bytes32(0),
+            marketUpdateSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""
@@ -203,13 +209,11 @@ contract SolvencyFuzz is Test {
             1,
             address(mockScorer),
             pushLineTicks,
-            leaderboardId,
             PositionType.Upper,
             maker,
             makerRisk,
             taker,
-            takerRisk,
-            0, 0
+            takerRisk
         );
 
         // Score the contest and set Push

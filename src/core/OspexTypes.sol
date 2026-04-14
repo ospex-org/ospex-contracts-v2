@@ -16,6 +16,7 @@ struct Contest {
     ContestStatus contestStatus;     // Current status of the contest
     address contestCreator;          // Address that created the contest
     bytes32 scoreContestSourceHash;  // Hash of the scoring source code
+    bytes32 marketUpdateSourceHash;  // Hash of the odds update source code
     string rundownId;                // Contest ID from Rundown API
     string sportspageId;             // Contest ID from Sportspage API
     string jsonoddsId;               // Contest ID from JSONOdds API
@@ -25,8 +26,7 @@ struct Contest {
 enum ContestStatus {
     Unverified,              // Initial state
     Verified,                // Contest verified by oracle
-    Scored,                  // Final scores recorded
-    ScoredManually           // Manually scored by admin
+    Scored                   // Final scores recorded
 }
 
 /// @notice Represents a market for a contest
@@ -84,7 +84,6 @@ enum WinSide {
     Over,                    // Over the total
     Under,                   // Under the total
     Push,                    // Tie/Push
-    Forfeit,                 // Contest canceled
     Void                     // Unresolved and voided
 }
 
@@ -106,7 +105,8 @@ enum PositionType {
 /// @dev Used for fee routing and allocation in TreasuryModule
 enum FeeType {
     ContestCreation,      // Fee for creating a contest
-    SpeculationCreation  // Fee for creating a speculation/market
+    SpeculationCreation,  // Fee for creating a speculation/market
+    LeaderboardCreation   // Fee for creating a leaderboard
 }
 
 /// @notice Represents a sale listing for one side of a matched pair
@@ -119,12 +119,11 @@ struct SaleListing {
 /// @notice Represents a leaderboard and its configuration/state
 struct Leaderboard {
     uint256 entryFee;             // Entry fee (if any)
-    address yieldStrategy;        // Optional yield strategy contract
+    address creator;              // Creator address
     uint32 startTime;             // Leaderboard start timestamp
     uint32 endTime;               // Leaderboard end timestamp
     uint32 safetyPeriodDuration;  // Safety period after end (seconds)
     uint32 roiSubmissionWindow;   // ROI submission window after end (seconds)
-    uint32 claimWindow;           // Claim window after end (seconds)
 }
 
 /// @notice Tracks a user's leaderboard-eligible position
@@ -169,5 +168,5 @@ enum LeaderboardPositionValidationResult {
     LiveBettingNotAllowed,
     NumberDeviationTooLarge,
     OddsTooFavorable,
-    DirectionalPositionConflict
+    MoneylineSpreadPairingNotAllowed
 }

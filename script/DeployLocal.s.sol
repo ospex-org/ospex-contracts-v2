@@ -14,7 +14,6 @@ import "../src/modules/SpeculationModule.sol";
 import "../src/modules/PositionModule.sol";
 import "../src/modules/SecondaryMarketModule.sol";
 import "../src/modules/ContestModule.sol";
-import "../src/modules/ContributionModule.sol";
 import "../src/modules/LeaderboardModule.sol";
 import "../src/modules/RulesModule.sol";
 import "../src/modules/MoneylineScorerModule.sol";
@@ -30,16 +29,19 @@ import "../test/mocks/MockFunctionsRouter.sol";
 /**
  * @title DeployLocal
  * @notice Deployment script for Ospex protocol on local anvil chain
- * @dev Deploys all contracts including mocks for testing
+ * @dev Deploys all contracts using bootstrap+finalize pattern (zero-admin)
  */
 contract DeployLocal is Script {
     // Deployment configuration
     struct DeploymentConfig {
         uint8 tokenDecimals;
-        uint256 minSaleAmount;
-        bytes32 createContestSourceHash;
-        bytes32 updateContestMarketsSourceHash;
+        uint32 voidCooldown;
+        uint256 minSpeculationAmount;
+        uint256 contestCreationFee;
+        uint256 speculationCreationFee;
+        uint256 leaderboardCreationFee;
         bytes32 donId;
+        uint256 linkDenominator;
         address protocolReceiver;
     }
 
@@ -58,7 +60,6 @@ contract DeployLocal is Script {
         address positionModule;
         address secondaryMarketModule;
         address contestModule;
-        address contributionModule;
         address leaderboardModule;
         address rulesModule;
         address moneylineScorerModule;
@@ -68,45 +69,41 @@ contract DeployLocal is Script {
     }
 
     function run() external {
-        // ⚠️  WARNING: ONLY FOR LOCAL ANVIL DEPLOYMENT! ⚠️
-        // For testnet/mainnet deployment, use --private-key flag or --interactive instead
-        // This is Anvil's default account #0 private key
+        // WARNING: ONLY FOR LOCAL ANVIL DEPLOYMENT!
         uint256 deployerPrivateKey = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
         address deployer = vm.addr(deployerPrivateKey);
-        
+
         console.log("Deploying with address:", deployer);
         console.log("Balance:", deployer.balance);
 
-        // Configuration for local deployment
         DeploymentConfig memory config = DeploymentConfig({
-            tokenDecimals: 6, // USDC-like decimals
-            minSaleAmount: 1 * 10**6, // 1 USDC
-            createContestSourceHash: keccak256("test_source_hash"),
-            updateContestMarketsSourceHash: keccak256("test_source_hash"),
+            tokenDecimals: 6,
+            voidCooldown: 3 days,
+            minSpeculationAmount: 1 * 10**6, // 1 USDC
+            contestCreationFee: 1_000_000, // 1.00 USDC
+            speculationCreationFee: 500_000, // 0.50 USDC (split between maker and taker)
+            leaderboardCreationFee: 250_000, // 0.25 USDC
             donId: bytes32("test_don_id"),
-            protocolReceiver: deployer // Use deployer as protocol receiver for testing
+            linkDenominator: 10**18,
+            protocolReceiver: deployer
         });
 
         vm.startBroadcast(deployerPrivateKey);
 
-        DeployedContracts memory contracts = deployContracts(config, deployer);
-        
-        registerModules(contracts);
-        
+        DeployedContracts memory contracts = deployContracts(config);
+
+        bootstrapAndFinalize(contracts);
+
         printDeploymentInfo(contracts);
-        
-        calculateDeploymentCosts();
 
         vm.stopBroadcast();
     }
 
     function deployContracts(
-        DeploymentConfig memory config,
-        address
+        DeploymentConfig memory config
     ) internal returns (DeployedContracts memory contracts) {
         console.log("\n=== Deploying Mock Tokens ===");
-        
-        // Deploy mock tokens first
+
         contracts.mockToken = address(new MockERC20());
         console.log("MockERC20 deployed at:", contracts.mockToken);
 
@@ -117,16 +114,15 @@ contract DeployLocal is Script {
         console.log("MockFunctionsRouter deployed at:", contracts.mockFunctionsRouter);
 
         console.log("\n=== Deploying Core Contract ===");
-        
-        // Deploy core contract
+
         contracts.ospexCore = address(new OspexCore());
         console.log("OspexCore deployed at:", contracts.ospexCore);
 
         console.log("\n=== Deploying Modules ===");
 
-        // Deploy modules that only depend on OspexCore
-        contracts.contributionModule = address(new ContributionModule(contracts.ospexCore));
-        console.log("ContributionModule deployed at:", contracts.contributionModule);
+        // Modules with only OspexCore dependency
+        contracts.contestModule = address(new ContestModule(contracts.ospexCore));
+        console.log("ContestModule deployed at:", contracts.contestModule);
 
         contracts.leaderboardModule = address(new LeaderboardModule(contracts.ospexCore));
         console.log("LeaderboardModule deployed at:", contracts.leaderboardModule);
@@ -146,17 +142,22 @@ contract DeployLocal is Script {
         contracts.matchingModule = address(new MatchingModule(contracts.ospexCore));
         console.log("MatchingModule deployed at:", contracts.matchingModule);
 
-        // Deploy modules with additional dependencies
+        // Modules with additional dependencies
         contracts.treasuryModule = address(new TreasuryModule(
             contracts.ospexCore,
             contracts.mockToken,
-            config.protocolReceiver
+            config.protocolReceiver,
+            config.contestCreationFee,
+            config.speculationCreationFee,
+            config.leaderboardCreationFee
         ));
         console.log("TreasuryModule deployed at:", contracts.treasuryModule);
 
         contracts.speculationModule = address(new SpeculationModule(
             contracts.ospexCore,
-            config.tokenDecimals
+            config.tokenDecimals,
+            config.voidCooldown,
+            config.minSpeculationAmount
         ));
         console.log("SpeculationModule deployed at:", contracts.speculationModule);
 
@@ -168,119 +169,72 @@ contract DeployLocal is Script {
 
         contracts.secondaryMarketModule = address(new SecondaryMarketModule(
             contracts.ospexCore,
-            contracts.mockToken,
-            config.minSaleAmount
+            contracts.mockToken
         ));
         console.log("SecondaryMarketModule deployed at:", contracts.secondaryMarketModule);
-
-        contracts.contestModule = address(new ContestModule(
-            contracts.ospexCore,
-            config.createContestSourceHash,
-            config.updateContestMarketsSourceHash
-        ));
-        console.log("ContestModule deployed at:", contracts.contestModule);
 
         contracts.oracleModule = address(new OracleModule(
             contracts.ospexCore,
             contracts.mockFunctionsRouter,
             contracts.mockLinkToken,
-            config.donId
+            config.donId,
+            config.linkDenominator
         ));
         console.log("OracleModule deployed at:", contracts.oracleModule);
 
         return contracts;
     }
 
-    function registerModules(DeployedContracts memory contracts) internal {
-        console.log("\n=== Registering Modules ===");
-        
+    function bootstrapAndFinalize(DeployedContracts memory contracts) internal {
+        console.log("\n=== Bootstrap + Finalize ===");
+
         OspexCore core = OspexCore(contracts.ospexCore);
-        
-        // Register all modules
-        core.registerModule(keccak256("TREASURY_MODULE"), contracts.treasuryModule);
-        console.log("Registered TreasuryModule");
 
-        core.registerModule(keccak256("ORACLE_MODULE"), contracts.oracleModule);
-        console.log("Registered OracleModule");
+        bytes32[] memory types = new bytes32[](12);
+        address[] memory addrs = new address[](12);
 
-        core.registerModule(keccak256("SPECULATION_MODULE"), contracts.speculationModule);
-        console.log("Registered SpeculationModule");
+        types[0] = core.CONTEST_MODULE();           addrs[0] = contracts.contestModule;
+        types[1] = core.SPECULATION_MODULE();        addrs[1] = contracts.speculationModule;
+        types[2] = core.POSITION_MODULE();           addrs[2] = contracts.positionModule;
+        types[3] = core.MATCHING_MODULE();           addrs[3] = contracts.matchingModule;
+        types[4] = core.ORACLE_MODULE();             addrs[4] = contracts.oracleModule;
+        types[5] = core.TREASURY_MODULE();           addrs[5] = contracts.treasuryModule;
+        types[6] = core.LEADERBOARD_MODULE();        addrs[6] = contracts.leaderboardModule;
+        types[7] = core.RULES_MODULE();              addrs[7] = contracts.rulesModule;
+        types[8] = core.SECONDARY_MARKET_MODULE();   addrs[8] = contracts.secondaryMarketModule;
+        types[9] = core.MONEYLINE_SCORER_MODULE();   addrs[9] = contracts.moneylineScorerModule;
+        types[10] = core.SPREAD_SCORER_MODULE();     addrs[10] = contracts.spreadScorerModule;
+        types[11] = core.TOTAL_SCORER_MODULE();      addrs[11] = contracts.totalScorerModule;
 
-        core.registerModule(keccak256("POSITION_MODULE"), contracts.positionModule);
-        console.log("Registered PositionModule");
+        core.bootstrapModules(types, addrs);
+        console.log("All 12 modules bootstrapped.");
 
-        core.registerModule(keccak256("SECONDARY_MARKET_MODULE"), contracts.secondaryMarketModule);
-        console.log("Registered SecondaryMarketModule");
-
-        core.registerModule(keccak256("CONTEST_MODULE"), contracts.contestModule);
-        console.log("Registered ContestModule");
-
-        core.registerModule(keccak256("CONTRIBUTION_MODULE"), contracts.contributionModule);
-        console.log("Registered ContributionModule");
-
-        core.registerModule(keccak256("LEADERBOARD_MODULE"), contracts.leaderboardModule);
-        console.log("Registered LeaderboardModule");
-
-        core.registerModule(keccak256("RULES_MODULE"), contracts.rulesModule);
-        console.log("Registered RulesModule");
-
-        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), contracts.moneylineScorerModule);
-        console.log("Registered MoneylineScorerModule");
-
-        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), contracts.spreadScorerModule);
-        console.log("Registered SpreadScorerModule");
-
-        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), contracts.totalScorerModule);
-        console.log("Registered TotalScorerModule");
-
-        core.registerModule(keccak256("MATCHING_MODULE"), contracts.matchingModule);
-        console.log("Registered MatchingModule");
-
-        // Grant scorer role to scorer modules
-        core.setScorerRole(contracts.moneylineScorerModule, true);
-        console.log("Granted SCORER_ROLE to MoneylineScorerModule");
-
-        core.setScorerRole(contracts.spreadScorerModule, true);
-        console.log("Granted SCORER_ROLE to SpreadScorerModule");
-
-        core.setScorerRole(contracts.totalScorerModule, true);
-        console.log("Granted SCORER_ROLE to TotalScorerModule");
+        core.finalize();
+        console.log("Protocol finalized. No admin key remains.");
     }
 
     function printDeploymentInfo(DeployedContracts memory contracts) internal pure {
         console.log("\n=== DEPLOYMENT SUMMARY ===");
         console.log("Core Contract:");
         console.log("  OspexCore:", contracts.ospexCore);
-        
+
         console.log("\nMock Tokens:");
         console.log("  MockERC20:", contracts.mockToken);
         console.log("  MockLinkToken:", contracts.mockLinkToken);
         console.log("  MockFunctionsRouter:", contracts.mockFunctionsRouter);
-        
-        console.log("\nModules:");
-        console.log("  TreasuryModule:", contracts.treasuryModule);
-        console.log("  OracleModule:", contracts.oracleModule);
+
+        console.log("\nModules (12):");
+        console.log("  ContestModule:", contracts.contestModule);
         console.log("  SpeculationModule:", contracts.speculationModule);
         console.log("  PositionModule:", contracts.positionModule);
-        console.log("  SecondaryMarketModule:", contracts.secondaryMarketModule);
-        console.log("  ContestModule:", contracts.contestModule);
-        console.log("  ContributionModule:", contracts.contributionModule);
+        console.log("  MatchingModule:", contracts.matchingModule);
+        console.log("  OracleModule:", contracts.oracleModule);
+        console.log("  TreasuryModule:", contracts.treasuryModule);
         console.log("  LeaderboardModule:", contracts.leaderboardModule);
         console.log("  RulesModule:", contracts.rulesModule);
+        console.log("  SecondaryMarketModule:", contracts.secondaryMarketModule);
         console.log("  MoneylineScorerModule:", contracts.moneylineScorerModule);
         console.log("  SpreadScorerModule:", contracts.spreadScorerModule);
         console.log("  TotalScorerModule:", contracts.totalScorerModule);
-        console.log("  MatchingModule:", contracts.matchingModule);
     }
-
-    function calculateDeploymentCosts() internal pure {
-        console.log("\n=== DEPLOYMENT COST ANALYSIS ===");
-        console.log("Gas used will be calculated after deployment completes.");
-        console.log("Run with --gas-report flag to see detailed gas usage.");
-        console.log("\nTo estimate costs on different networks:");
-        console.log("- Polygon: Multiply gas used by ~30 gwei");
-        console.log("- Arbitrum: Multiply gas used by ~0.1 gwei");
-        console.log("- Optimism: Multiply gas used by ~0.001 gwei");
-        console.log("- Ethereum: Multiply gas used by ~20 gwei");
-    }
-} 
+}

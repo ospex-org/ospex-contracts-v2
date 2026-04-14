@@ -41,11 +41,15 @@ contract RulesModuleTest is Test {
     MockSpeculationModule mockSpeculationModule;
 
     // --- Test Accounts ---
-    address admin = address(0x1234);
-    address nonAdmin = address(0xBAD);
+    address creator = address(0x1234);
+    address nonCreator = address(0xBAD);
     address user1 = address(0xBEEF);
     address mockScorer = address(0xFEED);
     address protocolReceiver = address(0xABC);
+
+    // --- Scorer addresses used in bootstrap (for directional conflict tests) ---
+    address mockMoneylineScorer = address(0x1111);
+    address mockSpreadScorer = address(0x2222);
 
     // --- Test Constants ---
     uint256 constant TOKEN_AMOUNT = 1_000_000_000; // 1000 USDC
@@ -59,7 +63,6 @@ contract RulesModuleTest is Test {
     int32 constant MAX_DEVIATION = 15; // 1.5 point deviation (10x format)
     uint32 constant SAFETY_PERIOD = 1 days;
     uint32 constant ROI_WINDOW = 7 days;
-    uint32 constant CLAIM_WINDOW = 30 days;
 
     // --- Test Variables ---
     uint256 leaderboardId;
@@ -74,29 +77,41 @@ contract RulesModuleTest is Test {
         // Deploy modules
         rulesModule = new RulesModule(address(core));
         leaderboardModule = new LeaderboardModule(address(core));
-        treasuryModule = new TreasuryModule(address(core), address(token), protocolReceiver);
+        treasuryModule = new TreasuryModule(
+            address(core), address(token), protocolReceiver,
+            1_000_000, // contestCreationFeeRate
+            500_000,   // speculationCreationFeeRate
+            500_000    // leaderboardCreationFeeRate
+        );
         positionModule = new PositionModule(address(core), address(token));
 
         // Deploy mock modules
         mockContestModule = new MockContestModule();
         mockScorerModule = new MockScorerModule();
-        mockSpeculationModule = new MockSpeculationModule(address(core), 6);
+        mockSpeculationModule = new MockSpeculationModule(address(core), 6, 7 days, 1_000_000);
 
-        // Register modules
-        core.registerModule(keccak256("RULES_MODULE"), address(rulesModule));
-        core.registerModule(keccak256("LEADERBOARD_MODULE"), address(leaderboardModule));
-        core.registerModule(keccak256("TREASURY_MODULE"), address(treasuryModule));
-        core.registerModule(keccak256("POSITION_MODULE"), address(positionModule));
-        core.registerModule(keccak256("CONTEST_MODULE"), address(mockContestModule));
-        core.registerModule(keccak256("SPECULATION_MODULE"), address(mockSpeculationModule));
-        core.registerModule(keccak256("ORACLE_MODULE"), address(this)); // Test contract as oracle
+        // Bootstrap all 12 modules
+        bytes32[] memory types = new bytes32[](12);
+        address[] memory addrs = new address[](12);
+        types[0] = core.CONTEST_MODULE();           addrs[0] = address(mockContestModule);
+        types[1] = core.SPECULATION_MODULE();        addrs[1] = address(mockSpeculationModule);
+        types[2] = core.POSITION_MODULE();           addrs[2] = address(positionModule);
+        types[3] = core.MATCHING_MODULE();           addrs[3] = address(0xD004);
+        types[4] = core.ORACLE_MODULE();             addrs[4] = address(this);
+        types[5] = core.TREASURY_MODULE();           addrs[5] = address(treasuryModule);
+        types[6] = core.LEADERBOARD_MODULE();        addrs[6] = address(leaderboardModule);
+        types[7] = core.RULES_MODULE();              addrs[7] = address(rulesModule);
+        types[8] = core.SECONDARY_MARKET_MODULE();   addrs[8] = address(0xD008);
+        types[9] = core.MONEYLINE_SCORER_MODULE();   addrs[9] = mockMoneylineScorer;
+        types[10] = core.SPREAD_SCORER_MODULE();     addrs[10] = mockSpreadScorer;
+        types[11] = core.TOTAL_SCORER_MODULE();      addrs[11] = address(0xD00B);
+        core.bootstrapModules(types, addrs);
+        core.finalize();
 
-        // Register scorer modules for directional position conflict testing
-        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), address(mockScorerModule));
-        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), address(mockScorerModule));
-
-        // Grant admin role
-        core.grantRole(core.DEFAULT_ADMIN_ROLE(), admin);
+        // Fund creator and approve treasury for leaderboard creation fee
+        token.transfer(creator, TOKEN_AMOUNT);
+        vm.prank(creator);
+        token.approve(address(treasuryModule), type(uint256).max);
 
         // Set up a verified contest in the mock
         Contest memory contest = Contest({
@@ -104,8 +119,9 @@ contract RulesModuleTest is Test {
             homeScore: 0,
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified,
-            contestCreator: admin,
+            contestCreator: creator,
             scoreContestSourceHash: bytes32(0),
+            marketUpdateSourceHash: bytes32(0),
             rundownId: "test-rundown-id",
             sportspageId: "test-sportspage-id",
             jsonoddsId: "test-jsonodds-id"
@@ -126,26 +142,27 @@ contract RulesModuleTest is Test {
             contestId: contestId,
             speculationScorer: mockScorer,
             lineTicks: 15, // +1.5 spread (10x format)
-            speculationCreator: admin,
+            speculationCreator: creator,
             speculationStatus: SpeculationStatus.Open,
             winSide: WinSide.TBD
         });
         mockSpeculationModule.setTestSpeculation(speculationId, speculation);
 
-        // Create a basic leaderboard for testing
-        vm.prank(admin);
+        // Set contest start time to future (required for addLeaderboardSpeculation)
+        mockContestModule.setContestStartTime(contestId, uint32(block.timestamp + 6 hours));
+
+        // Create a basic leaderboard for testing (creator becomes the leaderboard creator)
+        vm.prank(creator);
         leaderboardId = leaderboardModule.createLeaderboard(
             0, // no entry fee
-            address(0), // no yield strategy
             uint32(block.timestamp + 1 hours), // starts in 1 hour
             uint32(block.timestamp + 8 days), // ends in 8 days
             SAFETY_PERIOD,
-            ROI_WINDOW,
-            CLAIM_WINDOW
+            ROI_WINDOW
         );
 
         // Add speculation to leaderboard for rules validation
-        vm.prank(admin);
+        vm.prank(creator);
         leaderboardModule.addLeaderboardSpeculation(leaderboardId, speculationId);
     }
 
@@ -166,7 +183,7 @@ contract RulesModuleTest is Test {
 
     // --- Rule Setter Tests ---
     function testSetMinBankroll_Success() public {
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectEmit(true, true, true, true);
         emit RulesModule.RuleSet(leaderboardId, "minBankroll", MIN_BANKROLL);
 
@@ -175,9 +192,9 @@ contract RulesModuleTest is Test {
         assertEq(rulesModule.s_minBankroll(leaderboardId), MIN_BANKROLL);
     }
 
-    function testSetMinBankroll_RevertsIfNotAdmin() public {
-        vm.prank(nonAdmin);
-        vm.expectRevert(abi.encodeWithSelector(RulesModule.RulesModule__NotAdmin.selector, nonAdmin));
+    function testSetMinBankroll_RevertsIfNotCreator() public {
+        vm.prank(nonCreator);
+        vm.expectRevert(abi.encodeWithSelector(RulesModule.RulesModule__NotCreator.selector, nonCreator));
         rulesModule.setMinBankroll(leaderboardId, MIN_BANKROLL);
     }
 
@@ -185,7 +202,7 @@ contract RulesModuleTest is Test {
         // Warp to after leaderboard start
         vm.warp(block.timestamp + 2 hours);
 
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectRevert(RulesModule.RulesModule__LeaderboardStarted.selector);
         rulesModule.setMinBankroll(leaderboardId, MIN_BANKROLL);
     }
@@ -193,13 +210,13 @@ contract RulesModuleTest is Test {
     function testSetMinBankroll_RevertsIfInvalidLeaderboard() public {
         uint256 invalidLeaderboardId = 999;
 
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectRevert(RulesModule.RulesModule__InvalidLeaderboard.selector);
         rulesModule.setMinBankroll(invalidLeaderboardId, MIN_BANKROLL);
     }
 
     function testSetMaxBankroll_Success() public {
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectEmit(true, true, true, true);
         emit RulesModule.RuleSet(leaderboardId, "maxBankroll", MAX_BANKROLL);
 
@@ -209,7 +226,7 @@ contract RulesModuleTest is Test {
     }
 
     function testSetMinBetPercentage_Success() public {
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectEmit(true, true, true, true);
         emit RulesModule.RuleSet(leaderboardId, "minBetPercentage", MIN_BET_PERCENTAGE);
 
@@ -219,13 +236,13 @@ contract RulesModuleTest is Test {
     }
 
     function testSetMinBetPercentage_RevertsIfTooHigh() public {
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectRevert(RulesModule.RulesModule__InvalidBps.selector);
         rulesModule.setMinBetPercentage(leaderboardId, 10001); // > 100%
     }
 
     function testSetMaxBetPercentage_Success() public {
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectEmit(true, true, true, true);
         emit RulesModule.RuleSet(leaderboardId, "maxBetPercentage", MAX_BET_PERCENTAGE);
 
@@ -235,7 +252,7 @@ contract RulesModuleTest is Test {
     }
 
     function testSetMinBets_Success() public {
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectEmit(true, true, true, true);
         emit RulesModule.RuleSet(leaderboardId, "minBets", MIN_BETS);
 
@@ -245,7 +262,7 @@ contract RulesModuleTest is Test {
     }
 
     function testSetOddsEnforcementBps_Success() public {
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectEmit(true, true, true, true);
         emit RulesModule.RuleSet(leaderboardId, "oddsEnforcementBps", ODDS_ENFORCEMENT_BPS);
 
@@ -255,7 +272,7 @@ contract RulesModuleTest is Test {
     }
 
     function testSetDeviationRule_Success() public {
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectEmit(true, true, true, true);
         emit RulesModule.DeviationRuleSet(
             leaderboardId,
@@ -283,7 +300,7 @@ contract RulesModuleTest is Test {
     }
 
     function testSetAllowLiveBetting_Success() public {
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectEmit(true, true, true, true);
         emit RulesModule.RuleSet(leaderboardId, "allowLiveBetting", 1);
 
@@ -292,9 +309,9 @@ contract RulesModuleTest is Test {
         assertTrue(rulesModule.s_allowLiveBetting(leaderboardId));
     }
 
-    function testSetAllowLiveBetting_RevertsIfNotAdmin() public {
-        vm.prank(nonAdmin);
-        vm.expectRevert(abi.encodeWithSelector(RulesModule.RulesModule__NotAdmin.selector, nonAdmin));
+    function testSetAllowLiveBetting_RevertsIfNotCreator() public {
+        vm.prank(nonCreator);
+        vm.expectRevert(abi.encodeWithSelector(RulesModule.RulesModule__NotCreator.selector, nonCreator));
         rulesModule.setAllowLiveBetting(leaderboardId, true);
     }
 
@@ -302,7 +319,7 @@ contract RulesModuleTest is Test {
         // Warp to after leaderboard start
         vm.warp(block.timestamp + 2 hours);
 
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectRevert(RulesModule.RulesModule__LeaderboardStarted.selector);
         rulesModule.setAllowLiveBetting(leaderboardId, true);
     }
@@ -314,7 +331,7 @@ contract RulesModuleTest is Test {
 
     // --- Validation Function Tests ---
     function testIsBankrollValid_WithinRange() public {
-        vm.startPrank(admin);
+        vm.startPrank(creator);
         rulesModule.setMinBankroll(leaderboardId, MIN_BANKROLL);
         rulesModule.setMaxBankroll(leaderboardId, MAX_BANKROLL);
         vm.stopPrank();
@@ -328,7 +345,7 @@ contract RulesModuleTest is Test {
     }
 
     function testIsBankrollValid_OutOfRange() public {
-        vm.startPrank(admin);
+        vm.startPrank(creator);
         rulesModule.setMinBankroll(leaderboardId, MIN_BANKROLL);
         rulesModule.setMaxBankroll(leaderboardId, MAX_BANKROLL);
         vm.stopPrank();
@@ -348,7 +365,7 @@ contract RulesModuleTest is Test {
 
 
     function testIsMinPositionsMet_EnoughPositions() public {
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setMinBets(leaderboardId, MIN_BETS);
 
         assertTrue(rulesModule.isMinPositionsMet(leaderboardId, MIN_BETS)); // exactly min
@@ -356,7 +373,7 @@ contract RulesModuleTest is Test {
     }
 
     function testIsMinPositionsMet_NotEnoughPositions() public {
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setMinBets(leaderboardId, MIN_BETS);
 
         assertFalse(rulesModule.isMinPositionsMet(leaderboardId, MIN_BETS - 1));
@@ -381,7 +398,7 @@ contract RulesModuleTest is Test {
     }
 
     function testIsOddsValid_WorseOddsAlwaysAllowed() public {
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setOddsEnforcementBps(leaderboardId, ODDS_ENFORCEMENT_BPS); // 25%
 
         uint16 marketOddsTick = 180; // 1.80
@@ -396,7 +413,7 @@ contract RulesModuleTest is Test {
     }
 
     function testIsOddsValid_WithinEnforcementLimit() public {
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setOddsEnforcementBps(leaderboardId, ODDS_ENFORCEMENT_BPS); // 25%
 
         uint16 marketOddsTick = 200; // 2.00
@@ -411,7 +428,7 @@ contract RulesModuleTest is Test {
     }
 
     function testIsOddsValid_ExceedsEnforcementLimit() public {
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setOddsEnforcementBps(leaderboardId, ODDS_ENFORCEMENT_BPS); // 25%
 
         uint16 marketOddsTick = 200; // 2.00
@@ -423,7 +440,7 @@ contract RulesModuleTest is Test {
     }
 
     function testIsOddsValid_ExactlyAtEnforcementBoundary() public {
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setOddsEnforcementBps(leaderboardId, ODDS_ENFORCEMENT_BPS); // 25%
 
         uint16 marketOddsTick = 200; // 2.00
@@ -435,7 +452,7 @@ contract RulesModuleTest is Test {
     }
 
     function testIsOddsValid_JustOverEnforcementBoundary() public {
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setOddsEnforcementBps(leaderboardId, ODDS_ENFORCEMENT_BPS); // 25%
 
         uint16 marketOddsTick = 200; // 2.00
@@ -460,7 +477,7 @@ contract RulesModuleTest is Test {
     }
 
     function testIsNumberValid_WithinDeviation() public {
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setDeviationRule(
             leaderboardId,
             LeagueId.NBA,
@@ -489,7 +506,7 @@ contract RulesModuleTest is Test {
     }
 
     function testIsNumberValid_ExceedsDeviation() public {
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setDeviationRule(
             leaderboardId,
             LeagueId.NBA,
@@ -513,7 +530,7 @@ contract RulesModuleTest is Test {
     }
 
     function testIsNumberValid_ExactMatchRequired() public {
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setDeviationRule(
             leaderboardId,
             LeagueId.NBA,
@@ -683,7 +700,7 @@ contract RulesModuleTest is Test {
         _setupCompleteRules();
 
         // Enable live betting
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setAllowLiveBetting(leaderboardId, true);
 
         // Move to leaderboard active period first
@@ -733,7 +750,7 @@ contract RulesModuleTest is Test {
         _setupCompleteRules();
 
         // Enable live betting
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setAllowLiveBetting(leaderboardId, true);
 
         (
@@ -743,7 +760,8 @@ contract RulesModuleTest is Test {
             uint16 maxBetPercentage,
             uint16 minBets,
             uint16 oddsEnforcementBps,
-            bool allowLiveBetting
+            bool allowLiveBetting,
+            bool allowMoneylineSpreadPairing
         ) = rulesModule.getAllRules(leaderboardId);
 
         assertEq(minBankroll, MIN_BANKROLL);
@@ -753,11 +771,12 @@ contract RulesModuleTest is Test {
         assertEq(minBets, MIN_BETS);
         assertEq(oddsEnforcementBps, ODDS_ENFORCEMENT_BPS);
         assertTrue(allowLiveBetting); // Should be true after setting
+        assertFalse(allowMoneylineSpreadPairing); // Default should be false
     }
 
     // --- Getter Function Tests ---
     function testGetDeviationRule_Set() public {
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setDeviationRule(
             leaderboardId,
             LeagueId.NBA,
@@ -799,7 +818,8 @@ contract RulesModuleTest is Test {
             uint16 maxBetPercentage,
             uint16 minBets,
             uint16 oddsEnforcementBps,
-            bool allowLiveBetting
+            bool allowLiveBetting,
+            bool allowMoneylineSpreadPairing
         ) = rulesModule.getAllRules(leaderboardId);
 
         assertEq(minBankroll, MIN_BANKROLL);
@@ -809,10 +829,11 @@ contract RulesModuleTest is Test {
         assertEq(minBets, MIN_BETS);
         assertEq(oddsEnforcementBps, ODDS_ENFORCEMENT_BPS);
         assertFalse(allowLiveBetting); // Default should be false
+        assertFalse(allowMoneylineSpreadPairing); // Default should be false
     }
 
     function testGetMaxBetAmount_WithLimit() public {
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setMaxBetPercentage(leaderboardId, MAX_BET_PERCENTAGE);
 
         uint256 maxBet = rulesModule.getMaxBetAmount(leaderboardId, DECLARED_BANKROLL);
@@ -828,7 +849,7 @@ contract RulesModuleTest is Test {
     }
 
     function testGetMinBetAmount_WithMinimum() public {
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setMinBetPercentage(leaderboardId, MIN_BET_PERCENTAGE);
 
         uint256 minBet = rulesModule.getMinBetAmount(leaderboardId, DECLARED_BANKROLL);
@@ -846,12 +867,12 @@ contract RulesModuleTest is Test {
     // --- Edge Case Tests ---
     function testRuleChanges_OnlyBeforeLeaderboardStarts() public {
         // Should work before start
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setMinBankroll(leaderboardId, MIN_BANKROLL);
 
         // Should fail after start
         vm.warp(block.timestamp + 2 hours);
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectRevert(RulesModule.RulesModule__LeaderboardStarted.selector);
         rulesModule.setMaxBankroll(leaderboardId, MAX_BANKROLL);
     }
@@ -890,7 +911,7 @@ contract RulesModuleTest is Test {
 
     // --- Helper Functions ---
     function _setupCompleteRules() internal {
-        vm.startPrank(admin);
+        vm.startPrank(creator);
         rulesModule.setMinBankroll(leaderboardId, MIN_BANKROLL);
         rulesModule.setMaxBankroll(leaderboardId, MAX_BANKROLL);
         rulesModule.setMinBetPercentage(leaderboardId, MIN_BET_PERCENTAGE);
@@ -912,17 +933,28 @@ contract RulesModuleTest is Test {
         mockContestModule.setContestStartTime(contestId, contestStartTime);
     }
 
-    function testValidateLeaderboardPosition_FailsDirectionalConflict_MoneylineToSpread() public {
+    function testValidateLeaderboardPosition_FailsMoneylineSpreadPairing_MoneylineToSpread() public {
         _setupCompleteRules();
-        vm.warp(block.timestamp + 2 hours);
 
-        // Create separate mock scorer addresses for moneyline and spread
-        address mockMoneylineScorer = address(0x1111);
-        address mockSpreadScorer = address(0x2222);
-
-        // Register these as separate scorer modules
-        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), mockMoneylineScorer);
-        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), mockSpreadScorer);
+        // Set up speculations in mock BEFORE adding to leaderboard (needed for contestId lookup)
+        uint256 moneylineSpeculationId = 10;
+        uint256 spreadSpeculationId = 11;
+        mockSpeculationModule.setTestSpeculation(moneylineSpeculationId, Speculation({
+            contestId: contestId,
+            speculationScorer: mockMoneylineScorer,
+            lineTicks: 15,
+            speculationCreator: address(0),
+            speculationStatus: SpeculationStatus.Open,
+            winSide: WinSide.TBD
+        }));
+        mockSpeculationModule.setTestSpeculation(spreadSpeculationId, Speculation({
+            contestId: contestId,
+            speculationScorer: mockSpreadScorer,
+            lineTicks: 15,
+            speculationCreator: address(0),
+            speculationStatus: SpeculationStatus.Open,
+            winSide: WinSide.TBD
+        }));
 
         // Set up contest markets for both scorer addresses (uint16 ticks, 10x lineTicks)
         mockContestModule.setContestMarket(contestId, mockMoneylineScorer, ContestMarket({
@@ -939,40 +971,12 @@ contract RulesModuleTest is Test {
         }));
 
         // Add the new speculations to the leaderboard
-        vm.startPrank(admin);
-        leaderboardModule.addLeaderboardSpeculation(leaderboardId, 10); // moneyline speculation
-        leaderboardModule.addLeaderboardSpeculation(leaderboardId, 11); // spread speculation
+        vm.startPrank(creator);
+        leaderboardModule.addLeaderboardSpeculation(leaderboardId, moneylineSpeculationId);
+        leaderboardModule.addLeaderboardSpeculation(leaderboardId, spreadSpeculationId);
         vm.stopPrank();
 
-        // Create a speculation with moneyline scorer
-        uint256 moneylineSpeculationId = 10;
-        vm.mockCall(
-            address(mockSpeculationModule),
-            abi.encodeWithSignature("getSpeculation(uint256)", moneylineSpeculationId),
-            abi.encode(Speculation({
-                contestId: contestId,
-                speculationScorer: mockMoneylineScorer,
-                lineTicks: 15,
-                speculationCreator: address(0),
-                speculationStatus: SpeculationStatus.Open,
-                winSide: WinSide.TBD
-            }))
-        );
-
-        // Create a speculation with spread scorer
-        uint256 spreadSpeculationId = 11;
-        vm.mockCall(
-            address(mockSpeculationModule),
-            abi.encodeWithSignature("getSpeculation(uint256)", spreadSpeculationId),
-            abi.encode(Speculation({
-                contestId: contestId,
-                speculationScorer: mockSpreadScorer,
-                lineTicks: 15,
-                speculationCreator: address(0),
-                speculationStatus: SpeculationStatus.Open,
-                winSide: WinSide.TBD
-            }))
-        );
+        vm.warp(block.timestamp + 2 hours);
 
         // Mock that user already has a moneyline position registered for this contest
         vm.mockCall(
@@ -1000,7 +1004,7 @@ contract RulesModuleTest is Test {
             abi.encode(0) // Zero = no position
         );
 
-        // Try to register spread position - should fail with DirectionalPositionConflict
+        // Try to register spread position - should fail with MoneylineSpreadPairingNotAllowed
         LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
             leaderboardId,
             spreadSpeculationId,
@@ -1011,20 +1015,31 @@ contract RulesModuleTest is Test {
             80
         );
 
-        assertEq(uint256(result), uint256(LeaderboardPositionValidationResult.DirectionalPositionConflict));
+        assertEq(uint256(result), uint256(LeaderboardPositionValidationResult.MoneylineSpreadPairingNotAllowed));
     }
 
-    function testValidateLeaderboardPosition_FailsDirectionalConflict_SpreadToMoneyline() public {
+    function testValidateLeaderboardPosition_FailsMoneylineSpreadPairing_SpreadToMoneyline() public {
         _setupCompleteRules();
-        vm.warp(block.timestamp + 2 hours);
 
-        // Create separate mock scorer addresses for moneyline and spread
-        address mockMoneylineScorer = address(0x1111);
-        address mockSpreadScorer = address(0x2222);
-
-        // Register these as separate scorer modules
-        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), mockMoneylineScorer);
-        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), mockSpreadScorer);
+        // Set up speculations in mock BEFORE adding to leaderboard (needed for contestId lookup)
+        uint256 spreadSpeculationId = 12;
+        uint256 moneylineSpeculationId = 13;
+        mockSpeculationModule.setTestSpeculation(spreadSpeculationId, Speculation({
+            contestId: contestId,
+            speculationScorer: mockSpreadScorer,
+            lineTicks: 15,
+            speculationCreator: address(0),
+            speculationStatus: SpeculationStatus.Open,
+            winSide: WinSide.TBD
+        }));
+        mockSpeculationModule.setTestSpeculation(moneylineSpeculationId, Speculation({
+            contestId: contestId,
+            speculationScorer: mockMoneylineScorer,
+            lineTicks: 15,
+            speculationCreator: address(0),
+            speculationStatus: SpeculationStatus.Open,
+            winSide: WinSide.TBD
+        }));
 
         // Set up contest markets for both scorer addresses (uint16 ticks, 10x lineTicks)
         mockContestModule.setContestMarket(contestId, mockMoneylineScorer, ContestMarket({
@@ -1041,40 +1056,12 @@ contract RulesModuleTest is Test {
         }));
 
         // Add the new speculations to the leaderboard
-        vm.startPrank(admin);
-        leaderboardModule.addLeaderboardSpeculation(leaderboardId, 12); // spread speculation
-        leaderboardModule.addLeaderboardSpeculation(leaderboardId, 13); // moneyline speculation
+        vm.startPrank(creator);
+        leaderboardModule.addLeaderboardSpeculation(leaderboardId, spreadSpeculationId);
+        leaderboardModule.addLeaderboardSpeculation(leaderboardId, moneylineSpeculationId);
         vm.stopPrank();
 
-        // Create a speculation with spread scorer
-        uint256 spreadSpeculationId = 12;
-        vm.mockCall(
-            address(mockSpeculationModule),
-            abi.encodeWithSignature("getSpeculation(uint256)", spreadSpeculationId),
-            abi.encode(Speculation({
-                contestId: contestId,
-                speculationScorer: mockSpreadScorer,
-                lineTicks: 15,
-                speculationCreator: address(0),
-                speculationStatus: SpeculationStatus.Open,
-                winSide: WinSide.TBD
-            }))
-        );
-
-        // Create a speculation with moneyline scorer
-        uint256 moneylineSpeculationId = 13;
-        vm.mockCall(
-            address(mockSpeculationModule),
-            abi.encodeWithSignature("getSpeculation(uint256)", moneylineSpeculationId),
-            abi.encode(Speculation({
-                contestId: contestId,
-                speculationScorer: mockMoneylineScorer,
-                lineTicks: 15,
-                speculationCreator: address(0),
-                speculationStatus: SpeculationStatus.Open,
-                winSide: WinSide.TBD
-            }))
-        );
+        vm.warp(block.timestamp + 2 hours);
 
         // Mock that user already has a spread position registered for this contest
         vm.mockCall(
@@ -1102,7 +1089,7 @@ contract RulesModuleTest is Test {
             abi.encode(0) // Zero = no position
         );
 
-        // Try to register moneyline position - should fail with DirectionalPositionConflict
+        // Try to register moneyline position - should fail with MoneylineSpreadPairingNotAllowed
         LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
             leaderboardId,
             moneylineSpeculationId,
@@ -1113,72 +1100,72 @@ contract RulesModuleTest is Test {
             80
         );
 
-        assertEq(uint256(result), uint256(LeaderboardPositionValidationResult.DirectionalPositionConflict));
+        assertEq(uint256(result), uint256(LeaderboardPositionValidationResult.MoneylineSpreadPairingNotAllowed));
     }
 
     // --- Missing Negative Tests for Setters (#13) ---
 
     // setMaxBankroll
-    function testSetMaxBankroll_RevertsIfNotAdmin() public {
-        vm.prank(nonAdmin);
-        vm.expectRevert(abi.encodeWithSelector(RulesModule.RulesModule__NotAdmin.selector, nonAdmin));
+    function testSetMaxBankroll_RevertsIfNotCreator() public {
+        vm.prank(nonCreator);
+        vm.expectRevert(abi.encodeWithSelector(RulesModule.RulesModule__NotCreator.selector, nonCreator));
         rulesModule.setMaxBankroll(leaderboardId, MAX_BANKROLL);
     }
 
     function testSetMaxBankroll_RevertsIfLeaderboardStarted() public {
         vm.warp(block.timestamp + 2 hours);
 
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectRevert(RulesModule.RulesModule__LeaderboardStarted.selector);
         rulesModule.setMaxBankroll(leaderboardId, MAX_BANKROLL);
     }
 
     // setMaxBetPercentage
-    function testSetMaxBetPercentage_RevertsIfNotAdmin() public {
-        vm.prank(nonAdmin);
-        vm.expectRevert(abi.encodeWithSelector(RulesModule.RulesModule__NotAdmin.selector, nonAdmin));
+    function testSetMaxBetPercentage_RevertsIfNotCreator() public {
+        vm.prank(nonCreator);
+        vm.expectRevert(abi.encodeWithSelector(RulesModule.RulesModule__NotCreator.selector, nonCreator));
         rulesModule.setMaxBetPercentage(leaderboardId, MAX_BET_PERCENTAGE);
     }
 
     function testSetMaxBetPercentage_RevertsIfLeaderboardStarted() public {
         vm.warp(block.timestamp + 2 hours);
 
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectRevert(RulesModule.RulesModule__LeaderboardStarted.selector);
         rulesModule.setMaxBetPercentage(leaderboardId, MAX_BET_PERCENTAGE);
     }
 
     function testSetMaxBetPercentage_RevertsIfBpsTooHigh() public {
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectRevert(RulesModule.RulesModule__InvalidBps.selector);
         rulesModule.setMaxBetPercentage(leaderboardId, 10001); // > 100%
     }
 
     // setOddsEnforcementBps
-    function testSetOddsEnforcementBps_RevertsIfNotAdmin() public {
-        vm.prank(nonAdmin);
-        vm.expectRevert(abi.encodeWithSelector(RulesModule.RulesModule__NotAdmin.selector, nonAdmin));
+    function testSetOddsEnforcementBps_RevertsIfNotCreator() public {
+        vm.prank(nonCreator);
+        vm.expectRevert(abi.encodeWithSelector(RulesModule.RulesModule__NotCreator.selector, nonCreator));
         rulesModule.setOddsEnforcementBps(leaderboardId, ODDS_ENFORCEMENT_BPS);
     }
 
     function testSetOddsEnforcementBps_RevertsIfLeaderboardStarted() public {
         vm.warp(block.timestamp + 2 hours);
 
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectRevert(RulesModule.RulesModule__LeaderboardStarted.selector);
         rulesModule.setOddsEnforcementBps(leaderboardId, ODDS_ENFORCEMENT_BPS);
     }
 
     function testSetOddsEnforcementBps_RevertsIfBpsTooHigh() public {
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectRevert(RulesModule.RulesModule__InvalidBps.selector);
         rulesModule.setOddsEnforcementBps(leaderboardId, 10001); // > 100%
     }
 
     // setDeviationRule
-    function testSetDeviationRule_RevertsIfNotAdmin() public {
-        vm.prank(nonAdmin);
-        vm.expectRevert(abi.encodeWithSelector(RulesModule.RulesModule__NotAdmin.selector, nonAdmin));
+    function testSetDeviationRule_RevertsIfNotCreator() public {
+        vm.prank(nonCreator);
+        vm.expectRevert(abi.encodeWithSelector(RulesModule.RulesModule__NotCreator.selector, nonCreator));
         rulesModule.setDeviationRule(
             leaderboardId,
             LeagueId.NBA,
@@ -1191,7 +1178,7 @@ contract RulesModuleTest is Test {
     function testSetDeviationRule_RevertsIfLeaderboardStarted() public {
         vm.warp(block.timestamp + 2 hours);
 
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectRevert(RulesModule.RulesModule__LeaderboardStarted.selector);
         rulesModule.setDeviationRule(
             leaderboardId,
@@ -1203,16 +1190,16 @@ contract RulesModuleTest is Test {
     }
 
     // setMinBets
-    function testSetMinBets_RevertsIfNotAdmin() public {
-        vm.prank(nonAdmin);
-        vm.expectRevert(abi.encodeWithSelector(RulesModule.RulesModule__NotAdmin.selector, nonAdmin));
+    function testSetMinBets_RevertsIfNotCreator() public {
+        vm.prank(nonCreator);
+        vm.expectRevert(abi.encodeWithSelector(RulesModule.RulesModule__NotCreator.selector, nonCreator));
         rulesModule.setMinBets(leaderboardId, MIN_BETS);
     }
 
     function testSetMinBets_RevertsIfLeaderboardStarted() public {
         vm.warp(block.timestamp + 2 hours);
 
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectRevert(RulesModule.RulesModule__LeaderboardStarted.selector);
         rulesModule.setMinBets(leaderboardId, MIN_BETS);
     }
@@ -1221,71 +1208,71 @@ contract RulesModuleTest is Test {
 
     function testSetMinBankroll_RevertsIfExceedsMax() public {
         // Set max first
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setMaxBankroll(leaderboardId, 100_000_000); // 100 USDC
 
         // Try to set min above max
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectRevert(RulesModule.RulesModule__InvalidValue.selector);
         rulesModule.setMinBankroll(leaderboardId, 200_000_000); // 200 USDC > max
     }
 
     function testSetMaxBankroll_RevertsIfBelowMin() public {
         // Set min first
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setMinBankroll(leaderboardId, 100_000_000); // 100 USDC
 
         // Try to set max below min
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectRevert(RulesModule.RulesModule__InvalidValue.selector);
         rulesModule.setMaxBankroll(leaderboardId, 50_000_000); // 50 USDC < min
     }
 
     function testSetMinBetPercentage_RevertsIfExceedsMax() public {
         // Set max first
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setMaxBetPercentage(leaderboardId, 500); // 5%
 
         // Try to set min above max
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectRevert(RulesModule.RulesModule__InvalidValue.selector);
         rulesModule.setMinBetPercentage(leaderboardId, 1000); // 10% > max
     }
 
     function testSetMaxBetPercentage_RevertsIfBelowMin() public {
         // Set min first
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setMinBetPercentage(leaderboardId, 500); // 5%
 
         // Try to set max below min
-        vm.prank(admin);
+        vm.prank(creator);
         vm.expectRevert(RulesModule.RulesModule__InvalidValue.selector);
         rulesModule.setMaxBetPercentage(leaderboardId, 100); // 1% < min
     }
 
     function testBankroll_EitherOrderWorks() public {
         // Set min first, then max — should work
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setMinBankroll(leaderboardId, 50_000_000);
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setMaxBankroll(leaderboardId, 200_000_000);
 
         assertEq(rulesModule.s_minBankroll(leaderboardId), 50_000_000);
         assertEq(rulesModule.s_maxBankroll(leaderboardId), 200_000_000);
 
         // Create a second leaderboard to test reverse order
-        vm.prank(admin);
+        vm.prank(creator);
         uint256 lb2 = leaderboardModule.createLeaderboard(
-            0, address(0),
+            0,
             uint32(block.timestamp + 1 hours),
             uint32(block.timestamp + 8 days),
-            SAFETY_PERIOD, ROI_WINDOW, CLAIM_WINDOW
+            SAFETY_PERIOD, ROI_WINDOW
         );
 
         // Set max first, then min — should also work
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setMaxBankroll(lb2, 200_000_000);
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setMinBankroll(lb2, 50_000_000);
 
         assertEq(rulesModule.s_minBankroll(lb2), 50_000_000);
@@ -1294,27 +1281,27 @@ contract RulesModuleTest is Test {
 
     function testBetPercentage_EitherOrderWorks() public {
         // Set min first, then max
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setMinBetPercentage(leaderboardId, 100); // 1%
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setMaxBetPercentage(leaderboardId, 1000); // 10%
 
         assertEq(rulesModule.s_minBetPercentage(leaderboardId), 100);
         assertEq(rulesModule.s_maxBetPercentage(leaderboardId), 1000);
 
         // Create a second leaderboard to test reverse order
-        vm.prank(admin);
+        vm.prank(creator);
         uint256 lb2 = leaderboardModule.createLeaderboard(
-            0, address(0),
+            0,
             uint32(block.timestamp + 1 hours),
             uint32(block.timestamp + 8 days),
-            SAFETY_PERIOD, ROI_WINDOW, CLAIM_WINDOW
+            SAFETY_PERIOD, ROI_WINDOW
         );
 
         // Set max first, then min
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setMaxBetPercentage(lb2, 1000);
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setMinBetPercentage(lb2, 100);
 
         assertEq(rulesModule.s_minBetPercentage(lb2), 100);
@@ -1323,9 +1310,9 @@ contract RulesModuleTest is Test {
 
     function testBankroll_EqualMinMaxAllowed() public {
         // min == max is a valid config (fixed bankroll)
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setMinBankroll(leaderboardId, 100_000_000);
-        vm.prank(admin);
+        vm.prank(creator);
         rulesModule.setMaxBankroll(leaderboardId, 100_000_000);
 
         assertEq(rulesModule.s_minBankroll(leaderboardId), 100_000_000);

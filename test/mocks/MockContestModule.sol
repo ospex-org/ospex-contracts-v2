@@ -31,9 +31,7 @@ contract MockContestModule {
     }
 
     function isContestScored(uint256 contestId) external view returns (bool) {
-        return
-            contests[contestId].contestStatus == ContestStatus.Scored ||
-            contests[contestId].contestStatus == ContestStatus.ScoredManually;
+        return contests[contestId].contestStatus == ContestStatus.Scored;
     }
     
     function getContestMarket(

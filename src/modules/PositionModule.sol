@@ -9,10 +9,10 @@ import {
     SpeculationStatus,
     WinSide
 } from "../core/OspexTypes.sol";
+import {IContestModule} from "../interfaces/IContestModule.sol";
 import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IPositionModule} from "../interfaces/IPositionModule.sol";
 import {ILeaderboardModule} from "../interfaces/ILeaderboardModule.sol";
-import {IContributionModule} from "../interfaces/IContributionModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {
     SafeERC20
@@ -23,58 +23,70 @@ import {
 
 /**
  * @title PositionModule
- * @notice Handles user positions: fill recording, claiming, and transfer for Ospex protocol
- * @dev All business logic for positions is implemented here. Uses hybrid event emission pattern.
+ * @notice Handles user positions for the Ospex protocol: fill recording, claiming,
+ *         and transfers via the SecondaryMarketModule.
+ * @dev Tokens are held by this contract between fill and claim. In this zero-vig protocol,
+ *      maker's profit always equals taker's risk and vice versa.
  */
 contract PositionModule is IPositionModule, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    /// @notice Error for invalid address
+    // ──────────────────────────── Constants ────────────────────────────
+
+    bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
+    bytes32 public constant POSITION_MODULE = keccak256("POSITION_MODULE");
+    bytes32 public constant MATCHING_MODULE = keccak256("MATCHING_MODULE");
+    bytes32 public constant SPECULATION_MODULE =
+        keccak256("SPECULATION_MODULE");
+    bytes32 public constant LEADERBOARD_MODULE =
+        keccak256("LEADERBOARD_MODULE");
+
+    bytes32 public constant EVENT_POSITION_MATCHED_PAIR =
+        keccak256("POSITION_MATCHED_PAIR");
+    bytes32 public constant EVENT_POSITION_TRANSFERRED =
+        keccak256("POSITION_TRANSFERRED");
+    bytes32 public constant EVENT_POSITION_CLAIMED =
+        keccak256("POSITION_CLAIMED");
+
+    // ──────────────────────────── Errors ───────────────────────────────
+
+    /// @notice Thrown when an address parameter is zero or a self-transfer is attempted
     error PositionModule__InvalidAddress();
-    /// @notice Error for caller being anyone other than Matching Module
+    /// @notice Thrown when a non-MatchingModule address calls recordFill
     error PositionModule__NotMatchingModule();
-    /// @notice Error for invalid amount
+    /// @notice Thrown when a risk amount is below the minimum or exceeds the position
     error PositionModule__InvalidAmount();
-    /// @notice Error for unauthorized market
+    /// @notice Thrown when a non-SecondaryMarketModule address calls transferPosition
     error PositionModule__UnauthorizedMarket();
-    /// @notice Error for speculation not settled
+    /// @notice Thrown when claiming a position on a speculation that is not yet settled
     error PositionModule__NotSettled();
-    /// @notice Error for already claimed
+    /// @notice Thrown when claiming a position that has already been claimed
     error PositionModule__AlreadyClaimed();
-    /// @notice Error for speculation not open
+    /// @notice Thrown when attempting to transfer after the contest is scored but before settlement
+    error PositionModule__ContestAlreadyScored();
+    /// @notice Thrown when recording a fill on a speculation that is not open
     error PositionModule__SpeculationNotOpen();
-    /// @notice Error for no payout
+    /// @notice Thrown when claiming a position with zero payout (loser or empty)
     error PositionModule__NoPayout();
-    /// @notice Error for module not set
+    /// @notice Thrown when a required module is not registered in OspexCore
     error PositionModule__ModuleNotSet(bytes32 moduleType);
-    /// @notice Error for position transfer locked
+    /// @notice Thrown when a transfer would reduce position below leaderboard-locked amounts
     error PositionModule__TransferLocked();
 
-    // --- Storage ---
-    /// @notice The OspexCore contract
-    OspexCore public immutable i_ospexCore;
-    /// @notice The ERC20 token
-    IERC20 public immutable i_token;
-
-    // Positions: speculationId => user => positionType => Position
-    mapping(uint256 => mapping(address => mapping(PositionType => Position)))
-        public s_positions;
-
-    // --- Events (module-local) ---
+    // ──────────────────────────── Events ───────────────────────────────
 
     /**
-     * @notice Emitted when a position is filled.
+     * @notice Emitted when a position is filled
      * @dev In this zero-vig protocol, maker's profit always equals takerRisk and
-     *      taker's profit always equals makerRisk. Four economic values (makerRisk,
-     *      makerProfit, takerRisk, takerProfit) are therefore derivable from the
-     *      two emitted risk amounts alone.
-     * @param speculationId The ID of the speculation
-     * @param maker The address of the maker
-     * @param taker The address of the taker
-     * @param makerPositionType The type of position for the maker
-     * @param takerPositionType The type of position for the taker
-     * @param makerRisk The amount risked by the maker (also equals taker's profit)
-     * @param takerRisk The amount risked by the taker (also equals maker's profit)
+     *      taker's profit always equals makerRisk. Four economic values are derivable
+     *      from the two emitted risk amounts alone.
+     * @param speculationId The speculation ID
+     * @param maker The maker address
+     * @param taker The taker address
+     * @param makerPositionType The maker's position type
+     * @param takerPositionType The taker's position type
+     * @param makerRisk The amount risked by the maker (= taker's profit)
+     * @param takerRisk The amount risked by the taker (= maker's profit)
      */
     event PositionFilled(
         uint256 indexed speculationId,
@@ -86,15 +98,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         uint256 takerRisk
     );
 
-    /**
-     * @notice Emitted when a position is transferred
-     * @param speculationId The ID of the speculation
-     * @param from The address of the from user
-     * @param positionType The type of position
-     * @param to The address of the to user
-     * @param riskAmount The risk amount of the position
-     * @param profitAmount The profit amount of the position
-     */
+    /// @notice Emitted when a position is transferred via the SecondaryMarketModule
     event PositionTransferred(
         uint256 indexed speculationId,
         address indexed from,
@@ -104,13 +108,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         uint256 profitAmount
     );
 
-    /**
-     * @notice Emitted when a position is claimed
-     * @param speculationId The ID of the speculation
-     * @param user The address of the user
-     * @param positionType The type of position
-     * @param payout The payout amount
-     */
+    /// @notice Emitted when a position is claimed
     event PositionClaimed(
         uint256 indexed speculationId,
         address indexed user,
@@ -118,14 +116,12 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         uint256 payout
     );
 
-    // --- Modifiers ---
-    /**
-     * @notice Modifier to ensure the speculation is open
-     * @param speculationId The ID of the speculation
-     */
+    // ──────────────────────────── Modifiers ────────────────────────────
+
+    /// @dev Ensures the speculation is in Open status
     modifier speculationOpen(uint256 speculationId) {
         Speculation memory spec = ISpeculationModule(
-            _getModule(keccak256("SPECULATION_MODULE"))
+            _getModule(SPECULATION_MODULE)
         ).getSpeculation(speculationId);
         if (spec.speculationStatus != SpeculationStatus.Open) {
             revert PositionModule__SpeculationNotOpen();
@@ -134,89 +130,87 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
     }
 
     /**
-     * @notice Enforces a minimum bet size on the taker's risk amount.
+     * @notice Enforces a minimum bet size on the taker's risk amount
      * @dev No maximum is enforced on-chain. The natural upper bound is available
      *      liquidity. Enforcement is on taker risk only — maker risk is derived from
      *      taker risk and odds via MatchingModule, so applying bounds to both sides
-     *      would create invalid-revert edge cases at extreme odds. Limits are
-     *      conservative at launch and subject to increase.
+     *      would create invalid-revert edge cases at extreme odds.
      * @param takerRisk The taker's at-risk amount (USDC, 6 decimals)
      */
     modifier riskAmountInRange(uint256 takerRisk) {
         ISpeculationModule specModule = ISpeculationModule(
-            _getModule(keccak256("SPECULATION_MODULE"))
+            _getModule(SPECULATION_MODULE)
         );
-        if (takerRisk < specModule.s_minSpeculationAmount()) {
+        if (takerRisk < specModule.i_minSpeculationAmount()) {
             revert PositionModule__InvalidAmount();
         }
         _;
     }
 
-    // --- Constructor ---
-    /**
-     * @notice Constructor sets the OspexCore address and token
-     * @param _ospexCore The address of the OspexCore contract
-     * @param _token The address of the ERC20 token
-     */
-    constructor(address _ospexCore, address _token) {
-        if (_ospexCore == address(0) || _token == address(0)) {
+    // ──────────────────────────── State ────────────────────────────────
+
+    /// @notice The OspexCore contract
+    OspexCore public immutable i_ospexCore;
+    /// @notice The USDC token contract
+    IERC20 public immutable i_token;
+
+    /// @notice Speculation ID → user → position type → Position
+    mapping(uint256 => mapping(address => mapping(PositionType => Position)))
+        public s_positions;
+
+    // ──────────────────────────── Constructor ──────────────────────────
+
+    /// @notice Deploys the PositionModule
+    /// @param ospexCore_ The OspexCore contract address
+    /// @param token_ The USDC token address
+    constructor(address ospexCore_, address token_) {
+        if (ospexCore_ == address(0) || token_ == address(0)) {
             revert PositionModule__InvalidAddress();
         }
-        i_ospexCore = OspexCore(_ospexCore);
-        i_token = IERC20(_token);
+        i_ospexCore = OspexCore(ospexCore_);
+        i_token = IERC20(token_);
     }
 
-    // --- IModule ---
+    // ──────────────────────────── Module Identity ─────────────────────
+
+    /// @notice Returns the module type identifier
     function getModuleType() external pure override returns (bytes32) {
-        return keccak256("POSITION_MODULE");
+        return POSITION_MODULE;
     }
 
-    // --- IPositionModule ---
+    // ──────────────────────────── Fill Recording ──────────────────────
 
     /**
-     * @notice Records a fill
-     * @dev Only callable by Matching Module
-     *      Tokens flow directly from maker/taker wallets to this contract.
-     *      Creates the speculation, if necessary
-     *      Bet-size enforcement (riskAmountInRange) applies to takerRisk only
-     *      When a fill auto-creates a speculation, the taker (msg.sender of matchCommitment)
-     *      becomes the speculationCreator. This is intentional: Any speculation creation
-     *      fee is charged to the taker accordingly.
-     * @param contestId The contest id
+     * @notice Records a fill. Only callable by MatchingModule.
+     * @dev Tokens flow directly from maker/taker wallets to this contract.
+     *      Creates the speculation if it doesn't exist yet. When a fill auto-creates
+     *      a speculation, the creation fee is split between maker and taker via processSplitFee.
+     *      Bet-size enforcement (riskAmountInRange) applies to takerRisk only.
+     * @param contestId The contest ID
      * @param scorer The scorer address
-     * @param lineTicks The number if applicable (10x)
-     * @param leaderboardId The leaderboard id for fees if applicable
-     * @param makerPositionType The position type of the maker (Upper or Lower)
-     * @param maker The address of the maker
+     * @param lineTicks The line number (10x format, 0 for moneyline)
+     * @param makerPositionType The maker's position type (Upper or Lower)
+     * @param maker The maker address
      * @param makerRisk Maker risk being consumed
-     * @param taker The address of the taker
-     * @param takerRisk The risk the taker is putting up
-     * @param makerContributionAmount The amount of the contribution for the maker
-     * @param takerContributionAmount The amount of the contribution for the taker
-     * @return speculationId The speculation for the fill
+     * @param taker The taker address
+     * @param takerRisk The taker's risk amount
+     * @return speculationId The speculation ID for the fill
      */
-
     function recordFill(
         uint256 contestId,
         address scorer,
         int32 lineTicks,
-        uint256 leaderboardId,
         PositionType makerPositionType,
         address maker,
         uint256 makerRisk,
         address taker,
-        uint256 takerRisk,
-        uint256 makerContributionAmount,
-        uint256 takerContributionAmount
+        uint256 takerRisk
     ) external override nonReentrant returns (uint256) {
-        // --- Access control ---
-        if (
-            msg.sender !=
-            address(i_ospexCore.getModule(keccak256("MATCHING_MODULE")))
-        ) revert PositionModule__NotMatchingModule();
+        if (msg.sender != i_ospexCore.getModule(MATCHING_MODULE))
+            revert PositionModule__NotMatchingModule();
 
         ISpeculationModule specModule = ISpeculationModule(
-            _getModule(keccak256("SPECULATION_MODULE"))
+            _getModule(SPECULATION_MODULE)
         );
 
         uint256 speculationId = specModule.getSpeculationId(
@@ -230,8 +224,8 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
                 contestId,
                 scorer,
                 lineTicks,
-                taker,
-                leaderboardId
+                maker,
+                taker
             );
         }
 
@@ -241,26 +235,26 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
             maker,
             makerRisk,
             taker,
-            takerRisk,
-            makerContributionAmount,
-            takerContributionAmount
+            takerRisk
         );
 
         return speculationId;
     }
 
+    // ──────────────────────────── Position Transfers ──────────────────
+
     /**
-     * @notice Transfers a position
-     * @dev This function does not enforce proportional risk/profit splits.
-     *      It trusts the calling contract to define valid transfer semantics.
-     *      Callers must hold MARKET_ROLE to call this function (admin-granted).
-     *      MARKET_ROLE is a full trust delegration, equivalent to module registration.
-     * @param speculationId The ID of the speculation
-     * @param from The address of the from user
-     * @param positionType The type of position
-     * @param to The address of the to user
-     * @param riskAmount The amount of risk being sold
-     * @param profitAmount The amount of profit being sold
+     * @notice Transfers a position between addresses. Only callable by SecondaryMarketModule.
+     * @dev Does not enforce proportional risk/profit splits — trusts the calling contract
+     *      to define valid transfer semantics. SecondaryMarketModule is set immutably in the
+     *      module registry and is the only authorized caller.
+     *      Transfers are blocked if the remaining position would fall below leaderboard-locked amounts.
+     * @param speculationId The speculation ID
+     * @param from The sender address
+     * @param positionType The position type
+     * @param to The recipient address
+     * @param riskAmount The risk amount being transferred
+     * @param profitAmount The profit amount being transferred
      */
     function transferPosition(
         uint256 speculationId,
@@ -270,23 +264,39 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         uint256 riskAmount,
         uint256 profitAmount
     ) external override speculationOpen(speculationId) {
-        // Centralized access control: only approved market contracts can call
-        if (!i_ospexCore.hasMarketRole(msg.sender)) {
+        if (!i_ospexCore.isSecondaryMarket(msg.sender)) {
             revert PositionModule__UnauthorizedMarket();
         }
-        // Revert on self-transfer or zero address
         if (from == to || to == address(0)) {
             revert PositionModule__InvalidAddress();
         }
-        // Get the position being transferred from
+
+        Speculation memory spec = ISpeculationModule(
+            _getModule(SPECULATION_MODULE)
+        ).getSpeculation(speculationId);
+        if (
+            IContestModule(_getModule(CONTEST_MODULE)).isContestScored(
+                spec.contestId
+            )
+        ) {
+            revert PositionModule__ContestAlreadyScored();
+        }
+
         Position storage fromPos = _getPosition(
             speculationId,
             from,
             positionType
         );
-        // Check if the position amounts are locked
+
+        if (
+            riskAmount > fromPos.riskAmount ||
+            profitAmount > fromPos.profitAmount
+        ) {
+            revert PositionModule__InvalidAmount();
+        }
+
         ILeaderboardModule lbModule = ILeaderboardModule(
-            _getModule(keccak256("LEADERBOARD_MODULE"))
+            _getModule(LEADERBOARD_MODULE)
         );
         uint256 lockedRisk = lbModule.s_lockedRisk(
             speculationId,
@@ -309,13 +319,6 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
                 revert PositionModule__TransferLocked();
             }
         }
-        // Check if the risk and profit amounts are valid
-        if (
-            riskAmount > fromPos.riskAmount ||
-            profitAmount > fromPos.profitAmount
-        ) {
-            revert PositionModule__InvalidAmount();
-        }
 
         fromPos.riskAmount -= riskAmount;
         fromPos.profitAmount -= profitAmount;
@@ -337,7 +340,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
             profitAmount
         );
         i_ospexCore.emitCoreEvent(
-            keccak256("POSITION_TRANSFERRED"),
+            EVENT_POSITION_TRANSFERRED,
             abi.encode(
                 speculationId,
                 from,
@@ -349,61 +352,48 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         );
     }
 
-    /**
-     * @notice Claims winnings from a position
-     * @param speculationId The ID of the speculation
-     * @param positionType The type of position
-     */
+    // ──────────────────────────── Claiming ────────────────────────────
+
+    /// @inheritdoc IPositionModule
     function claimPosition(
         uint256 speculationId,
         PositionType positionType
     ) external override nonReentrant {
-        // Get speculation and ensure it's closed
         Speculation memory speculation = ISpeculationModule(
-            _getModule(keccak256("SPECULATION_MODULE"))
+            _getModule(SPECULATION_MODULE)
         ).getSpeculation(speculationId);
         if (speculation.speculationStatus != SpeculationStatus.Closed) {
             revert PositionModule__NotSettled();
         }
 
-        // Get the position
         Position storage pos = _getPosition(
             speculationId,
             msg.sender,
             positionType
         );
 
-        // Calculate payout for matched amount
-        uint256 payout = _calculatePayout(speculationId, pos);
+        uint256 payout = _calculatePayout(speculation, pos);
 
-        // Check if there's anything to claim
         if (pos.riskAmount == 0 || payout == 0) {
             revert PositionModule__NoPayout();
         }
 
-        // Zero out the position
         pos.riskAmount = 0;
         pos.profitAmount = 0;
         pos.claimed = true;
 
-        // Transfer total payout
         i_token.safeTransfer(msg.sender, payout);
 
-        // Emit module-local event
         emit PositionClaimed(speculationId, msg.sender, positionType, payout);
-        // Emit core event
         i_ospexCore.emitCoreEvent(
-            keccak256("POSITION_CLAIMED"),
+            EVENT_POSITION_CLAIMED,
             abi.encode(speculationId, msg.sender, positionType, payout)
         );
     }
 
-    /**
-     * @notice Gets a position
-     * @param speculationId The ID of the speculation
-     * @param user The address of the user
-     * @param positionType The type of position
-     */
+    // ──────────────────────────── View Functions ──────────────────────
+
+    /// @inheritdoc IPositionModule
     function getPosition(
         uint256 speculationId,
         address user,
@@ -412,19 +402,17 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         position = s_positions[speculationId][user][positionType];
     }
 
-    // --- Internal functions ---
+    // ──────────────────────────── Internal Helpers ─────────────────────
 
     /**
-     * @notice Internal function to record fill
-     *         riskAmountInRange is applied to takerRisk; makerRisk is unchecked.
-     * @param speculationId The ID of the speculation
-     * @param makerPositionType The position type of the maker (Upper or Lower)
-     * @param maker The address of the maker
-     * @param makerRisk Maker risk being consumed
-     * @param taker The address of the taker
-     * @param takerRisk The risk the taker is putting up
-     * @param makerContributionAmount The amount of the contribution for the maker
-     * @param takerContributionAmount The amount of the contribution for the taker
+     * @notice Records a fill for both maker and taker
+     * @dev riskAmountInRange applies to takerRisk; makerRisk is unchecked.
+     * @param speculationId The speculation ID
+     * @param makerPositionType The maker's position type
+     * @param maker The maker address
+     * @param makerRisk The maker's risk amount
+     * @param taker The taker address
+     * @param takerRisk The taker's risk amount
      */
     function _recordFill(
         uint256 speculationId,
@@ -432,16 +420,12 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         address maker,
         uint256 makerRisk,
         address taker,
-        uint256 takerRisk,
-        uint256 makerContributionAmount,
-        uint256 takerContributionAmount
+        uint256 takerRisk
     ) internal speculationOpen(speculationId) riskAmountInRange(takerRisk) {
-        // --- Taker position type---
         PositionType takerPositionType = makerPositionType == PositionType.Upper
             ? PositionType.Lower
             : PositionType.Upper;
 
-        // --- Maker position ---
         Position storage makerPos = s_positions[speculationId][maker][
             makerPositionType
         ];
@@ -452,7 +436,6 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         makerPos.riskAmount += makerRisk;
         makerPos.profitAmount += takerRisk;
 
-        // --- Taker position ---
         Position storage takerPos = s_positions[speculationId][taker][
             takerPositionType
         ];
@@ -463,34 +446,9 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         takerPos.riskAmount += takerRisk;
         takerPos.profitAmount += makerRisk;
 
-        // --- Token transfer ---
         i_token.safeTransferFrom(maker, address(this), makerRisk);
         i_token.safeTransferFrom(taker, address(this), takerRisk);
 
-        // --- Contribution handling ---
-        if (makerContributionAmount + takerContributionAmount > 0) {
-            IContributionModule contributionModule = IContributionModule(
-                _getModule(keccak256("CONTRIBUTION_MODULE"))
-            );
-            if (makerContributionAmount > 0) {
-                contributionModule.handleContribution(
-                    speculationId,
-                    maker,
-                    makerPositionType,
-                    makerContributionAmount
-                );
-            }
-            if (takerContributionAmount > 0) {
-                contributionModule.handleContribution(
-                    speculationId,
-                    taker,
-                    takerPositionType,
-                    takerContributionAmount
-                );
-            }
-        }
-
-        // --- Event ---
         emit PositionFilled(
             speculationId,
             maker,
@@ -501,7 +459,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
             takerRisk
         );
         i_ospexCore.emitCoreEvent(
-            keccak256("POSITION_MATCHED_PAIR"),
+            EVENT_POSITION_MATCHED_PAIR,
             abi.encode(
                 speculationId,
                 maker,
@@ -514,12 +472,12 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         );
     }
 
-    // --- Internal position getter with validation (v2-style) ---
     /**
-     * @notice Gets a position
-     * @param speculationId The ID of the speculation
-     * @param user The address of the user
-     * @param positionType The type of position
+     * @notice Gets a position, reverting if already claimed
+     * @param speculationId The speculation ID
+     * @param user The user address
+     * @param positionType The position type
+     * @return position The position storage reference
      */
     function _getPosition(
         uint256 speculationId,
@@ -533,30 +491,23 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         return position;
     }
 
-    // --- Internal payout calculation helper ---
     /**
-     * @notice Calculates the payout for a position
-     * @param speculationId The ID of the speculation
-     * @param position The position to calculate the payout for
+     * @notice Calculates the payout for a position based on the speculation outcome
+     * @param speculation The resolved speculation (must be Closed)
+     * @param position The position to calculate payout for
+     * @return The payout amount (risk + profit for winners, risk for push/void, 0 for losers)
      */
     function _calculatePayout(
-        uint256 speculationId,
+        Speculation memory speculation,
         Position memory position
-    ) internal view returns (uint256) {
-        Speculation memory speculation = ISpeculationModule(
-            _getModule(keccak256("SPECULATION_MODULE"))
-        ).getSpeculation(speculationId);
-
-        // Handle special cases first
+    ) internal pure returns (uint256) {
         if (
             speculation.winSide == WinSide.Push ||
-            speculation.winSide == WinSide.Void ||
-            speculation.winSide == WinSide.Forfeit
+            speculation.winSide == WinSide.Void
         ) {
-            return position.riskAmount; // Return original stake
+            return position.riskAmount;
         }
 
-        // Calculate payout based on position type and win side
         bool isWinner = ((position.positionType == PositionType.Upper &&
             (speculation.winSide == WinSide.Away ||
                 speculation.winSide == WinSide.Over)) ||
@@ -567,13 +518,15 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         if (isWinner) {
             return position.riskAmount + position.profitAmount;
         }
-        return 0; // Losing position gets nothing
+        return 0;
     }
 
-    // --- Helper Function for Module Lookups ---
+    // ──────────────────────────── Module Lookup ───────────────────────
+
     /**
-     * @notice Gets the module address
-     * @param moduleType The type of module
+     * @notice Resolves a module address from OspexCore, reverting if not set
+     * @param moduleType The module type identifier
+     * @return module The module contract address
      */
     function _getModule(
         bytes32 moduleType

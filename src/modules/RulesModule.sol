@@ -5,7 +5,6 @@ import {IRulesModule} from "../interfaces/IRulesModule.sol";
 import {ILeaderboardModule} from "../interfaces/ILeaderboardModule.sol";
 import {IContestModule} from "../interfaces/IContestModule.sol";
 import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
-import {IPositionModule} from "../interfaces/IPositionModule.sol";
 import {OspexCore} from "../core/OspexCore.sol";
 import {
     LeagueId,
@@ -19,75 +18,70 @@ import {
 
 /**
  * @title RulesModule
- * @notice Handles rules creation, storage, and status management for Ospex protocol
- * @dev All business logic for rules is implemented here.
+ * @notice Configurable rules engine for Ospex leaderboards. Controls bankroll limits,
+ *         bet sizing, odds enforcement, number deviation, and position validation.
+ * @dev All rule setters are restricted to the leaderboard creator and can only be
+ *      called before the leaderboard starts. Rules are immutable once the leaderboard is active.
  */
 
 contract RulesModule is IRulesModule {
-    // --- Custom Errors ---
-    /// @notice Error thrown when the caller is not an admin
-    error RulesModule__NotAdmin(address admin);
-    /// @notice Error thrown when the leaderboard has started
-    error RulesModule__LeaderboardStarted();
-    /// @notice Error thrown when the module is not set
-    error RulesModule__ModuleNotSet(bytes32 moduleType);
-    /// @notice Error thrown when the value is invalid
-    error RulesModule__InvalidValue();
-    /// @notice Error thrown when the BPS is invalid
-    error RulesModule__InvalidBps();
-    /// @notice Error thrown when the leaderboard is invalid
-    error RulesModule__InvalidLeaderboard();
-    /// @notice Error thrown when the deviation is invalid (ie. less than 0)
-    error RulesModule__InvalidDeviation();
+    // ──────────────────────────── Constants ────────────────────────────
 
-    // --- State Variables ---
-    OspexCore public immutable i_ospexCore;
+    bytes32 public constant RULES_MODULE = keccak256("RULES_MODULE");
+    bytes32 public constant LEADERBOARD_MODULE =
+        keccak256("LEADERBOARD_MODULE");
+    bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
+    bytes32 public constant SPECULATION_MODULE =
+        keccak256("SPECULATION_MODULE");
+    bytes32 public constant MONEYLINE_SCORER_MODULE =
+        keccak256("MONEYLINE_SCORER_MODULE");
+    bytes32 public constant SPREAD_SCORER_MODULE =
+        keccak256("SPREAD_SCORER_MODULE");
 
-    // Basic rule mappings
-    mapping(uint256 => uint256) public s_minBankroll;
-    mapping(uint256 => uint256) public s_maxBankroll;
-    mapping(uint256 => uint16) public s_minBetPercentage;
-    mapping(uint256 => uint16) public s_maxBetPercentage;
-    mapping(uint256 => uint16) public s_minBets;
-    mapping(uint256 => uint16) public s_oddsEnforcementBps;
-    mapping(uint256 => bool) public s_allowLiveBetting;
+    bytes32 public constant EVENT_RULE_SET = keccak256("RULE_SET");
+    bytes32 public constant EVENT_DEVIATION_RULE_SET =
+        keccak256("DEVIATION_RULE_SET");
 
-    // Deviation rules - nested mappings for readability
-    // leaderboardId => leagueId => scorer => positionType => maxDeviation
-    mapping(uint256 => mapping(LeagueId => mapping(address => mapping(PositionType => int32))))
-        public s_deviationRules;
-
-    // Track which deviation rules have been explicitly set
-    // leaderboardId => leagueId => scorer => positionType => isSet
-    mapping(uint256 => mapping(LeagueId => mapping(address => mapping(PositionType => bool))))
-        public s_deviationRuleSet;
-
-    // --- Constants ---
-    uint16 public constant MAX_BPS = 10000; // 100%
-    /// @notice The odds scale factor (1.91 odds = 191 ticks)
+    /// @notice Maximum basis points (10000 = 100%)
+    uint16 public constant MAX_BPS = 10000;
+    /// @notice Odds scale factor (1.91 odds = 191 ticks)
     uint16 public constant ODDS_SCALE = 100;
 
-    // --- Events ---
-    /**
-     * @notice Event for setting a rule
-     * @param leaderboardId The ID of the leaderboard
-     * @param ruleType The type of rule
-     * @param value The value of the rule
-     */
+    // ──────────────────────────── Errors ───────────────────────────────
+
+    /// @notice Thrown when attempting to set rules after a leaderboard has started
+    error RulesModule__LeaderboardStarted();
+    /// @notice Thrown when a required module is not registered in OspexCore
+    error RulesModule__ModuleNotSet(bytes32 moduleType);
+    /// @notice Thrown when a rule value creates an invalid cross-field conflict
+    error RulesModule__InvalidValue();
+    /// @notice Thrown when a BPS value exceeds MAX_BPS
+    error RulesModule__InvalidBps();
+    /// @notice Thrown when a leaderboard does not exist
+    error RulesModule__InvalidLeaderboard();
+    /// @notice Thrown when a deviation value is negative
+    error RulesModule__InvalidDeviation();
+    /// @notice Thrown when a non-creator calls a creator-only function
+    error RulesModule__NotCreator(address caller);
+
+    // ──────────────────────────── Events ───────────────────────────────
+
+    /// @notice Emitted when a basic rule is set for a leaderboard
+    /// @param leaderboardId The leaderboard ID
+    /// @param ruleType The rule name (e.g. "minBankroll", "maxBetPercentage")
+    /// @param value The rule value
     event RuleSet(
         uint256 indexed leaderboardId,
         string ruleType,
         uint256 value
     );
 
-    /**
-     * @notice Event for setting a deviation rule
-     * @param leaderboardId The ID of the leaderboard
-     * @param leagueId The ID of the league
-     * @param scorer The address of the scorer
-     * @param positionType The position type
-     * @param maxDeviation The maximum deviation
-     */
+    /// @notice Emitted when a deviation rule is set for a leaderboard
+    /// @param leaderboardId The leaderboard ID
+    /// @param leagueId The league
+    /// @param scorer The scorer contract address
+    /// @param positionType The position type
+    /// @param maxDeviation The maximum allowed deviation
     event DeviationRuleSet(
         uint256 indexed leaderboardId,
         LeagueId indexed leagueId,
@@ -96,73 +90,80 @@ contract RulesModule is IRulesModule {
         int32 maxDeviation
     );
 
-    // --- Modifiers ---
-    /**
-     * @notice Modifier to ensure the caller is an admin
-     */
-    modifier onlyAdmin() {
-        if (
-            !i_ospexCore.hasRole(i_ospexCore.DEFAULT_ADMIN_ROLE(), msg.sender)
-        ) {
-            revert RulesModule__NotAdmin(msg.sender);
-        }
-        _;
-    }
+    // ──────────────────────────── Modifiers ────────────────────────────
 
-    /**
-     * @notice Modifier to ensure the leaderboard has not started
-     * @param leaderboardId The ID of the leaderboard
-     */
-    modifier leaderboardNotStarted(uint256 leaderboardId) {
-        Leaderboard memory leaderboard = ILeaderboardModule(
-            _getModule(keccak256("LEADERBOARD_MODULE"))
+    /// @notice Validates the caller is the leaderboard creator and the leaderboard has not started
+    modifier onlyCreatorBeforeStart(uint256 leaderboardId) {
+        Leaderboard memory lb = ILeaderboardModule(
+            _getModule(LEADERBOARD_MODULE)
         ).getLeaderboard(leaderboardId);
-        if (leaderboard.startTime == 0)
-            revert RulesModule__InvalidLeaderboard();
-        if (block.timestamp >= leaderboard.startTime) {
+        if (lb.startTime == 0) revert RulesModule__InvalidLeaderboard();
+        if (msg.sender != lb.creator)
+            revert RulesModule__NotCreator(msg.sender);
+        if (block.timestamp >= lb.startTime)
             revert RulesModule__LeaderboardStarted();
-        }
         _;
     }
 
-    /**
-     * @notice Modifier to ensure the value is not greater than the maximum BPS
-     * @param value The value to check
-     */
+    /// @dev Ensures a BPS value does not exceed 100%
     modifier valueNotExceedingMaxBps(uint256 value) {
         if (value > MAX_BPS) revert RulesModule__InvalidBps();
         _;
     }
 
-    // --- Constructor ---
-    /**
-     * @notice Constructor for the rules module
-     * @param ospexCore The address of the OspexCore contract
-     */
+    // ──────────────────────────── State ────────────────────────────────
+
+    /// @notice The OspexCore contract
+    OspexCore public immutable i_ospexCore;
+
+    /// @notice Leaderboard ID → minimum bankroll
+    mapping(uint256 => uint256) public s_minBankroll;
+    /// @notice Leaderboard ID → maximum bankroll
+    mapping(uint256 => uint256) public s_maxBankroll;
+    /// @notice Leaderboard ID → minimum bet percentage (BPS of bankroll)
+    mapping(uint256 => uint16) public s_minBetPercentage;
+    /// @notice Leaderboard ID → maximum bet percentage (BPS of bankroll)
+    mapping(uint256 => uint16) public s_maxBetPercentage;
+    /// @notice Leaderboard ID → minimum number of positions for ROI submission
+    mapping(uint256 => uint16) public s_minBets;
+    /// @notice Leaderboard ID → odds enforcement threshold (BPS above market)
+    mapping(uint256 => uint16) public s_oddsEnforcementBps;
+    /// @notice Leaderboard ID → whether live betting is allowed
+    mapping(uint256 => bool) public s_allowLiveBetting;
+    /// @notice Leaderboard ID → whether moneyline+spread on same contestId is allowed
+    mapping(uint256 => bool) public s_allowMoneylineSpreadPairing;
+
+    /// @notice Leaderboard ID → league → scorer → position type → max deviation
+    mapping(uint256 => mapping(LeagueId => mapping(address => mapping(PositionType => int32))))
+        public s_deviationRules;
+
+    /// @notice Tracks which deviation rules have been explicitly set
+    mapping(uint256 => mapping(LeagueId => mapping(address => mapping(PositionType => bool))))
+        public s_deviationRuleSet;
+
+    // ──────────────────────────── Constructor ──────────────────────────
+
+    /// @notice Deploys the RulesModule
+    /// @param ospexCore The OspexCore contract address
     constructor(address ospexCore) {
         if (ospexCore == address(0)) revert RulesModule__InvalidValue();
         i_ospexCore = OspexCore(ospexCore);
     }
 
-    // --- IModule ---
-    /**
-     * @notice Gets the module type
-     * @return moduleType The module type
-     */
+    // ──────────────────────────── Module Identity ─────────────────────
+
+    /// @notice Returns the module type identifier
     function getModuleType() external pure override returns (bytes32) {
-        return keccak256("RULES_MODULE");
+        return RULES_MODULE;
     }
 
-    // --- Rule Setters ---
-    /**
-     * @notice Sets the minimum bankroll for a leaderboard
-     * @param leaderboardId The ID of the leaderboard
-     * @param value The minimum bankroll
-     */
+    // ──────────────────────────── Rule Setters ─────────────────────────
+
+    /// @inheritdoc IRulesModule
     function setMinBankroll(
         uint256 leaderboardId,
         uint256 value
-    ) external override onlyAdmin leaderboardNotStarted(leaderboardId) {
+    ) external override onlyCreatorBeforeStart(leaderboardId) {
         if (
             value > 0 &&
             s_maxBankroll[leaderboardId] > 0 &&
@@ -171,20 +172,16 @@ contract RulesModule is IRulesModule {
         s_minBankroll[leaderboardId] = value;
         emit RuleSet(leaderboardId, "minBankroll", value);
         i_ospexCore.emitCoreEvent(
-            keccak256("RULE_SET"),
+            EVENT_RULE_SET,
             abi.encode(leaderboardId, "minBankroll", value)
         );
     }
 
-    /**
-     * @notice Sets the maximum bankroll for a leaderboard
-     * @param leaderboardId The ID of the leaderboard
-     * @param value The maximum bankroll
-     */
+    /// @inheritdoc IRulesModule
     function setMaxBankroll(
         uint256 leaderboardId,
         uint256 value
-    ) external override onlyAdmin leaderboardNotStarted(leaderboardId) {
+    ) external override onlyCreatorBeforeStart(leaderboardId) {
         if (
             value > 0 &&
             s_minBankroll[leaderboardId] > 0 &&
@@ -193,24 +190,19 @@ contract RulesModule is IRulesModule {
         s_maxBankroll[leaderboardId] = value;
         emit RuleSet(leaderboardId, "maxBankroll", value);
         i_ospexCore.emitCoreEvent(
-            keccak256("RULE_SET"),
+            EVENT_RULE_SET,
             abi.encode(leaderboardId, "maxBankroll", value)
         );
     }
 
-    /**
-     * @notice Sets the minimum bet percentage for a leaderboard
-     * @param leaderboardId The ID of the leaderboard
-     * @param value The minimum bet percentage
-     */
+    /// @inheritdoc IRulesModule
     function setMinBetPercentage(
         uint256 leaderboardId,
         uint16 value
     )
         external
         override
-        onlyAdmin
-        leaderboardNotStarted(leaderboardId)
+        onlyCreatorBeforeStart(leaderboardId)
         valueNotExceedingMaxBps(value)
     {
         if (
@@ -221,24 +213,19 @@ contract RulesModule is IRulesModule {
         s_minBetPercentage[leaderboardId] = value;
         emit RuleSet(leaderboardId, "minBetPercentage", value);
         i_ospexCore.emitCoreEvent(
-            keccak256("RULE_SET"),
+            EVENT_RULE_SET,
             abi.encode(leaderboardId, "minBetPercentage", value)
         );
     }
 
-    /**
-     * @notice Sets the maximum bet percentage for a leaderboard
-     * @param leaderboardId The ID of the leaderboard
-     * @param value The maximum bet percentage
-     */
+    /// @inheritdoc IRulesModule
     function setMaxBetPercentage(
         uint256 leaderboardId,
         uint16 value
     )
         external
         override
-        onlyAdmin
-        leaderboardNotStarted(leaderboardId)
+        onlyCreatorBeforeStart(leaderboardId)
         valueNotExceedingMaxBps(value)
     {
         if (
@@ -249,92 +236,63 @@ contract RulesModule is IRulesModule {
         s_maxBetPercentage[leaderboardId] = value;
         emit RuleSet(leaderboardId, "maxBetPercentage", value);
         i_ospexCore.emitCoreEvent(
-            keccak256("RULE_SET"),
+            EVENT_RULE_SET,
             abi.encode(leaderboardId, "maxBetPercentage", value)
         );
     }
 
-    /**
-     * @notice Sets the minimum bets for a leaderboard
-     * @param leaderboardId The ID of the leaderboard
-     * @param value The minimum bets
-     */
+    /// @inheritdoc IRulesModule
     function setMinBets(
         uint256 leaderboardId,
         uint16 value
-    ) external override onlyAdmin leaderboardNotStarted(leaderboardId) {
+    ) external override onlyCreatorBeforeStart(leaderboardId) {
         s_minBets[leaderboardId] = value;
         emit RuleSet(leaderboardId, "minBets", value);
         i_ospexCore.emitCoreEvent(
-            keccak256("RULE_SET"),
+            EVENT_RULE_SET,
             abi.encode(leaderboardId, "minBets", value)
         );
     }
 
-    /**
-     * @notice Sets the odds enforcement BPS for a leaderboard
-     * @param leaderboardId The ID of the leaderboard
-     * @param value The odds enforcement BPS
-     */
+    /// @inheritdoc IRulesModule
     function setOddsEnforcementBps(
         uint256 leaderboardId,
         uint16 value
     )
         external
         override
-        onlyAdmin
-        leaderboardNotStarted(leaderboardId)
+        onlyCreatorBeforeStart(leaderboardId)
         valueNotExceedingMaxBps(value)
     {
         s_oddsEnforcementBps[leaderboardId] = value;
         emit RuleSet(leaderboardId, "oddsEnforcementBps", value);
         i_ospexCore.emitCoreEvent(
-            keccak256("RULE_SET"),
+            EVENT_RULE_SET,
             abi.encode(leaderboardId, "oddsEnforcementBps", value)
         );
     }
 
-    /**
-     * @notice Enables or disables live betting for a leaderboard.
-     * @dev Unset leaderboards implicitly disallow live betting (mapping yields false).
-     *      Must be called before the leaderboard starts.
-     *      When false, leaderboard registration is blocked at contest start time.
-     *      When true, registration may continue after contest start as part
-     *      of an intentional live-betting mode. This mode has materially
-     *      different fairness assumptions and will only be enabled
-     *      when operators are comfortable with in-play information
-     *      asymmetry, market-lag risk, and settlement-timing complexity
-     * @param leaderboardId The ID of the leaderboard
-     * @param value The allow live betting
-     */
+    /// @inheritdoc IRulesModule
     function setAllowLiveBetting(
         uint256 leaderboardId,
         bool value
-    ) external override onlyAdmin leaderboardNotStarted(leaderboardId) {
+    ) external override onlyCreatorBeforeStart(leaderboardId) {
         s_allowLiveBetting[leaderboardId] = value;
         emit RuleSet(leaderboardId, "allowLiveBetting", value ? 1 : 0);
         i_ospexCore.emitCoreEvent(
-            keccak256("RULE_SET"),
+            EVENT_RULE_SET,
             abi.encode(leaderboardId, "allowLiveBetting", value ? 1 : 0)
         );
     }
 
-    /**
-     * @notice Sets deviation rule for a specific leaderboard, league, scorer, and position type
-     * @param leaderboardId The leaderboard ID
-     * @param leagueId The league ID (e.g., NHL, NFL)
-     * @param scorer The scorer contract address (e.g., spread scorer, moneyline scorer)
-     * @param positionType The position type (Upper/Lower)
-     * @param maxDeviation Maximum allowed deviation from market number
-     * @dev A maxDeviation of 0 means exact match required, positive values allow deviation
-     */
+    /// @inheritdoc IRulesModule
     function setDeviationRule(
         uint256 leaderboardId,
         LeagueId leagueId,
         address scorer,
         PositionType positionType,
         int32 maxDeviation
-    ) external override onlyAdmin leaderboardNotStarted(leaderboardId) {
+    ) external override onlyCreatorBeforeStart(leaderboardId) {
         if (maxDeviation < 0) revert RulesModule__InvalidDeviation();
         s_deviationRules[leaderboardId][leagueId][scorer][
             positionType
@@ -351,7 +309,7 @@ contract RulesModule is IRulesModule {
             maxDeviation
         );
         i_ospexCore.emitCoreEvent(
-            keccak256("DEVIATION_RULE_SET"),
+            EVENT_DEVIATION_RULE_SET,
             abi.encode(
                 leaderboardId,
                 leagueId,
@@ -362,13 +320,30 @@ contract RulesModule is IRulesModule {
         );
     }
 
-    // --- Validation Functions ---
-    /**
-     * @notice Validates if the bankroll is within the allowed range
-     * @param leaderboardId The ID of the leaderboard
-     * @param bankroll The bankroll to validate
-     * @return bool True if the bankroll is valid
-     */
+    /// @inheritdoc IRulesModule
+    function setAllowMoneylineSpreadPairing(
+        uint256 leaderboardId,
+        bool value
+    ) external override onlyCreatorBeforeStart(leaderboardId) {
+        s_allowMoneylineSpreadPairing[leaderboardId] = value;
+        emit RuleSet(
+            leaderboardId,
+            "allowMoneylineSpreadPairing",
+            value ? 1 : 0
+        );
+        i_ospexCore.emitCoreEvent(
+            EVENT_RULE_SET,
+            abi.encode(
+                leaderboardId,
+                "allowMoneylineSpreadPairing",
+                value ? 1 : 0
+            )
+        );
+    }
+
+    // ──────────────────────────── Validation Functions ─────────────────
+
+    /// @inheritdoc IRulesModule
     function isBankrollValid(
         uint256 leaderboardId,
         uint256 bankroll
@@ -388,12 +363,7 @@ contract RulesModule is IRulesModule {
         return true;
     }
 
-    /**
-     * @notice Validates if the minimum number of positions is met
-     * @param leaderboardId The ID of the leaderboard
-     * @param userPositions The number of positions the user has
-     * @return bool True if the minimum number of positions is met
-     */
+    /// @inheritdoc IRulesModule
     function isMinPositionsMet(
         uint256 leaderboardId,
         uint256 userPositions
@@ -407,21 +377,13 @@ contract RulesModule is IRulesModule {
         return true;
     }
 
-    /**
-     * @notice Validates if odds are within enforcement limits
-     * @param leaderboardId The leaderboard ID
-     * @param riskAmount Risk amount from the LB position
-     * @param profitAmount Profit amount from the LB position
-     * @param marketOddsTick The current market odds
-     * @return bool True if odds are valid (within enforcement or worse than market)
-     * @dev Worse odds than market are always allowed, better odds are limited by enforcement BPS
-     */
+    /// @inheritdoc IRulesModule
     function validateOdds(
         uint256 leaderboardId,
         uint256 riskAmount,
         uint256 profitAmount,
         uint16 marketOddsTick
-    ) external view override returns (bool) {
+    ) public view override returns (bool) {
         uint16 enforcementBps = s_oddsEnforcementBps[leaderboardId];
 
         // If no enforcement set, all odds are valid
@@ -441,16 +403,7 @@ contract RulesModule is IRulesModule {
         return lhs * MAX_BPS <= rhs * (MAX_BPS + uint256(enforcementBps));
     }
 
-    /**
-     * @notice Validates if a position's "number" (spread/total) is within deviation limits
-     * @param leaderboardId The leaderboard ID
-     * @param leagueId The league ID
-     * @param scorer The scorer contract address
-     * @param positionType The position type
-     * @param userNumber The number the user is betting on
-     * @param marketNumber The current market number
-     * @return bool True if number is within allowed deviation
-     */
+    /// @inheritdoc IRulesModule
     function validateNumber(
         uint256 leaderboardId,
         LeagueId leagueId,
@@ -458,8 +411,7 @@ contract RulesModule is IRulesModule {
         PositionType positionType,
         int32 userNumber,
         int32 marketNumber
-    ) external view override returns (bool) {
-        // Check if deviation rule is set for this combination
+    ) public view override returns (bool) {
         if (
             !s_deviationRuleSet[leaderboardId][leagueId][scorer][positionType]
         ) {
@@ -470,7 +422,6 @@ contract RulesModule is IRulesModule {
             positionType
         ];
 
-        // Calculate absolute difference
         int32 difference = userNumber > marketNumber
             ? userNumber - marketNumber
             : marketNumber - userNumber;
@@ -479,15 +430,17 @@ contract RulesModule is IRulesModule {
     }
 
     /**
-     * @notice Comprehensive validation for a leaderboard position
+     * @notice Comprehensive validation for a leaderboard position entry
+     * @dev Checks leaderboard existence, timing, speculation registration, live betting,
+     *      number deviation, odds enforcement, and position conflicts.
      * @param leaderboardId The leaderboard ID
      * @param speculationId The speculation ID
      * @param user The user address
-     * @param userNumber The number the user is betting on (for spreads/totals)
+     * @param userNumber The user's spread/total number (10x format)
      * @param positionType The position type (Upper/Lower)
-     * @param riskAmount The amount of risk associated with the position
-     * @param profitAmount The amount of profit associated with the position
-     * @return bool True if position passes all validation rules
+     * @param riskAmount The risk amount (may be capped by LeaderboardModule)
+     * @param profitAmount The profit amount (may be scaled proportionally if risk was capped)
+     * @return The validation result enum (Valid or a specific failure reason)
      */
     function validateLeaderboardPosition(
         uint256 leaderboardId,
@@ -498,43 +451,37 @@ contract RulesModule is IRulesModule {
         uint256 riskAmount,
         uint256 profitAmount
     ) external view override returns (LeaderboardPositionValidationResult) {
-        // Get leaderboard to ensure it exists and is active
         ILeaderboardModule leaderboardModule = ILeaderboardModule(
-            _getModule(keccak256("LEADERBOARD_MODULE"))
+            _getModule(LEADERBOARD_MODULE)
         );
         IContestModule contestModule = IContestModule(
-            _getModule(keccak256("CONTEST_MODULE"))
+            _getModule(CONTEST_MODULE)
         );
         Leaderboard memory leaderboard = leaderboardModule.getLeaderboard(
             leaderboardId
         );
 
-        // Check if leaderboard exists
         if (leaderboard.startTime == 0)
             return LeaderboardPositionValidationResult.LeaderboardDoesNotExist;
 
-        // Check if leaderboard has started or ended
         if (block.timestamp < leaderboard.startTime)
             return LeaderboardPositionValidationResult.LeaderboardHasNotStarted;
         if (block.timestamp >= leaderboard.endTime)
             return LeaderboardPositionValidationResult.LeaderboardHasEnded;
 
-        // Check if speculation is registered for leaderboard
         if (
             !leaderboardModule.s_leaderboardSpeculationRegistered(
                 leaderboardId,
                 speculationId
             )
         ) {
-            return LeaderboardPositionValidationResult.SpeculationNotRegistered; // Speculation not registered for leaderboard
+            return LeaderboardPositionValidationResult.SpeculationNotRegistered;
         }
 
-        // Get speculation data for market comparison
         Speculation memory speculation = ISpeculationModule(
-            _getModule(keccak256("SPECULATION_MODULE"))
+            _getModule(SPECULATION_MODULE)
         ).getSpeculation(speculationId);
 
-        // Check if live betting is allowed
         if (!s_allowLiveBetting[leaderboardId]) {
             if (
                 block.timestamp >=
@@ -545,20 +492,17 @@ contract RulesModule is IRulesModule {
             }
         }
 
-        // Get contest and speculation info for league/scorer validation
         Contest memory contest = contestModule.getContest(
             speculation.contestId
         );
 
-        // Get current market data for validation
         ContestMarket memory contestMarket = contestModule.getContestMarket(
             speculation.contestId,
             speculation.speculationScorer
         );
 
-        // Validate number deviation (for spreads/totals) - compare against current market number
         if (
-            !this.validateNumber(
+            !validateNumber(
                 leaderboardId,
                 contest.leagueId,
                 speculation.speculationScorer,
@@ -570,13 +514,12 @@ contract RulesModule is IRulesModule {
             return LeaderboardPositionValidationResult.NumberDeviationTooLarge;
         }
 
-        // Validate odds enforcement - compare against current market odds
         uint16 marketOddsTick = positionType == PositionType.Upper
             ? contestMarket.upperOdds
             : contestMarket.lowerOdds;
 
         if (
-            !this.validateOdds(
+            !validateOdds(
                 leaderboardId,
                 riskAmount,
                 profitAmount,
@@ -586,45 +529,48 @@ contract RulesModule is IRulesModule {
             return LeaderboardPositionValidationResult.OddsTooFavorable;
         }
 
-        // Validate directional position conflict
-        address moneylineScorer = _getModule(
-            keccak256("MONEYLINE_SCORER_MODULE")
-        );
-        address spreadScorer = _getModule(keccak256("SPREAD_SCORER_MODULE"));
-
-        if (speculation.speculationScorer == moneylineScorer) {
+        if (!s_allowMoneylineSpreadPairing[leaderboardId]) {
             if (
-                leaderboardModule.s_registeredLeaderboardSpeculation(
-                    leaderboardId,
-                    user,
-                    speculation.contestId,
-                    spreadScorer
-                ) != 0
+                speculation.speculationScorer ==
+                _getModule(MONEYLINE_SCORER_MODULE)
             ) {
-                return
-                    LeaderboardPositionValidationResult
-                        .DirectionalPositionConflict;
-            }
-        }
-        if (speculation.speculationScorer == spreadScorer) {
-            if (
-                leaderboardModule.s_registeredLeaderboardSpeculation(
-                    leaderboardId,
-                    user,
-                    speculation.contestId,
-                    moneylineScorer
-                ) != 0
+                if (
+                    leaderboardModule.s_registeredLeaderboardSpeculation(
+                        leaderboardId,
+                        user,
+                        speculation.contestId,
+                        _getModule(SPREAD_SCORER_MODULE)
+                    ) != 0
+                ) {
+                    return
+                        LeaderboardPositionValidationResult
+                            .MoneylineSpreadPairingNotAllowed;
+                }
+            } else if (
+                speculation.speculationScorer ==
+                _getModule(SPREAD_SCORER_MODULE)
             ) {
-                return
-                    LeaderboardPositionValidationResult
-                        .DirectionalPositionConflict;
+                if (
+                    leaderboardModule.s_registeredLeaderboardSpeculation(
+                        leaderboardId,
+                        user,
+                        speculation.contestId,
+                        _getModule(MONEYLINE_SCORER_MODULE)
+                    ) != 0
+                ) {
+                    return
+                        LeaderboardPositionValidationResult
+                            .MoneylineSpreadPairingNotAllowed;
+                }
             }
         }
 
         return LeaderboardPositionValidationResult.Valid;
     }
 
-    // --- Getter Functions ---
+    // ──────────────────────────── View Functions ──────────────────────
+
+    /// @inheritdoc IRulesModule
     function getDeviationRule(
         uint256 leaderboardId,
         LeagueId leagueId,
@@ -639,6 +585,7 @@ contract RulesModule is IRulesModule {
         ];
     }
 
+    /// @inheritdoc IRulesModule
     function getAllRules(
         uint256 leaderboardId
     )
@@ -652,7 +599,8 @@ contract RulesModule is IRulesModule {
             uint16 maxBetPercentage,
             uint16 minBets,
             uint16 oddsEnforcementBps,
-            bool allowLiveBetting
+            bool allowLiveBetting,
+            bool allowMoneylineSpreadPairing
         )
     {
         return (
@@ -662,16 +610,12 @@ contract RulesModule is IRulesModule {
             s_maxBetPercentage[leaderboardId],
             s_minBets[leaderboardId],
             s_oddsEnforcementBps[leaderboardId],
-            s_allowLiveBetting[leaderboardId]
+            s_allowLiveBetting[leaderboardId],
+            s_allowMoneylineSpreadPairing[leaderboardId]
         );
     }
 
-    /**
-     * @notice Gets the maximum allowed bet amount for a leaderboard based on bankroll
-     * @param leaderboardId The leaderboard ID
-     * @param bankroll The user's declared bankroll
-     * @return maxBetAmount The maximum allowed bet (0 if no limit set)
-     */
+    /// @inheritdoc IRulesModule
     function getMaxBetAmount(
         uint256 leaderboardId,
         uint256 bankroll
@@ -686,12 +630,7 @@ contract RulesModule is IRulesModule {
         return maxBetAmount;
     }
 
-    /**
-     * @notice Gets the minimum required bet amount for a leaderboard based on bankroll
-     * @param leaderboardId The leaderboard ID
-     * @param bankroll The user's declared bankroll
-     * @return minBetAmount The minimum required bet (0 if no minimum set)
-     */
+    /// @inheritdoc IRulesModule
     function getMinBetAmount(
         uint256 leaderboardId,
         uint256 bankroll
@@ -706,7 +645,13 @@ contract RulesModule is IRulesModule {
         return minBetAmount;
     }
 
-    // --- Helper Functions ---
+    // ──────────────────────────── Module Lookup ───────────────────────
+
+    /**
+     * @notice Resolves a module address from OspexCore, reverting if not set
+     * @param moduleType The module type identifier
+     * @return module The module contract address
+     */
     function _getModule(
         bytes32 moduleType
     ) internal view returns (address module) {

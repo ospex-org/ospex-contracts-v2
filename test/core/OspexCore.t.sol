@@ -4,514 +4,349 @@ pragma solidity ^0.8.19;
 import "forge-std/Test.sol";
 import "../../src/core/OspexCore.sol";
 import {FeeType} from "../../src/core/OspexTypes.sol";
-import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
 contract OspexCoreTest is Test {
     OspexCore core;
-    address admin = address(0xA11CE);
-    address moduleAdmin = address(0xBEEF);
+    address deployer = address(0xA11CE);
     address dummyModule1 = address(0x1001);
     address dummyModule2 = address(0x1002);
-    bytes32 constant MODULE_TYPE = keccak256("DUMMY_MODULE");
-    bytes32 constant MODULE_ADMIN_ROLE = keccak256("MODULE_ADMIN_ROLE");
+
+    // All 12 module addresses for bootstrap
+    address contestModule = address(0x2001);
+    address speculationModule = address(0x2002);
+    address positionModule = address(0x2003);
+    address matchingModule = address(0x2004);
+    address oracleModule = address(0x2005);
+    address treasuryModule = address(0x2006);
+    address leaderboardModule = address(0x2007);
+    address rulesModule = address(0x2008);
+    address secondaryMarketModule = address(0x2009);
+    address moneylineScorerModule = address(0x200A);
+    address spreadScorerModule = address(0x200B);
+    address totalScorerModule = address(0x200C);
 
     function setUp() public {
-        vm.prank(admin);
+        vm.prank(deployer);
         core = new OspexCore();
     }
 
-    function testInitialRoles() public view {
-        assertTrue(core.hasRole(core.DEFAULT_ADMIN_ROLE(), admin));
-        assertTrue(core.hasRole(core.MODULE_ADMIN_ROLE(), admin));
+    // --- Constructor ---
+
+    function testConstructor_SetsDeployer() public view {
+        assertEq(core.i_deployer(), deployer);
     }
 
-    function testRegisterModule_AsModuleAdmin_Succeeds() public {
-        vm.prank(admin);
-        vm.expectEmit(true, true, false, true);
-        emit OspexCore.ModuleRegistered(MODULE_TYPE, dummyModule1);
-        core.registerModule(MODULE_TYPE, dummyModule1);
-        assertEq(core.s_moduleRegistry(MODULE_TYPE), dummyModule1);
-        assertTrue(core.s_isModuleRegistered(dummyModule1));
+    function testConstructor_NotFinalized() public view {
+        assertFalse(core.s_finalized());
     }
 
-    function testRegisterModule_RevertsIfNotModuleAdmin() public {
-        // Pre-compute role to avoid vm.prank being consumed by the view call
-        bytes32 role = core.MODULE_ADMIN_ROLE();
-        vm.expectRevert(abi.encodeWithSelector(
-            IAccessControl.AccessControlUnauthorizedAccount.selector,
-            address(0xBAD),
-            role
-        ));
+    // --- Bootstrap ---
+
+    function testBootstrapModules_RegistersAllModules() public {
+        (bytes32[] memory types, address[] memory addrs) = _fullModuleArrays();
+        vm.prank(deployer);
+        core.bootstrapModules(types, addrs);
+
+        assertEq(core.s_moduleRegistry(core.CONTEST_MODULE()), contestModule);
+        assertEq(core.s_moduleRegistry(core.TREASURY_MODULE()), treasuryModule);
+        assertTrue(core.s_isModuleRegistered(contestModule));
+        assertTrue(core.s_isModuleRegistered(treasuryModule));
+    }
+
+    function testBootstrapModules_EmitsEvent() public {
+        (bytes32[] memory types, address[] memory addrs) = _fullModuleArrays();
+        vm.prank(deployer);
+        vm.expectEmit(false, false, false, true);
+        emit OspexCore.ModulesBootstrapped(12);
+        core.bootstrapModules(types, addrs);
+    }
+
+    function testBootstrapModules_RevertsIfNotDeployer() public {
+        (bytes32[] memory types, address[] memory addrs) = _fullModuleArrays();
         vm.prank(address(0xBAD));
-        core.registerModule(MODULE_TYPE, dummyModule1);
-    }
-
-    function testRegisterModule_RevertsIfZeroAddress() public {
-        vm.prank(admin);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                OspexCore.OspexCore__InvalidModuleAddress.selector,
-                address(0)
-            )
+            abi.encodeWithSelector(OspexCore.OspexCore__NotDeployer.selector, address(0xBAD))
         );
-        core.registerModule(MODULE_TYPE, address(0));
+        core.bootstrapModules(types, addrs);
     }
 
-    function testRegisterModule_UpdatesOldModule() public {
-        vm.startPrank(admin);
-        core.registerModule(MODULE_TYPE, dummyModule1);
-        assertTrue(core.s_isModuleRegistered(dummyModule1));
-        core.registerModule(MODULE_TYPE, dummyModule2);
-        assertFalse(core.s_isModuleRegistered(dummyModule1));
-        assertTrue(core.s_isRetiredModule(dummyModule1));
-        assertTrue(core.s_isModuleRegistered(dummyModule2));
+    function testBootstrapModules_RevertsIfArrayLengthMismatch() public {
+        bytes32[] memory types = new bytes32[](2);
+        address[] memory addrs = new address[](1);
+        types[0] = core.CONTEST_MODULE();
+        types[1] = core.SPECULATION_MODULE();
+        addrs[0] = contestModule;
+
+        vm.prank(deployer);
+        vm.expectRevert(OspexCore.OspexCore__ArrayLengthMismatch.selector);
+        core.bootstrapModules(types, addrs);
+    }
+
+    function testBootstrapModules_RevertsIfZeroAddress() public {
+        bytes32[] memory types = new bytes32[](1);
+        address[] memory addrs = new address[](1);
+        types[0] = core.CONTEST_MODULE();
+        addrs[0] = address(0);
+
+        vm.prank(deployer);
+        vm.expectRevert(
+            abi.encodeWithSelector(OspexCore.OspexCore__InvalidModuleAddress.selector, address(0))
+        );
+        core.bootstrapModules(types, addrs);
+    }
+
+    function testBootstrapModules_RevertsOnDuplicateModuleType() public {
+        // First register one module
+        bytes32 contestKey = core.CONTEST_MODULE();
+        bytes32[] memory types1 = new bytes32[](1);
+        address[] memory addrs1 = new address[](1);
+        types1[0] = contestKey;
+        addrs1[0] = contestModule;
+        vm.prank(deployer);
+        core.bootstrapModules(types1, addrs1);
+
+        // Try to register same type again
+        bytes32[] memory types2 = new bytes32[](1);
+        address[] memory addrs2 = new address[](1);
+        types2[0] = contestKey; // duplicate
+        addrs2[0] = address(0x9999);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(OspexCore.OspexCore__DuplicateModuleType.selector, contestKey)
+        );
+        vm.prank(deployer);
+        core.bootstrapModules(types2, addrs2);
+    }
+
+    function testBootstrapModules_RevertsIfAlreadyFinalized() public {
+        _bootstrapAndFinalize();
+
+        (bytes32[] memory types, address[] memory addrs) = _fullModuleArrays();
+        vm.prank(deployer);
+        vm.expectRevert(OspexCore.OspexCore__AlreadyFinalized.selector);
+        core.bootstrapModules(types, addrs);
+    }
+
+    function testBootstrapModules_CanBeCalledIncrementally() public {
+        // Register first 6 modules
+        bytes32[] memory types1 = new bytes32[](6);
+        address[] memory addrs1 = new address[](6);
+        types1[0] = core.CONTEST_MODULE();       addrs1[0] = contestModule;
+        types1[1] = core.SPECULATION_MODULE();    addrs1[1] = speculationModule;
+        types1[2] = core.POSITION_MODULE();       addrs1[2] = positionModule;
+        types1[3] = core.MATCHING_MODULE();       addrs1[3] = matchingModule;
+        types1[4] = core.ORACLE_MODULE();         addrs1[4] = oracleModule;
+        types1[5] = core.TREASURY_MODULE();       addrs1[5] = treasuryModule;
+
+        vm.prank(deployer);
+        core.bootstrapModules(types1, addrs1);
+
+        // Register remaining 6 modules
+        bytes32[] memory types2 = new bytes32[](6);
+        address[] memory addrs2 = new address[](6);
+        types2[0] = core.LEADERBOARD_MODULE();         addrs2[0] = leaderboardModule;
+        types2[1] = core.RULES_MODULE();                addrs2[1] = rulesModule;
+        types2[2] = core.SECONDARY_MARKET_MODULE();     addrs2[2] = secondaryMarketModule;
+        types2[3] = core.MONEYLINE_SCORER_MODULE();     addrs2[3] = moneylineScorerModule;
+        types2[4] = core.SPREAD_SCORER_MODULE();        addrs2[4] = spreadScorerModule;
+        types2[5] = core.TOTAL_SCORER_MODULE();         addrs2[5] = totalScorerModule;
+
+        vm.prank(deployer);
+        core.bootstrapModules(types2, addrs2);
+
+        // All modules registered
+        assertTrue(core.s_isModuleRegistered(contestModule));
+        assertTrue(core.s_isModuleRegistered(totalScorerModule));
+    }
+
+    // --- Finalize ---
+
+    function testFinalize_SetsFinalized() public {
+        _bootstrapAndFinalize();
+        assertTrue(core.s_finalized());
+    }
+
+    function testFinalize_EmitsEvent() public {
+        (bytes32[] memory types, address[] memory addrs) = _fullModuleArrays();
+        vm.startPrank(deployer);
+        core.bootstrapModules(types, addrs);
+        vm.expectEmit(false, false, false, true);
+        emit OspexCore.Finalized();
+        core.finalize();
         vm.stopPrank();
     }
 
-    function testGetModule_ReturnsCorrectAddress() public {
-        vm.prank(admin);
-        core.registerModule(MODULE_TYPE, dummyModule1);
-        assertEq(core.getModule(MODULE_TYPE), dummyModule1);
-    }
+    function testFinalize_RevertsIfNotDeployer() public {
+        (bytes32[] memory types, address[] memory addrs) = _fullModuleArrays();
+        vm.prank(deployer);
+        core.bootstrapModules(types, addrs);
 
-    // --- TWO-STEP ADMIN TRANSFER TESTS (M-3 Fix) ---
-
-    /**
-     * @notice Test the full two-step admin transfer flow
-     * @dev Verifies proposeAdmin + acceptAdmin works correctly
-     */
-    function testTwoStepAdminTransfer_HappyPath() public {
-        address newAdmin = address(0xB0B);
-
-        // Step 1: Current admin proposes new admin
-        vm.prank(admin);
-        vm.expectEmit(true, true, false, true);
-        emit OspexCore.AdminTransferProposed(admin, newAdmin);
-        core.proposeAdmin(newAdmin);
-
-        // Verify pending admin is set
-        assertEq(core.s_pendingAdmin(), newAdmin);
-        // Old admin still has role
-        assertTrue(core.hasRole(core.DEFAULT_ADMIN_ROLE(), admin));
-        // New admin doesn't have role yet
-        assertFalse(core.hasRole(core.DEFAULT_ADMIN_ROLE(), newAdmin));
-
-        // Step 2: New admin accepts
-        vm.prank(newAdmin);
-        vm.expectEmit(true, true, false, true);
-        emit OspexCore.AdminChanged(admin, newAdmin);
-        core.acceptAdmin();
-
-        // Verify transfer completed
-        assertTrue(core.hasRole(core.DEFAULT_ADMIN_ROLE(), newAdmin));
-        assertFalse(core.hasRole(core.DEFAULT_ADMIN_ROLE(), admin));
-        assertEq(core.s_pendingAdmin(), address(0)); // Pending admin cleared
-    }
-
-    /**
-     * @notice Test proposeAdmin reverts if caller is not admin
-     */
-    function testProposeAdmin_RevertsIfNotAdmin() public {
-        address newAdmin = address(0xB0B);
-        bytes32 role = core.DEFAULT_ADMIN_ROLE();
-        vm.expectRevert(abi.encodeWithSelector(
-            IAccessControl.AccessControlUnauthorizedAccount.selector,
-            address(0xBAD),
-            role
-        ));
         vm.prank(address(0xBAD));
-        core.proposeAdmin(newAdmin);
-    }
-
-    /**
-     * @notice Test proposeAdmin reverts if zero address
-     */
-    function testProposeAdmin_RevertsIfZeroAddress() public {
-        vm.prank(admin);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                OspexCore.OspexCore__InvalidAdminAddress.selector,
-                address(0)
-            )
+            abi.encodeWithSelector(OspexCore.OspexCore__NotDeployer.selector, address(0xBAD))
         );
-        core.proposeAdmin(address(0));
+        core.finalize();
     }
 
-    /**
-     * @notice Test acceptAdmin reverts if caller is not the pending admin
-     */
-    function testAcceptAdmin_RevertsIfNotPendingAdmin() public {
-        address newAdmin = address(0xB0B);
-        address imposter = address(0xBAD);
+    function testFinalize_RevertsIfAlreadyFinalized() public {
+        _bootstrapAndFinalize();
 
-        // Propose new admin
-        vm.prank(admin);
-        core.proposeAdmin(newAdmin);
+        vm.prank(deployer);
+        vm.expectRevert(OspexCore.OspexCore__AlreadyFinalized.selector);
+        core.finalize();
+    }
 
-        // Imposter tries to accept
-        vm.prank(imposter);
+    function testFinalize_RevertsIfModuleNotRegistered() public {
+        // Register only 11 of 12 modules (skip TOTAL_SCORER_MODULE)
+        bytes32[] memory types = new bytes32[](11);
+        address[] memory addrs = new address[](11);
+        types[0] = core.CONTEST_MODULE();              addrs[0] = contestModule;
+        types[1] = core.SPECULATION_MODULE();           addrs[1] = speculationModule;
+        types[2] = core.POSITION_MODULE();              addrs[2] = positionModule;
+        types[3] = core.MATCHING_MODULE();              addrs[3] = matchingModule;
+        types[4] = core.ORACLE_MODULE();                addrs[4] = oracleModule;
+        types[5] = core.TREASURY_MODULE();              addrs[5] = treasuryModule;
+        types[6] = core.LEADERBOARD_MODULE();           addrs[6] = leaderboardModule;
+        types[7] = core.RULES_MODULE();                 addrs[7] = rulesModule;
+        types[8] = core.SECONDARY_MARKET_MODULE();      addrs[8] = secondaryMarketModule;
+        types[9] = core.MONEYLINE_SCORER_MODULE();      addrs[9] = moneylineScorerModule;
+        types[10] = core.SPREAD_SCORER_MODULE();        addrs[10] = spreadScorerModule;
+
+        vm.startPrank(deployer);
+        core.bootstrapModules(types, addrs);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                OspexCore.OspexCore__NotPendingAdmin.selector,
-                imposter
-            )
+            abi.encodeWithSelector(OspexCore.OspexCore__ModuleNotRegistered.selector, core.TOTAL_SCORER_MODULE())
         );
-        core.acceptAdmin();
+        core.finalize();
+        vm.stopPrank();
     }
 
-    /**
-     * @notice Test acceptAdmin reverts if no pending admin is set
-     */
-    function testAcceptAdmin_RevertsIfNoPendingAdmin() public {
-        // No proposeAdmin called, so s_pendingAdmin is address(0)
-        vm.prank(address(0xB0B));
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                OspexCore.OspexCore__NotPendingAdmin.selector,
-                address(0xB0B)
-            )
-        );
-        core.acceptAdmin();
-    }
+    // --- Module Queries ---
 
-    /**
-     * @notice Test that pending admin can be changed before acceptance
-     * @dev This is important - admin should be able to correct a mistake
-     */
-    function testProposeAdmin_CanChangePendingAdmin() public {
-        address wrongAdmin = address(0xBAD);
-        address correctAdmin = address(0xB0B);
-
-        // First proposal (wrong address)
-        vm.prank(admin);
-        core.proposeAdmin(wrongAdmin);
-        assertEq(core.s_pendingAdmin(), wrongAdmin);
-
-        // Second proposal (correct address) - overwrites first
-        vm.prank(admin);
-        core.proposeAdmin(correctAdmin);
-        assertEq(core.s_pendingAdmin(), correctAdmin);
-
-        // Wrong admin cannot accept anymore
-        vm.prank(wrongAdmin);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                OspexCore.OspexCore__NotPendingAdmin.selector,
-                wrongAdmin
-            )
-        );
-        core.acceptAdmin();
-
-        // Correct admin can accept
-        vm.prank(correctAdmin);
-        core.acceptAdmin();
-        assertTrue(core.hasRole(core.DEFAULT_ADMIN_ROLE(), correctAdmin));
-    }
-
-    /**
-     * @notice Test that s_admin storage variable is updated correctly
-     */
-    function testTwoStepAdminTransfer_UpdatesStorageVariable() public {
-        address newAdmin = address(0xB0B);
-
-        // Verify initial s_admin
-        assertEq(core.s_admin(), admin);
-
-        // Propose and accept
-        vm.prank(admin);
-        core.proposeAdmin(newAdmin);
-        vm.prank(newAdmin);
-        core.acceptAdmin();
-
-        // Verify s_admin is updated (not just the role)
-        assertEq(core.s_admin(), newAdmin);
-    }
-
-    /**
-     * @notice Test that new admin can perform admin actions after transfer
-     */
-    function testTwoStepAdminTransfer_NewAdminCanActAsAdmin() public {
-        address newAdmin = address(0xB0B);
-        address anotherNewAdmin = address(0xC0C);
-
-        // Complete transfer to newAdmin
-        vm.prank(admin);
-        core.proposeAdmin(newAdmin);
-        vm.prank(newAdmin);
-        core.acceptAdmin();
-
-        // New admin can now propose another admin
-        vm.prank(newAdmin);
-        core.proposeAdmin(anotherNewAdmin);
-        assertEq(core.s_pendingAdmin(), anotherNewAdmin);
-    }
-
-    /**
-     * @notice Test that old admin cannot perform admin actions after transfer
-     */
-    function testTwoStepAdminTransfer_OldAdminCannotActAsAdmin() public {
-        address newAdmin = address(0xB0B);
-
-        // Complete transfer
-        vm.prank(admin);
-        core.proposeAdmin(newAdmin);
-        vm.prank(newAdmin);
-        core.acceptAdmin();
-
-        // Old admin cannot propose anymore
-        bytes32 role = core.DEFAULT_ADMIN_ROLE();
-        vm.expectRevert(abi.encodeWithSelector(
-            IAccessControl.AccessControlUnauthorizedAccount.selector,
-            admin,
-            role
-        ));
-        vm.prank(admin);
-        core.proposeAdmin(address(0xD0D));
-    }
-
-    function testEmitCoreEvent_EmitsEvent() public {
-        // Register this contract as a module
-        vm.prank(admin);
-        core.registerModule(MODULE_TYPE, address(this));
-
-        bytes32 eventType = keccak256("TEST_EVENT");
-        bytes memory eventData = abi.encodePacked(uint256(123));
-        vm.expectEmit(true, true, false, true);
-        emit OspexCore.CoreEventEmitted(eventType, address(this), eventData);
-        core.emitCoreEvent(eventType, eventData);
+    function testGetModule_ReturnsCorrectAddress() public {
+        _bootstrapAndFinalize();
+        assertEq(core.getModule(core.CONTEST_MODULE()), contestModule);
+        assertEq(core.getModule(core.TREASURY_MODULE()), treasuryModule);
     }
 
     function testIsRegisteredModule_ReturnsCorrectValue() public {
-        vm.prank(admin);
-        core.registerModule(MODULE_TYPE, dummyModule1);
-        assertTrue(core.isRegisteredModule(dummyModule1));
+        _bootstrapAndFinalize();
+        assertTrue(core.isRegisteredModule(contestModule));
         assertFalse(core.isRegisteredModule(address(0xDEAD)));
     }
 
-    function testEmitCoreEvent_RegisteredModule_Succeeds() public {
-        // Register dummyModule1 as a module
-        vm.prank(admin);
-        core.registerModule(MODULE_TYPE, dummyModule1);
+    function testIsSecondaryMarket_ReturnsCorrectValue() public {
+        _bootstrapAndFinalize();
+        assertTrue(core.isSecondaryMarket(secondaryMarketModule));
+        assertFalse(core.isSecondaryMarket(contestModule));
+        assertFalse(core.isSecondaryMarket(address(0xDEAD)));
+    }
 
-        // Prank as the registered module and emit event
-        bytes32 eventType = keccak256("REGISTERED_EVENT");
-        bytes memory eventData = abi.encodePacked(uint256(456));
-        vm.prank(dummyModule1);
+    function testIsApprovedScorer_ReturnsCorrectValues() public {
+        _bootstrapAndFinalize();
+        assertTrue(core.isApprovedScorer(moneylineScorerModule));
+        assertTrue(core.isApprovedScorer(spreadScorerModule));
+        assertTrue(core.isApprovedScorer(totalScorerModule));
+        assertFalse(core.isApprovedScorer(contestModule));
+        assertFalse(core.isApprovedScorer(address(0xDEAD)));
+    }
+
+    // --- Event Emission ---
+
+    function testEmitCoreEvent_RegisteredModule_Succeeds() public {
+        _bootstrapAndFinalize();
+
+        bytes32 eventType = keccak256("TEST_EVENT");
+        bytes memory eventData = abi.encodePacked(uint256(123));
+        vm.prank(contestModule);
         vm.expectEmit(true, true, false, true);
-        emit OspexCore.CoreEventEmitted(eventType, dummyModule1, eventData);
+        emit OspexCore.CoreEventEmitted(eventType, contestModule, eventData);
         core.emitCoreEvent(eventType, eventData);
     }
 
     function testEmitCoreEvent_UnregisteredModule_Reverts() public {
-        // Prank as an unregistered module address
-        bytes32 eventType = keccak256("UNREGISTERED_EVENT");
-        bytes memory eventData = abi.encodePacked(uint256(789));
+        _bootstrapAndFinalize();
+
         vm.prank(address(0xDEAD));
         vm.expectRevert(
-            abi.encodeWithSelector(
-                OspexCore.OspexCore__NotRegisteredModule.selector,
-                address(0xDEAD)
-            )
-        );
-        core.emitCoreEvent(eventType, eventData);
-    }
-
-    function testEmitCoreEvent_EOA_Reverts() public {
-        // Prank as an EOA (not registered as a module)
-        bytes32 eventType = keccak256("EOA_EVENT");
-        bytes memory eventData = abi.encodePacked(uint256(101112));
-        vm.prank(address(0xB0B0));
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                OspexCore.OspexCore__NotRegisteredModule.selector,
-                address(0xB0B0)
-            )
-        );
-        core.emitCoreEvent(eventType, eventData);
-    }
-
-    // Test onlyModule modifier (indirectly, since it's internal)
-    // This would be tested in modules that use the modifier
-
-    function testSetMarketRole_GrantsAndRevokes() public {
-        address market = address(0xCAFE);
-        // Only admin can call
-        vm.prank(admin);
-        core.setMarketRole(market, true);
-        assertTrue(core.hasMarketRole(market));
-        vm.prank(admin);
-        core.setMarketRole(market, false);
-        assertFalse(core.hasMarketRole(market));
-    }
-
-    function testSetMarketRole_RevertsIfNotAdmin() public {
-        address market = address(0xCAFE);
-        bytes32 role = core.DEFAULT_ADMIN_ROLE();
-        vm.expectRevert(abi.encodeWithSelector(
-            IAccessControl.AccessControlUnauthorizedAccount.selector,
-            address(0xBAD),
-            role
-        ));
-        vm.prank(address(0xBAD));
-        core.setMarketRole(market, true);
-    }
-
-    function testHasMarketRole_ReturnsCorrectValue() public {
-        address market = address(0xCAFE);
-        vm.prank(admin);
-        core.setMarketRole(market, true);
-        assertTrue(core.hasMarketRole(market));
-        vm.prank(admin);
-        core.setMarketRole(market, false);
-        assertFalse(core.hasMarketRole(market));
-    }
-
-    // --- RETIRED MODULE TESTS ---
-
-    /**
-     * @notice Swapping a module retires the old one and emits ModuleRetired
-     */
-    function testRegisterModule_RetiresOldModule_EmitsEvent() public {
-        vm.startPrank(admin);
-        core.registerModule(MODULE_TYPE, dummyModule1);
-
-        vm.expectEmit(true, true, false, true);
-        emit OspexCore.ModuleRetired(MODULE_TYPE, dummyModule1);
-        core.registerModule(MODULE_TYPE, dummyModule2);
-        vm.stopPrank();
-
-        // Old module is retired, not registered
-        assertFalse(core.s_isModuleRegistered(dummyModule1));
-        assertTrue(core.s_isRetiredModule(dummyModule1));
-        // New module is registered, not retired
-        assertTrue(core.s_isModuleRegistered(dummyModule2));
-        assertFalse(core.s_isRetiredModule(dummyModule2));
-    }
-
-    /**
-     * @notice Re-registering the same address for the same type does not retire it
-     */
-    function testRegisterModule_SameAddress_DoesNotRetire() public {
-        vm.startPrank(admin);
-        core.registerModule(MODULE_TYPE, dummyModule1);
-        // Register same address again — should be a no-op on retirement
-        core.registerModule(MODULE_TYPE, dummyModule1);
-        vm.stopPrank();
-
-        assertTrue(core.s_isModuleRegistered(dummyModule1));
-        assertFalse(core.s_isRetiredModule(dummyModule1));
-    }
-
-    /**
-     * @notice A retired module can still call emitCoreEvent
-     * @dev This is the core fix: claims from a replaced PositionModule must not revert
-     */
-    function testEmitCoreEvent_RetiredModule_Succeeds() public {
-        // Register then replace dummyModule1
-        vm.startPrank(admin);
-        core.registerModule(MODULE_TYPE, dummyModule1);
-        core.registerModule(MODULE_TYPE, dummyModule2);
-        vm.stopPrank();
-
-        // dummyModule1 is now retired — emitCoreEvent should still work
-        bytes32 eventType = keccak256("POSITION_CLAIMED");
-        bytes memory eventData = abi.encode(uint256(1), address(0xBEEF), uint256(100));
-        vm.prank(dummyModule1);
-        vm.expectEmit(true, true, false, true);
-        emit OspexCore.CoreEventEmitted(eventType, dummyModule1, eventData);
-        core.emitCoreEvent(eventType, eventData);
-    }
-
-    /**
-     * @notice The emitter field in CoreEventEmitted distinguishes retired vs active modules
-     */
-    function testEmitCoreEvent_EmitterField_DistinguishesModuleGenerations() public {
-        vm.startPrank(admin);
-        core.registerModule(MODULE_TYPE, dummyModule1);
-        core.registerModule(MODULE_TYPE, dummyModule2);
-        vm.stopPrank();
-
-        bytes32 eventType = keccak256("POSITION_CLAIMED");
-        bytes memory eventData = abi.encode(uint256(42));
-
-        // Retired module emits with its own address
-        vm.prank(dummyModule1);
-        vm.expectEmit(true, true, false, true);
-        emit OspexCore.CoreEventEmitted(eventType, dummyModule1, eventData);
-        core.emitCoreEvent(eventType, eventData);
-
-        // Active module emits with its own address
-        vm.prank(dummyModule2);
-        vm.expectEmit(true, true, false, true);
-        emit OspexCore.CoreEventEmitted(eventType, dummyModule2, eventData);
-        core.emitCoreEvent(eventType, eventData);
-    }
-
-    /**
-     * @notice A retired module cannot call processFee — retired permissions are narrow
-     */
-    function testProcessFee_RetiredModule_Reverts() public {
-        vm.startPrank(admin);
-        core.registerModule(MODULE_TYPE, dummyModule1);
-        core.registerModule(MODULE_TYPE, dummyModule2);
-        vm.stopPrank();
-
-        // dummyModule1 is retired — processFee should revert
-        vm.prank(dummyModule1);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                OspexCore.OspexCore__NotRegisteredModule.selector,
-                dummyModule1
-            )
-        );
-        core.processFee(address(0xBEEF), 100, FeeType.ContestCreation, 0);
-    }
-
-    /**
-     * @notice A retired module cannot call processLeaderboardEntryFee
-     */
-    function testProcessLeaderboardEntryFee_RetiredModule_Reverts() public {
-        vm.startPrank(admin);
-        core.registerModule(MODULE_TYPE, dummyModule1);
-        core.registerModule(MODULE_TYPE, dummyModule2);
-        vm.stopPrank();
-
-        vm.prank(dummyModule1);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                OspexCore.OspexCore__NotRegisteredModule.selector,
-                dummyModule1
-            )
-        );
-        core.processLeaderboardEntryFee(address(0xBEEF), 100, 0);
-    }
-
-    /**
-     * @notice An address that was never registered or retired cannot call emitCoreEvent
-     */
-    function testEmitCoreEvent_NeverRegistered_Reverts() public {
-        // dummyModule1 was never registered — should revert
-        vm.prank(dummyModule1);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                OspexCore.OspexCore__NotRegisteredModule.selector,
-                dummyModule1
-            )
+            abi.encodeWithSelector(OspexCore.OspexCore__NotRegisteredModule.selector, address(0xDEAD))
         );
         core.emitCoreEvent(keccak256("TEST"), "");
     }
 
-    /**
-     * @notice isRegisteredModule returns false for retired modules
-     * @dev Retired is a separate status — not "registered" in the active sense
-     */
-    function testIsRegisteredModule_RetiredModule_ReturnsFalse() public {
-        vm.startPrank(admin);
-        core.registerModule(MODULE_TYPE, dummyModule1);
-        core.registerModule(MODULE_TYPE, dummyModule2);
-        vm.stopPrank();
+    // --- Fee Processing Access Control ---
 
-        assertFalse(core.isRegisteredModule(dummyModule1));
-        assertTrue(core.s_isRetiredModule(dummyModule1));
+    function testProcessFee_UnregisteredModule_Reverts() public {
+        _bootstrapAndFinalize();
+
+        vm.prank(address(0xDEAD));
+        vm.expectRevert(
+            abi.encodeWithSelector(OspexCore.OspexCore__NotRegisteredModule.selector, address(0xDEAD))
+        );
+        core.processFee(address(0xBEEF), FeeType.ContestCreation);
+    }
+
+    function testProcessSplitFee_UnregisteredModule_Reverts() public {
+        _bootstrapAndFinalize();
+
+        vm.prank(address(0xDEAD));
+        vm.expectRevert(
+            abi.encodeWithSelector(OspexCore.OspexCore__NotRegisteredModule.selector, address(0xDEAD))
+        );
+        core.processSplitFee(address(0xBEEF), address(0xCAFE), FeeType.SpeculationCreation);
+    }
+
+    function testProcessLeaderboardEntryFee_UnregisteredModule_Reverts() public {
+        _bootstrapAndFinalize();
+
+        vm.prank(address(0xDEAD));
+        vm.expectRevert(
+            abi.encodeWithSelector(OspexCore.OspexCore__NotRegisteredModule.selector, address(0xDEAD))
+        );
+        core.processLeaderboardEntryFee(address(0xBEEF), 100, 1);
+    }
+
+    // --- Constants ---
+
+    function testConstants_ModuleKeysAreCorrect() public view {
+        assertEq(core.CONTEST_MODULE(), keccak256("CONTEST_MODULE"));
+        assertEq(core.SPECULATION_MODULE(), keccak256("SPECULATION_MODULE"));
+        assertEq(core.POSITION_MODULE(), keccak256("POSITION_MODULE"));
+        assertEq(core.MATCHING_MODULE(), keccak256("MATCHING_MODULE"));
+        assertEq(core.ORACLE_MODULE(), keccak256("ORACLE_MODULE"));
+        assertEq(core.TREASURY_MODULE(), keccak256("TREASURY_MODULE"));
+        assertEq(core.LEADERBOARD_MODULE(), keccak256("LEADERBOARD_MODULE"));
+        assertEq(core.RULES_MODULE(), keccak256("RULES_MODULE"));
+        assertEq(core.SECONDARY_MARKET_MODULE(), keccak256("SECONDARY_MARKET_MODULE"));
+        assertEq(core.MONEYLINE_SCORER_MODULE(), keccak256("MONEYLINE_SCORER_MODULE"));
+        assertEq(core.SPREAD_SCORER_MODULE(), keccak256("SPREAD_SCORER_MODULE"));
+        assertEq(core.TOTAL_SCORER_MODULE(), keccak256("TOTAL_SCORER_MODULE"));
+    }
+
+    // --- Helpers ---
+
+    function _fullModuleArrays() internal view returns (bytes32[] memory types, address[] memory addrs) {
+        types = new bytes32[](12);
+        addrs = new address[](12);
+        types[0] = core.CONTEST_MODULE();              addrs[0] = contestModule;
+        types[1] = core.SPECULATION_MODULE();           addrs[1] = speculationModule;
+        types[2] = core.POSITION_MODULE();              addrs[2] = positionModule;
+        types[3] = core.MATCHING_MODULE();              addrs[3] = matchingModule;
+        types[4] = core.ORACLE_MODULE();                addrs[4] = oracleModule;
+        types[5] = core.TREASURY_MODULE();              addrs[5] = treasuryModule;
+        types[6] = core.LEADERBOARD_MODULE();           addrs[6] = leaderboardModule;
+        types[7] = core.RULES_MODULE();                 addrs[7] = rulesModule;
+        types[8] = core.SECONDARY_MARKET_MODULE();      addrs[8] = secondaryMarketModule;
+        types[9] = core.MONEYLINE_SCORER_MODULE();      addrs[9] = moneylineScorerModule;
+        types[10] = core.SPREAD_SCORER_MODULE();        addrs[10] = spreadScorerModule;
+        types[11] = core.TOTAL_SCORER_MODULE();         addrs[11] = totalScorerModule;
+    }
+
+    function _bootstrapAndFinalize() internal {
+        (bytes32[] memory types, address[] memory addrs) = _fullModuleArrays();
+        vm.startPrank(deployer);
+        core.bootstrapModules(types, addrs);
+        core.finalize();
+        vm.stopPrank();
     }
 }

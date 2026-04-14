@@ -41,7 +41,6 @@ contract DecodeSpeculation is Script {
         else if (speculation.winSide == WinSide.Under) winSideStr = "Under";
         else if (speculation.winSide == WinSide.Push) winSideStr = "Push";
         else if (speculation.winSide == WinSide.Void) winSideStr = "Void";
-        else if (speculation.winSide == WinSide.Forfeit) winSideStr = "Forfeit";
         else winSideStr = "Unknown";
 
         console.log("Status:", statusStr);

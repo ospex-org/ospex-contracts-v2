@@ -5,7 +5,9 @@ import "../../src/modules/SpeculationModule.sol";
 import {WinSide, Speculation} from "../../src/core/OspexTypes.sol";
 
 contract MockSpeculationModule is SpeculationModule {
-    constructor(address core, uint8 tokenDecimals) SpeculationModule(core, tokenDecimals) {}
+    constructor(address core, uint8 tokenDecimals, uint32 voidCooldown, uint256 minSpeculationAmount)
+        SpeculationModule(core, tokenDecimals, voidCooldown, minSpeculationAmount)
+    {}
 
     // Test-only helper to set winSide for a speculation
     function setSpeculationWinSide(uint256 specId, WinSide side) external {

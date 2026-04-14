@@ -26,30 +26,28 @@ contract DecodeLeaderboard is Script {
         uint256 actualPrizePool = treasuryModule.getPrizePool(leaderboardId);
         console.log("Prize Pool (from Treasury):", actualPrizePool);
         console.log("Entry Fee:", leaderboard.entryFee);
-        console.log("Yield Strategy:", leaderboard.yieldStrategy);
-        
+        console.log("Creator:", leaderboard.creator);
+
         console.log("\n-- Time Configuration --");
         console.log("Start Time:", leaderboard.startTime);
         console.log("End Time:", leaderboard.endTime);
         console.log("Safety Period Duration:", leaderboard.safetyPeriodDuration);
         console.log("ROI Submission Window:", leaderboard.roiSubmissionWindow);
-        console.log("Claim Window:", leaderboard.claimWindow);
-        
-        // Calculate derived timestamps
+
+        // Calculate derived timestamps (no claim window — claims open forever after ROI)
         console.log("\n-- Calculated Timestamps --");
         uint32 safetyPeriodEnd = leaderboard.endTime + leaderboard.safetyPeriodDuration;
         uint32 roiSubmissionEnd = safetyPeriodEnd + leaderboard.roiSubmissionWindow;
-        uint32 claimWindowEnd = roiSubmissionEnd + leaderboard.claimWindow;
-        
+
         console.log("Safety Period Ends:", safetyPeriodEnd);
         console.log("ROI Submission Ends:", roiSubmissionEnd);
-        console.log("Claim Window Ends:", claimWindowEnd);
-        
+        console.log("Claims Open After:", roiSubmissionEnd);
+
         // Current time context
         uint32 currentTime = uint32(block.timestamp);
         console.log("\n-- Current Time Context --");
         console.log("Current Timestamp:", currentTime);
-        
+
         // Determine current phase
         string memory currentPhase;
         if (currentTime < leaderboard.endTime) {
@@ -58,18 +56,15 @@ contract DecodeLeaderboard is Script {
             currentPhase = "SAFETY_PERIOD";
         } else if (currentTime < roiSubmissionEnd) {
             currentPhase = "ROI_SUBMISSION";
-        } else if (currentTime < claimWindowEnd) {
-            currentPhase = "CLAIM_WINDOW";
         } else {
-            currentPhase = "EXPIRED";
+            currentPhase = "CLAIMABLE";
         }
-        
+
         console.log("Current Phase:", currentPhase);
-        
+
         // Validation checks
         console.log("\n-- Validation Checks --");
         console.log("Has Prize Pool:", actualPrizePool > 0 ? "YES" : "NO");
-        console.log("Has Yield Strategy:", leaderboard.yieldStrategy != address(0) ? "YES" : "NO");
         console.log("Is Time Valid:", leaderboard.endTime > leaderboard.startTime ? "YES" : "NO");
         
         // LeaderboardScoring information
@@ -109,8 +104,8 @@ contract DecodeLeaderboard is Script {
         console.log("User is in winners list:", isUserInWinners(winners, userAddress) ? "YES" : "NO");
         console.log("Prize pool exists:", actualPrizePool > 0 ? "YES" : "NO");
         console.log("User has not claimed:", !hasUserClaimed ? "YES" : "NO");
-        bool inClaimWindow = (currentTime >= roiSubmissionEnd && currentTime < claimWindowEnd);
-        console.log("In claim window:", inClaimWindow ? "YES" : "NO");
+        bool claimable = (currentTime >= roiSubmissionEnd);
+        console.log("Claimable:", claimable ? "YES" : "NO");
     }
     
     // Helper function to check if user is in winners array

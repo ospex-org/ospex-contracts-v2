@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {ILeaderboardModule} from "../interfaces/ILeaderboardModule.sol";
+import {IContestModule} from "../interfaces/IContestModule.sol";
 import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IPositionModule} from "../interfaces/IPositionModule.sol";
 import {ITreasuryModule} from "../interfaces/ITreasuryModule.sol";
@@ -14,7 +15,8 @@ import {
     Position,
     LeaderboardScoring,
     WinSide,
-    LeaderboardPositionValidationResult
+    LeaderboardPositionValidationResult,
+    FeeType
 } from "../core/OspexTypes.sol";
 import {OspexCore} from "../core/OspexCore.sol";
 import {
@@ -23,165 +25,134 @@ import {
 
 /**
  * @title LeaderboardModule
- * @notice Handles leaderboard creation, storage, and status management for Ospex protocol
- * @dev All business logic for leaderboards is implemented here.
+ * @notice Handles leaderboard creation, user registration, position tracking,
+ *         ROI scoring, and prize distribution for the Ospex protocol.
+ * @dev Permissionless: anyone can create a leaderboard (0.50 USDC fee). The creator
+ *      controls which speculations are eligible. Entry fees go entirely to the prize pool.
+ *      Winners are determined by highest ROI during the submission window.
  */
 
 contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
-    // --- Custom Errors ---
-    /// @notice Error for calling the module from non-authorized address
-    error LeaderboardModule__NotAdmin(address caller);
-    /// @notice Error for invalid time range
+    // ──────────────────────────── Constants ────────────────────────────
+
+    bytes32 public constant LEADERBOARD_MODULE =
+        keccak256("LEADERBOARD_MODULE");
+    bytes32 public constant TREASURY_MODULE = keccak256("TREASURY_MODULE");
+    bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
+    bytes32 public constant SPECULATION_MODULE =
+        keccak256("SPECULATION_MODULE");
+    bytes32 public constant POSITION_MODULE = keccak256("POSITION_MODULE");
+    bytes32 public constant RULES_MODULE = keccak256("RULES_MODULE");
+
+    bytes32 public constant EVENT_LEADERBOARD_CREATED =
+        keccak256("LEADERBOARD_CREATED");
+    bytes32 public constant EVENT_LEADERBOARD_SPECULATION_ADDED =
+        keccak256("LEADERBOARD_SPECULATION_ADDED");
+    bytes32 public constant EVENT_USER_REGISTERED =
+        keccak256("USER_REGISTERED");
+    bytes32 public constant EVENT_LEADERBOARD_POSITION_ADDED =
+        keccak256("LEADERBOARD_POSITION_ADDED");
+    bytes32 public constant EVENT_LEADERBOARD_ROI_SUBMITTED =
+        keccak256("LEADERBOARD_ROI_SUBMITTED");
+    bytes32 public constant EVENT_LEADERBOARD_NEW_HIGHEST_ROI =
+        keccak256("LEADERBOARD_NEW_HIGHEST_ROI");
+    bytes32 public constant EVENT_LEADERBOARD_PRIZE_CLAIMED =
+        keccak256("LEADERBOARD_PRIZE_CLAIMED");
+
+    /// @notice ROI precision for calculations (1e18)
+    uint256 public constant ROI_PRECISION = 1e18;
+
+    // ──────────────────────────── Errors ───────────────────────────────
+
+    /// @notice Thrown when leaderboard time parameters are invalid
     error LeaderboardModule__InvalidTimeRange();
-    /// @notice Error for invalid time
+    /// @notice Thrown when an action is attempted outside the valid time window
     error LeaderboardModule__InvalidTime();
-    /// @notice Error for bankroll out of range
+    /// @notice Thrown when a declared bankroll is zero or fails rules validation
     error LeaderboardModule__BankrollOutOfRange();
-    /// @notice Error for no risk amount
+    /// @notice Thrown when a position has zero risk amount
     error LeaderboardModule__NoRiskAmount();
-    /// @notice Error for user already registered
+    /// @notice Thrown when a user attempts to register for a leaderboard twice
     error LeaderboardModule__UserAlreadyRegistered();
-    /// @notice Error for user not registered for leaderboard
+    /// @notice Thrown when an unregistered user attempts a leaderboard action
     error LeaderboardModule__UserNotRegisteredForLeaderboard();
-    /// @notice Error for ROI already submitted
+    /// @notice Thrown when a user attempts to submit ROI more than once
     error LeaderboardModule__ROIAlreadySubmitted();
-    /// @notice Error for invalid OspexCore
+    /// @notice Thrown when the OspexCore address is zero
     error LeaderboardModule__InvalidOspexCore();
-    /// @notice Error for bet size below minimum
+    /// @notice Thrown when a position's risk amount is below the minimum bet
     error LeaderboardModule__BetSizeBelowMinimum();
-    /// @notice Error for validation failed
+    /// @notice Thrown when position validation fails against leaderboard rules
     error LeaderboardModule__ValidationFailed(
         LeaderboardPositionValidationResult reason
     );
-    /// @notice Error for position already exists for speculation
+    /// @notice Thrown when a user already has a position for the same contest/scorer slot
     error LeaderboardModule__PositionAlreadyExistsForSpeculation();
-    /// @notice Error for module not set
+    /// @notice Thrown when a required module is not registered in OspexCore
     error LeaderboardModule__ModuleNotSet(bytes32 moduleType);
-    /// @notice Error for not in ROI window
+    /// @notice Thrown when ROI submission is attempted outside the submission window
     error LeaderboardModule__NotInROIWindow();
-    /// @notice Error for not in claim window
-    error LeaderboardModule__NotInClaimWindow();
-    /// @notice Error for not winner
+    /// @notice Thrown when a speculation's contest has already started
+    error LeaderboardModule__ContestAlreadyStarted();
+    /// @notice Thrown when prize claim is attempted prior to close of ROI submission window
+    error LeaderboardModule__NotClaimableYet();
+    /// @notice Thrown when a non-winner attempts to claim a prize
     error LeaderboardModule__NotWinner();
-    /// @notice Error for already claimed
+    /// @notice Thrown when a winner attempts to claim a prize twice
     error LeaderboardModule__AlreadyClaimed();
-    /// @notice Error for minimum positions not met
+    /// @notice Thrown when a user has not met the minimum positions requirement
     error LeaderboardModule__MinimumPositionsNotMet();
-    /// @notice Error for no unclaimed prizes
-    error LeaderboardModule__NoUnclaimedPrizes();
-    /// @notice Error for leaderboard speculation not found
+    /// @notice Thrown when a speculation is already registered for a leaderboard
     error LeaderboardModule__SpeculationAlreadyExists(uint256 speculationId);
+    /// @notice Thrown when a non-creator calls a creator-only function
+    error LeaderboardModule__NotCreator(address caller);
 
-    // --- State Variables ---
-    // Stores all leaderboard core state, keyed by leaderboardId.
-    // Each Leaderboard struct contains prize pool, timing, winner, etc.
-    mapping(uint256 => Leaderboard) private s_leaderboards;
+    // ──────────────────────────── Events ───────────────────────────────
 
-    // Stores the declared bankroll for each user in each leaderboard.
-    // Used for eligibility checks and ROI normalization.
-    // leaderboardId => user address => declared bankroll
-    mapping(uint256 => mapping(address => uint256)) public s_userBankrolls;
-
-    // Tracks each user's leaderboard-eligible position for a given speculation in a leaderboard.
-    // leaderboardId => user address => speculationId => LeaderboardPosition
-    mapping(uint256 => mapping(address => mapping(uint256 => LeaderboardPosition)))
-        private s_leaderboardPositions;
-
-    // Tracks all speculationIds a user has positions in for a given leaderboard.
-    // Used for iterating over a user's leaderboard positions.
-    // leaderboardId => user address => array of speculationIds
-    mapping(uint256 => mapping(address => uint256[]))
-        public s_userSpeculationIds;
-
-    // Tracks if a speculation is registered for a leaderboard
-    // leaderboardId => speculationId => bool
-    mapping(uint256 => mapping(uint256 => bool))
-        public s_leaderboardSpeculationRegistered;
-
-    // Used to enforce one position (spread/moneyline) per leaderboard per user
-    // leaderboardId => user => contestId => scorer => registeredSpeculationId
-    mapping(uint256 => mapping(address => mapping(uint256 => mapping(address => uint256))))
-        public s_registeredLeaderboardSpeculation;
-
-    // Stores the scoring information for each leaderboard
-    // leaderboardId => LeaderboardScoring
-    mapping(uint256 => LeaderboardScoring) private s_leaderboardScoring;
-
-    // Check to see if roi has been submitted, protects against repeatedly submitting ROI of 0
-    mapping(uint256 => mapping(address => bool)) public s_roiSubmitted;
-
-    /// @notice Minimum position floor locked by leaderboard registration.
-    ///         After registration, the user must retain at least this much
-    ///         risk and profit to back their leaderboard snapshot.
-    mapping(uint256 => mapping(address => mapping(PositionType => uint256)))
-        public s_lockedRisk;
-    mapping(uint256 => mapping(address => mapping(PositionType => uint256)))
-        public s_lockedProfit;
-
-    // Leaderboard counter
-    uint256 public s_nextLeaderboardId = 1;
-    /// @notice The OspexCore contract
-    OspexCore public immutable i_ospexCore;
-
-    // --- Constants ---
-    /// @notice ROI precision for calculations
-    uint256 public constant ROI_PRECISION = 1e18;
-
-    // --- Events ---
-    /**
-     * @notice Event for leaderboard creation
-     * @param leaderboardId The ID of the leaderboard
-     * @param entryFee The entry fee for the leaderboard
-     * @param yieldStrategy The yield strategy for the leaderboard
-     * @param startTime The start time of the leaderboard
-     * @param endTime The end time of the leaderboard
-     * @param safetyPeriodDuration The safety period duration
-     * @param roiSubmissionWindow The ROI submission window
-     * @param claimWindow The claim window
-     */
+    /// @notice Emitted when a new leaderboard is created
+    /// @param leaderboardId The ID of the leaderboard
+    /// @param creator The address of the leaderboard creator
+    /// @param entryFee The entry fee for the leaderboard
+    /// @param startTime The start time of the leaderboard
+    /// @param endTime The end time of the leaderboard
+    /// @param safetyPeriodDuration The safety period duration
+    /// @param roiSubmissionWindow The ROI submission window
     event LeaderboardCreated(
         uint256 indexed leaderboardId,
+        address indexed creator,
         uint256 entryFee,
-        address yieldStrategy,
         uint32 startTime,
         uint32 endTime,
         uint32 safetyPeriodDuration,
-        uint32 roiSubmissionWindow,
-        uint32 claimWindow
+        uint32 roiSubmissionWindow
     );
 
-    /**
-     * @notice Event for adding a speculation to a leaderboard
-     * @param leaderboardId The ID of the leaderboard
-     * @param speculationId The ID of the speculation
-     */
+    /// @notice Emitted when a speculation is added to a leaderboard
+    /// @param leaderboardId The ID of the leaderboard
+    /// @param speculationId The ID of the speculation
     event LeaderboardSpeculationAdded(
         uint256 indexed leaderboardId,
         uint256 indexed speculationId
     );
 
-    /**
-     * @notice Event for user registration
-     * @param leaderboardId The ID of the leaderboard
-     * @param user The address of the user
-     * @param declaredBankroll The declared bankroll of the user
-     */
+    /// @notice Emitted when a user registers for a leaderboard
+    /// @param leaderboardId The ID of the leaderboard
+    /// @param user The address of the user
+    /// @param declaredBankroll The declared bankroll of the user
     event UserRegistered(
         uint256 indexed leaderboardId,
         address indexed user,
         uint256 declaredBankroll
     );
 
-    /**
-     * @notice Event for adding a position to a leaderboard
-     * @param contestId The ID of the contest
-     * @param speculationId The ID of the speculation
-     * @param user The address of the user
-     * @param riskAmount The risk amount of the position
-     * @param profitAmount The profit amount of the position
-     * @param positionType The type of the position
-     * @param leaderboardId The ID of the leaderboard
-     */
+    /// @notice Emitted when a position is snapshotted into a leaderboard
+    /// @param contestId The ID of the contest
+    /// @param speculationId The ID of the speculation
+    /// @param user The address of the user
+    /// @param riskAmount The risk amount of the position
+    /// @param profitAmount The profit amount of the position
+    /// @param positionType The type of the position
+    /// @param leaderboardId The ID of the leaderboard
     event LeaderboardPositionAdded(
         uint256 contestId,
         uint256 indexed speculationId,
@@ -192,73 +163,85 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         uint256 indexed leaderboardId
     );
 
-    /**
-     * @notice Event for submitting ROI to a leaderboard
-     * @param leaderboardId The ID of the leaderboard
-     * @param user The address of the user
-     * @param roi The ROI of the user
-     */
+    /// @notice Emitted when a user submits their ROI
+    /// @param leaderboardId The ID of the leaderboard
+    /// @param user The address of the user
+    /// @param roi The ROI of the user
     event LeaderboardROISubmitted(
         uint256 indexed leaderboardId,
         address indexed user,
         int256 roi
     );
 
-    /**
-     * @notice Event for new highest ROI
-     * @param leaderboardId The ID of the leaderboard
-     * @param newHighestROI The new highest ROI
-     * @param winner The winner of the leaderboard
-     */
+    /// @notice Emitted when a new highest ROI is recorded or tied
+    /// @param leaderboardId The ID of the leaderboard
+    /// @param newHighestROI The new highest ROI
+    /// @param winner The winner of the leaderboard
     event LeaderboardNewHighestROI(
         uint256 indexed leaderboardId,
         int256 newHighestROI,
         address winner
     );
 
-    /**
-     * @notice Event for prize claimed
-     * @param leaderboardId The ID of the leaderboard
-     * @param winner The winner of the leaderboard
-     * @param amount The amount of the prize
-     */
+    /// @notice Emitted when a winner claims their prize
+    /// @param leaderboardId The ID of the leaderboard
+    /// @param winner The winner of the leaderboard
+    /// @param amount The amount of the prize
     event LeaderboardPrizeClaimed(
         uint256 indexed leaderboardId,
         address winner,
         uint256 amount
     );
 
-    /**
-     * @notice Event for prizes swept
-     * @param leaderboardId The ID of the leaderboard
-     * @param admin The address of the admin
-     * @param amount The amount of the prizes
-     */
-    event LeaderboardPrizesSwept(
-        uint256 indexed leaderboardId,
-        address indexed admin,
-        uint256 amount
-    );
+    // ──────────────────────────── State ────────────────────────────────
 
-    // --- Modifiers ---
+    /// @notice The OspexCore contract
+    OspexCore public immutable i_ospexCore;
 
-    /**
-     * @notice Modifier to ensure the caller is the admin
-     */
-    modifier onlyAdmin() {
-        if (
-            !i_ospexCore.hasRole(i_ospexCore.DEFAULT_ADMIN_ROLE(), msg.sender)
-        ) {
-            revert LeaderboardModule__NotAdmin(msg.sender);
-        }
-        _;
-    }
+    /// @notice Auto-incrementing leaderboard ID counter (starts at 1)
+    uint256 public s_nextLeaderboardId = 1;
 
-    // --- Constructor ---
-    /**
-     * @notice Constructor for the leaderboard module
-     * @param ospexCore_ The address of the OspexCore contract
-     */
+    /// @notice Leaderboard ID → Leaderboard struct
+    mapping(uint256 => Leaderboard) private s_leaderboards;
+
+    /// @notice Leaderboard ID → user → declared bankroll
+    mapping(uint256 => mapping(address => uint256)) public s_userBankrolls;
+
+    /// @notice Leaderboard ID → user → speculation ID → LeaderboardPosition
+    mapping(uint256 => mapping(address => mapping(uint256 => LeaderboardPosition)))
+        private s_leaderboardPositions;
+
+    /// @notice Leaderboard ID → user → array of speculation IDs with registered positions
+    mapping(uint256 => mapping(address => uint256[]))
+        public s_userSpeculationIds;
+
+    /// @notice Leaderboard ID → speculation ID → whether registered
+    mapping(uint256 => mapping(uint256 => bool))
+        public s_leaderboardSpeculationRegistered;
+
+    /// @notice Leaderboard ID → user → contest ID → scorer → registered speculation ID
+    /// @dev Enforces one position per contest/scorer slot per user per leaderboard
+    mapping(uint256 => mapping(address => mapping(uint256 => mapping(address => uint256))))
+        public s_registeredLeaderboardSpeculation;
+
+    /// @notice Leaderboard ID → LeaderboardScoring (winners, ROIs, claims)
+    mapping(uint256 => LeaderboardScoring) private s_leaderboardScoring;
+
+    /// @notice Leaderboard ID → user → whether ROI has been submitted
+    mapping(uint256 => mapping(address => bool)) public s_roiSubmitted;
+
+    /// @notice Speculation ID → user → position type → minimum locked risk
+    mapping(uint256 => mapping(address => mapping(PositionType => uint256)))
+        public s_lockedRisk;
+
+    /// @notice Speculation ID → user → position type → minimum locked profit
+    mapping(uint256 => mapping(address => mapping(PositionType => uint256)))
+        public s_lockedProfit;
+
+    // ──────────────────────────── Constructor ──────────────────────────
+
+    /// @notice Deploys the LeaderboardModule
+    /// @param ospexCore_ The OspexCore contract address
     constructor(address ospexCore_) {
         if (ospexCore_ == address(0)) {
             revert LeaderboardModule__InvalidOspexCore();
@@ -266,140 +249,128 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         i_ospexCore = OspexCore(ospexCore_);
     }
 
-    // --- IModule ---
-    /**
-     * @notice Gets the module type
-     * @return moduleType The module type
-     */
+    // ──────────────────────────── Module Identity ─────────────────────
+
+    /// @notice Returns the module type identifier
     function getModuleType() external pure override returns (bytes32) {
-        return keccak256("LEADERBOARD_MODULE");
+        return LEADERBOARD_MODULE;
     }
 
-    // --- Core Functions ---
-    /**
-     * @notice Creates a leaderboard
-     * @dev All time values must be greater than 0
-     * @param entryFee The entry fee for the leaderboard
-     * @param yieldStrategy The yield strategy for the leaderboard
-     * @param startTime The start time of the leaderboard
-     * @param endTime The end time of the leaderboard
-     * @param safetyPeriodDuration The safety period duration
-     * @param roiSubmissionWindow The ROI submission window
-     * @param claimWindow The claim window
-     * @return leaderboardId The ID of the leaderboard
-     */
+    // ──────────────────────────── Leaderboard Creation ─────────────────
+
+    /// @inheritdoc ILeaderboardModule
     function createLeaderboard(
         uint256 entryFee,
-        address yieldStrategy,
         uint32 startTime,
         uint32 endTime,
         uint32 safetyPeriodDuration,
-        uint32 roiSubmissionWindow,
-        uint32 claimWindow
-    ) external override onlyAdmin returns (uint256 leaderboardId) {
-        // Validate time range
+        uint32 roiSubmissionWindow
+    ) external override returns (uint256 leaderboardId) {
         if (
             startTime >= endTime ||
             startTime < block.timestamp ||
             safetyPeriodDuration == 0 ||
-            roiSubmissionWindow == 0 ||
-            claimWindow == 0
+            roiSubmissionWindow == 0
         ) {
             revert LeaderboardModule__InvalidTimeRange();
         }
+
+        i_ospexCore.processFee(msg.sender, FeeType.LeaderboardCreation);
+
         leaderboardId = s_nextLeaderboardId++;
         s_leaderboards[leaderboardId] = Leaderboard({
             entryFee: entryFee,
-            yieldStrategy: yieldStrategy,
+            creator: msg.sender,
             startTime: startTime,
             endTime: endTime,
             safetyPeriodDuration: safetyPeriodDuration,
-            roiSubmissionWindow: roiSubmissionWindow,
-            claimWindow: claimWindow
+            roiSubmissionWindow: roiSubmissionWindow
         });
         emit LeaderboardCreated(
             leaderboardId,
+            msg.sender,
             entryFee,
-            yieldStrategy,
             startTime,
             endTime,
             safetyPeriodDuration,
-            roiSubmissionWindow,
-            claimWindow
+            roiSubmissionWindow
         );
         i_ospexCore.emitCoreEvent(
-            keccak256("LEADERBOARD_CREATED"),
+            EVENT_LEADERBOARD_CREATED,
             abi.encode(
                 leaderboardId,
+                msg.sender,
                 entryFee,
-                yieldStrategy,
                 startTime,
                 endTime,
                 safetyPeriodDuration,
-                roiSubmissionWindow,
-                claimWindow
+                roiSubmissionWindow
             )
         );
     }
 
-    /**
-     * @notice Adds a speculation to a leaderboard
-     * @param leaderboardId The ID of the leaderboard
-     * @param speculationId The ID of the speculation
-     */
+    // ──────────────────────────── Speculation Management ───────────────
+
+    /// @inheritdoc ILeaderboardModule
     function addLeaderboardSpeculation(
         uint256 leaderboardId,
         uint256 speculationId
-    ) external override onlyAdmin {
-        // Validate that the LeaderboardSpeculation doesn't already exist
+    ) external override {
+        Leaderboard storage lb = s_leaderboards[leaderboardId];
+        if (msg.sender != lb.creator)
+            revert LeaderboardModule__NotCreator(msg.sender);
+        if (lb.startTime == 0 || block.timestamp >= lb.endTime)
+            revert LeaderboardModule__InvalidTime();
         if (s_leaderboardSpeculationRegistered[leaderboardId][speculationId]) {
             revert LeaderboardModule__SpeculationAlreadyExists(speculationId);
         }
+        uint256 contestId = ISpeculationModule(_getModule(SPECULATION_MODULE))
+            .getSpeculation(speculationId)
+            .contestId;
+        uint32 contestStartTime = IContestModule(_getModule(CONTEST_MODULE))
+            .s_contestStartTimes(contestId);
+        if (contestStartTime == 0 || block.timestamp >= contestStartTime)
+            revert LeaderboardModule__ContestAlreadyStarted();
         s_leaderboardSpeculationRegistered[leaderboardId][speculationId] = true;
         emit LeaderboardSpeculationAdded(leaderboardId, speculationId);
         i_ospexCore.emitCoreEvent(
-            keccak256("LEADERBOARD_SPECULATION_ADDED"),
+            EVENT_LEADERBOARD_SPECULATION_ADDED,
             abi.encode(leaderboardId, speculationId)
         );
     }
 
-    /**
-     * @notice Registers a user for a leaderboard (bankroll must be greater than zero)
-     * @param leaderboardId The ID of the leaderboard
-     * @param declaredBankroll The declared bankroll of the user
-     */
+    // ──────────────────────────── User Registration ───────────────────
+
+    /// @inheritdoc ILeaderboardModule
     function registerUser(
         uint256 leaderboardId,
         uint256 declaredBankroll
     ) external override nonReentrant {
         Leaderboard storage leaderboard = s_leaderboards[leaderboardId];
 
-        // Check if leaderboard exists and hasn't ended
         if (
             leaderboard.startTime == 0 || block.timestamp >= leaderboard.endTime
         ) {
             revert LeaderboardModule__InvalidTime();
         }
 
-        // Reject if declared bankroll is 0
         if (declaredBankroll == 0) {
             revert LeaderboardModule__BankrollOutOfRange();
         }
 
-        // Check if user is already registered (bankroll > 0 means registered)
         if (s_userBankrolls[leaderboardId][msg.sender] > 0) {
             revert LeaderboardModule__UserAlreadyRegistered();
         }
 
-        // If bankroll requirements exist, validate them
         if (
-            !IRulesModule(_getModule(keccak256("RULES_MODULE")))
-                .isBankrollValid(leaderboardId, declaredBankroll)
+            !IRulesModule(_getModule(RULES_MODULE)).isBankrollValid(
+                leaderboardId,
+                declaredBankroll
+            )
         ) {
             revert LeaderboardModule__BankrollOutOfRange();
         }
 
-        // Charge the leaderboard entry fee
         uint256 feeAmount = leaderboard.entryFee;
         if (feeAmount > 0) {
             i_ospexCore.processLeaderboardEntryFee(
@@ -409,15 +380,16 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             );
         }
 
-        // Store user's bankroll
         s_userBankrolls[leaderboardId][msg.sender] = declaredBankroll;
 
         emit UserRegistered(leaderboardId, msg.sender, declaredBankroll);
         i_ospexCore.emitCoreEvent(
-            keccak256("USER_REGISTERED"),
+            EVENT_USER_REGISTERED,
             abi.encode(leaderboardId, msg.sender, declaredBankroll)
         );
     }
+
+    // ──────────────────────────── Position Registration ────────────────
 
     /**
      * @notice Registers a position for one leaderboard (initial registration only)
@@ -425,10 +397,10 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
      *      - A leaderboard entry is an immutable snapshot of position economics at registration time.
      *      - Registration is intentionally decoupled from fill time. Strategic timing is a feature.
      *      - Subsequent changes to the underlying position (additional fills, transfers, secondary
-     *      market sales) do not modify or invalidate the leaderboard entry.
+     *        market sales) do not modify or invalidate the leaderboard entry.
      *      - Positions acquired via SecondaryMarketModule are eligible for registration.
      *      - The odds of record are a public, updatable reference point. Anyone can update them.
-     *      Validation occurs against the odds of record at registration time, not at fill time.
+     *        Validation occurs against the odds of record at registration time, not at fill time.
      * @param speculationId The speculation ID
      * @param positionType The position type
      * @param leaderboardId The leaderboard ID
@@ -451,21 +423,17 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             leaderboardId,
             user
         );
-        // Check if the speculation is already registered for this leaderboard
+
         if (
             s_registeredLeaderboardSpeculation[leaderboardId][user][contestId][
                 scorer
             ] != 0
         ) {
-            // Already registered, must use increase function
             revert LeaderboardModule__PositionAlreadyExistsForSpeculation();
         }
 
-        IRulesModule rulesModule = IRulesModule(
-            _getModule(keccak256("RULES_MODULE"))
-        );
+        IRulesModule rulesModule = IRulesModule(_getModule(RULES_MODULE));
 
-        // Cap at max allowed bet size
         uint256 maxBet = rulesModule.getMaxBetAmount(
             leaderboardId,
             declaredBankroll
@@ -474,12 +442,10 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         if (cappedRiskAmount == 0)
             revert LeaderboardModule__BetSizeBelowMinimum();
 
-        // Profit amount scaled proportionally to cappedRiskAmount
         uint256 cappedProfitAmount = riskAmount > maxBet
             ? (profitAmount * maxBet) / riskAmount
             : profitAmount;
 
-        // Confirm bet size is above minimum bet amount
         if (
             cappedRiskAmount <
             rulesModule.getMinBetAmount(leaderboardId, declaredBankroll)
@@ -487,7 +453,6 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             revert LeaderboardModule__BetSizeBelowMinimum();
         }
 
-        // Validate position using comprehensive rules validation
         LeaderboardPositionValidationResult validationResult = rulesModule
             .validateLeaderboardPosition(
                 leaderboardId,
@@ -502,11 +467,11 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         if (validationResult != LeaderboardPositionValidationResult.Valid) {
             revert LeaderboardModule__ValidationFailed(validationResult);
         }
-        // Register this speculationId as the slot owner
+
         s_registeredLeaderboardSpeculation[leaderboardId][user][contestId][
             scorer
         ] = speculationId;
-        // Store LeaderboardPosition
+
         s_leaderboardPositions[leaderboardId][user][
             speculationId
         ] = LeaderboardPosition({
@@ -517,7 +482,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             user: user,
             positionType: positionType
         });
-        // Track speculationId for user in this leaderboard
+
         s_userSpeculationIds[leaderboardId][user].push(speculationId);
 
         if (
@@ -544,7 +509,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             leaderboardId
         );
         i_ospexCore.emitCoreEvent(
-            keccak256("LEADERBOARD_POSITION_ADDED"),
+            EVENT_LEADERBOARD_POSITION_ADDED,
             abi.encode(
                 contestId,
                 speculationId,
@@ -556,6 +521,8 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             )
         );
     }
+
+    // ──────────────────────────── ROI Submission ──────────────────────
 
     /**
      * @notice Submits a ROI to a leaderboard
@@ -576,27 +543,21 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
      * @param leaderboardId The ID of the leaderboard
      */
     function submitLeaderboardROI(uint256 leaderboardId) external override {
-        // --- Time checks ---
         Leaderboard storage leaderboard = s_leaderboards[leaderboardId];
-        (
-            uint256 roiWindowStart,
-            uint256 roiWindowEnd,
-            ,
-
-        ) = _calculateTimeBounds(leaderboard);
+        (uint256 roiWindowStart, uint256 roiWindowEnd) = _calculateTimeBounds(
+            leaderboard
+        );
         if (
             block.timestamp < roiWindowStart || block.timestamp >= roiWindowEnd
         ) {
             revert LeaderboardModule__NotInROIWindow();
         }
 
-        // --- User registration check ---
         uint256 declaredBankroll = s_userBankrolls[leaderboardId][msg.sender];
         if (declaredBankroll == 0) {
             revert LeaderboardModule__UserNotRegisteredForLeaderboard();
         }
 
-        // --- Check if ROI already submitted ---
         LeaderboardScoring storage leaderboardScoring = s_leaderboardScoring[
             leaderboardId
         ];
@@ -607,21 +568,17 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             revert LeaderboardModule__ROIAlreadySubmitted();
         }
 
-        // --- Minimum positions check (via RulesModule) ---
         if (
-            !IRulesModule(_getModule(keccak256("RULES_MODULE")))
-                .isMinPositionsMet(
-                    leaderboardId,
-                    s_userSpeculationIds[leaderboardId][msg.sender].length
-                )
+            !IRulesModule(_getModule(RULES_MODULE)).isMinPositionsMet(
+                leaderboardId,
+                s_userSpeculationIds[leaderboardId][msg.sender].length
+            )
         ) {
             revert LeaderboardModule__MinimumPositionsNotMet();
         }
 
-        // --- Calculate ROI ---
         int256 roi = _calculateROI(leaderboardId, msg.sender, declaredBankroll);
 
-        // --- Store and compare ---
         leaderboardScoring.userROIs[msg.sender] = roi;
         s_roiSubmitted[leaderboardId][msg.sender] = true;
 
@@ -629,47 +586,37 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             leaderboardScoring.winners.length == 0 ||
             roi > leaderboardScoring.highestROI
         ) {
-            // --- New highest ROI: reset winners list ---
             leaderboardScoring.highestROI = roi;
             delete leaderboardScoring.winners;
             leaderboardScoring.winners.push(msg.sender);
             emit LeaderboardNewHighestROI(leaderboardId, roi, msg.sender);
             i_ospexCore.emitCoreEvent(
-                keccak256("LEADERBOARD_NEW_HIGHEST_ROI"),
+                EVENT_LEADERBOARD_NEW_HIGHEST_ROI,
                 abi.encode(leaderboardId, roi, msg.sender)
             );
         } else if (roi == leaderboardScoring.highestROI) {
-            // --- Equal ROI (tie): add to winners list if not already present ---
-            bool alreadyInWinners = false;
-            for (uint256 i = 0; i < leaderboardScoring.winners.length; i++) {
-                if (leaderboardScoring.winners[i] == msg.sender) {
-                    alreadyInWinners = true;
-                    break;
-                }
-            }
-            if (!alreadyInWinners) {
-                leaderboardScoring.winners.push(msg.sender);
-                emit LeaderboardNewHighestROI(leaderboardId, roi, msg.sender);
-                i_ospexCore.emitCoreEvent(
-                    keccak256("LEADERBOARD_NEW_HIGHEST_ROI"),
-                    abi.encode(leaderboardId, roi, msg.sender)
-                );
-            }
+            leaderboardScoring.winners.push(msg.sender);
+            emit LeaderboardNewHighestROI(leaderboardId, roi, msg.sender);
+            i_ospexCore.emitCoreEvent(
+                EVENT_LEADERBOARD_NEW_HIGHEST_ROI,
+                abi.encode(leaderboardId, roi, msg.sender)
+            );
         }
 
         emit LeaderboardROISubmitted(leaderboardId, msg.sender, roi);
         i_ospexCore.emitCoreEvent(
-            keccak256("LEADERBOARD_ROI_SUBMITTED"),
+            EVENT_LEADERBOARD_ROI_SUBMITTED,
             abi.encode(leaderboardId, msg.sender, roi)
         );
     }
+
+    // ──────────────────────────── Prize Claims ────────────────────────
 
     /**
      * @notice Claims a prize from a leaderboard
      * @dev The prize pool is split equally among all winners (users who share the highest ROI).
      * Each winner receives prizePool / winners.length. Integer division may leave up to
      * (winners.length - 1) wei of dust unclaimed in the treasury. Each winner can only claim once.
-     * Remaining dust is recoverable via adminSweep() after the claim window closes.
      * @param leaderboardId The ID of the leaderboard
      */
     function claimLeaderboardPrize(
@@ -680,23 +627,12 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             leaderboardId
         ];
 
-        // Calculate time boundaries
-        (
-            ,
-            ,
-            uint256 claimWindowStart,
-            uint256 claimWindowEnd
-        ) = _calculateTimeBounds(lb);
+        (, uint256 roiWindowEnd) = _calculateTimeBounds(lb);
 
-        // Only allow during claim window
-        if (
-            block.timestamp < claimWindowStart ||
-            block.timestamp >= claimWindowEnd
-        ) {
-            revert LeaderboardModule__NotInClaimWindow();
+        if (block.timestamp < roiWindowEnd) {
+            revert LeaderboardModule__NotClaimableYet();
         }
 
-        // Only winner(s) can claim
         bool isWinner = false;
         for (uint256 i = 0; i < scoring.winners.length; i++) {
             if (scoring.winners[i] == msg.sender) {
@@ -708,134 +644,43 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             revert LeaderboardModule__NotWinner();
         }
 
-        // Only one claim per winner
         if (scoring.hasClaimed[msg.sender]) {
             revert LeaderboardModule__AlreadyClaimed();
         }
 
         ITreasuryModule treasuryModule = ITreasuryModule(
-            _getModule(keccak256("TREASURY_MODULE"))
+            _getModule(TREASURY_MODULE)
         );
 
-        // Snapshot prize pool on first claim so all winners split the same total
         if (scoring.snapshotPrizePool == 0) {
             scoring.snapshotPrizePool = treasuryModule.getPrizePool(
                 leaderboardId
             );
         }
 
-        // Mark as claimed
         scoring.hasClaimed[msg.sender] = true;
 
-        // Calculate share from snapshot, not live pool
         uint256 share = scoring.snapshotPrizePool / scoring.winners.length;
 
-        // Transfer prize (skip if nothing to transfer, e.g. free leaderboard)
         if (share > 0) {
             treasuryModule.claimPrizePool(leaderboardId, msg.sender, share);
         }
 
-        // Emit events
         emit LeaderboardPrizeClaimed(leaderboardId, msg.sender, share);
         i_ospexCore.emitCoreEvent(
-            keccak256("LEADERBOARD_PRIZE_CLAIMED"),
+            EVENT_LEADERBOARD_PRIZE_CLAIMED,
             abi.encode(leaderboardId, msg.sender, share)
         );
     }
 
-    /**
-     * @notice Sweeps prizes from a leaderboard
-     * @param leaderboardId The ID of the leaderboard
-     * @param to The address to sweep the prizes to
-     */
-    function adminSweep(
-        uint256 leaderboardId,
-        address to
-    ) external override nonReentrant onlyAdmin {
-        Leaderboard storage lb = s_leaderboards[leaderboardId];
-        LeaderboardScoring storage scoring = s_leaderboardScoring[
-            leaderboardId
-        ];
-
-        // Calculate time boundaries
-        (, , , uint256 claimWindowEnd) = _calculateTimeBounds(lb);
-
-        // Only after claim window
-        if (block.timestamp < claimWindowEnd) {
-            revert LeaderboardModule__NotInClaimWindow();
-        }
-
-        ITreasuryModule treasuryModule = ITreasuryModule(
-            _getModule(keccak256("TREASURY_MODULE"))
-        );
-
-        // Zero winners: sweep entire pool
-        if (scoring.winners.length == 0) {
-            uint256 snapshotPrizePool = treasuryModule.getPrizePool(
-                leaderboardId
-            );
-            if (snapshotPrizePool == 0) {
-                // Free leaderboard with no winners - nothing to sweep
-                emit LeaderboardPrizesSwept(leaderboardId, to, 0);
-                i_ospexCore.emitCoreEvent(
-                    keccak256("LEADERBOARD_PRIZES_SWEPT"),
-                    abi.encode(leaderboardId, to, 0)
-                );
-                return;
-            }
-            treasuryModule.claimPrizePool(leaderboardId, to, snapshotPrizePool);
-            emit LeaderboardPrizesSwept(leaderboardId, to, snapshotPrizePool);
-            i_ospexCore.emitCoreEvent(
-                keccak256("LEADERBOARD_PRIZES_SWEPT"),
-                abi.encode(leaderboardId, to, snapshotPrizePool)
-            );
-            return;
-        }
-
-        // Count unclaimed winners
-        uint256 unclaimedCount = 0;
-        for (uint256 i = 0; i < scoring.winners.length; i++) {
-            if (!scoring.hasClaimed[scoring.winners[i]]) {
-                unclaimedCount++;
-            }
-        }
-        if (unclaimedCount == 0) {
-            revert LeaderboardModule__NoUnclaimedPrizes();
-        }
-
-        // Use snapshot if claims already happened, otherwise snapshot now
-        if (scoring.snapshotPrizePool == 0) {
-            scoring.snapshotPrizePool = treasuryModule.getPrizePool(
-                leaderboardId
-            );
-        }
-
-        // Calculate unclaimed amount
-        uint256 share = scoring.snapshotPrizePool / scoring.winners.length;
-        uint256 unclaimedAmount = share * unclaimedCount;
-
-        // Mark all as claimed to prevent future claims
-        for (uint256 i = 0; i < scoring.winners.length; i++) {
-            scoring.hasClaimed[scoring.winners[i]] = true;
-        }
-
-        // Transfer unclaimed to protocol treasury
-        treasuryModule.claimPrizePool(leaderboardId, to, unclaimedAmount);
-
-        // Emit event
-        emit LeaderboardPrizesSwept(leaderboardId, to, unclaimedAmount);
-        i_ospexCore.emitCoreEvent(
-            keccak256("LEADERBOARD_PRIZES_SWEEP"),
-            abi.encode(leaderboardId, to, unclaimedAmount)
-        );
-    }
+    // ──────────────────────────── Internal Helpers ─────────────────────
 
     /**
-     * @notice Internal helper to get leaderboard and user's declared bankroll, with validation
+     * @notice Gets leaderboard and user's declared bankroll, with validation
      * @param leaderboardId The ID of the leaderboard
      * @param user The address of the user
-     * @return leaderboard The leaderboard
-     * @return declaredBankroll The declared bankroll of the user
+     * @return leaderboard The leaderboard storage reference
+     * @return declaredBankroll The user's declared bankroll
      */
     function _getLeaderboardAndBankroll(
         uint256 leaderboardId,
@@ -860,10 +705,15 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     }
 
     /**
-     * @notice Internal helper to get the full Position struct for a user/speculation/positionType
+     * @notice Gets the full Position data for a user/speculation/positionType
      * @param speculationId The ID of the speculation
      * @param user The address of the user
      * @param positionType The type of the position
+     * @return riskAmount The position's risk amount
+     * @return profitAmount The position's profit amount
+     * @return lineTicks The speculation's line in ticks
+     * @return contestId The speculation's contest ID
+     * @return scorer The speculation's scorer address
      */
     function _getPositionAndLeaderboardData(
         uint256 speculationId,
@@ -881,7 +731,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         )
     {
         IPositionModule posModule = IPositionModule(
-            _getModule(keccak256("POSITION_MODULE"))
+            _getModule(POSITION_MODULE)
         );
         Position memory pos = posModule.getPosition(
             speculationId,
@@ -894,7 +744,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             revert LeaderboardModule__NoRiskAmount();
         }
         Speculation memory spec = ISpeculationModule(
-            _getModule(keccak256("SPECULATION_MODULE"))
+            _getModule(SPECULATION_MODULE)
         ).getSpeculation(speculationId);
         lineTicks = spec.lineTicks;
         contestId = spec.contestId;
@@ -903,21 +753,20 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     }
 
     /**
-     * @notice Internal helper to calculate ROI
+     * @notice Calculates ROI for a user's leaderboard positions
      * @dev Positions whose speculation has winSide == TBD (unscored) are excluded
-     * from the net P&L sum. Only resolved outcomes (win, loss, push, void, forfeit)
+     * from the net P&L sum. Only resolved outcomes (win, loss, push, void)
      * contribute to ROI.
      * @param leaderboardId The ID of the leaderboard
      * @param user The address of the user
      * @param declaredBankroll The declared bankroll of the user
-     * @return roi The ROI of the user
+     * @return roi The ROI scaled by ROI_PRECISION
      */
     function _calculateROI(
         uint256 leaderboardId,
         address user,
         uint256 declaredBankroll
     ) internal view returns (int256 roi) {
-        // --- Sum up net profit/loss for all leaderboard-eligible positions ---
         uint256[] storage speculationIds = s_userSpeculationIds[leaderboardId][
             user
         ];
@@ -928,38 +777,32 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             ][user][speculationIds[i]];
             net += _calculatePositionNet(lbPos);
         }
-        // --- ROI = net / declaredBankroll ---
-        // casting to 'int256' is safe because ROI_PRECISION and declaredBankroll are uint256 values
-        // that represent USDC amounts or precision multipliers, well within int256 max
+        // Safe casts: ROI_PRECISION and declaredBankroll are USDC-scale values, well within int256 max
         // forge-lint: disable-next-line(unsafe-typecast)
         roi = (net * int256(ROI_PRECISION)) / int256(declaredBankroll);
         return roi;
     }
 
     /**
-     * @notice Internal helper to calculate the net profit/loss for a position
-     * @dev Positions with winSide == TBD (unscored) return 0 and are excluded from the ROI calculation.
+     * @notice Calculates the net profit/loss for a single leaderboard position
+     * @dev Positions with winSide == TBD (unscored) return 0 and are excluded from ROI.
      * @param lbPos The leaderboard position
-     * @return net The net profit/loss for the position
+     * @return net The net profit/loss (positive = win, negative = loss)
      */
     function _calculatePositionNet(
         LeaderboardPosition storage lbPos
     ) internal view returns (int256 net) {
-        // --- Fetch the speculation result ---
         Speculation memory spec = ISpeculationModule(
-            _getModule(keccak256("SPECULATION_MODULE"))
+            _getModule(SPECULATION_MODULE)
         ).getSpeculation(lbPos.speculationId);
 
-        // --- Unscored: exclude from ROI ---
         if (spec.winSide == WinSide.TBD) {
             return 0;
         }
 
-        // --- Retrieve outcome ---
         bool isWinner = _isLeaderboardPositionWinner(lbPos, spec);
         bool isPushOrVoid = (spec.winSide == WinSide.Push ||
-            spec.winSide == WinSide.Void ||
-            spec.winSide == WinSide.Forfeit);
+            spec.winSide == WinSide.Void);
 
         uint256 payout;
         if (isPushOrVoid) {
@@ -970,18 +813,16 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             payout = 0;
         }
 
-        // --- Net = payout - riskAmount ---
-        // casting to 'int256' is safe because payout and riskAmount are USDC amounts (6 decimals),
-        // far below int256 max. Result can be negative (loss), which is why int256 is needed.
+        // Safe casts: payout and riskAmount are USDC amounts (6 decimals), well within int256 max
         // forge-lint: disable-next-line(unsafe-typecast)
         return int256(payout) - int256(lbPos.riskAmount);
     }
 
     /**
-     * @notice Internal helper to check if a leaderboard position is a winner
+     * @notice Checks if a leaderboard position is on the winning side
      * @param lbPos The leaderboard position
-     * @param spec The speculation
-     * @return isWinner True if the position is a winner, false otherwise
+     * @param spec The speculation with the resolved winSide
+     * @return True if the position is a winner
      */
     function _isLeaderboardPositionWinner(
         LeaderboardPosition storage lbPos,
@@ -1001,32 +842,21 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
      * @param lb The leaderboard
      * @return roiWindowStart The start of the ROI window
      * @return roiWindowEnd The end of the ROI window
-     * @return claimWindowStart The start of the claim window
-     * @return claimWindowEnd The end of the claim window
      */
     function _calculateTimeBounds(
         Leaderboard storage lb
-    )
-        internal
-        view
-        returns (
-            uint256 roiWindowStart,
-            uint256 roiWindowEnd,
-            uint256 claimWindowStart,
-            uint256 claimWindowEnd
-        )
-    {
+    ) internal view returns (uint256 roiWindowStart, uint256 roiWindowEnd) {
         roiWindowStart = lb.endTime + lb.safetyPeriodDuration;
         roiWindowEnd = roiWindowStart + lb.roiSubmissionWindow;
-        claimWindowStart = roiWindowEnd;
-        claimWindowEnd = claimWindowStart + lb.claimWindow;
-        return (roiWindowStart, roiWindowEnd, claimWindowStart, claimWindowEnd);
+        return (roiWindowStart, roiWindowEnd);
     }
 
-    // --- Helper Function for Module Lookups ---
+    // ──────────────────────────── Module Lookup ───────────────────────
+
     /**
-     * @notice Gets the module address
-     * @param moduleType The type of module
+     * @notice Resolves a module address from OspexCore, reverting if not set
+     * @param moduleType The module type identifier
+     * @return module The module contract address
      */
     function _getModule(
         bytes32 moduleType
@@ -1038,25 +868,16 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         return module;
     }
 
-    // --- Getters ---
-    /**
-     * @notice Gets a leaderboard
-     * @param leaderboardId The ID of the leaderboard
-     * @return leaderboard The leaderboard
-     */
+    // ──────────────────────────── View Functions ──────────────────────
+
+    /// @inheritdoc ILeaderboardModule
     function getLeaderboard(
         uint256 leaderboardId
     ) external view override returns (Leaderboard memory) {
         return s_leaderboards[leaderboardId];
     }
 
-    /**
-     * @notice Gets a leaderboard position
-     * @param leaderboardId The ID of the leaderboard
-     * @param user The address of the user
-     * @param speculationId The ID of the speculation
-     * @return leaderboardPosition The leaderboard position
-     */
+    /// @inheritdoc ILeaderboardModule
     function getLeaderboardPosition(
         uint256 leaderboardId,
         address user,
@@ -1065,13 +886,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         return s_leaderboardPositions[leaderboardId][user][speculationId];
     }
 
-    // --- Explicit getters for LeaderboardScoring fields ---
-    /**
-     * @notice Gets the ROI for a user
-     * @param leaderboardId The ID of the leaderboard
-     * @param user The address of the user
-     * @return roi The ROI of the user
-     */
+    /// @inheritdoc ILeaderboardModule
     function getUserROI(
         uint256 leaderboardId,
         address user
@@ -1079,34 +894,21 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         return s_leaderboardScoring[leaderboardId].userROIs[user];
     }
 
-    /**
-     * @notice Gets the winners of a leaderboard
-     * @param leaderboardId The ID of the leaderboard
-     * @return winners The winners of the leaderboard
-     */
+    /// @inheritdoc ILeaderboardModule
     function getWinners(
         uint256 leaderboardId
     ) external view override returns (address[] memory) {
         return s_leaderboardScoring[leaderboardId].winners;
     }
 
-    /**
-     * @notice Gets the highest ROI for a leaderboard
-     * @param leaderboardId The ID of the leaderboard
-     * @return highestROI The highest ROI for the leaderboard
-     */
+    /// @inheritdoc ILeaderboardModule
     function getHighestROI(
         uint256 leaderboardId
     ) external view override returns (int256) {
         return s_leaderboardScoring[leaderboardId].highestROI;
     }
 
-    /**
-     * @notice Checks if a user has claimed a prize
-     * @param leaderboardId The ID of the leaderboard
-     * @param user The address of the user
-     * @return hasClaimed True if the user has claimed a prize, false otherwise
-     */
+    /// @inheritdoc ILeaderboardModule
     function hasClaimed(
         uint256 leaderboardId,
         address user

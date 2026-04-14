@@ -4,9 +4,6 @@ pragma solidity ^0.8.20;
 import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IContestModule} from "../interfaces/IContestModule.sol";
 import {IScorerModule} from "../interfaces/IScorerModule.sol";
-import {ILeaderboardModule} from "../interfaces/ILeaderboardModule.sol";
-import {IModule} from "../interfaces/IModule.sol";
-import {ITreasuryModule} from "../interfaces/ITreasuryModule.sol";
 import {OspexCore} from "../core/OspexCore.sol";
 import {
     Speculation,
@@ -19,215 +16,239 @@ import {
 
 /**
  * @title SpeculationModule
- * @notice Handles speculation creation, storage, and status management for Ospex protocol
- * @dev All business logic for speculations is implemented here.
+ * @notice Handles speculation (betting market) creation and settlement for the Ospex protocol.
+ * @dev Speculations are created by the PositionModule during the first fill of a new market.
+ *      Settlement is permissionless — anyone can call settleSpeculation after the contest is scored.
+ *      Auto-voids after the immutable cooldown if the contest remains unscored.
  */
-
 contract SpeculationModule is ISpeculationModule {
-    // --- Custom Errors ---
-    /// @notice Error for calling the module from non-authorized address
+    // ──────────────────────────── Constants ────────────────────────────
+
+    bytes32 public constant SPECULATION_MODULE =
+        keccak256("SPECULATION_MODULE");
+    bytes32 public constant POSITION_MODULE = keccak256("POSITION_MODULE");
+    bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
+    bytes32 public constant MONEYLINE_SCORER_MODULE =
+        keccak256("MONEYLINE_SCORER_MODULE");
+    bytes32 public constant TOTAL_SCORER_MODULE =
+        keccak256("TOTAL_SCORER_MODULE");
+
+    bytes32 public constant EVENT_SPECULATION_CREATED =
+        keccak256("SPECULATION_CREATED");
+    bytes32 public constant EVENT_SPECULATION_SETTLED =
+        keccak256("SPECULATION_SETTLED");
+
+    // ──────────────────────────── Errors ───────────────────────────────
+
+    /// @notice Thrown when a non-PositionModule address calls a position-only function
     error SpeculationModule__NotAuthorized(address caller);
-    /// @notice Error for already settled speculation
+    /// @notice Thrown when attempting to settle an already-settled speculation
     error SpeculationModule__AlreadySettled();
-    /// @notice Error for speculation not started
+    /// @notice Thrown when the speculation id does not yet exist
+    error SpeculationModule__InvalidSpeculationId();
+    /// @notice Thrown when attempting to settle before the contest has started
     error SpeculationModule__SpeculationNotStarted();
-    /// @notice Error for speculation already exists
+    /// @notice Thrown when a speculation already exists for the given contest/scorer/line
     error SpeculationModule__SpeculationExists();
-    /// @notice Error for void cooldown not met
-    error SpeculationModule__VoidCooldownNotMet();
-    /// @notice Error for void cooldown below minimum
-    error SpeculationModule__VoidCooldownBelowMinimum(uint32 cooldown);
-    /// @notice Error for speculation not open
-    error SpeculationModule__SpeculationNotOpen();
-    /// @notice Error for contest already scored
+    /// @notice Thrown when attempting to create a speculation on an already-scored contest
     error SpeculationModule__ContestAlreadyScored();
-    /// @notice Error for contest not finalized
-    error SpeculationModule__ContestNotFinalized(uint256 contestId);
-    /// @notice Error for contest not verified
+    /// @notice Thrown when attempting to create a speculation on an unverified contest
     error SpeculationModule__ContestNotVerified();
-    /// @notice Error for setting minimum to zero
-    error SpeculationModule__MinAmountZero();
-    /// @notice Error for not admin
-    error SpeculationModule__NotAdmin(address admin);
-    /// @notice Error for invalid address
+    /// @notice Thrown when the OspexCore address is zero
     error SpeculationModule__InvalidAddress();
-    /// @notice Error for module not set
+    /// @notice Thrown when a required module is not registered in OspexCore
     error SpeculationModule__ModuleNotSet(bytes32 moduleType);
-    /// @notice Error for unapproved scorer address
+    /// @notice Thrown when the scorer address is not an approved scorer module
     error SpeculationModule__ScorerNotApproved();
-    /// @notice Error for invalid line ticks
+    /// @notice Thrown when line ticks are invalid for the scorer type
     error SpeculationModule__InvalidLineTicks();
+    /// @notice Thrown when the contest is not yet scored and cooldown has not elapsed
+    error SpeculationModule__ContestNotFinalized(uint256 contestId);
 
-    // --- Constants ---
-    /// @notice The role of the Speculation Manager Role
-    bytes32 public constant SPECULATION_MANAGER_ROLE =
-        keccak256("SPECULATION_MANAGER_ROLE");
+    // ──────────────────────────── Events ───────────────────────────────
 
-    // --- Storage ---
-    /// @notice The OspexCore contract
-    OspexCore public immutable i_ospexCore;
-    /// @notice The number of decimals for the token (e.g., 6 for USDC, 18 for ETH)
-    uint8 public immutable i_tokenDecimals;
-    /// @notice The speculation ID counter
-    /// @dev If this module is replaced, initialize this counter in the new module
-    ///      to the last used speculation ID to avoid ID collisions.
-    uint256 public s_speculationIdCounter;
-    /// @notice The void cooldown
-    uint32 public s_voidCooldown = 3 days;
-    /// @notice The minimum void cooldown
-    uint32 public constant MIN_VOID_COOLDOWN = 1 days;
-    /// @notice The minimum speculation amount
-    uint256 public s_minSpeculationAmount;
-    /// @notice The speculations
-    mapping(uint256 => Speculation) public s_speculations;
-    /// @notice Reverse lookup: contestId => scorer => lineTicks => speculationId
-    mapping(uint256 => mapping(address => mapping(int32 => uint256)))
-        public s_speculationLookup;
-
-    // --- Events ---
-    /**
-     * @notice Event for speculation creation
-     * @param speculationId The ID of the speculation
-     * @param contestId The ID of the contest
-     * @param scorer The scorer of the speculation
-     * @param lineTicks The number of the speculation (10x)
-     * @param speculationCreator The creator of the speculation
-     */
+    /// @notice Emitted when a new speculation is created
+    /// @param speculationId The speculation ID
+    /// @param contestId The contest this speculation is for
+    /// @param scorer The scorer module address
+    /// @param lineTicks The line number (10x format)
+    /// @param maker The address that initiated the market
+    /// @param taker The address that completed the market
     event SpeculationCreated(
         uint256 indexed speculationId,
         uint256 indexed contestId,
         address scorer,
         int32 lineTicks,
-        address speculationCreator
+        address maker,
+        address taker
     );
 
-    /**
-     * @notice Event for speculation settlement
-     * @param speculationId The ID of the speculation
-     * @param winner The winner of the speculation
-     * @param scorer The scorer of the speculation
-     */
+    /// @notice Emitted when a speculation is settled
+    /// @param speculationId The speculation ID
+    /// @param winner The winning side
+    /// @param scorer The scorer module that determined the outcome
     event SpeculationSettled(
         uint256 indexed speculationId,
         WinSide winner,
         address scorer
     );
 
-    /**
-     * @notice Event for speculation forfeiture
-     * @param speculationId The ID of the speculation
-     * @param forfeiter The forfeiter of the speculation
-     */
-    event SpeculationForfeited(
-        uint256 indexed speculationId,
-        address forfeiter
-    );
+    // ──────────────────────────── State ────────────────────────────────
+
+    /// @notice The OspexCore contract
+    OspexCore public immutable i_ospexCore;
+    /// @notice Seconds after contest start before unscored speculations auto-void
+    uint32 public immutable i_voidCooldown;
+    /// @notice Minimum risk amount to create a speculation (USDC token units)
+    uint256 public immutable i_minSpeculationAmount;
+    /// @notice Token decimals (e.g. 6 for USDC)
+    uint8 public immutable i_tokenDecimals;
+
+    /// @notice Auto-incrementing speculation ID counter
+    uint256 public s_speculationIdCounter;
+    /// @notice Speculation ID → Speculation struct
+    mapping(uint256 => Speculation) public s_speculations;
+    /// @notice Reverse lookup: contest ID → scorer → lineTicks → speculation ID
+    mapping(uint256 => mapping(address => mapping(int32 => uint256)))
+        public s_speculationLookup;
 
     /**
-     * @notice Event for void cooldown set
-     * @param newVoidCooldown The new void cooldown
+     * @notice Deploys the SpeculationModule with immutable configuration
+     * @param ospexCore The OspexCore contract address
+     * @param tokenDecimals Token decimal precision (e.g. 6 for USDC)
+     * @param voidCooldown Seconds after contest start before auto-void
+     * @param minSpeculationAmount Minimum risk amount to create a speculation
      */
-    event VoidCooldownSet(uint32 newVoidCooldown);
-
-    /**
-     * @notice Event for minimum speculation amount set
-     * @param newAmount The new minimum speculation amount
-     */
-    event MinSpeculationAmountSet(uint256 newAmount);
-
-    // --- Modifiers ---
-    /**
-     * @notice Modifier for speculation open
-     * @param speculationId The ID of the speculation
-     */
-    modifier speculationOpen(uint256 speculationId) {
-        if (
-            s_speculations[speculationId].speculationStatus !=
-            SpeculationStatus.Open
-        ) {
-            revert SpeculationModule__SpeculationNotOpen();
-        }
-        _;
-    }
-
-    /**
-     * @notice Modifier to restrict function to only the OspexCore contract
-     */
-    modifier onlyAdmin() {
-        if (
-            !i_ospexCore.hasRole(i_ospexCore.DEFAULT_ADMIN_ROLE(), msg.sender)
-        ) {
-            revert SpeculationModule__NotAdmin(msg.sender);
-        }
-        _;
-    }
-
-    /**
-     * @notice Constructor for the speculation module
-     * @param ospexCore The address of the OspexCore contract
-     * @param tokenDecimals The number of decimals for the token
-     */
-    constructor(address ospexCore, uint8 tokenDecimals) {
+    constructor(
+        address ospexCore,
+        uint8 tokenDecimals,
+        uint32 voidCooldown,
+        uint256 minSpeculationAmount
+    ) {
         if (ospexCore == address(0)) {
             revert SpeculationModule__InvalidAddress();
         }
         i_ospexCore = OspexCore(ospexCore);
         i_tokenDecimals = tokenDecimals;
-        s_minSpeculationAmount = 10 ** uint256(tokenDecimals);
+        i_voidCooldown = voidCooldown;
+        i_minSpeculationAmount = minSpeculationAmount;
     }
 
-    // --- IModule ---
-    /**
-     * @notice Returns the module type
-     * @return moduleType The module type
-     */
+    // ──────────────────────────── Module Identity ─────────────────────
+
+    /// @notice Returns the module type identifier
     function getModuleType() external pure override returns (bytes32) {
-        return keccak256("SPECULATION_MODULE");
+        return SPECULATION_MODULE;
     }
 
-    // --- ISpeculationModule ---
-    /**
-     * @notice Creates a speculation
-     * @param contestId The ID of the contest
-     * @param scorer The scorer of the speculation
-     * @param lineTicks The line number of the speculation (10x)
-     * @param speculationCreator The address of the speculation creator
-     * @param leaderboardId The leaderboard ID (where the fee will be allocated)
-     * @return speculationId The ID of the speculation
-     */
+    // ──────────────────────────── Speculation Creation ─────────────────
+
+    /// @inheritdoc ISpeculationModule
     function createSpeculation(
         uint256 contestId,
         address scorer,
         int32 lineTicks,
-        address speculationCreator,
-        uint256 leaderboardId
+        address maker,
+        address taker
     ) external override returns (uint256) {
-        if (msg.sender != _getModule(keccak256("POSITION_MODULE"))) {
+        if (msg.sender != _getModule(POSITION_MODULE)) {
             revert SpeculationModule__NotAuthorized(msg.sender);
         }
-        return
-            _createSpeculation(
+        return _createSpeculation(contestId, scorer, lineTicks, maker, taker);
+    }
+
+    /**
+     * @notice Internal speculation creation logic
+     * @dev Validates contest state, scorer approval, line ticks, charges split fee,
+     *      and stores the speculation with reverse lookup.
+     * @param contestId The contest ID
+     * @param scorer The scorer module address
+     * @param lineTicks The line number (10x format)
+     * @param maker The address that initiated the market
+     * @param taker The address that completed the market
+     * @return speculationId The new speculation ID
+     */
+    function _createSpeculation(
+        uint256 contestId,
+        address scorer,
+        int32 lineTicks,
+        address maker,
+        address taker
+    ) internal returns (uint256) {
+        if (s_speculationLookup[contestId][scorer][lineTicks] != 0) {
+            revert SpeculationModule__SpeculationExists();
+        }
+
+        Contest memory contest = IContestModule(_getModule(CONTEST_MODULE))
+            .getContest(contestId);
+        if (contest.contestStatus == ContestStatus.Unverified) {
+            revert SpeculationModule__ContestNotVerified();
+        }
+
+        if (contest.contestStatus == ContestStatus.Scored) {
+            revert SpeculationModule__ContestAlreadyScored();
+        }
+
+        if (!i_ospexCore.isApprovedScorer(scorer)) {
+            revert SpeculationModule__ScorerNotApproved();
+        }
+
+        if (
+            (scorer == _getModule(MONEYLINE_SCORER_MODULE) && lineTicks != 0) ||
+            (scorer == _getModule(TOTAL_SCORER_MODULE) && lineTicks < 0)
+        ) {
+            revert SpeculationModule__InvalidLineTicks();
+        }
+
+        i_ospexCore.processSplitFee(maker, taker, FeeType.SpeculationCreation);
+
+        s_speculationIdCounter++;
+        uint256 speculationId = s_speculationIdCounter;
+        s_speculations[speculationId] = Speculation({
+            contestId: contestId,
+            speculationScorer: scorer,
+            lineTicks: lineTicks,
+            speculationCreator: taker,
+            speculationStatus: SpeculationStatus.Open,
+            winSide: WinSide.TBD
+        });
+
+        s_speculationLookup[contestId][scorer][lineTicks] = speculationId;
+
+        emit SpeculationCreated(
+            speculationId,
+            contestId,
+            scorer,
+            lineTicks,
+            maker,
+            taker
+        );
+        i_ospexCore.emitCoreEvent(
+            EVENT_SPECULATION_CREATED,
+            abi.encode(
+                speculationId,
                 contestId,
                 scorer,
                 lineTicks,
-                speculationCreator,
-                leaderboardId
-            );
+                maker,
+                taker
+            )
+        );
+        return speculationId;
     }
 
-    // --- ISpeculationModule ---
-    /**
-     * @notice Settles a speculation
-     * @param speculationId The ID of the speculation
-     */
+    // ──────────────────────────── Settlement ──────────────────────────
+
+    /// @inheritdoc ISpeculationModule
     function settleSpeculation(uint256 speculationId) external override {
+        if (speculationId == 0 || speculationId > s_speculationIdCounter)
+            revert SpeculationModule__InvalidSpeculationId();
         IContestModule contestModule = IContestModule(
-            _getModule(keccak256("CONTEST_MODULE"))
+            _getModule(CONTEST_MODULE)
         );
 
         Speculation storage s = s_speculations[speculationId];
 
-        // Get contest start time for timing validation
         uint32 contestStartTime = contestModule.s_contestStartTimes(
             s.contestId
         );
@@ -239,14 +260,9 @@ contract SpeculationModule is ISpeculationModule {
             revert SpeculationModule__AlreadySettled();
         }
 
-        // Get contest status from ContestModule
         Contest memory contest = contestModule.getContest(s.contestId);
 
-        if (
-            contest.contestStatus == ContestStatus.Scored ||
-            contest.contestStatus == ContestStatus.ScoredManually
-        ) {
-            // Call the scorer module
+        if (contest.contestStatus == ContestStatus.Scored) {
             IScorerModule scorer = IScorerModule(s.speculationScorer);
             s.winSide = scorer.determineWinSide(s.contestId, s.lineTicks);
             s.speculationStatus = SpeculationStatus.Closed;
@@ -257,14 +273,13 @@ contract SpeculationModule is ISpeculationModule {
                 s.speculationScorer
             );
             i_ospexCore.emitCoreEvent(
-                keccak256("SPECULATION_SETTLED"),
+                EVENT_SPECULATION_SETTLED,
                 abi.encode(speculationId, s.winSide, s.speculationScorer)
             );
             return;
         }
 
-        // Auto-void if voidCooldown has passed
-        if (uint32(block.timestamp) >= contestStartTime + s_voidCooldown) {
+        if (uint32(block.timestamp) >= contestStartTime + i_voidCooldown) {
             s.speculationStatus = SpeculationStatus.Closed;
             s.winSide = WinSide.Void;
             emit SpeculationSettled(
@@ -274,7 +289,7 @@ contract SpeculationModule is ISpeculationModule {
             );
             // Emit protocol-wide core event
             i_ospexCore.emitCoreEvent(
-                keccak256("SPECULATION_SETTLED"),
+                EVENT_SPECULATION_SETTLED,
                 abi.encode(speculationId, WinSide.Void, s.speculationScorer)
             );
             return;
@@ -283,152 +298,16 @@ contract SpeculationModule is ISpeculationModule {
         revert SpeculationModule__ContestNotFinalized(s.contestId);
     }
 
-    /**
-     * @notice Forfeits a speculation
-     * @param speculationId The ID of the speculation
-     */
-    function forfeitSpeculation(
-        uint256 speculationId
-    ) external override speculationOpen(speculationId) {
-        if (!i_ospexCore.hasRole(SPECULATION_MANAGER_ROLE, msg.sender)) {
-            revert SpeculationModule__NotAuthorized(msg.sender);
-        }
-        Speculation storage s = s_speculations[speculationId];
+    // ──────────────────────────── View Functions ──────────────────────
 
-        // Get contest start time for timing validation
-        uint32 contestStartTime = IContestModule(
-            _getModule(keccak256("CONTEST_MODULE"))
-        ).s_contestStartTimes(s.contestId);
-
-        if (contestStartTime + s_voidCooldown > uint32(block.timestamp)) {
-            revert SpeculationModule__VoidCooldownNotMet();
-        }
-        s.speculationStatus = SpeculationStatus.Closed;
-        s.winSide = WinSide.Forfeit;
-        emit SpeculationForfeited(speculationId, msg.sender);
-        // Emit protocol-wide core event
-        i_ospexCore.emitCoreEvent(
-            keccak256("SPECULATION_FORFEITED"),
-            abi.encode(speculationId, msg.sender)
-        );
-    }
-
-    /**
-     * @notice Internal function to create a speculation
-     * @param contestId The ID of the contest
-     * @param scorer The scorer of the speculation
-     * @param lineTicks The line number of the speculation (10x)
-     * @param speculationCreator The creator of the speculation
-     * @param leaderboardId The leaderboard ID (where the fee will be allocated)
-     * @return speculationId The ID of the speculation
-     */
-    function _createSpeculation(
-        uint256 contestId,
-        address scorer,
-        int32 lineTicks,
-        address speculationCreator,
-        uint256 leaderboardId
-    ) internal returns (uint256) {
-        if (s_speculationLookup[contestId][scorer][lineTicks] != 0) {
-            revert SpeculationModule__SpeculationExists();
-        }
-
-        // Validate contest exists and is verified
-        Contest memory contest = IContestModule(
-            _getModule(keccak256("CONTEST_MODULE"))
-        ).getContest(contestId);
-        if (contest.contestStatus == ContestStatus.Unverified) {
-            revert SpeculationModule__ContestNotVerified();
-        }
-
-        // Validate contest is not already scored
-        if (
-            contest.contestStatus == ContestStatus.Scored ||
-            contest.contestStatus == ContestStatus.ScoredManually
-        ) {
-            revert SpeculationModule__ContestAlreadyScored();
-        }
-
-        // Validate scorer is an approved scorer contract
-        if (!i_ospexCore.hasScorerRole(scorer)) {
-            revert SpeculationModule__ScorerNotApproved();
-        }
-
-        if (
-            (scorer == _getModule(keccak256("MONEYLINE_SCORER_MODULE")) &&
-                lineTicks != 0) ||
-            (scorer == _getModule(keccak256("TOTAL_SCORER_MODULE")) &&
-                lineTicks < 0)
-        ) {
-            revert SpeculationModule__InvalidLineTicks();
-        }
-
-        // Charge the speculation creation fee
-        uint256 feeAmount = ITreasuryModule(
-            _getModule(keccak256("TREASURY_MODULE"))
-        ).getFeeRate(FeeType.SpeculationCreation);
-        if (feeAmount > 0) {
-            i_ospexCore.processFee(
-                speculationCreator,
-                feeAmount,
-                FeeType.SpeculationCreation,
-                leaderboardId
-            );
-        }
-
-        s_speculationIdCounter++;
-        uint256 speculationId = s_speculationIdCounter;
-        s_speculations[speculationId] = Speculation({
-            contestId: contestId,
-            speculationScorer: scorer,
-            lineTicks: lineTicks,
-            speculationCreator: speculationCreator,
-            speculationStatus: SpeculationStatus.Open,
-            winSide: WinSide.TBD
-        });
-
-        // Populate reverse lookup
-        s_speculationLookup[contestId][scorer][lineTicks] = speculationId;
-
-        emit SpeculationCreated(
-            speculationId,
-            contestId,
-            scorer,
-            lineTicks,
-            speculationCreator
-        );
-        // Emit protocol-wide core event
-        i_ospexCore.emitCoreEvent(
-            keccak256("SPECULATION_CREATED"),
-            abi.encode(
-                speculationId,
-                contestId,
-                scorer,
-                lineTicks,
-                speculationCreator
-            )
-        );
-        return speculationId;
-    }
-
-    /**
-     * @notice Gets a speculation
-     * @param speculationId The ID of the speculation
-     * @return speculation The speculation
-     */
+    /// @inheritdoc ISpeculationModule
     function getSpeculation(
         uint256 speculationId
     ) external view override returns (Speculation memory) {
         return s_speculations[speculationId];
     }
 
-    /**
-     * @notice Gets a speculation ID by contest parameters
-     * @param contestId The ID of the contest
-     * @param scorer The scorer of the speculation
-     * @param lineTicks The line number of the speculation (10x)
-     * @return speculationId The ID of the speculation (0 if doesn't exist)
-     */
+    /// @inheritdoc ISpeculationModule
     function getSpeculationId(
         uint256 contestId,
         address scorer,
@@ -437,50 +316,12 @@ contract SpeculationModule is ISpeculationModule {
         return s_speculationLookup[contestId][scorer][lineTicks];
     }
 
-    /// @notice Sets the minimum speculation amount in raw token units.
-    /// @dev Accepts the value in the token's smallest denomination (e.g. 1000000 = 1 USDC
-    ///      with 6 decimals, 500000 = 0.50 USDC). This allows fractional minimums.
-    ///      Cannot be set to zero — a positive minimum is required to prevent dust.
-    ///      The contract is token-decimal-agnostic; if redeployed with an 18-decimal
-    ///      token, pass the value in that token's smallest unit accordingly.
-    /// @param minAmount The new minimum (in token's smallest units, must be > 0)
-    function setMinSpeculationAmount(
-        uint256 minAmount
-    ) external override onlyAdmin {
-        if (minAmount == 0) {
-            revert SpeculationModule__MinAmountZero();
-        }
-        s_minSpeculationAmount = minAmount;
-        emit MinSpeculationAmountSet(minAmount);
-        i_ospexCore.emitCoreEvent(
-            keccak256("MIN_SPECULATION_AMOUNT_SET"),
-            abi.encode(minAmount)
-        );
-    }
+    // ──────────────────────────── Module Lookup ───────────────────────
 
     /**
-     * @notice Sets the void cooldown
-     * @param newVoidCooldown The new void cooldown
-     */
-    function setVoidCooldown(
-        uint32 newVoidCooldown
-    ) external override onlyAdmin {
-        if (newVoidCooldown < MIN_VOID_COOLDOWN) {
-            revert SpeculationModule__VoidCooldownBelowMinimum(newVoidCooldown);
-        }
-        s_voidCooldown = newVoidCooldown;
-        emit VoidCooldownSet(newVoidCooldown);
-        // Emit protocol-wide core event
-        i_ospexCore.emitCoreEvent(
-            keccak256("VOID_COOLDOWN_SET"),
-            abi.encode(newVoidCooldown)
-        );
-    }
-
-    // --- Helper Function for Module Lookups ---
-    /**
-     * @notice Gets the module address
-     * @param moduleType The type of module
+     * @notice Resolves a module address from OspexCore, reverting if not set
+     * @param moduleType The module type identifier
+     * @return module The module contract address
      */
     function _getModule(
         bytes32 moduleType

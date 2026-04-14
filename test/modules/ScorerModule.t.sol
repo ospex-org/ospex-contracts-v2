@@ -11,7 +11,6 @@ import {IContestModule} from "../../src/interfaces/IContestModule.sol";
 import {SpeculationModule} from "../../src/modules/SpeculationModule.sol";
 import {TreasuryModule} from "../../src/modules/TreasuryModule.sol";
 import {PositionModule} from "../../src/modules/PositionModule.sol";
-import {ContributionModule} from "../../src/modules/ContributionModule.sol";
 import {LeaderboardModule} from "../../src/modules/LeaderboardModule.sol";
 import {RulesModule} from "../../src/modules/RulesModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -26,16 +25,12 @@ contract ScorerModuleTest is Test {
     SpeculationModule speculationModule;
     TreasuryModule treasuryModule;
     PositionModule positionModule;
-    ContributionModule contributionModule;
     LeaderboardModule leaderboardModule;
     RulesModule rulesModule;
     MockERC20 token;
     uint256 nextContestId;
     // Stores the intended final contest state (with Scored status) for _finalizeContest
     mapping(uint256 => Contest) private _finalContests;
-
-    // leaderboard Id and allocation set to 0 for testing
-    uint256 leaderboardId = 0;
 
     function setUp() public {
         core = new OspexCore();
@@ -46,43 +41,35 @@ contract ScorerModuleTest is Test {
         spread = new SpreadScorerModule(address(core));
         total = new TotalScorerModule(address(core));
         mockContest = new MockContestModule();
-        speculationModule = new SpeculationModule(address(core), 6);
-        treasuryModule = new TreasuryModule(address(core), address(0x1), address(0x2));
+        speculationModule = new SpeculationModule(address(core), 6, 3 days, 1_000_000);
+        treasuryModule = new TreasuryModule(
+            address(core), address(token), address(0x2),
+            1_000_000, 500_000, 500_000
+        );
+
+        // Approve TreasuryModule for speculation creation split fees
+        token.approve(address(treasuryModule), type(uint256).max);
         positionModule = new PositionModule(address(core), address(token));
-        contributionModule = new ContributionModule(address(core));
         leaderboardModule = new LeaderboardModule(address(core));
         rulesModule = new RulesModule(address(core));
 
-        // Register all necessary modules
-        bytes32 contestModuleType = keccak256("CONTEST_MODULE");
-        core.registerModule(contestModuleType, address(mockContest));
-        bytes32 speculationModuleType = keccak256("SPECULATION_MODULE");
-        core.registerModule(speculationModuleType, address(speculationModule));
-        bytes32 treasuryModuleType = keccak256("TREASURY_MODULE");
-        core.registerModule(treasuryModuleType, address(treasuryModule));
-        // Register test contract as POSITION_MODULE so createSpeculation works
-        // (overridden below from the actual positionModule to address(this))
-        bytes32 positionModuleType = keccak256("POSITION_MODULE");
-        core.registerModule(positionModuleType, address(positionModule));
-        bytes32 contributionModuleType = keccak256("CONTRIBUTION_MODULE");
-        core.registerModule(contributionModuleType, address(contributionModule));
-        bytes32 leaderboardModuleType = keccak256("LEADERBOARD_MODULE");
-        core.registerModule(leaderboardModuleType, address(leaderboardModule));
-        bytes32 rulesModuleType = keccak256("RULES_MODULE");
-        core.registerModule(rulesModuleType, address(rulesModule));
-
-        // Register this test contract as POSITION_MODULE so it can call createSpeculation
-        // (createSpeculation now requires msg.sender == POSITION_MODULE)
-        core.registerModule(keccak256("POSITION_MODULE"), address(this));
-
-        // Register scorer modules so _getModule lookups don't revert
-        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), address(moneyline));
-        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), address(total));
-
-        // Grant SCORER_ROLE to all scorer modules
-        core.setScorerRole(address(moneyline), true);
-        core.setScorerRole(address(spread), true);
-        core.setScorerRole(address(total), true);
+        // Bootstrap all 12 modules
+        bytes32[] memory types = new bytes32[](12);
+        address[] memory addrs = new address[](12);
+        types[0] = core.CONTEST_MODULE();           addrs[0] = address(mockContest);
+        types[1] = core.SPECULATION_MODULE();        addrs[1] = address(speculationModule);
+        types[2] = core.POSITION_MODULE();           addrs[2] = address(this); // test contract acts as POSITION_MODULE
+        types[3] = core.MATCHING_MODULE();           addrs[3] = address(0xD003);
+        types[4] = core.ORACLE_MODULE();             addrs[4] = address(0xD004);
+        types[5] = core.TREASURY_MODULE();           addrs[5] = address(treasuryModule);
+        types[6] = core.LEADERBOARD_MODULE();        addrs[6] = address(leaderboardModule);
+        types[7] = core.RULES_MODULE();              addrs[7] = address(rulesModule);
+        types[8] = core.SECONDARY_MARKET_MODULE();   addrs[8] = address(0xD008);
+        types[9] = core.MONEYLINE_SCORER_MODULE();   addrs[9] = address(moneyline);
+        types[10] = core.SPREAD_SCORER_MODULE();     addrs[10] = address(spread);
+        types[11] = core.TOTAL_SCORER_MODULE();      addrs[11] = address(total);
+        core.bootstrapModules(types, addrs);
+        core.finalize();
     }
 
     // --- MoneylineScorerModule ---
@@ -93,7 +80,7 @@ contract ScorerModuleTest is Test {
             address(moneyline),
             0,
             address(this),
-            leaderboardId
+            address(this)
         );
         _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
@@ -108,7 +95,7 @@ contract ScorerModuleTest is Test {
             address(moneyline),
             0,
             address(this),
-            leaderboardId
+            address(this)
         );
         _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
@@ -123,7 +110,7 @@ contract ScorerModuleTest is Test {
             address(moneyline),
             0,
             address(this),
-            leaderboardId
+            address(this)
         );
         _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
@@ -150,8 +137,14 @@ contract ScorerModuleTest is Test {
         OspexCore newCore = new OspexCore();
         MoneylineScorerModule newMoneyline = new MoneylineScorerModule(address(newCore));
 
-        // Register contest module but NOT speculation module
-        newCore.registerModule(keccak256("CONTEST_MODULE"), address(mockContest));
+        // Bootstrap with contest module but NOT speculation module — use a partial
+        // bootstrap that omits SPECULATION_MODULE. Since finalize() requires all 12,
+        // we skip finalize. The scorer only needs to look up SPECULATION_MODULE.
+        // bootstrapModules doesn't require all 12 — finalize does.
+        bytes32[] memory types = new bytes32[](1);
+        address[] memory addrs = new address[](1);
+        types[0] = newCore.CONTEST_MODULE();  addrs[0] = address(mockContest);
+        newCore.bootstrapModules(types, addrs);
 
         uint256 contestId = _storeContest(_contest(10, 5, ContestStatus.Scored));
 
@@ -174,7 +167,7 @@ contract ScorerModuleTest is Test {
             address(spread),
             spreadNum,
             address(this),
-            leaderboardId
+            address(this)
         );
         _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
@@ -191,7 +184,7 @@ contract ScorerModuleTest is Test {
             address(spread),
             spreadNum,
             address(this),
-            leaderboardId
+            address(this)
         );
         _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
@@ -209,7 +202,7 @@ contract ScorerModuleTest is Test {
             address(spread),
             spreadNum,
             address(this),
-            leaderboardId
+            address(this)
         );
         _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
@@ -226,7 +219,7 @@ contract ScorerModuleTest is Test {
             address(spread),
             spreadNum,
             address(this),
-            leaderboardId
+            address(this)
         );
         _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
@@ -244,7 +237,7 @@ contract ScorerModuleTest is Test {
             address(spread),
             spreadNum,
             address(this),
-            leaderboardId
+            address(this)
         );
         _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
@@ -263,7 +256,7 @@ contract ScorerModuleTest is Test {
             address(spread),
             spreadNum,
             address(this),
-            leaderboardId
+            address(this)
         );
         _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
@@ -281,7 +274,7 @@ contract ScorerModuleTest is Test {
             address(spread),
             spreadNum,
             address(this),
-            leaderboardId
+            address(this)
         );
         _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
@@ -299,7 +292,7 @@ contract ScorerModuleTest is Test {
             address(spread),
             spreadNum,
             address(this),
-            leaderboardId
+            address(this)
         );
         _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
@@ -328,7 +321,7 @@ contract ScorerModuleTest is Test {
             address(total),
             totalNum,
             address(this),
-            leaderboardId
+            address(this)
         );
         _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
@@ -344,7 +337,7 @@ contract ScorerModuleTest is Test {
             address(total),
             totalNum,
             address(this),
-            leaderboardId
+            address(this)
         );
         _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
@@ -361,7 +354,7 @@ contract ScorerModuleTest is Test {
             address(total),
             totalNum,
             address(this),
-            leaderboardId
+            address(this)
         );
         _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
@@ -380,7 +373,7 @@ contract ScorerModuleTest is Test {
             address(total),
             totalNum,
             address(this),
-            leaderboardId
+            address(this)
         );
         _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
@@ -398,7 +391,7 @@ contract ScorerModuleTest is Test {
             address(total),
             totalNum,
             address(this),
-            leaderboardId
+            address(this)
         );
         _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
@@ -416,7 +409,7 @@ contract ScorerModuleTest is Test {
             address(total),
             totalNum,
             address(this),
-            leaderboardId
+            address(this)
         );
         _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
@@ -434,7 +427,7 @@ contract ScorerModuleTest is Test {
             address(total),
             totalNum,
             address(this),
-            leaderboardId
+            address(this)
         );
         _finalizeContest(contestId);
         vm.warp(block.timestamp + 2);
@@ -469,6 +462,7 @@ contract ScorerModuleTest is Test {
                 contestStatus: status,
                 contestCreator: address(0),
                 scoreContestSourceHash: bytes32(0),
+                marketUpdateSourceHash: bytes32(0),
                 rundownId: "",
                 sportspageId: "",
                 jsonoddsId: ""

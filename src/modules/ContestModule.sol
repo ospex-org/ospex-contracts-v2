@@ -10,113 +10,88 @@ import {
 } from "../core/OspexTypes.sol";
 import {OspexCore} from "../core/OspexCore.sol";
 import {IContestModule} from "../interfaces/IContestModule.sol";
-import {ITreasuryModule} from "../interfaces/ITreasuryModule.sol";
 
 /**
  * @title ContestModule
- * @notice Handles contest creation, storage, and status management for Ospex protocol
- * @dev All business logic for contests is implemented here. Oracle integration is handled in OracleModule.
+ * @notice Handles contest creation, scoring, and market data for the Ospex protocol.
+ * @dev All mutations are restricted to the OracleModule. Scores are immutable once set —
+ *      the protocol accepts oracle risk rather than allowing on-chain score overwrites.
  */
 contract ContestModule is IContestModule {
-    // --- Custom Errors ---
-    /// @notice Error for calling the module from non-OracleModule
+    // ──────────────────────────── Constants ────────────────────────────
+
+    bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
+    bytes32 public constant ORACLE_MODULE = keccak256("ORACLE_MODULE");
+    bytes32 public constant TREASURY_MODULE = keccak256("TREASURY_MODULE");
+    bytes32 public constant MONEYLINE_SCORER_MODULE =
+        keccak256("MONEYLINE_SCORER_MODULE");
+    bytes32 public constant SPREAD_SCORER_MODULE =
+        keccak256("SPREAD_SCORER_MODULE");
+    bytes32 public constant TOTAL_SCORER_MODULE =
+        keccak256("TOTAL_SCORER_MODULE");
+
+    bytes32 public constant EVENT_CONTEST_CREATED =
+        keccak256("CONTEST_CREATED");
+    bytes32 public constant EVENT_CONTEST_VERIFIED =
+        keccak256("CONTEST_VERIFIED");
+    bytes32 public constant EVENT_CONTEST_MARKETS_UPDATED =
+        keccak256("CONTEST_MARKETS_UPDATED");
+    bytes32 public constant EVENT_CONTEST_SCORES_SET =
+        keccak256("CONTEST_SCORES_SET");
+
+    // ──────────────────────────── Errors ───────────────────────────────
+
+    /// @notice Thrown when a non-OracleModule address calls an oracle-only function
     error ContestModule__NotOracleModule(address caller);
-    /// @notice Error for calling the module from non-admin
-    error ContestModule__NotAdmin(address caller);
-    /// @notice Error for calling the module from non-authorized address
-    error ContestModule__NotAuthorized(address caller);
-    /// @notice Error for invalid core address
+    /// @notice Thrown when the OspexCore address is zero
     error ContestModule__InvalidCoreAddress();
-    /// @notice Error for contest not verified
-    error ContestModule__ContestNotVerified(uint256 contestId);
-    /// @notice Error for contest not started
-    error ContestModule__ContestNotStarted(
-        uint256 contestId,
-        uint256 timeRemaining
-    );
-    /// @notice Error for manual score wait period not met
-    error ContestModule__ManualScoreWaitPeriodNotMet(
-        uint256 contestId,
-        uint256 timeRemaining
-    );
-    /// @notice Error for module not set
-    error ContestModule__ModuleNotSet(bytes32 moduleType);
-    /// @notice Error for invalid create contest source hash
-    error ContestModule__InvalidCreateContestSourceHash();
-    /// @notice Error for invalid update contest markets source hash
-    error ContestModule__InvalidUpdateContestMarketsSourceHash();
-    /// @notice Error for contest already scored
-    error ContestModule__AlreadyScored(uint256 contestId);
-    /// @notice Error for invalid value (ie bad league or start time)
+    /// @notice Thrown when a contest is missing all external IDs
     error ContestModule__InvalidValue();
-    /// @notice Error for invalid market data
+    /// @notice Thrown when market data contains zero odds or negative total line
     error ContestModule__InvalidMarketData();
+    /// @notice Thrown when a required module is not registered in OspexCore
+    error ContestModule__ModuleNotSet(bytes32 moduleType);
+    /// @notice Thrown when attempting to score an already-scored contest
+    error ContestModule__AlreadyScored(uint256 contestId);
+    /// @notice Thrown when set contest league id and start time is attempted on a contest that is not unverified
+    error ContestModule__InvalidStatus(uint256 contestId);
 
-    // --- Constants ---
-    /// @notice The role of the ScoreManager, for manual score setting
-    bytes32 public constant SCORE_MANAGER_ROLE =
-        keccak256("SCORE_MANAGER_ROLE");
-    /// @notice The manual score wait period, in the event that a contest is not scored by the OracleModule
-    uint256 public constant MANUAL_SCORE_WAIT_PERIOD = 2 days;
+    // ──────────────────────────── Events ───────────────────────────────
 
-    // --- Storage ---
-    /// @notice The OspexCore contract
-    OspexCore public immutable i_ospexCore;
-    /// @notice The contest ID counter
-    /// @dev If this module is replaced, initialize this counter in the new module
-    ///      to the last used contest ID to avoid ID collisions.
-    uint256 public s_contestIdCounter;
-    /// @notice The hash of the create contest source
-    bytes32 public s_createContestSourceHash;
-    /// @notice The hash of the update contest markets source
-    bytes32 public s_updateContestMarketsSourceHash;
-    /// @notice Mapping of contestId to Contest struct
-    mapping(uint256 => Contest) private s_contests;
-    /// @notice The contest start times
-    mapping(uint256 => uint32) public s_contestStartTimes;
-    /// @notice Mapping of contestId to ContestMarket struct
-    mapping(uint256 => mapping(address => ContestMarket))
-        private s_contestMarket;
-
-    // --- Events ---
-    /**
-     * @notice Emitted when a contest is created
-     * @param contestId The ID of the contest
-     * @param rundownId The ID of the rundown
-     * @param sportspageId The ID of the sportspage
-     * @param jsonoddsId The ID of the jsonodds
-     * @param contestCreator The address of the contest creator
-     * @param scoreContestSourceHash The hash of the contest source
-     */
+    /// @notice Emitted when a new contest is created
+    /// @param contestId The contest ID
+    /// @param rundownId External ID from Rundown API
+    /// @param sportspageId External ID from Sportspage API
+    /// @param jsonoddsId External ID from JSONOdds API
+    /// @param contestCreator The address that created (and paid for) the contest
+    /// @param scoreContestSourceHash Hash of the scoring source code for this contest
+    /// @param marketUpdateSourceHash Hash of the market update code for this contest
     event ContestCreated(
         uint256 indexed contestId,
         string rundownId,
         string sportspageId,
         string jsonoddsId,
         address indexed contestCreator,
-        bytes32 scoreContestSourceHash
+        bytes32 scoreContestSourceHash,
+        bytes32 marketUpdateSourceHash
     );
 
-    /**
-     * @notice Emitted when a contest's status is verified
-     * @param contestId The ID of the contest
-     * @param startTime The start time of the contest
-     */
+    /// @notice Emitted when a contest is verified with league and start time
+    /// @param contestId The contest ID
+    /// @param startTime The contest start timestamp
     event ContestVerified(uint256 indexed contestId, uint256 startTime);
 
-    /**
-     * @notice Emitted when a contest's market is updated
-     * @param contestId The ID of the contest
-     * @param lastUpdated Timestamp of the last update
-     * @param spreadLineTicks The current spread line ticks (10x)
-     * @param totalLineTicks The current total line ticks (10x)
-     * @param moneylineAwayOdds The current moneyline odds for the away team
-     * @param moneylineHomeOdds The current moneyline odds for the home team
-     * @param spreadAwayOdds The current spread odds for the away team
-     * @param spreadHomeOdds The current spread odds for the home team
-     * @param overOdds The current odds for the over
-     * @param underOdds The current odds for the under
-     */
+    /// @notice Emitted when market data is updated for a contest
+    /// @param contestId The contest ID
+    /// @param lastUpdated Timestamp of the update
+    /// @param spreadLineTicks The spread line (10x format)
+    /// @param totalLineTicks The total line (10x format)
+    /// @param moneylineAwayOdds Away moneyline odds tick
+    /// @param moneylineHomeOdds Home moneyline odds tick
+    /// @param spreadAwayOdds Away spread odds tick
+    /// @param spreadHomeOdds Home spread odds tick
+    /// @param overOdds Over odds tick
+    /// @param underOdds Under odds tick
     event ContestMarketsUpdated(
         uint256 indexed contestId,
         uint32 lastUpdated,
@@ -130,120 +105,72 @@ contract ContestModule is IContestModule {
         uint16 underOdds
     );
 
-    /**
-     * @notice Emitted when a contest's scores are set
-     * @param contestId The ID of the contest
-     * @param awayScore The away score
-     * @param homeScore The home score
-     */
+    /// @notice Emitted when final scores are set for a contest
+    /// @param contestId The contest ID
+    /// @param awayScore Final away team score
+    /// @param homeScore Final home team score
     event ContestScoresSet(
         uint256 indexed contestId,
         uint32 awayScore,
         uint32 homeScore
     );
 
-    /**
-     * @notice Emitted when a contest's scores are set manually
-     * @param contestId The ID of the contest
-     * @param awayScore The away score
-     * @param homeScore The home score
-     */
-    event ContestScoresSetManually(
-        uint256 indexed contestId,
-        uint32 awayScore,
-        uint32 homeScore
-    );
+    // ──────────────────────────── Modifiers ────────────────────────────
 
-    /**
-     * @notice Emitted when the create contest source hash is set
-     * @param oldCreateContestSourceHash The old create contest source hash
-     * @param newCreateContestSourceHash The new create contest source hash
-     */
-    event CreateContestSourceHashSet(
-        bytes32 oldCreateContestSourceHash,
-        bytes32 newCreateContestSourceHash
-    );
-
-    /**
-     * @notice Emitted when the update contest markets source hash is set
-     * @param oldUpdateContestMarketsSourceHash The old update contest markets source hash
-     * @param newUpdateContestMarketsSourceHash The new update contest markets source hash
-     */
-    event UpdateContestMarketsSourceHashSet(
-        bytes32 oldUpdateContestMarketsSourceHash,
-        bytes32 newUpdateContestMarketsSourceHash
-    );
-
-    // --- Modifiers ---
-    /**
-     * @notice Modifier to ensure the caller is the OracleModule
-     */
+    /// @dev Restricts access to the registered OracleModule
     modifier onlyOracleModule() {
-        if (msg.sender != _getModule(keccak256("ORACLE_MODULE"))) {
+        if (msg.sender != _getModule(ORACLE_MODULE)) {
             revert ContestModule__NotOracleModule(msg.sender);
         }
         _;
     }
 
-    /**
-     * @notice Modifier to ensure the caller is an admin
-     */
-    modifier onlyAdmin() {
-        if (
-            !i_ospexCore.hasRole(i_ospexCore.DEFAULT_ADMIN_ROLE(), msg.sender)
-        ) {
-            revert ContestModule__NotAdmin(msg.sender);
-        }
-        _;
-    }
+    // ──────────────────────────── State ────────────────────────────────
 
-    /**
-     * @notice Constructor sets the OspexCore address
-     * @param _ospexCore The address of the OspexCore contract
-     * @param _createContestSourceHash The hash of the create contest source
-     * @param _updateContestMarketsSourceHash The hash of the update contest markets source
-     */
-    constructor(
-        address _ospexCore,
-        bytes32 _createContestSourceHash,
-        bytes32 _updateContestMarketsSourceHash
-    ) {
-        if (_ospexCore == address(0)) {
+    /// @notice The OspexCore contract
+    OspexCore public immutable i_ospexCore;
+
+    /// @notice Auto-incrementing contest ID counter
+    uint256 public s_contestIdCounter;
+
+    /// @notice Contest ID → Contest struct
+    mapping(uint256 => Contest) private s_contests;
+
+    /// @notice Contest ID → start timestamp (set during verification)
+    mapping(uint256 => uint32) public s_contestStartTimes;
+
+    /// @notice Contest ID → scorer address → ContestMarket
+    mapping(uint256 => mapping(address => ContestMarket))
+        private s_contestMarket;
+
+    // ──────────────────────────── Constructor ──────────────────────────
+
+    /// @notice Deploys the ContestModule
+    /// @param ospexCore_ The OspexCore contract address
+    constructor(address ospexCore_) {
+        if (ospexCore_ == address(0)) {
             revert ContestModule__InvalidCoreAddress();
         }
-        i_ospexCore = OspexCore(_ospexCore);
-        s_createContestSourceHash = _createContestSourceHash;
-        s_updateContestMarketsSourceHash = _updateContestMarketsSourceHash;
+        i_ospexCore = OspexCore(ospexCore_);
     }
 
-    /**
-     * @notice Returns the module type identifier
-     */
+    // ──────────────────────────── Module Identity ─────────────────────
+
+    /// @notice Returns the module type identifier
     function getModuleType() external pure override returns (bytes32) {
-        return keccak256("CONTEST_MODULE");
+        return CONTEST_MODULE;
     }
 
-    /**
-     * @inheritdoc IContestModule
-     * @dev Only callable by the OracleModule (enforced via core registry)
-     */
+    // ──────────────────────────── Contest Creation ─────────────────────
 
-    /**
-     * @notice Creates a new contest
-     * @param rundownId The ID of the rundown
-     * @param sportspageId The ID of the sportspage
-     * @param jsonoddsId The ID of the jsonodds
-     * @param scoreContestSourceHash The hash of the contest source
-     * @param contestCreator The address of the contest creator
-     * @param leaderboardId The leaderboard ID (where the fee will be allocated)
-     */
+    /// @inheritdoc IContestModule
     function createContest(
         string calldata rundownId,
         string calldata sportspageId,
         string calldata jsonoddsId,
         bytes32 scoreContestSourceHash,
-        address contestCreator,
-        uint256 leaderboardId
+        bytes32 marketUpdateSourceHash,
+        address contestCreator
     ) external override onlyOracleModule returns (uint256 contestId) {
         if (
             bytes(rundownId).length == 0 &&
@@ -252,18 +179,8 @@ contract ContestModule is IContestModule {
         ) {
             revert ContestModule__InvalidValue();
         }
-        // Charge the contest creation fee
-        uint256 feeAmount = ITreasuryModule(
-            _getModule(keccak256("TREASURY_MODULE"))
-        ).getFeeRate(FeeType.ContestCreation);
-        if (feeAmount > 0) {
-            i_ospexCore.processFee(
-                contestCreator,
-                feeAmount,
-                FeeType.ContestCreation,
-                leaderboardId
-            );
-        }
+
+        i_ospexCore.processFee(contestCreator, FeeType.ContestCreation);
 
         s_contestIdCounter++;
         contestId = s_contestIdCounter;
@@ -272,6 +189,7 @@ contract ContestModule is IContestModule {
         c.sportspageId = sportspageId;
         c.jsonoddsId = jsonoddsId;
         c.scoreContestSourceHash = scoreContestSourceHash;
+        c.marketUpdateSourceHash = marketUpdateSourceHash;
         c.contestCreator = contestCreator;
         c.contestStatus = ContestStatus.Unverified;
 
@@ -281,40 +199,26 @@ contract ContestModule is IContestModule {
             sportspageId,
             jsonoddsId,
             contestCreator,
-            scoreContestSourceHash
+            scoreContestSourceHash,
+            marketUpdateSourceHash
         );
         i_ospexCore.emitCoreEvent(
-            keccak256("CONTEST_CREATED"),
+            EVENT_CONTEST_CREATED,
             abi.encode(
                 contestId,
                 rundownId,
                 sportspageId,
                 jsonoddsId,
                 contestCreator,
-                scoreContestSourceHash
+                scoreContestSourceHash,
+                marketUpdateSourceHash
             )
         );
     }
 
-    /**
-     * @inheritdoc IContestModule
-     * @dev Only callable by the OracleModule (enforced via core registry)
-     */
+    // ──────────────────────────── Market Data ─────────────────────────
 
-    /**
-     * @notice Updates all market data for a contest from oracle response
-     * @dev Updates moneyline, spread, and total markets for all known scorers
-     * @dev All odds must be greater than 0 (ie odds must exist) and total line ticks must be greater than 0
-     * @param contestId The contest identifier
-     * @param moneylineAwayOdds Odds tick for away team moneyline
-     * @param moneylineHomeOdds Odds tick for home team moneyline
-     * @param spreadLineTicks The point spread (10x)
-     * @param spreadAwayOdds Odds tick for away spread
-     * @param spreadHomeOdds Odds tick for home spread
-     * @param totalLineTicks The total points (10x)
-     * @param overOdds Odds tick for over
-     * @param underOdds Odds tick for under
-     */
+    /// @inheritdoc IContestModule
     function updateContestMarkets(
         uint256 contestId,
         uint16 moneylineAwayOdds,
@@ -339,14 +243,10 @@ contract ContestModule is IContestModule {
         }
         uint32 timestamp = uint32(block.timestamp);
 
-        // Get scorer addresses from core registry
-        address moneylineScorer = _getModule(
-            keccak256("MONEYLINE_SCORER_MODULE")
-        );
-        address spreadScorer = _getModule(keccak256("SPREAD_SCORER_MODULE"));
-        address totalScorer = _getModule(keccak256("TOTAL_SCORER_MODULE"));
+        address moneylineScorer = _getModule(MONEYLINE_SCORER_MODULE);
+        address spreadScorer = _getModule(SPREAD_SCORER_MODULE);
+        address totalScorer = _getModule(TOTAL_SCORER_MODULE);
 
-        // Update moneyline market (lineTicks = 0 for moneylines)
         s_contestMarket[contestId][moneylineScorer] = ContestMarket({
             lineTicks: 0,
             upperOdds: moneylineAwayOdds,
@@ -354,7 +254,6 @@ contract ContestModule is IContestModule {
             lastUpdated: timestamp
         });
 
-        // Update spread market
         s_contestMarket[contestId][spreadScorer] = ContestMarket({
             lineTicks: spreadLineTicks,
             upperOdds: spreadAwayOdds,
@@ -362,7 +261,6 @@ contract ContestModule is IContestModule {
             lastUpdated: timestamp
         });
 
-        // Update total market
         s_contestMarket[contestId][totalScorer] = ContestMarket({
             lineTicks: totalLineTicks,
             upperOdds: overOdds,
@@ -370,7 +268,6 @@ contract ContestModule is IContestModule {
             lastUpdated: timestamp
         });
 
-        // Emit events for each market update
         emit ContestMarketsUpdated(
             contestId,
             timestamp,
@@ -384,9 +281,8 @@ contract ContestModule is IContestModule {
             underOdds
         );
 
-        // Emit core events for each market
         i_ospexCore.emitCoreEvent(
-            keccak256("CONTEST_MARKETS_UPDATED"),
+            EVENT_CONTEST_MARKETS_UPDATED,
             abi.encode(
                 contestId,
                 timestamp,
@@ -402,68 +298,9 @@ contract ContestModule is IContestModule {
         );
     }
 
-    /**
-     * @inheritdoc IContestModule
-     * @dev Only callable by the admin
-     */
+    // ──────────────────────────── Verification & Scoring ──────────────
 
-    /**
-     * @notice Sets the create contest source hash
-     * @param newCreateContestSourceHash The hash of the create contest source
-     */
-    function setCreateContestSourceHash(
-        bytes32 newCreateContestSourceHash
-    ) external onlyAdmin {
-        if (newCreateContestSourceHash == bytes32(0)) {
-            revert ContestModule__InvalidCreateContestSourceHash();
-        }
-        bytes32 oldCreateContestSourceHash = s_createContestSourceHash;
-        s_createContestSourceHash = newCreateContestSourceHash;
-        emit CreateContestSourceHashSet(
-            oldCreateContestSourceHash,
-            newCreateContestSourceHash
-        );
-        i_ospexCore.emitCoreEvent(
-            keccak256("CREATE_CONTEST_SOURCE_HASH_SET"),
-            abi.encode(oldCreateContestSourceHash, newCreateContestSourceHash)
-        );
-    }
-
-    /**
-     * @notice Sets the update contest markets source hash
-     * @param newUpdateContestMarketsSourceHash The hash of the update contest markets source
-     */
-    function setUpdateContestMarketsSourceHash(
-        bytes32 newUpdateContestMarketsSourceHash
-    ) external onlyAdmin {
-        if (newUpdateContestMarketsSourceHash == bytes32(0)) {
-            revert ContestModule__InvalidUpdateContestMarketsSourceHash();
-        }
-        bytes32 oldUpdateContestMarketsSourceHash = s_updateContestMarketsSourceHash;
-        s_updateContestMarketsSourceHash = newUpdateContestMarketsSourceHash;
-        emit UpdateContestMarketsSourceHashSet(
-            oldUpdateContestMarketsSourceHash,
-            newUpdateContestMarketsSourceHash
-        );
-        i_ospexCore.emitCoreEvent(
-            keccak256("UPDATE_CONTEST_MARKETS_SOURCE_HASH_SET"),
-            abi.encode(
-                oldUpdateContestMarketsSourceHash,
-                newUpdateContestMarketsSourceHash
-            )
-        );
-    }
-
-    /**
-     * @inheritdoc IContestModule
-     * @dev Only callable by the OracleModule, except for manual override (see setScores)
-     */
-
-    /**
-     * @notice Sets the status and start time of a contest
-     * @param contestId The ID of the contest
-     * @param startTime The start time of the contest
-     */
+    /// @inheritdoc IContestModule
     function setContestLeagueIdAndStartTime(
         uint256 contestId,
         LeagueId leagueId,
@@ -472,19 +309,17 @@ contract ContestModule is IContestModule {
         if (leagueId == LeagueId.Unknown || startTime == 0) {
             revert ContestModule__InvalidValue();
         }
+        if (s_contests[contestId].contestStatus != ContestStatus.Unverified)
+            revert ContestModule__InvalidStatus(contestId);
         s_contests[contestId].leagueId = leagueId;
         s_contestStartTimes[contestId] = startTime;
         s_contests[contestId].contestStatus = ContestStatus.Verified;
         emit ContestVerified(contestId, startTime);
         i_ospexCore.emitCoreEvent(
-            keccak256("CONTEST_VERIFIED"),
+            EVENT_CONTEST_VERIFIED,
             abi.encode(contestId, startTime)
         );
     }
-
-    /**
-     * @inheritdoc IContestModule
-     */
 
     /**
      * @notice Sets the final oracle score for a contest
@@ -502,10 +337,7 @@ contract ContestModule is IContestModule {
         uint32 awayScore,
         uint32 homeScore
     ) external override onlyOracleModule {
-        if (
-            s_contests[contestId].contestStatus == ContestStatus.Scored ||
-            s_contests[contestId].contestStatus == ContestStatus.ScoredManually
-        ) {
+        if (s_contests[contestId].contestStatus != ContestStatus.Verified) {
             revert ContestModule__AlreadyScored(contestId);
         }
         s_contests[contestId].awayScore = awayScore;
@@ -513,95 +345,28 @@ contract ContestModule is IContestModule {
         s_contests[contestId].contestStatus = ContestStatus.Scored;
         emit ContestScoresSet(contestId, awayScore, homeScore);
         i_ospexCore.emitCoreEvent(
-            keccak256("CONTEST_SCORES_SET"),
+            EVENT_CONTEST_SCORES_SET,
             abi.encode(contestId, awayScore, homeScore)
         );
     }
 
-    /**
-     * @notice Sets the scores of a contest manually
-     * @dev Only callable by the SCORE_MANAGER_ROLE
-     * @dev Only allowed if manual wait period has passed (2 days)
-     * @param contestId The ID of the contest
-     * @param awayScore The away score
-     * @param homeScore The home score
-     */
-    function scoreContestManually(
-        uint256 contestId,
-        uint32 awayScore,
-        uint32 homeScore
-    ) external {
-        // Check if caller is authorized
-        if (!i_ospexCore.hasRole(SCORE_MANAGER_ROLE, msg.sender)) {
-            revert ContestModule__NotAuthorized(msg.sender);
-        }
-        // Check if contest is verified
-        if (s_contests[contestId].contestStatus != ContestStatus.Verified) {
-            revert ContestModule__ContestNotVerified(contestId);
-        }
-        // Check if contest has started
-        if (block.timestamp < s_contestStartTimes[contestId]) {
-            revert ContestModule__ContestNotStarted(
-                contestId,
-                s_contestStartTimes[contestId] - block.timestamp
-            );
-        }
+    // ──────────────────────────── View Functions ──────────────────────
 
-        // Check wait period
-        uint256 startTime = s_contestStartTimes[contestId];
-
-        // Check if wait period has passed
-        if (block.timestamp < startTime + MANUAL_SCORE_WAIT_PERIOD) {
-            revert ContestModule__ManualScoreWaitPeriodNotMet(
-                contestId,
-                startTime + MANUAL_SCORE_WAIT_PERIOD - block.timestamp
-            );
-        }
-
-        // Set scores
-        s_contests[contestId].awayScore = awayScore;
-        s_contests[contestId].homeScore = homeScore;
-        s_contests[contestId].contestStatus = ContestStatus.ScoredManually;
-        emit ContestScoresSetManually(contestId, awayScore, homeScore);
-        i_ospexCore.emitCoreEvent(
-            keccak256("CONTEST_SCORES_SET_MANUALLY"),
-            abi.encode(contestId, awayScore, homeScore)
-        );
-    }
-
-    /**
-     * @inheritdoc IContestModule
-     * @dev Public view, no restriction
-     */
-
-    /**
-     * @notice Gets a contest
-     * @param contestId The ID of the contest
-     * @return contest The contest
-     */
+    /// @inheritdoc IContestModule
     function getContest(
         uint256 contestId
     ) external view override returns (Contest memory contest) {
         contest = s_contests[contestId];
     }
 
-    /**
-     * @notice Checks if a contest has been scored
-     * @param contestId The ID of the contest
-     * @return True if the contest has been scored
-     */
-    function isContestScored(uint256 contestId) external view override returns (bool) {
-        return
-            s_contests[contestId].contestStatus == ContestStatus.Scored ||
-            s_contests[contestId].contestStatus == ContestStatus.ScoredManually;
+    /// @inheritdoc IContestModule
+    function isContestScored(
+        uint256 contestId
+    ) external view override returns (bool) {
+        return s_contests[contestId].contestStatus == ContestStatus.Scored;
     }
 
-    /**
-     * @notice Gets a contest market
-     * @param contestId The ID of the contest
-     * @param scorer The scorer contract address
-     * @return contestMarket The contest market
-     */
+    /// @inheritdoc IContestModule
     function getContestMarket(
         uint256 contestId,
         address scorer
@@ -609,10 +374,12 @@ contract ContestModule is IContestModule {
         contestMarket = s_contestMarket[contestId][scorer];
     }
 
-    // --- Helper Function for Module Lookups ---
+    // ──────────────────────────── Module Lookup ───────────────────────
+
     /**
-     * @notice Gets the module address
-     * @param moduleType The type of module
+     * @notice Resolves a module address from OspexCore, reverting if not set
+     * @param moduleType The module type identifier
+     * @return module The module contract address
      */
     function _getModule(
         bytes32 moduleType

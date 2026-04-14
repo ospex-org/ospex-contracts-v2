@@ -70,21 +70,17 @@ interface ILeaderboardModule is IModule {
 
     /// @notice Creates a new leaderboard with the specified configuration
     /// @param entryFee The entry fee to join the leaderboard (in token smallest units, 0 for free)
-    /// @param yieldStrategy The address of an optional yield strategy contract (address(0) for none)
     /// @param startTime The unix timestamp when the leaderboard becomes active
     /// @param endTime The unix timestamp when the leaderboard stops accepting positions
     /// @param safetyPeriodDuration Duration in seconds after endTime before ROI submission opens
     /// @param roiSubmissionWindow Duration in seconds of the ROI submission window
-    /// @param claimWindow Duration in seconds of the prize claim window
     /// @return leaderboardId The ID of the newly created leaderboard
     function createLeaderboard(
         uint256 entryFee,
-        address yieldStrategy,
         uint32 startTime,
         uint32 endTime,
         uint32 safetyPeriodDuration,
-        uint32 roiSubmissionWindow,
-        uint32 claimWindow
+        uint32 roiSubmissionWindow
     ) external returns (uint256 leaderboardId);
 
     /// @notice Registers a speculation as eligible for a leaderboard
@@ -121,14 +117,9 @@ interface ILeaderboardModule is IModule {
     function submitLeaderboardROI(uint256 leaderboardId) external;
 
     /// @notice Claims the caller's share of the prize pool for a leaderboard
-    /// @dev Can only be called during the claim window by a winner
+    /// @dev Can be called after the ROI window is closed
     /// @param leaderboardId The ID of the leaderboard
     function claimLeaderboardPrize(uint256 leaderboardId) external;
-
-    /// @notice Sweeps unclaimed prizes to a specified address after the claim window ends
-    /// @param leaderboardId The ID of the leaderboard
-    /// @param to The address to receive the unclaimed prizes
-    function adminSweep(uint256 leaderboardId, address to) external;
 
     // --- Getters ---
 

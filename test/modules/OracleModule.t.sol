@@ -22,17 +22,15 @@ contract OracleModuleTestHelper is OracleModule {
         address core,
         address router,
         address link,
-        bytes32 donId
-    ) OracleModule(core, router, link, donId) {}
+        bytes32 donId,
+        uint256 linkDenominator
+    ) OracleModule(core, router, link, donId, linkDenominator) {}
     function testFulfillRequest(
         bytes32 requestId,
         bytes memory response,
         bytes memory err
     ) public {
         fulfillRequest(requestId, response, err);
-    }
-    function setRequestMapping(bytes32 requestId, uint256 contestId) public {
-        s_requestMapping[requestId] = contestId;
     }
     function setRequestContext(
         bytes32 requestId,
@@ -51,8 +49,9 @@ contract OracleModuleExposed is OracleModule {
         address core,
         address router,
         address link,
-        bytes32 donId
-    ) OracleModule(core, router, link, donId) {}
+        bytes32 donId,
+        uint256 linkDenominator
+    ) OracleModule(core, router, link, donId, linkDenominator) {}
 
     function exposed_bytesToUint32(
         bytes memory input
@@ -145,12 +144,10 @@ contract OracleModuleTest is Test {
 
     // replicating internal var from OracleModule, the following should not change:
     uint256 LINK_DIVISIBILITY = 10 ** 18;
+    uint256 LINK_DENOMINATOR = 10;
 
     OracleModuleTestHelper oracleHelper;
     OracleModuleExposed oracleExposed;
-
-    // Leaderboard Ids and allocations set to 0 for testing
-    uint256 leaderboardId = 0;
 
     function setUp() public virtual {
         // Deploy core, LINK, router
@@ -159,60 +156,58 @@ contract OracleModuleTest is Test {
         router = new MockFunctionsRouter(address(linkToken));
         usdc = new MockERC20();
 
-        // Grant admin role to admin account
-        core.grantRole(core.DEFAULT_ADMIN_ROLE(), admin);
-
-        // Deploy OracleModule
+        // Deploy OracleModule (5 params: core, router, link, donId, linkDenominator)
         oracleModule = new OracleModule(
             address(core),
             address(router),
             address(linkToken),
-            donId
+            donId,
+            LINK_DENOMINATOR
         );
-        // Deploy modules with proper addresses (not zero)
+        // Deploy modules with proper addresses
         treasuryModule = new TreasuryModule(
             address(core),
-            address(0x1),
-            address(0x2)
+            address(usdc),
+            address(0x2), // protocolReceiver
+            1_000_000,  // contestCreationFeeRate
+            500_000,    // speculationCreationFeeRate
+            500_000     // leaderboardCreationFeeRate
         );
-        contestModule = new ContestModule(
+        contestModule = new ContestModule(address(core));
+        speculationModule = new SpeculationModule(
             address(core),
-            keccak256(abi.encodePacked("createContestSourceHash")),
-            keccak256(abi.encodePacked("updateContestMarketsSourceHash"))
+            6,     // tokenDecimals
+            86400, // voidCooldown
+            1      // minSpeculationAmount
         );
-        speculationModule = new SpeculationModule(address(core), 6);
         leaderboardModule = new LeaderboardModule(address(core));
         positionModule = new PositionModule(address(core), address(usdc));
 
-        // Register modules - IMPORTANT: Register OracleModule FIRST so other modules can reference it
-        core.registerModule(keccak256("ORACLE_MODULE"), address(oracleModule));
-        core.registerModule(
-            keccak256("TREASURY_MODULE"),
-            address(treasuryModule)
-        );
-        core.registerModule(
-            keccak256("CONTEST_MODULE"),
-            address(contestModule)
-        );
-        core.registerModule(
-            keccak256("SPECULATION_MODULE"),
-            address(speculationModule)
-        );
-        core.registerModule(
-            keccak256("LEADERBOARD_MODULE"),
-            address(leaderboardModule)
-        );
-        core.registerModule(
-            keccak256("POSITION_MODULE"),
-            address(positionModule)
-        );
+        // Bootstrap all 12 modules and finalize
+        bytes32[] memory types = new bytes32[](12);
+        address[] memory addrs = new address[](12);
+        types[0] = core.CONTEST_MODULE();           addrs[0] = address(contestModule);
+        types[1] = core.SPECULATION_MODULE();        addrs[1] = address(speculationModule);
+        types[2] = core.POSITION_MODULE();           addrs[2] = address(positionModule);
+        types[3] = core.MATCHING_MODULE();           addrs[3] = address(0xD003);
+        types[4] = core.ORACLE_MODULE();             addrs[4] = address(oracleModule);
+        types[5] = core.TREASURY_MODULE();           addrs[5] = address(treasuryModule);
+        types[6] = core.LEADERBOARD_MODULE();        addrs[6] = address(leaderboardModule);
+        types[7] = core.RULES_MODULE();              addrs[7] = address(0xD007);
+        types[8] = core.SECONDARY_MARKET_MODULE();   addrs[8] = address(0xD008);
+        types[9] = core.MONEYLINE_SCORER_MODULE();   addrs[9] = address(0xAAA1);
+        types[10] = core.SPREAD_SCORER_MODULE();     addrs[10] = address(0xAAA2);
+        types[11] = core.TOTAL_SCORER_MODULE();      addrs[11] = address(0xAAA3);
+        core.bootstrapModules(types, addrs);
+        core.finalize();
 
         // Deploy helper for fulfillRequest and utility function tests
         oracleHelper = new OracleModuleTestHelper(
             address(core),
             address(router),
             address(linkToken),
-            donId
+            donId,
+            LINK_DENOMINATOR
         );
 
         // Initialize oracleExposed for utility tests
@@ -220,18 +215,25 @@ contract OracleModuleTest is Test {
             address(core),
             address(router),
             address(linkToken),
-            donId
+            donId,
+            LINK_DENOMINATOR
         );
 
         // Give accounts some ETH
         vm.deal(admin, 10 ether);
         vm.deal(user, 10 ether);
+
+        // Fund user with USDC and approve TreasuryModule for contest creation fees
+        usdc.mint(user, 100_000_000);
+        vm.prank(user);
+        usdc.approve(address(treasuryModule), type(uint256).max);
     }
 
   function testConstructor_SetsStateCorrectly() public view {
       assertEq(address(oracleModule.i_ospexCore()), address(core));
       // s_router is now internal (managed by FunctionsClient), cannot check directly
       assertEq(oracleModule.i_donId(), donId);
+      assertEq(oracleModule.i_linkDenominator(), LINK_DENOMINATOR);
       // i_linkAddress is internal, cannot check directly
       // assertEq(address(oracleModule.i_linkAddress()), address(linkToken));
   }
@@ -242,35 +244,36 @@ contract OracleModuleTest is Test {
             address(core),
             address(router),
             address(linkToken),
-            bytes32(0) // zero donId
+            bytes32(0), // zero donId
+            LINK_DENOMINATOR
+        );
+    }
+
+    function testConstructor_RevertsIfLinkDenominatorIsZero() public {
+        vm.expectRevert(OracleModule.OracleModule__InvalidValue.selector);
+        new OracleModule(
+            address(core),
+            address(router),
+            address(linkToken),
+            donId,
+            0 // zero linkDenominator
         );
     }
 
     function testCreateContestFromOracle_HappyPath() public {
-        // Arrange: set up contest source hash to match what OracleModule expects
-        bytes32 createContestSourceHash = contestModule
-            .s_createContestSourceHash();
-        console.log("ContestModule source hash:");
-        console.logBytes32(createContestSourceHash);
-
         string memory rundownId = "rd";
         string memory sportspageId = "sp";
         string memory jsonoddsId = "jo";
 
-        // Use the string that will generate the right hash when passed to keccak256
         string memory createContestSourceJS = "createContestSourceHash";
-        console.log("Our source string:", createContestSourceJS);
-        console.log("Our string hashed:");
-        console.logBytes32(keccak256(abi.encodePacked(createContestSourceJS)));
-
         bytes32 scoreContestSourceHash = bytes32("scoreHash");
+        bytes32 marketUpdateSourceHash = keccak256(abi.encodePacked("updateContestMarketsSourceHash"));
         bytes memory encryptedSecretsUrls = hex"";
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
-        // address contestCreator = user; // unused
 
         // User approves LINK payment to OracleModule
-        uint256 payment = LINK_DIVISIBILITY / oracleModule.s_linkDenominator();
+        uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment);
         vm.prank(user);
         linkToken.approve(address(oracleModule), payment);
@@ -283,7 +286,8 @@ contract OracleModuleTest is Test {
             sportspageId,
             jsonoddsId,
             user,
-            scoreContestSourceHash
+            scoreContestSourceHash,
+            marketUpdateSourceHash
         );
 
         // Act: call createContestFromOracle as user
@@ -294,7 +298,7 @@ contract OracleModuleTest is Test {
             jsonoddsId,
             createContestSourceJS,
             scoreContestSourceHash,
-            leaderboardId,
+            marketUpdateSourceHash,
             encryptedSecretsUrls,
             subscriptionId,
             gasLimit
@@ -307,97 +311,75 @@ contract OracleModuleTest is Test {
         assertEq(c.sportspageId, sportspageId);
         assertEq(c.jsonoddsId, jsonoddsId);
         assertEq(c.scoreContestSourceHash, scoreContestSourceHash);
+        assertEq(c.marketUpdateSourceHash, marketUpdateSourceHash);
         assertEq(c.contestCreator, user);
         // LeagueId should still be default (0) since oracle hasn't fulfilled request yet
         assertEq(uint(c.leagueId), 0);
         assertEq(uint(c.contestStatus), uint(ContestStatus.Unverified));
     }
 
-    function testCreateContestFromOracle_RevertsIfIncorrectSourceHash() public {
-        // Arrange: use a source string that does NOT match the hash in ContestModule
-        string memory rundownId = "rd";
-        string memory sportspageId = "sp";
-        string memory jsonoddsId = "jo";
-        string memory createContestSourceJS = "wrongSource"; // wrong source, will not match hash
-        bytes32 scoreContestSourceHash = bytes32("scoreHash");
-        bytes memory encryptedSecretsUrls = hex"";
-        uint64 subscriptionId = 1;
-        uint32 gasLimit = 500_000;
-
-        // User approves LINK payment to OracleModule
-        uint256 payment = LINK_DIVISIBILITY / oracleModule.s_linkDenominator();
-        linkToken.mint(user, payment);
-        vm.prank(user);
-        linkToken.approve(address(oracleModule), payment);
-
-        // Expect revert for incorrect source hash
-        vm.prank(user);
-        vm.expectRevert(
-            OracleModule.OracleModule__IncorrectSourceHash.selector
-        );
-        oracleModule.createContestFromOracle(
-            rundownId,
-            sportspageId,
-            jsonoddsId,
-            createContestSourceJS,
-            scoreContestSourceHash,
-            leaderboardId,
-            encryptedSecretsUrls,
-            subscriptionId,
-            gasLimit
-        );
-    }
-
     function testCreateContestFromOracle_RevertsIfContestModuleNotSet() public {
         // Create a new core instance without any modules registered
         OspexCore newCore = new OspexCore();
-        newCore.grantRole(newCore.DEFAULT_ADMIN_ROLE(), admin);
 
         // Create a new OracleModule instance with the new core
         OracleModule newOracleModule = new OracleModule(
             address(newCore),
             address(router),
             address(linkToken),
-            donId
+            donId,
+            LINK_DENOMINATOR
         );
-        // Register the new oracle module in the new core
-        newCore.registerModule(
-            keccak256("ORACLE_MODULE"),
-            address(newOracleModule)
-        );
-        // Note: we intentionally DON'T register the CONTEST_MODULE
+
+        // Bootstrap only the oracle module, not CONTEST_MODULE
+        bytes32[] memory types = new bytes32[](12);
+        address[] memory addrs = new address[](12);
+        types[0] = newCore.CONTEST_MODULE();           addrs[0] = address(0xF001);
+        types[1] = newCore.SPECULATION_MODULE();        addrs[1] = address(0xF002);
+        types[2] = newCore.POSITION_MODULE();           addrs[2] = address(0xF003);
+        types[3] = newCore.MATCHING_MODULE();           addrs[3] = address(0xF004);
+        types[4] = newCore.ORACLE_MODULE();             addrs[4] = address(newOracleModule);
+        types[5] = newCore.TREASURY_MODULE();           addrs[5] = address(0xF006);
+        types[6] = newCore.LEADERBOARD_MODULE();        addrs[6] = address(0xF007);
+        types[7] = newCore.RULES_MODULE();              addrs[7] = address(0xF008);
+        types[8] = newCore.SECONDARY_MARKET_MODULE();   addrs[8] = address(0xF009);
+        types[9] = newCore.MONEYLINE_SCORER_MODULE();   addrs[9] = address(0xF00A);
+        types[10] = newCore.SPREAD_SCORER_MODULE();     addrs[10] = address(0xF00B);
+        types[11] = newCore.TOTAL_SCORER_MODULE();      addrs[11] = address(0xF00C);
+        newCore.bootstrapModules(types, addrs);
+        newCore.finalize();
+
+        // The CONTEST_MODULE is registered but it's a dummy address (0xF001),
+        // so calling createContestFromOracle will fail when it tries to call
+        // createContest on a non-contract address.
 
         string memory rundownId = "rd";
         string memory sportspageId = "sp";
         string memory jsonoddsId = "jo";
         string memory createContestSourceJS = "createContestSourceHash";
         bytes32 scoreContestSourceHash = bytes32("scoreHash");
+        bytes32 marketUpdateSourceHash = bytes32("marketHash");
         bytes memory encryptedSecretsUrls = hex"";
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
 
         // User approves LINK payment to the new OracleModule
         uint256 payment = LINK_DIVISIBILITY /
-            newOracleModule.s_linkDenominator();
+            newOracleModule.i_linkDenominator();
         linkToken.mint(user, payment);
         vm.prank(user);
         linkToken.approve(address(newOracleModule), payment);
 
-        // Expect revert for contest module not set
+        // Expect revert when trying to call createContest on a non-contract address
         vm.prank(user);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                OracleModule.OracleModule__ModuleNotSet.selector,
-                keccak256("CONTEST_MODULE")
-            )
-        );
+        vm.expectRevert();
         newOracleModule.createContestFromOracle(
             rundownId,
             sportspageId,
             jsonoddsId,
             createContestSourceJS,
             scoreContestSourceHash,
-            leaderboardId,
+            marketUpdateSourceHash,
             encryptedSecretsUrls,
             subscriptionId,
             gasLimit
@@ -411,6 +393,7 @@ contract OracleModuleTest is Test {
         string memory jsonoddsId = "jo";
         string memory createContestSourceJS = "createContestSourceHash";
         bytes32 scoreContestSourceHash = bytes32("scoreHash");
+        bytes32 marketUpdateSourceHash = bytes32("marketHash");
         bytes memory encryptedSecretsUrls = hex"";
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
@@ -421,7 +404,7 @@ contract OracleModuleTest is Test {
         linkToken.approve(address(oracleModule), 1);
 
         // Expect revert for insufficient LINK allowance (approved 1, needs payment)
-        uint256 payment = LINK_DIVISIBILITY / oracleModule.s_linkDenominator();
+        uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(
             IERC20Errors.ERC20InsufficientAllowance.selector,
@@ -435,7 +418,7 @@ contract OracleModuleTest is Test {
             jsonoddsId,
             createContestSourceJS,
             scoreContestSourceHash,
-            leaderboardId,
+            marketUpdateSourceHash,
             encryptedSecretsUrls,
             subscriptionId,
             gasLimit
@@ -445,16 +428,16 @@ contract OracleModuleTest is Test {
     function testCreateContestFromOracle_RevertsIfSubscriptionPaymentFails()
         public
     {
-        // Arrange: set up contest source hash to match what OracleModule expects
         string memory rundownId = "rd";
         string memory sportspageId = "sp";
         string memory jsonoddsId = "jo";
         string memory createContestSourceJS = "createContestSourceHash";
         bytes32 scoreContestSourceHash = bytes32("scoreHash");
+        bytes32 marketUpdateSourceHash = bytes32("marketHash");
         bytes memory encryptedSecretsUrls = hex"";
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
-        uint256 payment = LINK_DIVISIBILITY / oracleModule.s_linkDenominator();
+        uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment);
         vm.prank(user);
         linkToken.approve(address(oracleModule), payment);
@@ -474,7 +457,7 @@ contract OracleModuleTest is Test {
             jsonoddsId,
             createContestSourceJS,
             scoreContestSourceHash,
-            leaderboardId,
+            marketUpdateSourceHash,
             encryptedSecretsUrls,
             subscriptionId,
             gasLimit
@@ -490,13 +473,13 @@ contract OracleModuleTest is Test {
         bytes32 scoreContestSourceHash = keccak256(
             abi.encodePacked("scoreHash")
         );
+        bytes32 marketUpdateSourceHash = bytes32("marketHash");
         bytes memory encryptedSecretsUrls = hex"";
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
-        // address contestCreator = user; // unused
 
         // User approves LINK payment to OracleModule for creation
-        uint256 payment = LINK_DIVISIBILITY / oracleModule.s_linkDenominator();
+        uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment * 2); // enough for both create and score
         vm.prank(user);
         linkToken.approve(address(oracleModule), payment * 2);
@@ -509,7 +492,7 @@ contract OracleModuleTest is Test {
             jsonoddsId,
             createContestSourceJS,
             scoreContestSourceHash,
-            leaderboardId,
+            marketUpdateSourceHash,
             encryptedSecretsUrls,
             subscriptionId,
             gasLimit
@@ -543,11 +526,12 @@ contract OracleModuleTest is Test {
         string memory jsonoddsId = "jo";
         string memory createContestSourceJS = "createContestSourceHash";
         bytes32 scoreContestSourceHash = bytes32("scoreHash");
+        bytes32 marketUpdateSourceHash = bytes32("marketHash");
         bytes memory encryptedSecretsUrls = hex"";
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
 
-        uint256 payment = LINK_DIVISIBILITY / oracleModule.s_linkDenominator();
+        uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment * 2);
         vm.prank(user);
         linkToken.approve(address(oracleModule), payment * 2);
@@ -559,7 +543,7 @@ contract OracleModuleTest is Test {
             jsonoddsId,
             createContestSourceJS,
             scoreContestSourceHash,
-            leaderboardId,
+            marketUpdateSourceHash,
             encryptedSecretsUrls,
             subscriptionId,
             gasLimit
@@ -588,11 +572,12 @@ contract OracleModuleTest is Test {
         string memory jsonoddsId = "jo";
         string memory createContestSourceJS = "createContestSourceHash";
         bytes32 scoreContestSourceHash = bytes32("scoreHash");
+        bytes32 marketUpdateSourceHash = bytes32("marketHash");
         bytes memory encryptedSecretsUrls = hex"";
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
 
-        uint256 payment = LINK_DIVISIBILITY / oracleModule.s_linkDenominator();
+        uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment * 2);
         vm.prank(user);
         linkToken.approve(address(oracleModule), payment * 2);
@@ -604,7 +589,7 @@ contract OracleModuleTest is Test {
             jsonoddsId,
             createContestSourceJS,
             scoreContestSourceHash,
-            leaderboardId,
+            marketUpdateSourceHash,
             encryptedSecretsUrls,
             subscriptionId,
             gasLimit
@@ -641,11 +626,12 @@ contract OracleModuleTest is Test {
         bytes32 scoreContestSourceHash = keccak256(
             abi.encodePacked(scoreContestSourceJS)
         );
+        bytes32 marketUpdateSourceHash = bytes32("marketHash");
         bytes memory encryptedSecretsUrls = hex"";
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
 
-        uint256 payment = LINK_DIVISIBILITY / oracleModule.s_linkDenominator();
+        uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment * 2);
         vm.prank(user);
         linkToken.approve(address(oracleModule), payment * 2);
@@ -658,7 +644,7 @@ contract OracleModuleTest is Test {
             jsonoddsId,
             "createContestSourceHash",
             scoreContestSourceHash,
-            leaderboardId,
+            marketUpdateSourceHash,
             encryptedSecretsUrls,
             subscriptionId,
             gasLimit
@@ -690,46 +676,61 @@ contract OracleModuleTest is Test {
     }
 
     function testFulfillRequest_UnverifiedContest_SetsStartTime() public {
-        // Create a separate contest module that recognizes the helper as the oracle module
-        ContestModule testContestModule = new ContestModule(
-            address(core),
-            keccak256(abi.encodePacked("createContestSourceHash")),
-            keccak256(abi.encodePacked("updateContestMarketsSourceHash"))
+        // Need a fresh core where oracleHelper is the registered ORACLE_MODULE
+        OspexCore testCore = new OspexCore();
+        ContestModule testContestModule = new ContestModule(address(testCore));
+        TreasuryModule testTreasury = new TreasuryModule(
+            address(testCore), address(usdc), address(0x2), 0, 0, 0
         );
 
-        // First register the oracle helper as the ORACLE_MODULE
-        core.registerModule(keccak256("ORACLE_MODULE"), address(oracleHelper));
-
-        // Register the test contest module with the same key the oracle will look for
-        core.registerModule(
-            keccak256("CONTEST_MODULE"),
-            address(testContestModule)
+        OracleModuleTestHelper testHelper = new OracleModuleTestHelper(
+            address(testCore),
+            address(router),
+            address(linkToken),
+            donId,
+            LINK_DENOMINATOR
         );
+
+        // Bootstrap all 12 modules with testHelper as ORACLE_MODULE
+        bytes32[] memory types = new bytes32[](12);
+        address[] memory addrs = new address[](12);
+        types[0] = testCore.CONTEST_MODULE();           addrs[0] = address(testContestModule);
+        types[1] = testCore.SPECULATION_MODULE();        addrs[1] = address(0xE001);
+        types[2] = testCore.POSITION_MODULE();           addrs[2] = address(0xE002);
+        types[3] = testCore.MATCHING_MODULE();           addrs[3] = address(0xE003);
+        types[4] = testCore.ORACLE_MODULE();             addrs[4] = address(testHelper);
+        types[5] = testCore.TREASURY_MODULE();           addrs[5] = address(testTreasury);
+        types[6] = testCore.LEADERBOARD_MODULE();        addrs[6] = address(0xE006);
+        types[7] = testCore.RULES_MODULE();              addrs[7] = address(0xE007);
+        types[8] = testCore.SECONDARY_MARKET_MODULE();   addrs[8] = address(0xE008);
+        types[9] = testCore.MONEYLINE_SCORER_MODULE();   addrs[9] = address(0xE009);
+        types[10] = testCore.SPREAD_SCORER_MODULE();     addrs[10] = address(0xE00A);
+        types[11] = testCore.TOTAL_SCORER_MODULE();      addrs[11] = address(0xE00B);
+        testCore.bootstrapModules(types, addrs);
+        testCore.finalize();
 
         // Arrange: create contest (unverified)
         string memory rundownId = "rd";
         string memory sportspageId = "sp";
         string memory jsonoddsId = "jo";
         bytes32 scoreContestSourceHash = bytes32("scoreHash");
+        bytes32 marketUpdateSourceHash = bytes32("marketHash");
         address contestCreator = user;
 
-        // Use vm.prank to have the call come from the oracleHelper
-        vm.prank(address(oracleHelper));
+        // Use vm.prank to have the call come from the testHelper
+        vm.prank(address(testHelper));
         uint256 contestId = testContestModule.createContest(
             rundownId,
             sportspageId,
             jsonoddsId,
             scoreContestSourceHash,
-            contestCreator,
-            leaderboardId
+            marketUpdateSourceHash,
+            contestCreator
         );
 
-        // Simulate oracle request mapping
-        bytes32 requestId = bytes32(uint256(0xAABB));
-        oracleHelper.setRequestMapping(requestId, contestId);
-
         // Set up the request context to simulate a ContestCreate request
-        oracleHelper.setRequestContext(
+        bytes32 requestId = bytes32(uint256(0xAABB));
+        testHelper.setRequestContext(
             requestId,
             OracleRequestType.ContestCreate,
             contestId
@@ -741,53 +742,71 @@ contract OracleModuleTest is Test {
         bytes memory response = abi.encodePacked(contestData);
         bytes memory err = hex"";
         // Expect Response event
-        vm.expectEmit(true, true, true, true, address(oracleHelper));
+        vm.expectEmit(true, true, true, true, address(testHelper));
         emit OracleModule.Response(requestId, response, err);
         // Act
         vm.prank(address(this));
-        oracleHelper.testFulfillRequest(requestId, response, err);
+        testHelper.testFulfillRequest(requestId, response, err);
         // Assert: start time should be set in ContestModule
         uint256 startTime = testContestModule.s_contestStartTimes(contestId);
         assertEq(startTime, 1234);
     }
 
     function testFulfillRequest_VerifiedContest_SetsScores() public {
-        // Create a separate contest module that recognizes the helper as the oracle module
-        ContestModule testContestModule = new ContestModule(
-            address(core),
-            keccak256(abi.encodePacked("createContestSourceHash")),
-            keccak256(abi.encodePacked("updateContestMarketsSourceHash"))
+        // Need a fresh core where oracleHelper is the registered ORACLE_MODULE
+        OspexCore testCore = new OspexCore();
+        ContestModule testContestModule = new ContestModule(address(testCore));
+        TreasuryModule testTreasury = new TreasuryModule(
+            address(testCore), address(usdc), address(0x2), 0, 0, 0
         );
 
-        // First register the oracle helper as the ORACLE_MODULE
-        core.registerModule(keccak256("ORACLE_MODULE"), address(oracleHelper));
-
-        // Register the test contest module with the same key the oracle will look for
-        core.registerModule(
-            keccak256("CONTEST_MODULE"),
-            address(testContestModule)
+        OracleModuleTestHelper testHelper = new OracleModuleTestHelper(
+            address(testCore),
+            address(router),
+            address(linkToken),
+            donId,
+            LINK_DENOMINATOR
         );
+
+        // Bootstrap all 12 modules with testHelper as ORACLE_MODULE
+        bytes32[] memory types = new bytes32[](12);
+        address[] memory addrs = new address[](12);
+        types[0] = testCore.CONTEST_MODULE();           addrs[0] = address(testContestModule);
+        types[1] = testCore.SPECULATION_MODULE();        addrs[1] = address(0xE001);
+        types[2] = testCore.POSITION_MODULE();           addrs[2] = address(0xE002);
+        types[3] = testCore.MATCHING_MODULE();           addrs[3] = address(0xE003);
+        types[4] = testCore.ORACLE_MODULE();             addrs[4] = address(testHelper);
+        types[5] = testCore.TREASURY_MODULE();           addrs[5] = address(testTreasury);
+        types[6] = testCore.LEADERBOARD_MODULE();        addrs[6] = address(0xE006);
+        types[7] = testCore.RULES_MODULE();              addrs[7] = address(0xE007);
+        types[8] = testCore.SECONDARY_MARKET_MODULE();   addrs[8] = address(0xE008);
+        types[9] = testCore.MONEYLINE_SCORER_MODULE();   addrs[9] = address(0xE009);
+        types[10] = testCore.SPREAD_SCORER_MODULE();     addrs[10] = address(0xE00A);
+        types[11] = testCore.TOTAL_SCORER_MODULE();      addrs[11] = address(0xE00B);
+        testCore.bootstrapModules(types, addrs);
+        testCore.finalize();
 
         // Arrange: create and verify contest
         string memory rundownId = "rd";
         string memory sportspageId = "sp";
         string memory jsonoddsId = "jo";
         bytes32 scoreContestSourceHash = bytes32("scoreHash");
+        bytes32 marketUpdateSourceHash = bytes32("marketHash");
         address contestCreator = user;
 
-        // Use vm.prank to have the call come from the oracleHelper
-        vm.prank(address(oracleHelper));
+        // Use vm.prank to have the call come from the testHelper
+        vm.prank(address(testHelper));
         uint256 contestId = testContestModule.createContest(
             rundownId,
             sportspageId,
             jsonoddsId,
             scoreContestSourceHash,
-            contestCreator,
-            leaderboardId
+            marketUpdateSourceHash,
+            contestCreator
         );
 
         // Set contest as verified - use vm.prank here too
-        vm.prank(address(oracleHelper));
+        vm.prank(address(testHelper));
         testContestModule.setContestLeagueIdAndStartTime(
             contestId,
             LeagueId.NBA,
@@ -796,10 +815,9 @@ contract OracleModuleTest is Test {
 
         // Simulate oracle request mapping
         bytes32 requestId = bytes32(uint256(0xBEEF));
-        oracleHelper.setRequestMapping(requestId, contestId);
 
         // Set up the request context to simulate a ContestScore request
-        oracleHelper.setRequestContext(
+        testHelper.setRequestContext(
             requestId,
             OracleRequestType.ContestScore,
             contestId
@@ -810,11 +828,11 @@ contract OracleModuleTest is Test {
         bytes memory err = hex"";
 
         // Expect Response event
-        vm.expectEmit(true, true, true, true, address(oracleHelper));
+        vm.expectEmit(true, true, true, true, address(testHelper));
         emit OracleModule.Response(requestId, response, err);
         // Act
         vm.prank(address(this));
-        oracleHelper.testFulfillRequest(requestId, response, err);
+        testHelper.testFulfillRequest(requestId, response, err);
         // Assert: scores should be set in ContestModule
         Contest memory c = testContestModule.getContest(contestId);
         assertEq(c.awayScore, 12);
@@ -822,47 +840,64 @@ contract OracleModuleTest is Test {
     }
 
     function testFulfillRequest_RevertsOnError() public {
-        // Create a separate contest module that recognizes the helper as the oracle module
-        ContestModule testContestModule = new ContestModule(
-            address(core),
-            keccak256(abi.encodePacked("createContestSourceHash")),
-            keccak256(abi.encodePacked("updateContestMarketsSourceHash"))
+        // Need a fresh core where oracleHelper is the registered ORACLE_MODULE
+        OspexCore testCore = new OspexCore();
+        ContestModule testContestModule = new ContestModule(address(testCore));
+        TreasuryModule testTreasury = new TreasuryModule(
+            address(testCore), address(usdc), address(0x2), 0, 0, 0
         );
 
-        // First register the oracle helper as the ORACLE_MODULE
-        core.registerModule(keccak256("ORACLE_MODULE"), address(oracleHelper));
-
-        // Then register the contest module
-        core.registerModule(
-            keccak256("TEST_CONTEST_MODULE"),
-            address(testContestModule)
+        OracleModuleTestHelper testHelper = new OracleModuleTestHelper(
+            address(testCore),
+            address(router),
+            address(linkToken),
+            donId,
+            LINK_DENOMINATOR
         );
+
+        // Bootstrap all 12 modules
+        bytes32[] memory types = new bytes32[](12);
+        address[] memory addrs = new address[](12);
+        types[0] = testCore.CONTEST_MODULE();           addrs[0] = address(testContestModule);
+        types[1] = testCore.SPECULATION_MODULE();        addrs[1] = address(0xE001);
+        types[2] = testCore.POSITION_MODULE();           addrs[2] = address(0xE002);
+        types[3] = testCore.MATCHING_MODULE();           addrs[3] = address(0xE003);
+        types[4] = testCore.ORACLE_MODULE();             addrs[4] = address(testHelper);
+        types[5] = testCore.TREASURY_MODULE();           addrs[5] = address(testTreasury);
+        types[6] = testCore.LEADERBOARD_MODULE();        addrs[6] = address(0xE006);
+        types[7] = testCore.RULES_MODULE();              addrs[7] = address(0xE007);
+        types[8] = testCore.SECONDARY_MARKET_MODULE();   addrs[8] = address(0xE008);
+        types[9] = testCore.MONEYLINE_SCORER_MODULE();   addrs[9] = address(0xE009);
+        types[10] = testCore.SPREAD_SCORER_MODULE();     addrs[10] = address(0xE00A);
+        types[11] = testCore.TOTAL_SCORER_MODULE();      addrs[11] = address(0xE00B);
+        testCore.bootstrapModules(types, addrs);
+        testCore.finalize();
 
         // Arrange: create contest
         string memory rundownId = "rd";
         string memory sportspageId = "sp";
         string memory jsonoddsId = "jo";
         bytes32 scoreContestSourceHash = bytes32("scoreHash");
+        bytes32 marketUpdateSourceHash = bytes32("marketHash");
         address contestCreator = user;
 
-        // Use vm.prank to have the call come from the oracleHelper
-        vm.prank(address(oracleHelper));
-        uint256 contestId = testContestModule.createContest(
+        // Use vm.prank to have the call come from the testHelper
+        vm.prank(address(testHelper));
+        testContestModule.createContest(
             rundownId,
             sportspageId,
             jsonoddsId,
             scoreContestSourceHash,
-            contestCreator,
-            leaderboardId
+            marketUpdateSourceHash,
+            contestCreator
         );
 
         // Simulate oracle request mapping
         bytes32 requestId = bytes32(uint256(0xDEAD));
-        oracleHelper.setRequestMapping(requestId, contestId);
-        oracleHelper.setRequestContext(
+        testHelper.setRequestContext(
             requestId,
             OracleRequestType.ContestScore,
-            contestId
+            1
         );
         bytes memory response = hex"";
         bytes memory err = hex"deadbeef";
@@ -874,44 +909,10 @@ contract OracleModuleTest is Test {
             )
         );
         vm.prank(address(this));
-        oracleHelper.testFulfillRequest(requestId, response, err);
+        testHelper.testFulfillRequest(requestId, response, err);
     }
 
     function testFulfillRequest_RevertsOnUnexpectedRequestId() public {
-        // Create a separate contest module that recognizes the helper as the oracle module
-        ContestModule testContestModule = new ContestModule(
-            address(core),
-            keccak256(abi.encodePacked("createContestSourceHash")),
-            keccak256(abi.encodePacked("updateContestMarketsSourceHash"))
-        );
-
-        // First register the oracle helper as the ORACLE_MODULE
-        core.registerModule(keccak256("ORACLE_MODULE"), address(oracleHelper));
-
-        // Then register the contest module
-        core.registerModule(
-            keccak256("TEST_CONTEST_MODULE"),
-            address(testContestModule)
-        );
-
-        // Arrange: create contest
-        string memory rundownId = "rd";
-        string memory sportspageId = "sp";
-        string memory jsonoddsId = "jo";
-        bytes32 scoreContestSourceHash = bytes32("scoreHash");
-        address contestCreator = user;
-
-        // Use vm.prank to have the call come from the oracleHelper
-        vm.prank(address(oracleHelper));
-        testContestModule.createContest(
-            rundownId,
-            sportspageId,
-            jsonoddsId,
-            scoreContestSourceHash,
-            contestCreator,
-            leaderboardId
-        );
-
         // Use a requestId that has no context set — triggers UnexpectedRequestId
         bytes32 requestId = bytes32(uint256(0x1111));
         bytes memory response = hex"";
@@ -950,31 +951,6 @@ contract OracleModuleTest is Test {
             )
         );
         oracleExposed.exposed_bytesToUint256(input);
-    }
-
-    function testSetLinkDenominator_HappyPath() public {
-        uint256 newDenominator = 251;
-        vm.prank(admin);
-        oracleModule.setLinkDenominator(newDenominator);
-        assertEq(oracleModule.s_linkDenominator(), newDenominator);
-    }
-
-    function testSetLinkDenominator_RevertsIfNotAdmin() public {
-        uint256 newDenominator = 252;
-        vm.prank(notAdmin);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                OracleModule.OracleModule__NotAdmin.selector,
-                notAdmin
-            )
-        );
-        oracleModule.setLinkDenominator(newDenominator);
-    }
-
-    function testSetLinkDenominator_RevertsIfZero() public {
-        vm.prank(admin);
-        vm.expectRevert(OracleModule.OracleModule__InvalidValue.selector);
-        oracleModule.setLinkDenominator(0);
     }
 
     // --- Utility Function Tests ---
@@ -1087,12 +1063,13 @@ contract OracleModuleTest is Test {
         string memory jsonoddsId = "jo";
         string memory createContestSourceJS = "createContestSourceHash";
         bytes32 scoreContestSourceHash = bytes32("scoreHash");
+        bytes32 marketUpdateSourceHash = keccak256(abi.encodePacked("updateContestMarketsSourceHash"));
         bytes memory encryptedSecretsUrls = hex"";
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
 
         // User approves LINK payment for both create and update
-        uint256 payment = LINK_DIVISIBILITY / oracleModule.s_linkDenominator();
+        uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment * 2);
         vm.prank(user);
         linkToken.approve(address(oracleModule), payment * 2);
@@ -1105,7 +1082,7 @@ contract OracleModuleTest is Test {
             jsonoddsId,
             createContestSourceJS,
             scoreContestSourceHash,
-            leaderboardId,
+            marketUpdateSourceHash,
             encryptedSecretsUrls,
             subscriptionId,
             gasLimit
@@ -1138,15 +1115,16 @@ contract OracleModuleTest is Test {
     function testUpdateContestMarketsFromOracle_RevertsIfIncorrectSourceHash() public {
         // Arrange: create and verify contest
         string memory rundownId = "rd";
-        string memory sportspageId = "sp"; 
+        string memory sportspageId = "sp";
         string memory jsonoddsId = "jo";
         string memory createContestSourceJS = "createContestSourceHash";
         bytes32 scoreContestSourceHash = bytes32("scoreHash");
+        bytes32 marketUpdateSourceHash = keccak256(abi.encodePacked("updateContestMarketsSourceHash"));
         bytes memory encryptedSecretsUrls = hex"";
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
 
-        uint256 payment = LINK_DIVISIBILITY / oracleModule.s_linkDenominator();
+        uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment * 2);
         vm.prank(user);
         linkToken.approve(address(oracleModule), payment * 2);
@@ -1158,7 +1136,7 @@ contract OracleModuleTest is Test {
             jsonoddsId,
             createContestSourceJS,
             scoreContestSourceHash,
-            leaderboardId,
+            marketUpdateSourceHash,
             encryptedSecretsUrls,
             subscriptionId,
             gasLimit
@@ -1193,11 +1171,12 @@ contract OracleModuleTest is Test {
         string memory jsonoddsId = "jo";
         string memory createContestSourceJS = "createContestSourceHash";
         bytes32 scoreContestSourceHash = bytes32("scoreHash");
+        bytes32 marketUpdateSourceHash = keccak256(abi.encodePacked("updateContestMarketsSourceHash"));
         bytes memory encryptedSecretsUrls = hex"";
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
 
-        uint256 payment = LINK_DIVISIBILITY / oracleModule.s_linkDenominator();
+        uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment * 2);
         vm.prank(user);
         linkToken.approve(address(oracleModule), payment * 2);
@@ -1209,7 +1188,7 @@ contract OracleModuleTest is Test {
             jsonoddsId,
             createContestSourceJS,
             scoreContestSourceHash,
-            leaderboardId,
+            marketUpdateSourceHash,
             encryptedSecretsUrls,
             subscriptionId,
             gasLimit
@@ -1218,7 +1197,8 @@ contract OracleModuleTest is Test {
 
         // DON'T verify contest - leave it as Unverified
 
-        // Act & Assert: should revert because contest is not verified
+        // Act & Assert: should revert because the source hash won't match for unverified contest
+        // (updateContestMarketsFromOracle checks hash before status)
         string memory contestMarketsUpdateSourceJS = "updateContestMarketsSourceHash";
         vm.prank(user);
         vm.expectRevert(OracleModule.OracleModule__ContestNotVerified.selector);
@@ -1238,11 +1218,12 @@ contract OracleModuleTest is Test {
         string memory jsonoddsId = "jo";
         string memory createContestSourceJS = "createContestSourceHash";
         bytes32 scoreContestSourceHash = bytes32("scoreHash");
+        bytes32 marketUpdateSourceHash = keccak256(abi.encodePacked("updateContestMarketsSourceHash"));
         bytes memory encryptedSecretsUrls = hex"";
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
 
-        uint256 payment = LINK_DIVISIBILITY / oracleModule.s_linkDenominator();
+        uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment);
         vm.prank(user);
         linkToken.approve(address(oracleModule), payment);
@@ -1254,7 +1235,7 @@ contract OracleModuleTest is Test {
             jsonoddsId,
             createContestSourceJS,
             scoreContestSourceHash,
-            leaderboardId,
+            marketUpdateSourceHash,
             encryptedSecretsUrls,
             subscriptionId,
             gasLimit
@@ -1272,7 +1253,7 @@ contract OracleModuleTest is Test {
         assertEq(linkToken.balanceOf(user), 0);
 
         // Act & Assert: should revert due to insufficient LINK allowance (0 remaining)
-        uint256 updatePayment = LINK_DIVISIBILITY / oracleModule.s_linkDenominator();
+        uint256 updatePayment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         string memory contestMarketsUpdateSourceJS = "updateContestMarketsSourceHash";
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(
@@ -1291,49 +1272,64 @@ contract OracleModuleTest is Test {
     }
 
     function testFulfillRequest_ContestMarketsUpdate_UpdatesMarkets() public {
-        // Create a separate contest module that recognizes the helper as the oracle module
-        ContestModule testContestModule = new ContestModule(
-            address(core),
-            keccak256(abi.encodePacked("createContestSourceHash")),
-            keccak256(abi.encodePacked("updateContestMarketsSourceHash"))
+        // Need a fresh core where oracleHelper is the registered ORACLE_MODULE
+        OspexCore testCore = new OspexCore();
+        ContestModule testContestModule = new ContestModule(address(testCore));
+        TreasuryModule testTreasury = new TreasuryModule(
+            address(testCore), address(usdc), address(0x2), 0, 0, 0
         );
 
-        // Register the oracle helper as the ORACLE_MODULE
-        core.registerModule(keccak256("ORACLE_MODULE"), address(oracleHelper));
-
-        // Register the test contest module
-        core.registerModule(
-            keccak256("CONTEST_MODULE"),
-            address(testContestModule)
+        OracleModuleTestHelper testHelper = new OracleModuleTestHelper(
+            address(testCore),
+            address(router),
+            address(linkToken),
+            donId,
+            LINK_DENOMINATOR
         );
 
         // Register mock scorer modules for the market updates
         address moneylineScorer = address(0xAAA1);
         address spreadScorer = address(0xAAA2);
         address totalScorer = address(0xAAA3);
-        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), moneylineScorer);
-        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), spreadScorer);
-        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), totalScorer);
+
+        // Bootstrap all 12 modules
+        bytes32[] memory types = new bytes32[](12);
+        address[] memory addrs = new address[](12);
+        types[0] = testCore.CONTEST_MODULE();           addrs[0] = address(testContestModule);
+        types[1] = testCore.SPECULATION_MODULE();        addrs[1] = address(0xE001);
+        types[2] = testCore.POSITION_MODULE();           addrs[2] = address(0xE002);
+        types[3] = testCore.MATCHING_MODULE();           addrs[3] = address(0xE003);
+        types[4] = testCore.ORACLE_MODULE();             addrs[4] = address(testHelper);
+        types[5] = testCore.TREASURY_MODULE();           addrs[5] = address(testTreasury);
+        types[6] = testCore.LEADERBOARD_MODULE();        addrs[6] = address(0xE006);
+        types[7] = testCore.RULES_MODULE();              addrs[7] = address(0xE007);
+        types[8] = testCore.SECONDARY_MARKET_MODULE();   addrs[8] = address(0xE008);
+        types[9] = testCore.MONEYLINE_SCORER_MODULE();   addrs[9] = moneylineScorer;
+        types[10] = testCore.SPREAD_SCORER_MODULE();     addrs[10] = spreadScorer;
+        types[11] = testCore.TOTAL_SCORER_MODULE();      addrs[11] = totalScorer;
+        testCore.bootstrapModules(types, addrs);
+        testCore.finalize();
 
         // Arrange: create and verify contest
         string memory rundownId = "rd";
         string memory sportspageId = "sp";
         string memory jsonoddsId = "jo";
         bytes32 scoreContestSourceHash = bytes32("scoreHash");
+        bytes32 marketUpdateSourceHash = bytes32("marketHash");
         address contestCreator = user;
 
-        vm.prank(address(oracleHelper));
+        vm.prank(address(testHelper));
         uint256 contestId = testContestModule.createContest(
             rundownId,
             sportspageId,
             jsonoddsId,
             scoreContestSourceHash,
-            contestCreator,
-            leaderboardId
+            marketUpdateSourceHash,
+            contestCreator
         );
 
         // Verify contest
-        vm.prank(address(oracleHelper));
+        vm.prank(address(testHelper));
         testContestModule.setContestLeagueIdAndStartTime(
             contestId,
             LeagueId.NBA,
@@ -1342,10 +1338,9 @@ contract OracleModuleTest is Test {
 
         // Simulate oracle request mapping
         bytes32 requestId = bytes32(uint256(0x4D41524B4554)); // "MARKET" in hex
-        oracleHelper.setRequestMapping(requestId, contestId);
 
         // Set up the request context for ContestMarketsUpdate
-        oracleHelper.setRequestContext(
+        testHelper.setRequestContext(
             requestId,
             OracleRequestType.ContestMarketsUpdate,
             contestId
@@ -1354,7 +1349,7 @@ contract OracleModuleTest is Test {
         // Create test market data using realistic betting odds
         // Format: [moneylineAway(5)][moneylineHome(5)][spread(4)][spreadAwayLine(5)][spreadHomeLine(5)][total(4)][overLine(5)][underLine(5)]
         // Using standard betting odds with proper +10000 offset for negative values
-        uint256 marketData = 
+        uint256 marketData =
             10150 * 1e33 + // moneylineAway: +150 -> 10150 (after +10000 offset)
             9890 * 1e28 +  // moneylineHome: -110 -> 9890 (after +10000 offset)
             965 * 1e24 +   // spread: -3.5 -> -35 -> 965 (1000-35)
@@ -1368,12 +1363,12 @@ contract OracleModuleTest is Test {
         bytes memory err = hex"";
 
         // Expect Response event
-        vm.expectEmit(true, true, true, true, address(oracleHelper));
+        vm.expectEmit(true, true, true, true, address(testHelper));
         emit OracleModule.Response(requestId, response, err);
 
         // Act
         vm.prank(address(this));
-        oracleHelper.testFulfillRequest(requestId, response, err);
+        testHelper.testFulfillRequest(requestId, response, err);
 
         // Assert: verify stored ContestMarket values match expected conversions
         // moneylineAway +150: tick = 100 + 150 = 250
@@ -1526,7 +1521,7 @@ contract OracleModuleTest is Test {
             1 // contestId
         );
 
-        // 2-byte response → _handleContestScore calls bytesToUint32 which reverts
+        // 2-byte response -> _handleContestScore calls bytesToUint32 which reverts
         bytes memory shortResponse = hex"0102";
         bytes memory err = hex"";
 
@@ -1547,12 +1542,13 @@ contract OracleModuleTest is Test {
         string memory jsonoddsId = "jo";
         string memory createContestSourceJS = "createContestSourceHash";
         bytes32 scoreContestSourceHash = bytes32("scoreHash");
+        bytes32 marketUpdateSourceHash = bytes32("marketHash");
         // Non-empty secrets to exercise the secrets.length > 0 branch
         bytes memory encryptedSecretsUrls = hex"deadbeef";
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
 
-        uint256 payment = LINK_DIVISIBILITY / oracleModule.s_linkDenominator();
+        uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment);
         vm.prank(user);
         linkToken.approve(address(oracleModule), payment);
@@ -1564,7 +1560,7 @@ contract OracleModuleTest is Test {
             jsonoddsId,
             createContestSourceJS,
             scoreContestSourceHash,
-            0, // leaderboardId
+            marketUpdateSourceHash,
             encryptedSecretsUrls,
             subscriptionId,
             gasLimit

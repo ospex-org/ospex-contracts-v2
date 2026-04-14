@@ -9,77 +9,88 @@ import {OspexCore} from "../core/OspexCore.sol";
 /**
  * @title MoneylineScorerModule
  * @author ospex.org
- * @notice Module for moneyline (straight win/loss) scoring logic
+ * @notice Scores moneyline (straight win/loss) speculations. The team with more
+ *         points wins; equal scores result in a Push.
  */
-
 contract MoneylineScorerModule is IScorerModule {
-    /// @notice Error for not a score manager
+    // ──────────────────────────── Constants ────────────────────────────
+
+    bytes32 public constant SPECULATION_MODULE =
+        keccak256("SPECULATION_MODULE");
+    bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
+
+    // ──────────────────────────── Errors ───────────────────────────────
+
+    /// @notice Thrown when a non-SpeculationModule address calls determineWinSide
     error MoneylineScorerModule__NotSpeculationModule(address caller);
-    /// @notice Error for module not set
+    /// @notice Thrown when a required module is not registered in OspexCore
     error MoneylineScorerModule__ModuleNotSet(bytes32 moduleType);
-    /// @notice Error for invalid OspexCore address
+    /// @notice Thrown when the OspexCore address is zero
     error MoneylineScorerModule__InvalidOspexCore();
 
-    /// @notice The OspexCore contract
-    OspexCore public immutable i_ospexCore;
+    // ──────────────────────────── Modifiers ────────────────────────────
 
-    /// @notice Modifier to check if the caller is a speculation module
+    /// @dev Restricts access to the registered SpeculationModule
     modifier onlySpeculationModule() {
-        if (msg.sender != _getModule(keccak256("SPECULATION_MODULE"))) {
+        if (msg.sender != _getModule(SPECULATION_MODULE)) {
             revert MoneylineScorerModule__NotSpeculationModule(msg.sender);
         }
         _;
     }
 
-    /**
-     * @notice Constructor
-     * @param _ospexCore The address of the OspexCore contract
-     */
-    constructor(address _ospexCore) {
-        if (_ospexCore == address(0))
+    // ──────────────────────────── State ────────────────────────────────
+
+    /// @notice The OspexCore contract
+    OspexCore public immutable i_ospexCore;
+
+    // ──────────────────────────── Constructor ──────────────────────────
+
+    /// @notice Deploys the MoneylineScorerModule
+    /// @param ospexCore_ The OspexCore contract address
+    constructor(address ospexCore_) {
+        if (ospexCore_ == address(0))
             revert MoneylineScorerModule__InvalidOspexCore();
-        i_ospexCore = OspexCore(_ospexCore);
+        i_ospexCore = OspexCore(ospexCore_);
     }
 
-    /**
-     * @notice Determines the winning side for a moneyline speculation
-     * @param contestId The ID of the contest to score
-     * @return WinSide The winning side
-     */
+    // ──────────────────────────── Scoring ──────────────────────────────
+
+    /// @inheritdoc IScorerModule
     function determineWinSide(
         uint256 contestId,
         int32 /*lineTicks*/
     ) external view override onlySpeculationModule returns (WinSide) {
-        Contest memory contest = IContestModule(
-            _getModule(keccak256("CONTEST_MODULE"))
-        ).getContest(contestId);
+        Contest memory contest = IContestModule(_getModule(CONTEST_MODULE))
+            .getContest(contestId);
 
-        return scoreMoneyline(contest.awayScore, contest.homeScore);
+        return _scoreMoneyline(contest.awayScore, contest.homeScore);
     }
 
     /**
      * @notice Scores a moneyline speculation
-     * @param _awayScore Away team score
-     * @param _homeScore Home team score
-     * @return WinSide The winning side of the speculation
+     * @param awayScore Away team score
+     * @param homeScore Home team score
+     * @return The winning side (Away, Home, or Push on tie)
      */
-    function scoreMoneyline(
-        uint32 _awayScore,
-        uint32 _homeScore
+    function _scoreMoneyline(
+        uint32 awayScore,
+        uint32 homeScore
     ) private pure returns (WinSide) {
-        if (_awayScore > _homeScore) {
+        if (awayScore > homeScore) {
             return WinSide.Away;
-        } else if (_homeScore > _awayScore) {
+        } else if (homeScore > awayScore) {
             return WinSide.Home;
         } else {
             return WinSide.Push;
         }
     }
 
-    // --- Helper Function for Module Lookups ---
+    // ──────────────────────────── Module Lookup ───────────────────────
+
     /**
-     * @notice Gets the module address
-     * @param moduleType The type of module
+     * @notice Resolves a module address from OspexCore, reverting if not set
+     * @param moduleType The module type identifier
+     * @return module The module contract address
      */
     function _getModule(
         bytes32 moduleType

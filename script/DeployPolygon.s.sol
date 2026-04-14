@@ -14,7 +14,6 @@ import "../src/modules/SpeculationModule.sol";
 import "../src/modules/PositionModule.sol";
 import "../src/modules/SecondaryMarketModule.sol";
 import "../src/modules/ContestModule.sol";
-import "../src/modules/ContributionModule.sol";
 import "../src/modules/LeaderboardModule.sol";
 import "../src/modules/RulesModule.sol";
 import "../src/modules/MoneylineScorerModule.sol";
@@ -25,41 +24,36 @@ import "../src/modules/MatchingModule.sol";
 /**
  * @title DeployPolygon
  * @notice Deployment script for Ospex protocol on Polygon Mainnet
- * @dev Deploys all contracts with Polygon mainnet configuration
+ * @dev Uses bootstrap+finalize pattern — no admin key after deployment.
  */
 contract DeployPolygon is Script {
     // Polygon mainnet addresses
     address constant LINK_ADDRESS = 0xb0897686c545045aFc77CF20eC7A532E3120E0F1;
     address constant FUNCTIONS_ROUTER = 0xdc2AAF042Aeff2E68B3e8E33F19e4B9fA7C73F10;
     address constant USDC_ADDRESS = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
-    
-    // Fee collection wallet (receives protocol fees)
     address constant FEE_RECEIVER = 0xdaC630aE52b868FF0A180458eFb9ac88e7425114;
-    
-    // Deployment configuration for Polygon mainnet
+    bytes32 constant DON_ID = bytes32("fun-polygon-mainnet-1");
+    uint256 constant LINK_DENOMINATOR = 10**18;
+
     struct DeploymentConfig {
         uint8 tokenDecimals;
-        uint256 minSaleAmount;
-        bytes32 createContestSourceHash;
-        bytes32 updateContestMarketsSourceHash;
-        bytes32 donId;
+        uint32 voidCooldown;
+        uint256 minSpeculationAmount;
+        uint256 contestCreationFee;
+        uint256 speculationCreationFee;
+        uint256 leaderboardCreationFee;
         address protocolReceiver;
     }
 
-    // Deployed contract addresses
     struct DeployedContracts {
-        // Core
         address ospexCore;
-        // USDC token
         address usdc;
-        // Modules
         address treasuryModule;
         address oracleModule;
         address speculationModule;
         address positionModule;
         address secondaryMarketModule;
         address contestModule;
-        address contributionModule;
         address leaderboardModule;
         address rulesModule;
         address moneylineScorerModule;
@@ -69,186 +63,122 @@ contract DeployPolygon is Script {
     }
 
     function run() external {
-        // Deployer address from environment variable - REQUIRED for mainnet
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
-        
-        console.log("Deploying to Polygon Mainnet with address:", deployer);
-        console.log("Balance:", deployer.balance);
 
-        // Configuration for Polygon mainnet deployment
+        console.log("=== Ospex Polygon Mainnet Deployment (Zero-Admin) ===");
+        console.log("Deployer:", deployer);
+        console.log("Balance:", deployer.balance);
+        require(deployer.balance > 0, "Deployer has zero balance");
+
         DeploymentConfig memory config = DeploymentConfig({
-            tokenDecimals: 6, // USDC decimals
-            minSaleAmount: 1 * 10**6, // 1 USDC
-            createContestSourceHash: 0xa93ea3137b5c35f5932abee7e8d261c3d5e85d2cbc3918dfc2e75170867c8463,
-            updateContestMarketsSourceHash: 0x7f5ce70565133fedb2e0f1aeb925f38a3b26924917cff852e7de40a9297119b4, // hash for JavaScript source code that refreshes odds/lines on existing contests
-            donId: bytes32("fun-polygon-mainnet-1"),
+            tokenDecimals: 6,
+            voidCooldown: 3 days,
+            minSpeculationAmount: 1 * 10**6,
+            contestCreationFee: 1_000_000, // 1.00 USDC
+            speculationCreationFee: 500_000, // 0.50 USDC (split between maker and taker)
+            leaderboardCreationFee: 250_000, // 0.25 USDC
             protocolReceiver: FEE_RECEIVER
         });
 
         vm.startBroadcast(deployer);
 
-        DeployedContracts memory contracts = deployContracts(config, deployer);
-        
-        registerModules(contracts);
-        
-        printDeploymentInfo(contracts);
+        DeployedContracts memory contracts = _deployContracts(config);
+        _bootstrapAndFinalize(contracts);
+        _verifyDeployment(contracts);
+        _printSummary(contracts, deployer);
 
         vm.stopBroadcast();
     }
 
-    function deployContracts(
-        DeploymentConfig memory config,
-        address /* deployer */
-    ) internal returns (DeployedContracts memory contracts) {
-        console.log("\n=== Using Polygon Mainnet USDC ===");
-        
-        // Use native USDC on Polygon mainnet
-        contracts.usdc = USDC_ADDRESS;
-        console.log("Using USDC at:", contracts.usdc);
+    function _deployContracts(
+        DeploymentConfig memory config
+    ) internal returns (DeployedContracts memory c) {
+        c.usdc = USDC_ADDRESS;
 
-        console.log("\n=== Deploying Core Contract ===");
-        
-        // Deploy core contract
-        contracts.ospexCore = address(new OspexCore());
-        console.log("OspexCore deployed at:", contracts.ospexCore);
+        c.ospexCore = address(new OspexCore());
+        console.log("OspexCore:", c.ospexCore);
 
-        console.log("\n=== Deploying Modules ===");
+        c.contestModule = address(new ContestModule(c.ospexCore));
+        c.leaderboardModule = address(new LeaderboardModule(c.ospexCore));
+        c.rulesModule = address(new RulesModule(c.ospexCore));
+        c.moneylineScorerModule = address(new MoneylineScorerModule(c.ospexCore));
+        c.spreadScorerModule = address(new SpreadScorerModule(c.ospexCore));
+        c.totalScorerModule = address(new TotalScorerModule(c.ospexCore));
+        c.matchingModule = address(new MatchingModule(c.ospexCore));
 
-        // Deploy modules that only depend on OspexCore
-        contracts.contributionModule = address(new ContributionModule(contracts.ospexCore));
-        console.log("ContributionModule:", contracts.contributionModule);
-        
-        contracts.leaderboardModule = address(new LeaderboardModule(contracts.ospexCore));
-        console.log("LeaderboardModule:", contracts.leaderboardModule);
-        
-        contracts.rulesModule = address(new RulesModule(contracts.ospexCore));
-        console.log("RulesModule:", contracts.rulesModule);
-        
-        contracts.moneylineScorerModule = address(new MoneylineScorerModule(contracts.ospexCore));
-        console.log("MoneylineScorerModule:", contracts.moneylineScorerModule);
-        
-        contracts.spreadScorerModule = address(new SpreadScorerModule(contracts.ospexCore));
-        console.log("SpreadScorerModule:", contracts.spreadScorerModule);
-        
-        contracts.totalScorerModule = address(new TotalScorerModule(contracts.ospexCore));
-        console.log("TotalScorerModule:", contracts.totalScorerModule);
-
-        contracts.matchingModule = address(new MatchingModule(contracts.ospexCore));
-        console.log("MatchingModule:", contracts.matchingModule);
-
-        // Deploy modules with additional dependencies
-        contracts.treasuryModule = address(new TreasuryModule(
-            contracts.ospexCore,
-            contracts.usdc,
-            config.protocolReceiver
+        c.treasuryModule = address(new TreasuryModule(
+            c.ospexCore, c.usdc, config.protocolReceiver,
+            config.contestCreationFee, config.speculationCreationFee, config.leaderboardCreationFee
         ));
-        console.log("TreasuryModule:", contracts.treasuryModule);
-
-        contracts.speculationModule = address(new SpeculationModule(
-            contracts.ospexCore,
-            config.tokenDecimals
+        c.speculationModule = address(new SpeculationModule(
+            c.ospexCore, config.tokenDecimals, config.voidCooldown, config.minSpeculationAmount
         ));
-        console.log("SpeculationModule:", contracts.speculationModule);
-
-        contracts.positionModule = address(new PositionModule(
-            contracts.ospexCore,
-            contracts.usdc
+        c.positionModule = address(new PositionModule(c.ospexCore, c.usdc));
+        c.secondaryMarketModule = address(new SecondaryMarketModule(c.ospexCore, c.usdc));
+        c.oracleModule = address(new OracleModule(
+            c.ospexCore, FUNCTIONS_ROUTER, LINK_ADDRESS, DON_ID, LINK_DENOMINATOR
         ));
-        console.log("PositionModule:", contracts.positionModule);
 
-        contracts.secondaryMarketModule = address(new SecondaryMarketModule(
-            contracts.ospexCore,
-            contracts.usdc,
-            config.minSaleAmount
-        ));
-        console.log("SecondaryMarketModule:", contracts.secondaryMarketModule);
-
-        contracts.contestModule = address(new ContestModule(
-            contracts.ospexCore,
-            config.createContestSourceHash,
-            config.updateContestMarketsSourceHash
-        ));
-        console.log("ContestModule:", contracts.contestModule);
-
-        contracts.oracleModule = address(new OracleModule(
-            contracts.ospexCore,
-            FUNCTIONS_ROUTER,
-            LINK_ADDRESS,
-            config.donId
-        ));
-        console.log("OracleModule:", contracts.oracleModule);
-        
-        console.log("All modules deployed successfully");
-
-        return contracts;
+        console.log("All 12 modules deployed.");
+        return c;
     }
 
-    function registerModules(DeployedContracts memory contracts) internal {
-        console.log("\n=== Registering Modules ===");
-        
-        OspexCore core = OspexCore(contracts.ospexCore);
-        
-        // Register all modules
-        core.registerModule(keccak256("TREASURY_MODULE"), contracts.treasuryModule);
-        core.registerModule(keccak256("ORACLE_MODULE"), contracts.oracleModule);
-        core.registerModule(keccak256("SPECULATION_MODULE"), contracts.speculationModule);
-        core.registerModule(keccak256("POSITION_MODULE"), contracts.positionModule);
-        core.registerModule(keccak256("SECONDARY_MARKET_MODULE"), contracts.secondaryMarketModule);
-        core.registerModule(keccak256("CONTEST_MODULE"), contracts.contestModule);
-        core.registerModule(keccak256("CONTRIBUTION_MODULE"), contracts.contributionModule);
-        core.registerModule(keccak256("LEADERBOARD_MODULE"), contracts.leaderboardModule);
-        core.registerModule(keccak256("RULES_MODULE"), contracts.rulesModule);
-        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), contracts.moneylineScorerModule);
-        core.registerModule(keccak256("SPREAD_SCORER_MODULE"), contracts.spreadScorerModule);
-        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), contracts.totalScorerModule);
-        core.registerModule(keccak256("MATCHING_MODULE"), contracts.matchingModule);
+    function _bootstrapAndFinalize(DeployedContracts memory c) internal {
+        OspexCore core = OspexCore(c.ospexCore);
 
-        // Grant scorer role to scorer modules
-        core.setScorerRole(contracts.moneylineScorerModule, true);
-        core.setScorerRole(contracts.spreadScorerModule, true);
-        core.setScorerRole(contracts.totalScorerModule, true);
+        bytes32[] memory types = new bytes32[](12);
+        address[] memory addrs = new address[](12);
+        types[0] = core.CONTEST_MODULE();           addrs[0] = c.contestModule;
+        types[1] = core.SPECULATION_MODULE();        addrs[1] = c.speculationModule;
+        types[2] = core.POSITION_MODULE();           addrs[2] = c.positionModule;
+        types[3] = core.MATCHING_MODULE();           addrs[3] = c.matchingModule;
+        types[4] = core.ORACLE_MODULE();             addrs[4] = c.oracleModule;
+        types[5] = core.TREASURY_MODULE();           addrs[5] = c.treasuryModule;
+        types[6] = core.LEADERBOARD_MODULE();        addrs[6] = c.leaderboardModule;
+        types[7] = core.RULES_MODULE();              addrs[7] = c.rulesModule;
+        types[8] = core.SECONDARY_MARKET_MODULE();   addrs[8] = c.secondaryMarketModule;
+        types[9] = core.MONEYLINE_SCORER_MODULE();   addrs[9] = c.moneylineScorerModule;
+        types[10] = core.SPREAD_SCORER_MODULE();     addrs[10] = c.spreadScorerModule;
+        types[11] = core.TOTAL_SCORER_MODULE();      addrs[11] = c.totalScorerModule;
 
-        console.log("All modules registered and scorer roles granted");
+        core.bootstrapModules(types, addrs);
+        core.finalize();
+        console.log("Protocol FINALIZED.");
     }
 
-    function printDeploymentInfo(DeployedContracts memory contracts) internal pure {
-        console.log("\n=== DEPLOYMENT SUMMARY FOR POLYGON MAINNET ===");
-        console.log("Network: Polygon Mainnet (Chain ID: 137)");
-        console.log("Using LINK at:", LINK_ADDRESS);
-        console.log("Using Chainlink Functions Router at:", FUNCTIONS_ROUTER);
-        console.log("Fee Receiver:", FEE_RECEIVER);
-        
-        console.log("\nCore Contract:");
-        console.log("  OspexCore:", contracts.ospexCore);
-        
-        console.log("\nUSDC Token:", contracts.usdc);
-        
-        console.log("\nCore & Key Modules:");
-        console.log("  OspexCore:", contracts.ospexCore);
-        console.log("  TreasuryModule:", contracts.treasuryModule);
-        console.log("  OracleModule:", contracts.oracleModule);
-        console.log("  LeaderboardModule:", contracts.leaderboardModule);
-        
-        console.log("\n=== CRITICAL NEXT STEPS ===");
-        console.log("1. Add OracleModule as consumer to Chainlink subscription ID 191");
-        console.log("2. Transfer admin role to hardware wallet (two-step process)");
-        console.log("3. Update frontend with new contract addresses");
-        console.log("4. Update agent server with new contract addresses");
-        console.log("5. Test with small positions before going live");
-        
-        console.log("\n=== CHAINLINK FUNCTIONS SETUP ===");
-        console.log("Add this address as consumer to subscription 191:");
-        console.log("OracleModule:", contracts.oracleModule);
-        console.log("DON ID: fun-polygon-mainnet-1");
-        console.log("Functions Router:", FUNCTIONS_ROUTER);
-        
-        console.log("\n=== FRONTEND CONFIGURATION ===");
-        console.log("Update your frontend configuration with these addresses:");
-        console.log("OSPEX_CORE_ADDRESS=", contracts.ospexCore);
-        console.log("USDC_ADDRESS=", contracts.usdc);
-        console.log("TREASURY_MODULE_ADDRESS=", contracts.treasuryModule);
-        console.log("SPECULATION_MODULE_ADDRESS=", contracts.speculationModule);
-        console.log("POSITION_MODULE_ADDRESS=", contracts.positionModule);
-        console.log("CONTEST_MODULE_ADDRESS=", contracts.contestModule);
+    function _verifyDeployment(DeployedContracts memory c) internal view {
+        OspexCore core = OspexCore(c.ospexCore);
+        require(core.s_finalized(), "Not finalized!");
+        require(core.isApprovedScorer(c.moneylineScorerModule), "MoneylineScorer check failed");
+        require(core.isApprovedScorer(c.spreadScorerModule), "SpreadScorer check failed");
+        require(core.isApprovedScorer(c.totalScorerModule), "TotalScorer check failed");
+        require(core.isSecondaryMarket(c.secondaryMarketModule), "SecondaryMarket check failed");
+        console.log("Verification PASSED.");
+    }
+
+    function _printSummary(DeployedContracts memory c, address deployer) internal pure {
+        console.log("\n============================================================");
+        console.log("  POLYGON MAINNET DEPLOYMENT (Zero-Admin, Immutable)");
+        console.log("============================================================");
+        console.log("Deployer:", deployer);
+        console.log("USDC:", c.usdc);
+        console.log("OspexCore:", c.ospexCore);
+        console.log("\nModules (12):");
+        console.log("  ContestModule:", c.contestModule);
+        console.log("  SpeculationModule:", c.speculationModule);
+        console.log("  PositionModule:", c.positionModule);
+        console.log("  MatchingModule:", c.matchingModule);
+        console.log("  OracleModule:", c.oracleModule);
+        console.log("  TreasuryModule:", c.treasuryModule);
+        console.log("  LeaderboardModule:", c.leaderboardModule);
+        console.log("  RulesModule:", c.rulesModule);
+        console.log("  SecondaryMarketModule:", c.secondaryMarketModule);
+        console.log("  MoneylineScorerModule:", c.moneylineScorerModule);
+        console.log("  SpreadScorerModule:", c.spreadScorerModule);
+        console.log("  TotalScorerModule:", c.totalScorerModule);
+        console.log("\n=== NEXT STEPS ===");
+        console.log("1. Add OracleModule as consumer on Chainlink subscription 191");
+        console.log("2. Update all dependent services with new addresses");
+        console.log("3. Test with small positions before going live");
     }
 }

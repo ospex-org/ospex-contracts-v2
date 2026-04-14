@@ -18,9 +18,7 @@ optimizer = true
 optimizer_runs = 200
 
 # [profile.coverage]
-# via_ir = false
-# optimizer = true
-# optimizer_runs = 20000
-# memory_limit = 2048
+# Not needed — `forge coverage --ir-minimum` works after the PositionModule.t.sol
+# stack-depth refactor (LocalEnv struct + Contest helper functions).
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

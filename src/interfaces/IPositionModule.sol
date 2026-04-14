@@ -6,49 +6,42 @@ import {IModule} from "./IModule.sol";
 
 /**
  * @title IPositionModule
- * @notice Interface for the PositionModule in the Ospex protocol
- * @dev Handles user positions: creation, matching, claiming, etc.
+ * @notice Interface for the Ospex PositionModule. Handles position fill recording,
+ *         claiming, and transfers via the SecondaryMarketModule.
  */
 interface IPositionModule is IModule {
-
-    /**
-     * @notice Records a fill
-     * @param contestId The contest id
-     * @param scorer The scorer address
-     * @param lineTicks The line number if applicable
-     * @param leaderboardId The leaderboard id for fees if applicable
-     * @param makerPositionType The position type of the maker (Upper or Lower)
-     * @param maker The address of the maker
-     * @param makerRisk Maker risk being consumed
-     * @param taker The address of the taker
-     * @param takerRisk The risk the taker is putting up
-     * @param makerContributionAmount The amount of the contribution for the maker
-     * @param takerContributionAmount The amount of the contribution for the taker
-     * @return speculationId The speculation for the fill
-     */
+    /// @notice Records a fill. Only callable by MatchingModule.
+    /// @dev Creates the speculation if it doesn't exist yet. Creation fee is split
+    ///      between maker and taker. Bet-size enforcement applies to takerRisk only.
+    /// @param contestId The contest ID
+    /// @param scorer The scorer address
+    /// @param lineTicks The line number (10x format, 0 for moneyline)
+    /// @param makerPositionType The maker's position type (Upper or Lower)
+    /// @param maker The maker address
+    /// @param makerRisk Maker risk being consumed
+    /// @param taker The taker address
+    /// @param takerRisk The taker's risk amount
+    /// @return speculationId The speculation ID for the fill
     function recordFill(
         uint256 contestId,
         address scorer,
         int32 lineTicks,
-        uint256 leaderboardId,
         PositionType makerPositionType,
         address maker,
         uint256 makerRisk,
         address taker,
-        uint256 takerRisk,
-        uint256 makerContributionAmount,
-        uint256 takerContributionAmount
+        uint256 takerRisk
     ) external returns (uint256);
 
-    /**
-     * @notice Transfers position ownership
-     * @param speculationId Speculation ID
-     * @param from Address transferring from
-     * @param positionType Position type
-     * @param to Address transferring to
-     * @param riskAmount The amount of risk being sold
-     * @param profitAmount The amount of profit being sold
-     */
+    /// @notice Transfers position ownership. Only callable by SecondaryMarketModule.
+    /// @dev Transfers are blocked if the remaining position would fall below
+    ///      leaderboard-locked amounts.
+    /// @param speculationId The speculation ID
+    /// @param from The sender address
+    /// @param positionType The position type
+    /// @param to The recipient address
+    /// @param riskAmount The risk amount being transferred
+    /// @param profitAmount The profit amount being transferred
     function transferPosition(
         uint256 speculationId,
         address from,
@@ -58,27 +51,22 @@ interface IPositionModule is IModule {
         uint256 profitAmount
     ) external;
 
-    /**
-     * @notice Claims winnings from a position
-     * @param speculationId Speculation ID
-     * @param positionType Type of position
-     */
+    /// @notice Claims winnings from a settled position. Permissionless for the position holder.
+    /// @param speculationId The speculation ID
+    /// @param positionType The position type
     function claimPosition(
         uint256 speculationId,
         PositionType positionType
     ) external;
 
-    /**
-     * @notice Gets position details
-     * @param speculationId Speculation ID
-     * @param user Address to check
-     * @param positionType Position type
-     * @return position The Position struct
-     */
+    /// @notice Gets position details
+    /// @param speculationId The speculation ID
+    /// @param user The address to check
+    /// @param positionType The position type
+    /// @return position The Position struct
     function getPosition(
         uint256 speculationId,
         address user,
         PositionType positionType
     ) external view returns (Position memory position);
-
 }

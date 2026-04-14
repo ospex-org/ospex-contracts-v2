@@ -23,7 +23,6 @@ contract DecodeContest is Script {
         if (contest.contestStatus == ContestStatus.Unverified) statusStr = "Unverified";
         else if (contest.contestStatus == ContestStatus.Verified) statusStr = "Verified";
         else if (contest.contestStatus == ContestStatus.Scored) statusStr = "Scored";
-        else if (contest.contestStatus == ContestStatus.ScoredManually) statusStr = "ScoredManually";
         else statusStr = "Unknown";
         
         console.log("Status:", statusStr);

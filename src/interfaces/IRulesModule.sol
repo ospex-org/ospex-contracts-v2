@@ -13,7 +13,7 @@ import {IModule} from "./IModule.sol";
  * @notice Interface for the RulesModule in the Ospex protocol
  * @dev Handles configurable rules for leaderboards including bankroll limits, bet sizing,
  *      odds enforcement, number deviation limits, and comprehensive position validation.
- *      All rule setters require admin access and can only be called before the leaderboard starts.
+ *      All rule setters are restricted to the leaderboard creator.
  */
 interface IRulesModule is IModule {
     // --- Rule Setters ---
@@ -54,12 +54,21 @@ interface IRulesModule is IModule {
     ) external;
 
     /// @notice Sets whether live betting is allowed for a leaderboard
+    /// @dev Unset leaderboards implicitly disallow live betting (mapping yields false).
+    ///      Must be called before the leaderboard starts.
+    ///      When false, leaderboard registration is blocked at contest start time.
+    ///      When true, registration may continue after contest start as part
+    ///      of an intentional live-betting mode. This mode has materially
+    ///      different fairness assumptions and will only be enabled
+    ///      when operators are comfortable with in-play information
+    ///      asymmetry, market-lag risk, and settlement-timing complexity
     /// @param leaderboardId The ID of the leaderboard
     /// @param value True to allow positions after contest start, false to restrict to pre-game only
     function setAllowLiveBetting(uint256 leaderboardId, bool value) external;
 
     /// @notice Sets a number deviation rule for a specific league/scorer/position type combination
     /// @dev Controls how far a user's spread/total number can deviate from the current market number
+    ///      If no rule is set for a combination, validateNumber allows any number for that path.
     /// @param leaderboardId The ID of the leaderboard
     /// @param leagueId The league (e.g., NBA, NFL)
     /// @param scorer The scorer contract address (e.g., spread scorer, total scorer)
@@ -71,6 +80,17 @@ interface IRulesModule is IModule {
         address scorer,
         PositionType positionType,
         int32 maxDeviation
+    ) external;
+
+    /// @notice Sets whether moneyline+spread positions on the same contestId are allowed
+    /// @dev When false (default), a user cannot hold both a moneyline and spread position for the
+    ///      same contest instance in a leaderboard. Does not canonicalize real-world event
+    ///      identity across duplicate contests — leaderboard creator curates which contests count.
+    /// @param leaderboardId The ID of the leaderboard
+    /// @param value True to allow pairing, false to restrict (default: false / restricted)
+    function setAllowMoneylineSpreadPairing(
+        uint256 leaderboardId,
+        bool value
     ) external;
 
     // --- Validation Functions ---
@@ -110,6 +130,7 @@ interface IRulesModule is IModule {
     ) external view returns (bool);
 
     /// @notice Validates if a position's number is within deviation limits
+    /// @dev Unset means allows everything
     /// @param leaderboardId The ID of the leaderboard
     /// @param leagueId The league ID
     /// @param scorer The scorer contract address
@@ -128,7 +149,7 @@ interface IRulesModule is IModule {
 
     /// @notice Comprehensive validation for a leaderboard position entry
     /// @dev Checks leaderboard existence, timing, speculation registration, live betting,
-    ///      number deviation, odds enforcement, and directional position conflicts.
+    ///      number deviation, odds enforcement, and position conflicts.
     /// @param leaderboardId The ID of the leaderboard
     /// @param speculationId The ID of the speculation
     /// @param user The user address
@@ -172,6 +193,7 @@ interface IRulesModule is IModule {
     /// @return minBets Minimum number of positions for ROI submission (0 if no limit)
     /// @return oddsEnforcementBps Odds enforcement threshold in BPS (0 if no enforcement)
     /// @return allowLiveBetting Whether live betting is allowed
+    /// @return allowMoneylineSpreadPairing Whether moneyline and spread bets are both allowed
     function getAllRules(
         uint256 leaderboardId
     )
@@ -184,7 +206,8 @@ interface IRulesModule is IModule {
             uint16 maxBetPercentage,
             uint16 minBets,
             uint16 oddsEnforcementBps,
-            bool allowLiveBetting
+            bool allowLiveBetting,
+            bool allowMoneylineSpreadPairing
         );
 
     /// @notice Calculates the maximum allowed bet amount based on bankroll and max bet percentage

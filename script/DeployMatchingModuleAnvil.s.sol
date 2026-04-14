@@ -12,35 +12,31 @@ contract DeployMatchingModuleAnvil is Script {
     function run() external {
         vm.startBroadcast();
 
-        // Deploy dependencies
         OspexCore core = new OspexCore();
         console.log("OspexCore deployed at:", address(core));
 
         MockERC20 token = new MockERC20();
         console.log("MockERC20 deployed at:", address(token));
 
-        // Deploy SpeculationModule
         SpeculationModule speculationModule = new SpeculationModule(
-            address(core),
-            6 // USDC decimals
+            address(core), 6, 3 days, 1_000_000
         );
         console.log("SpeculationModule deployed at:", address(speculationModule));
 
-        // Deploy PositionModule
-        PositionModule positionModule = new PositionModule(
-            address(core),
-            address(token)
-        );
+        PositionModule positionModule = new PositionModule(address(core), address(token));
         console.log("PositionModule deployed at:", address(positionModule));
 
-        // Register modules in OspexCore
-        core.registerModule(keccak256("SPECULATION_MODULE"), address(speculationModule));
-        core.registerModule(keccak256("POSITION_MODULE"), address(positionModule));
-
-        // Deploy MatchingModule (looks up modules from OspexCore at runtime)
         MatchingModule matchingModule = new MatchingModule(address(core));
         console.log("MatchingModule deployed at:", address(matchingModule));
-        console.log("All deployments successful!");
+
+        // Bootstrap the modules we have (partial — for local testing only)
+        bytes32[] memory types = new bytes32[](3);
+        address[] memory addrs = new address[](3);
+        types[0] = core.SPECULATION_MODULE();   addrs[0] = address(speculationModule);
+        types[1] = core.POSITION_MODULE();      addrs[1] = address(positionModule);
+        types[2] = core.MATCHING_MODULE();      addrs[2] = address(matchingModule);
+        core.bootstrapModules(types, addrs);
+        console.log("Modules bootstrapped (not finalized - partial deploy for testing).");
 
         vm.stopBroadcast();
     }

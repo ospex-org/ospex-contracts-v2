@@ -5,19 +5,15 @@ import {WinSide} from "../core/OspexTypes.sol";
 
 /**
  * @title IScorerModule
-
  * @author ospex.org
- * @notice Base interface for all Ospex scoring contracts
- * @dev Defines the standard interface that all scoring contracts must implement
+ * @notice Base interface for all Ospex scoring contracts. Each scorer implements
+ *         market-specific logic (moneyline, spread, total) to determine the winning side.
  */
 interface IScorerModule {
-    /**
-     * @notice Determines the winning side of a speculation based on contest outcome
-     * @param contestId The ID of the contest to score
-     * @param lineTicks The line/spread/total number for the speculation
-     * @return WinSide The winning side of the speculation
-     */
-
+    /// @notice Determines the winning side of a speculation based on contest outcome
+    /// @param contestId The ID of the contest to score
+    /// @param lineTicks The line/spread/total number (10x format, 0 for moneyline)
+    /// @return The winning side of the speculation
     function determineWinSide(
         uint256 contestId,
         int32 lineTicks

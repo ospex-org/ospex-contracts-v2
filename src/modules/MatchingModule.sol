@@ -23,39 +23,77 @@ import {IModule} from "../interfaces/IModule.sol";
  *      PositionModule.recordFill restricts callers to the registered MATCHING_MODULE address.
  */
 contract MatchingModule is IModule, EIP712, ReentrancyGuard {
-    // --- Errors ---
-    /// @notice Commitment signature is invalid
+    // ──────────────────────────── Constants ────────────────────────────
+
+    bytes32 public constant MATCHING_MODULE = keccak256("MATCHING_MODULE");
+    bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
+    bytes32 public constant POSITION_MODULE = keccak256("POSITION_MODULE");
+
+    bytes32 public constant EVENT_COMMITMENT_MATCHED =
+        keccak256("COMMITMENT_MATCHED");
+    bytes32 public constant EVENT_COMMITMENT_CANCELLED =
+        keccak256("COMMITMENT_CANCELLED");
+    bytes32 public constant EVENT_MIN_NONCE_UPDATED =
+        keccak256("MIN_NONCE_UPDATED");
+
+    /// @notice EIP-712 typehash for the OspexCommitment struct
+    bytes32 public constant COMMITMENT_TYPEHASH =
+        keccak256(
+            "OspexCommitment("
+            "address maker,"
+            "uint256 contestId,"
+            "address scorer,"
+            "int32 lineTicks,"
+            "uint8 positionType,"
+            "uint16 oddsTick,"
+            "uint256 riskAmount,"
+            "uint256 nonce,"
+            "uint256 expiry"
+            ")"
+        );
+
+    /// @notice Odds scale factor (1.91 odds = 191 ticks)
+    uint16 public constant ODDS_SCALE = 100;
+    /// @notice Minimum valid odds (1.01)
+    uint16 public constant MIN_ODDS = 101;
+    /// @notice Maximum valid odds (101.00)
+    uint16 public constant MAX_ODDS = 10100;
+
+    // ──────────────────────────── Errors ───────────────────────────────
+
+    /// @notice Thrown when the recovered signer does not match the commitment maker
     error MatchingModule__InvalidSignature();
-    /// @notice Commitment odds are out of range
+    /// @notice Thrown when odds are below MIN_ODDS or above MAX_ODDS
     error MatchingModule__OddsOutOfRange(uint16 oddsTick);
-    /// @notice Commitment has expired
+    /// @notice Thrown when a commitment has expired
     error MatchingModule__CommitmentExpired();
-    /// @notice Commitment nonce is below the minimum valid nonce for this speculation
+    /// @notice Thrown when a commitment nonce is below the maker's minimum for this speculation
     error MatchingModule__NonceTooLow();
-    /// @notice Commitment has been individually cancelled
+    /// @notice Thrown when a commitment has been individually cancelled
     error MatchingModule__CommitmentCancelled();
-    /// @notice Lot size leaves remainder which makes it invalid
+    /// @notice Thrown when riskAmount is not a multiple of ODDS_SCALE
     error MatchingModule__InvalidLotSize();
-    /// @notice Maker address cannot be zero
+    /// @notice Thrown when the maker address is zero
     error MatchingModule__InvalidMakerAddress();
-    /// @notice Taker amount is zero
+    /// @notice Thrown when takerDesiredRisk is zero
     error MatchingModule__InvalidTakerDesiredRisk();
-    /// @notice Maker does not have adequate risk available for taker
+    /// @notice Thrown when the calculated maker fill is zero or exceeds remaining capacity
     error MatchingModule__InvalidFillMakerRisk();
-    /// @notice Only the commitment maker can cancel their own commitment
+    /// @notice Thrown when a non-maker tries to cancel a commitment
     error MatchingModule__NotCommitmentMaker();
-    /// @notice New minimum nonce must be higher than current
+    /// @notice Thrown when the new minimum nonce is not higher than the current
     error MatchingModule__NonceMustIncrease();
-    /// @notice Module addresses cannot be zero
+    /// @notice Thrown when a constructor address is zero
     error MatchingModule__InvalidAddress();
-    /// @notice Commitment is fully filled
+    /// @notice Thrown when a commitment has no remaining capacity
     error MatchingModule__CommitmentFullyFilled();
-    /// @notice Error for module not set
+    /// @notice Thrown when a required module is not registered in OspexCore
     error MatchingModule__ModuleNotSet(bytes32 moduleType);
-    /// @notice Contest has already been scored (status is Scored or ScoredManually)
+    /// @notice Thrown when the contest has already been scored
     error MatchingModule__ContestAlreadyScored();
 
-    // --- Events ---
+    // ──────────────────────────── Events ───────────────────────────────
+
     /// @notice Emitted when a commitment is matched (fully or partially)
     event CommitmentMatched(
         bytes32 indexed commitmentHash,
@@ -82,62 +120,20 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
         uint256 newMinNonce
     );
 
-    // --- Constants ---
-    /// @notice EIP-712 typehash for the OspexCommitment struct
-    bytes32 public constant COMMITMENT_TYPEHASH =
-        keccak256(
-            "OspexCommitment("
-            "address maker,"
-            "uint256 contestId,"
-            "address scorer,"
-            "int32 lineTicks,"
-            "uint8 positionType,"
-            "uint16 oddsTick,"
-            "uint256 riskAmount,"
-            "uint256 contributionAmount,"
-            "uint256 nonce,"
-            "uint256 expiry"
-            ")"
-        );
+    // ──────────────────────────── Structs ──────────────────────────────
 
-    // --- Immutables ---
-    /// @notice The OspexCore contract
-    OspexCore public immutable i_ospexCore;
-    /// @notice The odds precision
-    uint16 public constant ODDS_SCALE = 100;
-    /// @notice The minimum odds
-    uint16 public constant MIN_ODDS = 101; // 1.01
-    /// @notice The maximum odds
-    uint16 public constant MAX_ODDS = 10100; // 101.00
-
-    // --- Storage ---
-    /// @notice Per-speculation minimum valid nonce: maker => speculationKey => minNonce
-    mapping(address => mapping(bytes32 => uint256)) public s_minNonces;
-
-    /// @notice Filled risk per commitment hash (for partial fills)
-    mapping(bytes32 => uint256) public s_filledRisk;
-
-    /// @notice Individually cancelled commitment hashes
-    mapping(bytes32 => bool) public s_cancelledCommitments;
-
-    /// @notice Tracks whether the maker contribution has been charged for a commitment
-    mapping(bytes32 => bool) public s_contributionCharged;
-
-    // --- Structs ---
     /**
      * @notice Represents a signed commitment from a maker to take a position
      * @param maker The maker's wallet address (recovered from signature)
      * @param contestId The contest to bet on
-     * @param scorer The scorer of the speculation
-     * @param lineTicks The line/spread/total number (10x)
+     * @param scorer The scorer module address
+     * @param lineTicks The line/spread/total number (10x format)
      * @param positionType 0 = Upper (away/over), 1 = Lower (home/under)
-     * @param oddsTick Maker's quoted price, as an integer (193 = 1.93 odds)
-     * @param riskAmount Risk amount in USDC maker will commit (6 decimals)
-     * @param contributionAmount The amount of the optional contribution (USDC, 6 decimals)
+     * @param oddsTick Maker's quoted price as an integer (193 = 1.93 odds)
+     * @param riskAmount Risk amount in USDC the maker will commit (6 decimals, must be multiple of ODDS_SCALE)
      * @param nonce Invalidation threshold (NOT a unique order ID). Multiple commitments
      *              on the same speculation may share the same nonce. When the maker calls
      *              raiseMinNonce(), all commitments with nonce < newMinNonce are invalidated.
-     *              This may be viewed as a generation counter, not a sequence number.
      * @param expiry Unix timestamp after which this commitment is invalid
      */
     struct OspexCommitment {
@@ -148,15 +144,13 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
         PositionType positionType;
         uint16 oddsTick;
         uint256 riskAmount;
-        uint256 contributionAmount;
         uint256 nonce;
         uint256 expiry;
     }
 
-    /**
-     * @notice Modifier to ensure the odds are in range
-     * @param oddsTick The odds of the position
-     */
+    // ──────────────────────────── Modifiers ────────────────────────────
+
+    /// @dev Ensures odds are within the valid range
     modifier oddsInRange(uint16 oddsTick) {
         if (oddsTick < MIN_ODDS || oddsTick > MAX_ODDS) {
             revert MatchingModule__OddsOutOfRange(oddsTick);
@@ -164,24 +158,35 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
         _;
     }
 
-    // --- Constructor ---
-    /**
-     * @notice Constructor sets the OspexCore address and version for EIP-712
-     * @param _ospexCore The address of the OspexCore contract
-     */
-    constructor(address _ospexCore) EIP712("Ospex", "1") {
-        if (_ospexCore == address(0)) {
+    // ──────────────────────────── State ────────────────────────────────
+
+    /// @notice The OspexCore contract
+    OspexCore public immutable i_ospexCore;
+
+    /// @notice Per-speculation minimum valid nonce: maker → speculationKey → minNonce
+    mapping(address => mapping(bytes32 => uint256)) public s_minNonces;
+    /// @notice Filled risk per commitment hash (for partial fills)
+    mapping(bytes32 => uint256) public s_filledRisk;
+    /// @notice Individually cancelled commitment hashes
+    mapping(bytes32 => bool) public s_cancelledCommitments;
+
+    // ──────────────────────────── Constructor ──────────────────────────
+
+    /// @notice Deploys the MatchingModule with EIP-712 domain "Ospex" version "1"
+    /// @param ospexCore_ The OspexCore contract address
+    constructor(address ospexCore_) EIP712("Ospex", "1") {
+        if (ospexCore_ == address(0)) {
             revert MatchingModule__InvalidAddress();
         }
-        i_ospexCore = OspexCore(_ospexCore);
+        i_ospexCore = OspexCore(ospexCore_);
     }
 
-    // --- IModule ---
+    // ──────────────────────────── Module Identity ─────────────────────
     function getModuleType() external pure override returns (bytes32) {
-        return keccak256("MATCHING_MODULE");
+        return MATCHING_MODULE;
     }
 
-    // --- External Functions ---
+    // ──────────────────────────── Matching ─────────────────────────────
 
     /**
      * @notice Match against a signed commitment, creating the speculation if it doesn't exist
@@ -196,35 +201,28 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
      *      will need to be enforced at the incentive/leaderboard layer, not here.
      * @param commitment The maker's signed commitment
      * @param signature The EIP-712 signature over the commitment
-     * @param takerDesiredRisk The amount of risk the taker wants to fill (in USDC, 6 decimals)
-     *                         Actual fill may be slightly less due to lot-size rounding on the maker side
-     * @param leaderboardId The leaderboard ID (where the fee will be allocated)
-     * @param takerContributionAmount The taker's contribution amount
+     * @param takerDesiredRisk The amount of risk the taker wants to fill (USDC, 6 decimals).
+     *                         Actual fill may be slightly less due to lot-size rounding on the maker side.
      */
     function matchCommitment(
         OspexCommitment calldata commitment,
         bytes calldata signature,
-        uint256 takerDesiredRisk,
-        uint256 leaderboardId,
-        uint256 takerContributionAmount
+        uint256 takerDesiredRisk
     ) external nonReentrant oddsInRange(commitment.oddsTick) {
-        // --- Validate amount ---
         if (takerDesiredRisk == 0) {
             revert MatchingModule__InvalidTakerDesiredRisk();
         }
 
-        // --- Check if contest has been scored ---
         if (
-            IContestModule(_getModule(keccak256("CONTEST_MODULE")))
-                .isContestScored(commitment.contestId)
+            IContestModule(_getModule(CONTEST_MODULE)).isContestScored(
+                commitment.contestId
+            )
         ) {
             revert MatchingModule__ContestAlreadyScored();
         }
 
-        // --- Validate commitment ---
         bytes32 commitmentHash = _validateCommitment(commitment, signature);
 
-        // --- Calculate maker amount of risk remaining ---
         uint256 makerRiskRemaining = commitment.riskAmount -
             s_filledRisk[commitmentHash];
         if (makerRiskRemaining == 0) {
@@ -252,39 +250,20 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
             makerProfit = takerDesiredRisk;
         }
 
-        // --- Record fill ---
         s_filledRisk[commitmentHash] += fillMakerRisk;
 
-        // --- Gate maker contribution to first fill only ---
-        uint256 effectiveMakerContribution = 0;
-        if (
-            commitment.contributionAmount > 0 &&
-            !s_contributionCharged[commitmentHash]
-        ) {
-            effectiveMakerContribution = commitment.contributionAmount;
-            s_contributionCharged[commitmentHash] = true;
-        }
+        uint256 speculationId = IPositionModule(_getModule(POSITION_MODULE))
+            .recordFill(
+                commitment.contestId,
+                commitment.scorer,
+                commitment.lineTicks,
+                commitment.positionType,
+                commitment.maker,
+                fillMakerRisk,
+                msg.sender,
+                makerProfit
+            );
 
-        IPositionModule posModule = IPositionModule(
-            _getModule(keccak256("POSITION_MODULE"))
-        );
-
-        // --- Return speculation id ---
-        uint256 speculationId = posModule.recordFill(
-            commitment.contestId,
-            commitment.scorer,
-            commitment.lineTicks,
-            leaderboardId,
-            commitment.positionType,
-            commitment.maker,
-            fillMakerRisk,
-            msg.sender,
-            makerProfit,
-            effectiveMakerContribution,
-            takerContributionAmount
-        );
-
-        // --- Event ---
         emit CommitmentMatched(
             commitmentHash,
             commitment.maker,
@@ -296,9 +275,8 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
             makerProfit,
             fillMakerRisk
         );
-        // Emit core event
         i_ospexCore.emitCoreEvent(
-            keccak256("COMMITMENT_MATCHED"),
+            EVENT_COMMITMENT_MATCHED,
             abi.encode(
                 commitmentHash,
                 commitment.maker,
@@ -313,10 +291,11 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
         );
     }
 
+    // ──────────────────────────── Cancellation ────────────────────────
+
     /**
-     * @notice Cancel a specific commitment by its hash
-     * @dev Only the maker of the commitment can cancel it
-     * @param commitment The commitment to cancel (used to verify caller is the maker)
+     * @notice Cancel a specific commitment by its hash. Only callable by the maker.
+     * @param commitment The commitment to cancel
      */
     function cancelCommitment(OspexCommitment calldata commitment) external {
         if (msg.sender != commitment.maker) {
@@ -327,7 +306,7 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
 
         emit CommitmentCancelled(commitmentHash, msg.sender);
         i_ospexCore.emitCoreEvent(
-            keccak256("COMMITMENT_CANCELLED"),
+            EVENT_COMMITMENT_CANCELLED,
             abi.encode(commitmentHash, msg.sender)
         );
     }
@@ -343,13 +322,12 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
      *      The scope is deliberately per-speculation, not per-commitment. When a user
      *      decides to withdraw from a speculation, they withdraw entirely — all of their
      *      unmatched commitments on that speculation are invalidated in a single call.
-     *      There is no partial opt-out. This is an intentional design choice: pulling out
-     *      of a speculation is all-or-nothing.
+     *      There is no partial opt-out. This is an intentional design choice.
      *
      *      Per-commitment cancellation is available separately via cancelCommitment().
-     * @param contestId The contest to bet on
-     * @param scorer The scorer of the speculation
-     * @param lineTicks The line/spread/total number (10x)
+     * @param contestId The contest ID
+     * @param scorer The scorer module address
+     * @param lineTicks The line number (10x format)
      * @param newMinNonce The new minimum valid nonce (must be higher than current)
      */
     function raiseMinNonce(
@@ -370,47 +348,41 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
         s_minNonces[msg.sender][speculationKey] = newMinNonce;
         emit MinNonceUpdated(msg.sender, speculationKey, newMinNonce);
         i_ospexCore.emitCoreEvent(
-            keccak256("MIN_NONCE_UPDATED"),
+            EVENT_MIN_NONCE_UPDATED,
             abi.encode(msg.sender, speculationKey, newMinNonce)
         );
     }
 
-    // --- View Functions ---
+    // ──────────────────────────── View Functions ──────────────────────
 
-    /**
-     * @notice Returns the EIP-712 domain separator
-     * @return The domain separator bytes32
-     */
+    /// @notice Returns the EIP-712 domain separator
+    /// @return The domain separator bytes32
     function getDomainSeparator() external view returns (bytes32) {
         return _domainSeparatorV4();
     }
 
-    /**
-     * @notice Computes the commitment hash for a given commitment (for off-chain use)
-     * @param commitment The commitment to hash
-     * @return The EIP-712 typed data hash
-     */
+    /// @notice Computes the commitment hash for a given commitment (for off-chain use)
+    /// @param commitment The commitment to hash
+    /// @return The EIP-712 typed data hash
     function getCommitmentHash(
         OspexCommitment calldata commitment
     ) external view returns (bytes32) {
         return _hashCommitment(commitment);
     }
 
-    // --- Internal Functions ---
+    // ──────────────────────────── Internal Functions ──────────────────
 
     /**
-     * @notice Validates a commitment signature, checks all preconditions
+     * @notice Validates a commitment signature and checks all preconditions
      * @dev Expiry is the sole temporal guard on commitments. The protocol does not check
-     *      contest start time or speculation state at match time (though matchCommitment() 
+     *      contest start time or speculation state at match time (though matchCommitment
      *      checks if the contest has been scored and will revert if it has).
      *      Off-chain infrastructure is responsible for setting sensible defaults.
      *      Makers who set long expiries accept the risk of stale fills.
      *      Signature validation can revert with two different error families:
      *      - MatchingModule__InvalidSignature: valid signature format, wrong signer
-     *      - OpenZeppelin ECDSA errors (ECDSAInvalidSignature,
-     *        ECDSAInvalidSignatureLength, ECDSAInvalidSignatureS): malformed signature bytes
-     *      Both are terminal reverts with no state change. Off-chain callers should
-     *      treat either error family as "invalid signature," not just the custom error.
+     *      - OpenZeppelin ECDSA errors: malformed signature bytes
+     *      Both are terminal reverts with no state change.
      * @param commitment The signed commitment from the maker
      * @param signature The EIP-712 signature
      * @return commitmentHash The EIP-712 hash of the commitment
@@ -419,22 +391,18 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
         OspexCommitment calldata commitment,
         bytes calldata signature
     ) internal view returns (bytes32 commitmentHash) {
-        // --- Zero address check ---
         if (commitment.maker == address(0)) {
             revert MatchingModule__InvalidMakerAddress();
         }
 
-        // --- Check expiry ---
         if (block.timestamp > commitment.expiry) {
             revert MatchingModule__CommitmentExpired();
         }
 
-        // --- Check riskAmount sizing ---
         if (commitment.riskAmount % ODDS_SCALE != 0) {
             revert MatchingModule__InvalidLotSize();
         }
 
-        // --- Check nonce ---
         bytes32 speculationKey = keccak256(
             abi.encode(
                 commitment.contestId,
@@ -446,10 +414,8 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
             revert MatchingModule__NonceTooLow();
         }
 
-        // --- Verify EIP-712 signature ---
         commitmentHash = _hashCommitment(commitment);
 
-        // --- Check not individually cancelled ---
         if (s_cancelledCommitments[commitmentHash]) {
             revert MatchingModule__CommitmentCancelled();
         }
@@ -480,7 +446,6 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
                         uint8(commitment.positionType),
                         commitment.oddsTick,
                         commitment.riskAmount,
-                        commitment.contributionAmount,
                         commitment.nonce,
                         commitment.expiry
                     )
@@ -488,10 +453,12 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
             );
     }
 
-    // --- Helper Function for Module Lookups ---
+    // ──────────────────────────── Module Lookup ───────────────────────
+
     /**
-     * @notice Gets the module address
-     * @param moduleType The type of module
+     * @notice Resolves a module address from OspexCore, reverting if not set
+     * @param moduleType The module type identifier
+     * @return module The module contract address
      */
     function _getModule(
         bytes32 moduleType
