@@ -74,7 +74,8 @@ contract SecondaryMarketModuleTest is Test {
             address(mockRouter),
             address(mockLinkToken),
             donId,
-            1e18
+            1e18,
+            address(0xA11CE) // approvedSigner (not used in secondary market tests)
         );
 
         // Create and register MockContestModule
@@ -122,8 +123,9 @@ contract SecondaryMarketModuleTest is Test {
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified,
             contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0),
             marketUpdateSourceHash: bytes32(0),
+            scoreContestSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""
@@ -240,7 +242,7 @@ contract SecondaryMarketModuleTest is Test {
         Contest memory scored = Contest({
             awayScore: 3, homeScore: 1, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "", sportspageId: "", jsonoddsId: ""
         });
         mockContestModule.setContest(1, scored);
@@ -268,7 +270,7 @@ contract SecondaryMarketModuleTest is Test {
         Contest memory scored = Contest({
             awayScore: 3, homeScore: 1, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "", sportspageId: "", jsonoddsId: ""
         });
         mockContestModule.setContest(1, scored);
@@ -442,8 +444,9 @@ contract SecondaryMarketModuleTest is Test {
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored, // Set to Scored
             contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0),
             marketUpdateSourceHash: bytes32(0),
+            scoreContestSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""
@@ -720,8 +723,9 @@ contract SecondaryMarketModuleTest is Test {
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored,
             contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0),
             marketUpdateSourceHash: bytes32(0),
+            scoreContestSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""

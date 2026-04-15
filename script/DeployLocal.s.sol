@@ -173,12 +173,14 @@ contract DeployLocal is Script {
         ));
         console.log("SecondaryMarketModule deployed at:", contracts.secondaryMarketModule);
 
+        // TODO: Replace address(0x1) with the real approved signer address before production deploy
         contracts.oracleModule = address(new OracleModule(
             contracts.ospexCore,
             contracts.mockFunctionsRouter,
             contracts.mockLinkToken,
             config.donId,
-            config.linkDenominator
+            config.linkDenominator,
+            address(0x1)
         ));
         console.log("OracleModule deployed at:", contracts.oracleModule);
 

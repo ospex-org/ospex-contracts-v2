@@ -115,8 +115,9 @@ contract DeployPolygon is Script {
         ));
         c.positionModule = address(new PositionModule(c.ospexCore, c.usdc));
         c.secondaryMarketModule = address(new SecondaryMarketModule(c.ospexCore, c.usdc));
+        // TODO: Replace address(0x1) with the real approved signer address before production deploy
         c.oracleModule = address(new OracleModule(
-            c.ospexCore, FUNCTIONS_ROUTER, LINK_ADDRESS, DON_ID, LINK_DENOMINATOR
+            c.ospexCore, FUNCTIONS_ROUTER, LINK_ADDRESS, DON_ID, LINK_DENOMINATOR, address(0x1)
         ));
 
         console.log("All 12 modules deployed.");

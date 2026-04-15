@@ -145,8 +145,9 @@ contract LeaderboardModuleTest is Test {
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified,
             contestCreator: admin,
-            scoreContestSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0),
             marketUpdateSourceHash: bytes32(0),
+            scoreContestSourceHash: bytes32(0),
             rundownId: "test-rundown-id",
             sportspageId: "test-sportspage-id",
             jsonoddsId: "test-jsonodds-id"
@@ -1567,7 +1568,7 @@ contract LeaderboardModuleTest is Test {
         Contest memory contest2 = Contest({
             awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified, contestCreator: admin,
-            scoreContestSourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "test2", sportspageId: "test2", jsonoddsId: "test2"
         });
         mockContestModule.setContest(contestId2, contest2);
@@ -1661,7 +1662,7 @@ contract LeaderboardModuleTest is Test {
         Contest memory contest2 = Contest({
             awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified, contestCreator: admin,
-            scoreContestSourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "test2", sportspageId: "test2", jsonoddsId: "test2"
         });
         mockContestModule.setContest(contestId2, contest2);

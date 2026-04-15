@@ -55,6 +55,8 @@ contract ContestModule is IContestModule {
     error ContestModule__AlreadyScored(uint256 contestId);
     /// @notice Thrown when set contest league id and start time is attempted on a contest that is not unverified
     error ContestModule__InvalidStatus(uint256 contestId);
+    /// @notice Thrown when the oracle callback leagueId conflicts with the league set from script approvals at creation
+    error ContestModule__LeagueMismatch();
 
     // ──────────────────────────── Events ───────────────────────────────
 
@@ -63,17 +65,21 @@ contract ContestModule is IContestModule {
     /// @param rundownId External ID from Rundown API
     /// @param sportspageId External ID from Sportspage API
     /// @param jsonoddsId External ID from JSONOdds API
-    /// @param contestCreator The address that created (and paid for) the contest
-    /// @param scoreContestSourceHash Hash of the scoring source code for this contest
+    /// @param verifySourceHash Hash of the verification source code for this contest
     /// @param marketUpdateSourceHash Hash of the market update code for this contest
+    /// @param scoreContestSourceHash Hash of the scoring source code for this contest
+    /// @param approvedLeagueId The LeagueId for this contest
+    /// @param contestCreator The address that created (and paid for) the contest
     event ContestCreated(
         uint256 indexed contestId,
         string rundownId,
         string sportspageId,
         string jsonoddsId,
-        address indexed contestCreator,
+        bytes32 verifySourceHash,
+        bytes32 marketUpdateSourceHash,
         bytes32 scoreContestSourceHash,
-        bytes32 marketUpdateSourceHash
+        LeagueId approvedLeagueId,
+        address indexed contestCreator
     );
 
     /// @notice Emitted when a contest is verified with league and start time
@@ -168,8 +174,10 @@ contract ContestModule is IContestModule {
         string calldata rundownId,
         string calldata sportspageId,
         string calldata jsonoddsId,
-        bytes32 scoreContestSourceHash,
+        bytes32 verifySourceHash,
         bytes32 marketUpdateSourceHash,
+        bytes32 scoreContestSourceHash,
+        LeagueId approvedLeagueId,
         address contestCreator
     ) external override onlyOracleModule returns (uint256 contestId) {
         if (
@@ -188,8 +196,10 @@ contract ContestModule is IContestModule {
         c.rundownId = rundownId;
         c.sportspageId = sportspageId;
         c.jsonoddsId = jsonoddsId;
-        c.scoreContestSourceHash = scoreContestSourceHash;
+        c.verifySourceHash = verifySourceHash;
         c.marketUpdateSourceHash = marketUpdateSourceHash;
+        c.scoreContestSourceHash = scoreContestSourceHash;
+        c.leagueId = approvedLeagueId;
         c.contestCreator = contestCreator;
         c.contestStatus = ContestStatus.Unverified;
 
@@ -198,9 +208,11 @@ contract ContestModule is IContestModule {
             rundownId,
             sportspageId,
             jsonoddsId,
-            contestCreator,
+            verifySourceHash,
+            marketUpdateSourceHash,
             scoreContestSourceHash,
-            marketUpdateSourceHash
+            approvedLeagueId,
+            contestCreator
         );
         i_ospexCore.emitCoreEvent(
             EVENT_CONTEST_CREATED,
@@ -209,9 +221,11 @@ contract ContestModule is IContestModule {
                 rundownId,
                 sportspageId,
                 jsonoddsId,
-                contestCreator,
+                verifySourceHash,
+                marketUpdateSourceHash,
                 scoreContestSourceHash,
-                marketUpdateSourceHash
+                approvedLeagueId,
+                contestCreator
             )
         );
     }
@@ -311,6 +325,10 @@ contract ContestModule is IContestModule {
         }
         if (s_contests[contestId].contestStatus != ContestStatus.Unverified)
             revert ContestModule__InvalidStatus(contestId);
+        if (
+            s_contests[contestId].leagueId != LeagueId.Unknown &&
+            s_contests[contestId].leagueId != leagueId
+        ) revert ContestModule__LeagueMismatch();
         s_contests[contestId].leagueId = leagueId;
         s_contestStartTimes[contestId] = startTime;
         s_contests[contestId].contestStatus = ContestStatus.Verified;

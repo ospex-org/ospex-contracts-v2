@@ -79,8 +79,9 @@ contract SpeculationModuleTest is Test {
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified,
             contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0),
             marketUpdateSourceHash: bytes32(0),
+            scoreContestSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""
@@ -118,7 +119,7 @@ contract SpeculationModuleTest is Test {
         Contest memory contest = Contest({
             awayScore: 1, homeScore: 0, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "", sportspageId: "", jsonoddsId: ""
         });
         mockContestModule.setContest(1, contest);
@@ -153,7 +154,7 @@ contract SpeculationModuleTest is Test {
         Contest memory contest = Contest({
             awayScore: 1, homeScore: 0, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "", sportspageId: "", jsonoddsId: ""
         });
         mockContestModule.setContest(1, contest);
@@ -176,7 +177,7 @@ contract SpeculationModuleTest is Test {
         Contest memory contest = Contest({
             awayScore: 1, homeScore: 0, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "", sportspageId: "", jsonoddsId: ""
         });
         mockContestModule.setContest(1, contest);
@@ -268,7 +269,7 @@ contract SpeculationModuleTest is Test {
         Contest memory contest = Contest({
             awayScore: 3, homeScore: 1, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "", sportspageId: "", jsonoddsId: ""
         });
         mockContestModule.setContest(1, contest);
@@ -302,7 +303,7 @@ contract SpeculationModuleTest is Test {
         Contest memory contest = Contest({
             awayScore: 3, homeScore: 1, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "", sportspageId: "", jsonoddsId: ""
         });
         mockContestModule.setContest(1, contest);
@@ -415,7 +416,7 @@ contract SpeculationModuleTest is Test {
         Contest memory unverified = Contest({
             awayScore: 0, homeScore: 0, leagueId: LeagueId.Unknown,
             contestStatus: ContestStatus.Unverified, contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "rd", sportspageId: "", jsonoddsId: ""
         });
         mockContestModule.setContest(99, unverified);

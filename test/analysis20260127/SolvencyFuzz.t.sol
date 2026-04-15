@@ -88,8 +88,9 @@ contract SolvencyFuzz is Test {
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified,
             contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0),
             marketUpdateSourceHash: bytes32(0),
+            scoreContestSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""
@@ -161,8 +162,9 @@ contract SolvencyFuzz is Test {
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored,
             contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0),
             marketUpdateSourceHash: bytes32(0),
+            scoreContestSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""
@@ -194,8 +196,9 @@ contract SolvencyFuzz is Test {
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified,
             contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0),
             marketUpdateSourceHash: bytes32(0),
+            scoreContestSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""

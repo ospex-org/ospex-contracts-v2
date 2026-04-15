@@ -135,7 +135,7 @@ contract ExtremeOddsEdgeCases is Test {
         Contest memory scored = Contest({
             awayScore: 10, homeScore: 5, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "", sportspageId: "", jsonoddsId: ""
         });
         mockContestModule.setContest(1, scored);
@@ -162,7 +162,7 @@ contract ExtremeOddsEdgeCases is Test {
         Contest memory scored = Contest({
             awayScore: 10, homeScore: 10, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "", sportspageId: "", jsonoddsId: ""
         });
         mockContestModule.setContest(1, scored);
@@ -188,7 +188,7 @@ contract ExtremeOddsEdgeCases is Test {
         Contest memory contest = Contest({
             awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified, contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "", sportspageId: "", jsonoddsId: ""
         });
         mockContestModule.setContest(1, contest);

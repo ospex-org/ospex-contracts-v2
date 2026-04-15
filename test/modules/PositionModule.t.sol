@@ -162,8 +162,9 @@ contract PositionModuleTest is Test {
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified,
             contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0),
             marketUpdateSourceHash: bytes32(0),
+            scoreContestSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""
@@ -245,7 +246,7 @@ contract PositionModuleTest is Test {
         return Contest({
             awayScore: awayScore, homeScore: homeScore, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "", sportspageId: "", jsonoddsId: ""
         });
     }
@@ -255,7 +256,7 @@ contract PositionModuleTest is Test {
         return Contest({
             awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified, contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "", sportspageId: "", jsonoddsId: ""
         });
     }

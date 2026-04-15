@@ -120,8 +120,9 @@ contract RulesModuleTest is Test {
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified,
             contestCreator: creator,
-            scoreContestSourceHash: bytes32(0),
+            verifySourceHash: bytes32(0),
             marketUpdateSourceHash: bytes32(0),
+            scoreContestSourceHash: bytes32(0),
             rundownId: "test-rundown-id",
             sportspageId: "test-sportspage-id",
             jsonoddsId: "test-jsonodds-id"

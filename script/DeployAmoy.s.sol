@@ -142,8 +142,9 @@ contract DeployAmoy is Script {
         c.secondaryMarketModule = address(new SecondaryMarketModule(c.ospexCore, c.usdc));
         console.log("SecondaryMarketModule:", c.secondaryMarketModule);
 
+        // TODO: Replace address(0x1) with the real approved signer address before production deploy
         c.oracleModule = address(new OracleModule(
-            c.ospexCore, FUNCTIONS_ROUTER, LINK_ADDRESS, DON_ID, LINK_DENOMINATOR
+            c.ospexCore, FUNCTIONS_ROUTER, LINK_ADDRESS, DON_ID, LINK_DENOMINATOR, address(0x1)
         ));
         console.log("OracleModule:", c.oracleModule);
 

@@ -24,16 +24,20 @@ interface IContestModule is IModule {
     /// @param rundownId Contest ID from Rundown API
     /// @param sportspageId Contest ID from Sportspage API
     /// @param jsonoddsId Contest ID from JSONOdds API
-    /// @param scoreContestSourceHash Hash of the scoring source code for this contest
+    /// @param verifySourceHash Hash of the verification JS used at creation
     /// @param marketUpdateSourceHash Hash of the market updating source code for this contest
+    /// @param scoreContestSourceHash Hash of the scoring source code for this contest
+    /// @param approvedLeagueId Approved league from script approvals (Unknown = wildcard). Sets contest.leagueId.
     /// @param contestCreator Address that initiated (and pays for) the contest
     /// @return contestId The unique contest identifier
     function createContest(
         string calldata rundownId,
         string calldata sportspageId,
         string calldata jsonoddsId,
-        bytes32 scoreContestSourceHash,
+        bytes32 verifySourceHash,
         bytes32 marketUpdateSourceHash,
+        bytes32 scoreContestSourceHash,
+        LeagueId approvedLeagueId,
         address contestCreator
     ) external returns (uint256 contestId);
 

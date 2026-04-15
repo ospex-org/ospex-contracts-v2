@@ -3,6 +3,7 @@ pragma solidity ^0.8.19;
 
 import {Script, console} from "forge-std/Script.sol";
 import {OracleModule} from "../src/modules/OracleModule.sol";
+import {ScriptApproval, ScriptPurpose, LeagueId} from "../src/core/OspexTypes.sol";
 
 /**
  * @title CreateContestV22
@@ -18,6 +19,45 @@ contract CreateContestV22 is Script {
     function getSourceCode() internal view returns (string memory) {
         string memory path = "chainlink-functions/createContest.js";
         return vm.readFile(path);
+    }
+
+    function _buildApprovals() internal pure returns (OracleModule.ScriptApprovals memory) {
+        return OracleModule.ScriptApprovals({
+            verifyApproval: ScriptApproval(bytes32(0), ScriptPurpose.VERIFY, LeagueId.Unknown, 0, 0),
+            verifyApprovalSig: "",
+            marketUpdateApproval: ScriptApproval(bytes32(0), ScriptPurpose.MARKET_UPDATE, LeagueId.Unknown, 0, 0),
+            marketUpdateApprovalSig: "",
+            scoreApproval: ScriptApproval(bytes32(0), ScriptPurpose.SCORE, LeagueId.Unknown, 0, 0),
+            scoreApprovalSig: ""
+        });
+    }
+
+    function _createContest(OracleModule oracleModule, string memory sourceCode) internal {
+        OracleModule.CreateContestParams memory params = OracleModule.CreateContestParams({
+            rundownId: "afe40b8598c5675226a0f6b6acacf820",
+            sportspageId: "329277",
+            jsonoddsId: "c76d1939-52b3-4df2-b64c-026ca51e852e",
+            createContestSourceJS: sourceCode,
+            encryptedSecretsUrls: ENCRYPTED_SECRETS_URLS,
+            subscriptionId: 416,
+            gasLimit: 300000
+        });
+
+        try
+            oracleModule.createContestFromOracle(
+                params,
+                bytes32(0x7f5ce70565133fedb2e0f1aeb925f38a3b26924917cff852e7de40a9297119b4), // marketUpdateSourceHash
+                bytes32(0xcb2a11db3190c322239b52afb3caefccfccd850566834819b012c5520f8d31cd), // scoreContestSourceHash
+                _buildApprovals()
+            )
+        {
+            console.log("Contest creation transaction submitted successfully");
+        } catch Error(string memory reason) {
+            console.log("Error:", reason);
+        } catch (bytes memory lowLevelData) {
+            console.log("Failed with low level error");
+            console.logBytes(lowLevelData);
+        }
     }
 
     function run() external {
@@ -42,30 +82,7 @@ contract CreateContestV22 is Script {
         console.log("SubscriptionId: 416");
         console.log("GasLimit: 300000");
 
-        // createContestFromOracle signature (zero-admin):
-        // (rundownId, sportspageId, jsonoddsId, createContestSourceJS,
-        //  scoreContestSourceHash, marketUpdateSourceHash,
-        //  encryptedSecretsUrls, subscriptionId, gasLimit)
-        try
-            oracleModule.createContestFromOracle(
-                "afe40b8598c5675226a0f6b6acacf820",
-                "329277",
-                "c76d1939-52b3-4df2-b64c-026ca51e852e",
-                sourceCode,
-                bytes32(0xcb2a11db3190c322239b52afb3caefccfccd850566834819b012c5520f8d31cd), // scoreContestSourceHash
-                bytes32(0x7f5ce70565133fedb2e0f1aeb925f38a3b26924917cff852e7de40a9297119b4), // marketUpdateSourceHash
-                ENCRYPTED_SECRETS_URLS,
-                416,
-                300000
-            )
-        {
-            console.log("Contest creation transaction submitted successfully");
-        } catch Error(string memory reason) {
-            console.log("Error:", reason);
-        } catch (bytes memory lowLevelData) {
-            console.log("Failed with low level error");
-            console.logBytes(lowLevelData);
-        }
+        _createContest(oracleModule, sourceCode);
 
         vm.stopBroadcast();
     }

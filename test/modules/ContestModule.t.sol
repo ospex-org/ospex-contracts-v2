@@ -76,8 +76,10 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32("scoreHash"),
+            bytes32(0),
             bytes32("marketHash"),
+            bytes32("scoreHash"),
+            LeagueId.Unknown,
             contestCreator
         );
         Contest memory c = contestModule.getContest(contestId);
@@ -100,8 +102,10 @@ contract ContestModuleTest is Test {
         vm.prank(notOracle);
         contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32("scoreHash"),
+            bytes32(0),
             bytes32("marketHash"),
+            bytes32("scoreHash"),
+            LeagueId.Unknown,
             contestCreator
         );
     }
@@ -110,8 +114,10 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32("scoreHash"),
+            bytes32(0),
             bytes32("marketHash"),
+            bytes32("scoreHash"),
+            LeagueId.Unknown,
             contestCreator
         );
         vm.prank(oracleModule);
@@ -124,8 +130,10 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32("scoreHash"),
+            bytes32(0),
             bytes32("marketHash"),
+            bytes32("scoreHash"),
+            LeagueId.Unknown,
             contestCreator
         );
         vm.expectRevert(
@@ -142,8 +150,10 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32("scoreHash"),
+            bytes32(0),
             bytes32("marketHash"),
+            bytes32("scoreHash"),
+            LeagueId.Unknown,
             contestCreator
         );
         // Must verify contest first (setScores requires Verified status)
@@ -161,8 +171,10 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32("scoreHash"),
+            bytes32(0),
             bytes32("marketHash"),
+            bytes32("scoreHash"),
+            LeagueId.Unknown,
             contestCreator
         );
         vm.expectRevert(
@@ -179,8 +191,10 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32("scoreHash"),
+            bytes32(0),
             bytes32("marketHash"),
+            bytes32("scoreHash"),
+            LeagueId.Unknown,
             contestCreator
         );
         Contest memory c = contestModule.getContest(contestId);
@@ -233,8 +247,10 @@ contract ContestModuleTest is Test {
         vm.prank(feeOracle);
         feeContestModule.createContest(
             "rd", "sp", "jo",
-            bytes32("scoreHash"),
+            bytes32(0),
             bytes32("marketHash"),
+            bytes32("scoreHash"),
+            LeagueId.Unknown,
             contestCreator
         );
 
@@ -360,7 +376,9 @@ contract ContestModuleTest is Test {
     function testSetScores_OracleCannotRescore() public {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
-            "rd", "sp", "jo", bytes32("scoreHash"), bytes32("marketHash"), contestCreator
+            "rd", "sp", "jo",
+            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
+            LeagueId.Unknown, contestCreator
         );
         vm.prank(oracleModule);
         contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, uint32(block.timestamp));
@@ -391,7 +409,9 @@ contract ContestModuleTest is Test {
     function testSetContestLeagueIdAndStartTime_RevertsIfUnknownLeague() public {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
-            "rd", "sp", "jo", bytes32("scoreHash"), bytes32("marketHash"), contestCreator
+            "rd", "sp", "jo",
+            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
+            LeagueId.Unknown, contestCreator
         );
         vm.prank(oracleModule);
         vm.expectRevert(ContestModule.ContestModule__InvalidValue.selector);
@@ -401,7 +421,9 @@ contract ContestModuleTest is Test {
     function testSetContestLeagueIdAndStartTime_RevertsIfStartTimeZero() public {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
-            "rd", "sp", "jo", bytes32("scoreHash"), bytes32("marketHash"), contestCreator
+            "rd", "sp", "jo",
+            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
+            LeagueId.Unknown, contestCreator
         );
         vm.prank(oracleModule);
         vm.expectRevert(ContestModule.ContestModule__InvalidValue.selector);
@@ -429,13 +451,19 @@ contract ContestModuleTest is Test {
     function testCreateContest_RevertsIfAllSourceIdsEmpty() public {
         vm.prank(oracleModule);
         vm.expectRevert(ContestModule.ContestModule__InvalidValue.selector);
-        contestModule.createContest("", "", "", bytes32("scoreHash"), bytes32("marketHash"), contestCreator);
+        contestModule.createContest(
+            "", "", "",
+            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
+            LeagueId.Unknown, contestCreator
+        );
     }
 
     function testCreateContest_SucceedsWithOneSourceId() public {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
-            "", "", "jo", bytes32("scoreHash"), bytes32("marketHash"), contestCreator
+            "", "", "jo",
+            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
+            LeagueId.Unknown, contestCreator
         );
         Contest memory c = contestModule.getContest(contestId);
         assertEq(c.jsonoddsId, "jo");

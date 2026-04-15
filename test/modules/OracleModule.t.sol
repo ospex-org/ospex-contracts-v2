@@ -9,11 +9,43 @@ import {SpeculationModule} from "../../src/modules/SpeculationModule.sol";
 import {LeaderboardModule} from "../../src/modules/LeaderboardModule.sol";
 import {PositionModule} from "../../src/modules/PositionModule.sol";
 import {OspexCore} from "../../src/core/OspexCore.sol";
-import {Contest, ContestMarket, ContestStatus, LeagueId, OracleRequestType, OracleRequestContext, Speculation, SpeculationStatus, WinSide} from "../../src/core/OspexTypes.sol";
+import {
+    Contest,
+    ContestMarket,
+    ContestStatus,
+    LeagueId,
+    OracleRequestType,
+    OracleRequestContext,
+    ScriptApproval,
+    ScriptPurpose,
+    Speculation,
+    SpeculationStatus,
+    WinSide
+} from "../../src/core/OspexTypes.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockLinkToken} from "../mocks/MockLinkToken.sol";
 import {MockFunctionsRouter} from "../mocks/MockFunctionsRouter.sol";
+
+// ─────────────────────── Mock EIP-1271 wallet ────────────────────────────
+
+/// @dev Returns the ERC-1271 magic value (or not) regardless of inputs
+contract MockERC1271Wallet is IERC1271 {
+    bytes4 private constant _MAGIC = 0x1626ba7e;
+    bool public immutable returnValid;
+
+    constructor(bool _returnValid) {
+        returnValid = _returnValid;
+    }
+
+    function isValidSignature(
+        bytes32,
+        bytes memory
+    ) external view override returns (bytes4) {
+        return returnValid ? _MAGIC : bytes4(0);
+    }
+}
 
 // --- FulfillRequest tests ---
 // Helper contract to expose internal fulfillRequest for testing
@@ -23,8 +55,9 @@ contract OracleModuleTestHelper is OracleModule {
         address router,
         address link,
         bytes32 donId,
-        uint256 linkDenominator
-    ) OracleModule(core, router, link, donId, linkDenominator) {}
+        uint256 linkDenominator,
+        address approvedSigner
+    ) OracleModule(core, router, link, donId, linkDenominator, approvedSigner) {}
     function testFulfillRequest(
         bytes32 requestId,
         bytes memory response,
@@ -50,8 +83,9 @@ contract OracleModuleExposed is OracleModule {
         address router,
         address link,
         bytes32 donId,
-        uint256 linkDenominator
-    ) OracleModule(core, router, link, donId, linkDenominator) {}
+        uint256 linkDenominator,
+        address approvedSigner
+    ) OracleModule(core, router, link, donId, linkDenominator, approvedSigner) {}
 
     function exposed_bytesToUint32(
         bytes memory input
@@ -149,20 +183,46 @@ contract OracleModuleTest is Test {
     OracleModuleTestHelper oracleHelper;
     OracleModuleExposed oracleExposed;
 
+    // ── Signer key pair ──
+    uint256 constant SIGNER_PK = 0xA11CE;
+    address signerAddr;
+
+    // ── Test scripts (used by approval tests) ──
+    string constant VERIFY_JS = "verify-contest-js";
+    string constant SCORE_JS = "score-contest-js";
+    string constant UPDATE_JS = "update-markets-js";
+
+    bytes32 verifyHash;
+    bytes32 scoreHash;
+    bytes32 updateHash;
+
+    // ── EIP-712 constants (mirror OracleModule) ──
+    bytes32 constant SCRIPT_APPROVAL_TYPEHASH =
+        keccak256(
+            "ScriptApproval(bytes32 scriptHash,uint8 purpose,uint8 leagueId,uint16 version,uint64 validUntil)"
+        );
+
     function setUp() public virtual {
+        signerAddr = vm.addr(SIGNER_PK);
+
+        verifyHash = keccak256(abi.encodePacked(VERIFY_JS));
+        scoreHash = keccak256(abi.encodePacked(SCORE_JS));
+        updateHash = keccak256(abi.encodePacked(UPDATE_JS));
+
         // Deploy core, LINK, router
         core = new OspexCore();
         linkToken = new MockLinkToken();
         router = new MockFunctionsRouter(address(linkToken));
         usdc = new MockERC20();
 
-        // Deploy OracleModule (5 params: core, router, link, donId, linkDenominator)
+        // Deploy OracleModule (6 params: core, router, link, donId, linkDenominator, approvedSigner)
         oracleModule = new OracleModule(
             address(core),
             address(router),
             address(linkToken),
             donId,
-            LINK_DENOMINATOR
+            LINK_DENOMINATOR,
+            signerAddr
         );
         // Deploy modules with proper addresses
         treasuryModule = new TreasuryModule(
@@ -207,7 +267,8 @@ contract OracleModuleTest is Test {
             address(router),
             address(linkToken),
             donId,
-            LINK_DENOMINATOR
+            LINK_DENOMINATOR,
+            signerAddr
         );
 
         // Initialize oracleExposed for utility tests
@@ -216,7 +277,8 @@ contract OracleModuleTest is Test {
             address(router),
             address(linkToken),
             donId,
-            LINK_DENOMINATOR
+            LINK_DENOMINATOR,
+            signerAddr
         );
 
         // Give accounts some ETH
@@ -228,6 +290,267 @@ contract OracleModuleTest is Test {
         vm.prank(user);
         usdc.approve(address(treasuryModule), type(uint256).max);
     }
+
+    // ─────────────────────── Approval Signing Helpers ─────────────────────
+
+    /// @dev Sign a ScriptApproval against a specific oracle's domain
+    function _signApprovalFor(
+        ScriptApproval memory a,
+        OracleModule oracle
+    ) internal view returns (bytes memory) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                SCRIPT_APPROVAL_TYPEHASH,
+                a.scriptHash,
+                uint8(a.purpose),
+                uint8(a.leagueId),
+                a.version,
+                a.validUntil
+            )
+        );
+        bytes32 digest = keccak256(
+            abi.encodePacked("\x19\x01", oracle.DOMAIN_SEPARATOR(), structHash)
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(SIGNER_PK, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    /// @dev Sign a ScriptApproval against the default oracleModule
+    function _signApproval(
+        ScriptApproval memory a
+    ) internal view returns (bytes memory) {
+        return _signApprovalFor(a, oracleModule);
+    }
+
+    /// @dev Build a ScriptApprovals struct for a specific oracle with given script sources
+    function _makeApprovalsFor(
+        string memory verifyJS,
+        bytes32 mktHash,
+        bytes32 sHash,
+        OracleModule oracle
+    ) internal view returns (OracleModule.ScriptApprovals memory) {
+        bytes32 vHash = keccak256(abi.encodePacked(verifyJS));
+        ScriptApproval memory va = ScriptApproval(
+            vHash,
+            ScriptPurpose.VERIFY,
+            LeagueId.Unknown,
+            1,
+            0
+        );
+        ScriptApproval memory ma = ScriptApproval(
+            mktHash,
+            ScriptPurpose.MARKET_UPDATE,
+            LeagueId.Unknown,
+            1,
+            0
+        );
+        ScriptApproval memory sa = ScriptApproval(
+            sHash,
+            ScriptPurpose.SCORE,
+            LeagueId.Unknown,
+            1,
+            0
+        );
+        return OracleModule.ScriptApprovals({
+            verifyApproval: va,
+            verifyApprovalSig: _signApprovalFor(va, oracle),
+            marketUpdateApproval: ma,
+            marketUpdateApprovalSig: _signApprovalFor(ma, oracle),
+            scoreApproval: sa,
+            scoreApprovalSig: _signApprovalFor(sa, oracle)
+        });
+    }
+
+    /// @dev Build a ScriptApprovals struct for the default oracle with given script sources
+    function _makeApprovals(
+        string memory verifyJS,
+        bytes32 mktHash,
+        bytes32 sHash
+    ) internal view returns (OracleModule.ScriptApprovals memory) {
+        return _makeApprovalsFor(verifyJS, mktHash, sHash, oracleModule);
+    }
+
+    // ─────────────────────── Approval-test-specific helpers ──────────────
+
+    /// @dev Sign a ScriptApproval with a given private key against an oracle's domain
+    function _signApprovalWithKey(
+        ScriptApproval memory a,
+        OracleModule oracle,
+        uint256 pk
+    ) internal view returns (bytes memory) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                SCRIPT_APPROVAL_TYPEHASH,
+                a.scriptHash,
+                uint8(a.purpose),
+                uint8(a.leagueId),
+                a.version,
+                a.validUntil
+            )
+        );
+        bytes32 digest = keccak256(
+            abi.encodePacked("\x19\x01", oracle.DOMAIN_SEPARATOR(), structHash)
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    /// @dev Build a ScriptApprovals struct with wildcard leagues and permanent expiry
+    function _defaultApprovals()
+        internal
+        view
+        returns (OracleModule.ScriptApprovals memory)
+    {
+        return
+            _approvalsWithLeague(
+                LeagueId.Unknown,
+                LeagueId.Unknown,
+                LeagueId.Unknown,
+                0
+            );
+    }
+
+    /// @dev Build a ScriptApprovals struct with configurable leagues and verify expiry
+    function _approvalsWithLeague(
+        LeagueId vLeague,
+        LeagueId mLeague,
+        LeagueId sLeague,
+        uint64 verifyExpiry
+    ) internal view returns (OracleModule.ScriptApprovals memory approvals) {
+        ScriptApproval memory va = ScriptApproval(
+            verifyHash,
+            ScriptPurpose.VERIFY,
+            vLeague,
+            1,
+            verifyExpiry
+        );
+        ScriptApproval memory ma = ScriptApproval(
+            updateHash,
+            ScriptPurpose.MARKET_UPDATE,
+            mLeague,
+            1,
+            0
+        );
+        ScriptApproval memory sa = ScriptApproval(
+            scoreHash,
+            ScriptPurpose.SCORE,
+            sLeague,
+            1,
+            0
+        );
+
+        approvals = OracleModule.ScriptApprovals({
+            verifyApproval: va,
+            verifyApprovalSig: _signApprovalFor(va, oracleModule),
+            marketUpdateApproval: ma,
+            marketUpdateApprovalSig: _signApprovalFor(ma, oracleModule),
+            scoreApproval: sa,
+            scoreApprovalSig: _signApprovalFor(sa, oracleModule)
+        });
+    }
+
+    /// @dev Fund user with LINK and approve an oracle module
+    function _fundLink(OracleModule oracle, uint256 count) internal {
+        uint256 payment = LINK_DIVISIBILITY / LINK_DENOMINATOR;
+        linkToken.mint(user, payment * count);
+        vm.prank(user);
+        linkToken.approve(address(oracle), payment * count);
+    }
+
+    /// @dev Build default CreateContestParams for tests
+    function _defaultParams() internal pure returns (OracleModule.CreateContestParams memory) {
+        return OracleModule.CreateContestParams({
+            rundownId: "rd",
+            sportspageId: "sp",
+            jsonoddsId: "jo",
+            createContestSourceJS: VERIFY_JS,
+            encryptedSecretsUrls: hex"",
+            subscriptionId: 1,
+            gasLimit: 500_000
+        });
+    }
+
+    /// @dev Build CreateContestParams with custom values
+    function _buildParams(
+        string memory rundownId,
+        string memory sportspageId,
+        string memory jsonoddsId,
+        string memory createContestSourceJS,
+        bytes memory encryptedSecretsUrls,
+        uint64 subscriptionId,
+        uint32 gasLimit
+    ) internal pure returns (OracleModule.CreateContestParams memory) {
+        return OracleModule.CreateContestParams({
+            rundownId: rundownId,
+            sportspageId: sportspageId,
+            jsonoddsId: jsonoddsId,
+            createContestSourceJS: createContestSourceJS,
+            encryptedSecretsUrls: encryptedSecretsUrls,
+            subscriptionId: subscriptionId,
+            gasLimit: gasLimit
+        });
+    }
+
+    /// @dev Create contest with given approvals on the default oracle
+    function _createContest(
+        OracleModule.ScriptApprovals memory approvals
+    ) internal returns (uint256) {
+        _fundLink(oracleModule, 1);
+        vm.prank(user);
+        oracleModule.createContestFromOracle(
+            _defaultParams(),
+            updateHash,
+            scoreHash,
+            approvals
+        );
+        return contestModule.s_contestIdCounter();
+    }
+
+    /// @dev Create contest with default wildcard approvals
+    function _createContestDefault() internal returns (uint256) {
+        return _createContest(_defaultApprovals());
+    }
+
+    /// @dev Bootstrap all 12 modules for a given core
+    function _bootstrap(
+        OspexCore _core,
+        address _oracle,
+        address _contest,
+        address _treasury
+    ) internal {
+        bytes32[] memory types = new bytes32[](12);
+        address[] memory addrs = new address[](12);
+        types[0] = _core.CONTEST_MODULE();
+        addrs[0] = _contest;
+        types[1] = _core.SPECULATION_MODULE();
+        addrs[1] = address(0xD001);
+        types[2] = _core.POSITION_MODULE();
+        addrs[2] = address(0xD002);
+        types[3] = _core.MATCHING_MODULE();
+        addrs[3] = address(0xD003);
+        types[4] = _core.ORACLE_MODULE();
+        addrs[4] = _oracle;
+        types[5] = _core.TREASURY_MODULE();
+        addrs[5] = _treasury;
+        types[6] = _core.LEADERBOARD_MODULE();
+        addrs[6] = address(0xD006);
+        types[7] = _core.RULES_MODULE();
+        addrs[7] = address(0xD007);
+        types[8] = _core.SECONDARY_MARKET_MODULE();
+        addrs[8] = address(0xD008);
+        types[9] = _core.MONEYLINE_SCORER_MODULE();
+        addrs[9] = address(0xAAA1);
+        types[10] = _core.SPREAD_SCORER_MODULE();
+        addrs[10] = address(0xAAA2);
+        types[11] = _core.TOTAL_SCORER_MODULE();
+        addrs[11] = address(0xAAA3);
+        _core.bootstrapModules(types, addrs);
+        _core.finalize();
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  CONSTRUCTOR TESTS
+    // ═════════════════════════════════════════════════════════════════════════
 
   function testConstructor_SetsStateCorrectly() public view {
       assertEq(address(oracleModule.i_ospexCore()), address(core));
@@ -245,7 +568,8 @@ contract OracleModuleTest is Test {
             address(router),
             address(linkToken),
             bytes32(0), // zero donId
-            LINK_DENOMINATOR
+            LINK_DENOMINATOR,
+            signerAddr
         );
     }
 
@@ -256,9 +580,14 @@ contract OracleModuleTest is Test {
             address(router),
             address(linkToken),
             donId,
-            0 // zero linkDenominator
+            0, // zero linkDenominator
+            signerAddr
         );
     }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  CREATE CONTEST FROM ORACLE TESTS
+    // ═════════════════════════════════════════════════════════════════════════
 
     function testCreateContestFromOracle_HappyPath() public {
         string memory rundownId = "rd";
@@ -272,36 +601,41 @@ contract OracleModuleTest is Test {
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
 
+        bytes32 verifySourceHash = keccak256(abi.encodePacked(createContestSourceJS));
+
+        OracleModule.ScriptApprovals memory approvals = _makeApprovals(
+            createContestSourceJS,
+            marketUpdateSourceHash,
+            scoreContestSourceHash
+        );
+
         // User approves LINK payment to OracleModule
         uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment);
         vm.prank(user);
         linkToken.approve(address(oracleModule), payment);
 
-        // Expect ContestCreated event from ContestModule
+        // Expect ContestCreated event from ContestModule (new signature)
         vm.expectEmit(true, false, false, true, address(contestModule));
         emit ContestModule.ContestCreated(
             1, // contestId (first contest)
             rundownId,
             sportspageId,
             jsonoddsId,
-            user,
+            verifySourceHash,
+            marketUpdateSourceHash,
             scoreContestSourceHash,
-            marketUpdateSourceHash
+            LeagueId.Unknown,
+            user
         );
 
         // Act: call createContestFromOracle as user
         vm.prank(user);
         oracleModule.createContestFromOracle(
-            rundownId,
-            sportspageId,
-            jsonoddsId,
-            createContestSourceJS,
-            scoreContestSourceHash,
+            _buildParams(rundownId, sportspageId, jsonoddsId, createContestSourceJS, encryptedSecretsUrls, subscriptionId, gasLimit),
             marketUpdateSourceHash,
-            encryptedSecretsUrls,
-            subscriptionId,
-            gasLimit
+            scoreContestSourceHash,
+            approvals
         );
 
         // Assert: contest should be created in ContestModule
@@ -312,6 +646,7 @@ contract OracleModuleTest is Test {
         assertEq(c.jsonoddsId, jsonoddsId);
         assertEq(c.scoreContestSourceHash, scoreContestSourceHash);
         assertEq(c.marketUpdateSourceHash, marketUpdateSourceHash);
+        assertEq(c.verifySourceHash, verifySourceHash);
         assertEq(c.contestCreator, user);
         // LeagueId should still be default (0) since oracle hasn't fulfilled request yet
         assertEq(uint(c.leagueId), 0);
@@ -328,7 +663,8 @@ contract OracleModuleTest is Test {
             address(router),
             address(linkToken),
             donId,
-            LINK_DENOMINATOR
+            LINK_DENOMINATOR,
+            signerAddr
         );
 
         // Bootstrap only the oracle module, not CONTEST_MODULE
@@ -363,6 +699,14 @@ contract OracleModuleTest is Test {
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
 
+        // Build approvals signed against the new oracle's domain
+        OracleModule.ScriptApprovals memory approvals = _makeApprovalsFor(
+            createContestSourceJS,
+            marketUpdateSourceHash,
+            scoreContestSourceHash,
+            newOracleModule
+        );
+
         // User approves LINK payment to the new OracleModule
         uint256 payment = LINK_DIVISIBILITY /
             newOracleModule.i_linkDenominator();
@@ -374,15 +718,10 @@ contract OracleModuleTest is Test {
         vm.prank(user);
         vm.expectRevert();
         newOracleModule.createContestFromOracle(
-            rundownId,
-            sportspageId,
-            jsonoddsId,
-            createContestSourceJS,
-            scoreContestSourceHash,
+            _buildParams(rundownId, sportspageId, jsonoddsId, createContestSourceJS, encryptedSecretsUrls, subscriptionId, gasLimit),
             marketUpdateSourceHash,
-            encryptedSecretsUrls,
-            subscriptionId,
-            gasLimit
+            scoreContestSourceHash,
+            approvals
         );
     }
 
@@ -397,6 +736,12 @@ contract OracleModuleTest is Test {
         bytes memory encryptedSecretsUrls = hex"";
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
+
+        OracleModule.ScriptApprovals memory approvals = _makeApprovals(
+            createContestSourceJS,
+            marketUpdateSourceHash,
+            scoreContestSourceHash
+        );
 
         // User does NOT approve LINK (or approves less than required)
         linkToken.mint(user, 1); // much less than needed
@@ -413,15 +758,10 @@ contract OracleModuleTest is Test {
             payment
         ));
         oracleModule.createContestFromOracle(
-            rundownId,
-            sportspageId,
-            jsonoddsId,
-            createContestSourceJS,
-            scoreContestSourceHash,
+            _buildParams(rundownId, sportspageId, jsonoddsId, createContestSourceJS, encryptedSecretsUrls, subscriptionId, gasLimit),
             marketUpdateSourceHash,
-            encryptedSecretsUrls,
-            subscriptionId,
-            gasLimit
+            scoreContestSourceHash,
+            approvals
         );
     }
 
@@ -437,6 +777,13 @@ contract OracleModuleTest is Test {
         bytes memory encryptedSecretsUrls = hex"";
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
+
+        OracleModule.ScriptApprovals memory approvals = _makeApprovals(
+            createContestSourceJS,
+            marketUpdateSourceHash,
+            scoreContestSourceHash
+        );
+
         uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment);
         vm.prank(user);
@@ -452,17 +799,16 @@ contract OracleModuleTest is Test {
             )
         );
         oracleModule.createContestFromOracle(
-            rundownId,
-            sportspageId,
-            jsonoddsId,
-            createContestSourceJS,
-            scoreContestSourceHash,
+            _buildParams(rundownId, sportspageId, jsonoddsId, createContestSourceJS, encryptedSecretsUrls, subscriptionId, gasLimit),
             marketUpdateSourceHash,
-            encryptedSecretsUrls,
-            subscriptionId,
-            gasLimit
+            scoreContestSourceHash,
+            approvals
         );
     }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  SCORE CONTEST FROM ORACLE TESTS
+    // ═════════════════════════════════════════════════════════════════════════
 
     function testScoreContestFromOracle_HappyPath() public {
         // Arrange: create and verify a contest
@@ -478,6 +824,12 @@ contract OracleModuleTest is Test {
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
 
+        OracleModule.ScriptApprovals memory approvals = _makeApprovals(
+            createContestSourceJS,
+            marketUpdateSourceHash,
+            scoreContestSourceHash
+        );
+
         // User approves LINK payment to OracleModule for creation
         uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment * 2); // enough for both create and score
@@ -487,15 +839,10 @@ contract OracleModuleTest is Test {
         // Create contest (as user)
         vm.prank(user);
         oracleModule.createContestFromOracle(
-            rundownId,
-            sportspageId,
-            jsonoddsId,
-            createContestSourceJS,
-            scoreContestSourceHash,
+            _buildParams(rundownId, sportspageId, jsonoddsId, createContestSourceJS, encryptedSecretsUrls, subscriptionId, gasLimit),
             marketUpdateSourceHash,
-            encryptedSecretsUrls,
-            subscriptionId,
-            gasLimit
+            scoreContestSourceHash,
+            approvals
         );
         uint256 contestId = contestModule.s_contestIdCounter();
 
@@ -531,6 +878,12 @@ contract OracleModuleTest is Test {
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
 
+        OracleModule.ScriptApprovals memory approvals = _makeApprovals(
+            createContestSourceJS,
+            marketUpdateSourceHash,
+            scoreContestSourceHash
+        );
+
         uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment * 2);
         vm.prank(user);
@@ -538,15 +891,10 @@ contract OracleModuleTest is Test {
 
         vm.prank(user);
         oracleModule.createContestFromOracle(
-            rundownId,
-            sportspageId,
-            jsonoddsId,
-            createContestSourceJS,
-            scoreContestSourceHash,
+            _buildParams(rundownId, sportspageId, jsonoddsId, createContestSourceJS, encryptedSecretsUrls, subscriptionId, gasLimit),
             marketUpdateSourceHash,
-            encryptedSecretsUrls,
-            subscriptionId,
-            gasLimit
+            scoreContestSourceHash,
+            approvals
         );
         uint256 contestId = contestModule.s_contestIdCounter();
 
@@ -577,6 +925,12 @@ contract OracleModuleTest is Test {
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
 
+        OracleModule.ScriptApprovals memory approvals = _makeApprovals(
+            createContestSourceJS,
+            marketUpdateSourceHash,
+            scoreContestSourceHash
+        );
+
         uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment * 2);
         vm.prank(user);
@@ -584,15 +938,10 @@ contract OracleModuleTest is Test {
 
         vm.prank(user);
         oracleModule.createContestFromOracle(
-            rundownId,
-            sportspageId,
-            jsonoddsId,
-            createContestSourceJS,
-            scoreContestSourceHash,
+            _buildParams(rundownId, sportspageId, jsonoddsId, createContestSourceJS, encryptedSecretsUrls, subscriptionId, gasLimit),
             marketUpdateSourceHash,
-            encryptedSecretsUrls,
-            subscriptionId,
-            gasLimit
+            scoreContestSourceHash,
+            approvals
         );
         uint256 contestId = contestModule.s_contestIdCounter();
         vm.prank(address(oracleModule));
@@ -631,6 +980,12 @@ contract OracleModuleTest is Test {
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
 
+        OracleModule.ScriptApprovals memory approvals = _makeApprovals(
+            "createContestSourceHash",
+            marketUpdateSourceHash,
+            scoreContestSourceHash
+        );
+
         uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment * 2);
         vm.prank(user);
@@ -639,15 +994,10 @@ contract OracleModuleTest is Test {
         // Create contest with correct hash
         vm.prank(user);
         oracleModule.createContestFromOracle(
-            rundownId,
-            sportspageId,
-            jsonoddsId,
-            "createContestSourceHash",
-            scoreContestSourceHash,
+            _buildParams(rundownId, sportspageId, jsonoddsId, "createContestSourceHash", encryptedSecretsUrls, subscriptionId, gasLimit),
             marketUpdateSourceHash,
-            encryptedSecretsUrls,
-            subscriptionId,
-            gasLimit
+            scoreContestSourceHash,
+            approvals
         );
         uint256 contestId = contestModule.s_contestIdCounter();
         // Set contest as verified but with a start time in the future
@@ -675,6 +1025,10 @@ contract OracleModuleTest is Test {
         );
     }
 
+    // ═════════════════════════════════════════════════════════════════════════
+    //  FULFILL REQUEST TESTS
+    // ═════════════════════════════════════════════════════════════════════════
+
     function testFulfillRequest_UnverifiedContest_SetsStartTime() public {
         // Need a fresh core where oracleHelper is the registered ORACLE_MODULE
         OspexCore testCore = new OspexCore();
@@ -688,7 +1042,8 @@ contract OracleModuleTest is Test {
             address(router),
             address(linkToken),
             donId,
-            LINK_DENOMINATOR
+            LINK_DENOMINATOR,
+            signerAddr
         );
 
         // Bootstrap all 12 modules with testHelper as ORACLE_MODULE
@@ -709,7 +1064,7 @@ contract OracleModuleTest is Test {
         testCore.bootstrapModules(types, addrs);
         testCore.finalize();
 
-        // Arrange: create contest (unverified)
+        // Arrange: create contest (unverified) via direct createContest call
         string memory rundownId = "rd";
         string memory sportspageId = "sp";
         string memory jsonoddsId = "jo";
@@ -723,8 +1078,10 @@ contract OracleModuleTest is Test {
             rundownId,
             sportspageId,
             jsonoddsId,
-            scoreContestSourceHash,
+            bytes32(0),             // verifySourceHash
             marketUpdateSourceHash,
+            scoreContestSourceHash,
+            LeagueId.Unknown,       // approvedLeagueId
             contestCreator
         );
 
@@ -765,7 +1122,8 @@ contract OracleModuleTest is Test {
             address(router),
             address(linkToken),
             donId,
-            LINK_DENOMINATOR
+            LINK_DENOMINATOR,
+            signerAddr
         );
 
         // Bootstrap all 12 modules with testHelper as ORACLE_MODULE
@@ -800,8 +1158,10 @@ contract OracleModuleTest is Test {
             rundownId,
             sportspageId,
             jsonoddsId,
-            scoreContestSourceHash,
+            bytes32(0),             // verifySourceHash
             marketUpdateSourceHash,
+            scoreContestSourceHash,
+            LeagueId.Unknown,       // approvedLeagueId
             contestCreator
         );
 
@@ -852,7 +1212,8 @@ contract OracleModuleTest is Test {
             address(router),
             address(linkToken),
             donId,
-            LINK_DENOMINATOR
+            LINK_DENOMINATOR,
+            signerAddr
         );
 
         // Bootstrap all 12 modules
@@ -887,8 +1248,10 @@ contract OracleModuleTest is Test {
             rundownId,
             sportspageId,
             jsonoddsId,
-            scoreContestSourceHash,
+            bytes32(0),             // verifySourceHash
             marketUpdateSourceHash,
+            scoreContestSourceHash,
+            LeagueId.Unknown,       // approvedLeagueId
             contestCreator
         );
 
@@ -1055,7 +1418,10 @@ contract OracleModuleTest is Test {
         oracleHelper.testFulfillRequest(requestId, response, err);
     }
 
-    // --- Contest Markets Update Tests ---
+    // ═════════════════════════════════════════════════════════════════════════
+    //  CONTEST MARKETS UPDATE TESTS
+    // ═════════════════════════════════════════════════════════════════════════
+
     function testUpdateContestMarketsFromOracle_HappyPath() public {
         // Arrange: create and verify a contest first
         string memory rundownId = "rd";
@@ -1068,6 +1434,12 @@ contract OracleModuleTest is Test {
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
 
+        OracleModule.ScriptApprovals memory approvals = _makeApprovals(
+            createContestSourceJS,
+            marketUpdateSourceHash,
+            scoreContestSourceHash
+        );
+
         // User approves LINK payment for both create and update
         uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment * 2);
@@ -1077,15 +1449,10 @@ contract OracleModuleTest is Test {
         // Create contest
         vm.prank(user);
         oracleModule.createContestFromOracle(
-            rundownId,
-            sportspageId,
-            jsonoddsId,
-            createContestSourceJS,
-            scoreContestSourceHash,
+            _buildParams(rundownId, sportspageId, jsonoddsId, createContestSourceJS, encryptedSecretsUrls, subscriptionId, gasLimit),
             marketUpdateSourceHash,
-            encryptedSecretsUrls,
-            subscriptionId,
-            gasLimit
+            scoreContestSourceHash,
+            approvals
         );
         uint256 contestId = contestModule.s_contestIdCounter();
 
@@ -1124,6 +1491,12 @@ contract OracleModuleTest is Test {
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
 
+        OracleModule.ScriptApprovals memory approvals = _makeApprovals(
+            createContestSourceJS,
+            marketUpdateSourceHash,
+            scoreContestSourceHash
+        );
+
         uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment * 2);
         vm.prank(user);
@@ -1131,15 +1504,10 @@ contract OracleModuleTest is Test {
 
         vm.prank(user);
         oracleModule.createContestFromOracle(
-            rundownId,
-            sportspageId,
-            jsonoddsId,
-            createContestSourceJS,
-            scoreContestSourceHash,
+            _buildParams(rundownId, sportspageId, jsonoddsId, createContestSourceJS, encryptedSecretsUrls, subscriptionId, gasLimit),
             marketUpdateSourceHash,
-            encryptedSecretsUrls,
-            subscriptionId,
-            gasLimit
+            scoreContestSourceHash,
+            approvals
         );
         uint256 contestId = contestModule.s_contestIdCounter();
 
@@ -1176,6 +1544,12 @@ contract OracleModuleTest is Test {
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
 
+        OracleModule.ScriptApprovals memory approvals = _makeApprovals(
+            createContestSourceJS,
+            marketUpdateSourceHash,
+            scoreContestSourceHash
+        );
+
         uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment * 2);
         vm.prank(user);
@@ -1183,15 +1557,10 @@ contract OracleModuleTest is Test {
 
         vm.prank(user);
         oracleModule.createContestFromOracle(
-            rundownId,
-            sportspageId,
-            jsonoddsId,
-            createContestSourceJS,
-            scoreContestSourceHash,
+            _buildParams(rundownId, sportspageId, jsonoddsId, createContestSourceJS, encryptedSecretsUrls, subscriptionId, gasLimit),
             marketUpdateSourceHash,
-            encryptedSecretsUrls,
-            subscriptionId,
-            gasLimit
+            scoreContestSourceHash,
+            approvals
         );
         uint256 contestId = contestModule.s_contestIdCounter();
 
@@ -1223,6 +1592,12 @@ contract OracleModuleTest is Test {
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
 
+        OracleModule.ScriptApprovals memory approvals = _makeApprovals(
+            createContestSourceJS,
+            marketUpdateSourceHash,
+            scoreContestSourceHash
+        );
+
         uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment);
         vm.prank(user);
@@ -1230,15 +1605,10 @@ contract OracleModuleTest is Test {
 
         vm.prank(user);
         oracleModule.createContestFromOracle(
-            rundownId,
-            sportspageId,
-            jsonoddsId,
-            createContestSourceJS,
-            scoreContestSourceHash,
+            _buildParams(rundownId, sportspageId, jsonoddsId, createContestSourceJS, encryptedSecretsUrls, subscriptionId, gasLimit),
             marketUpdateSourceHash,
-            encryptedSecretsUrls,
-            subscriptionId,
-            gasLimit
+            scoreContestSourceHash,
+            approvals
         );
         uint256 contestId = contestModule.s_contestIdCounter();
 
@@ -1284,7 +1654,8 @@ contract OracleModuleTest is Test {
             address(router),
             address(linkToken),
             donId,
-            LINK_DENOMINATOR
+            LINK_DENOMINATOR,
+            signerAddr
         );
 
         // Register mock scorer modules for the market updates
@@ -1323,8 +1694,10 @@ contract OracleModuleTest is Test {
             rundownId,
             sportspageId,
             jsonoddsId,
-            scoreContestSourceHash,
+            bytes32(0),             // verifySourceHash
             marketUpdateSourceHash,
+            scoreContestSourceHash,
+            LeagueId.Unknown,       // approvedLeagueId
             contestCreator
         );
 
@@ -1548,6 +1921,12 @@ contract OracleModuleTest is Test {
         uint64 subscriptionId = 1;
         uint32 gasLimit = 500_000;
 
+        OracleModule.ScriptApprovals memory approvals = _makeApprovals(
+            createContestSourceJS,
+            marketUpdateSourceHash,
+            scoreContestSourceHash
+        );
+
         uint256 payment = LINK_DIVISIBILITY / oracleModule.i_linkDenominator();
         linkToken.mint(user, payment);
         vm.prank(user);
@@ -1555,17 +1934,804 @@ contract OracleModuleTest is Test {
 
         vm.prank(user);
         oracleModule.createContestFromOracle(
-            rundownId,
-            sportspageId,
-            jsonoddsId,
-            createContestSourceJS,
-            scoreContestSourceHash,
+            _buildParams(rundownId, sportspageId, jsonoddsId, createContestSourceJS, encryptedSecretsUrls, subscriptionId, gasLimit),
             marketUpdateSourceHash,
-            encryptedSecretsUrls,
-            subscriptionId,
-            gasLimit
+            scoreContestSourceHash,
+            approvals
         );
 
         assertEq(contestModule.s_contestIdCounter(), counterBefore + 1, "Contest should be created with secrets");
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  SCRIPT APPROVAL TESTS — HAPPY PATH
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function test_createContest_withWildcardApprovals() public {
+        uint256 id = _createContestDefault();
+        Contest memory c = contestModule.getContest(id);
+        assertEq(uint(c.contestStatus), uint(ContestStatus.Unverified));
+        assertEq(c.verifySourceHash, verifyHash);
+        assertEq(uint(c.leagueId), uint(LeagueId.Unknown));
+    }
+
+    function test_createContest_withSpecificLeagueApprovals() public {
+        OracleModule.ScriptApprovals memory approvals = _approvalsWithLeague(
+            LeagueId.NBA,
+            LeagueId.Unknown,
+            LeagueId.Unknown,
+            0
+        );
+        uint256 id = _createContest(approvals);
+        Contest memory c = contestModule.getContest(id);
+        assertEq(uint(c.leagueId), uint(LeagueId.NBA));
+    }
+
+    function test_createContest_allThreeSameLeague() public {
+        OracleModule.ScriptApprovals memory approvals = _approvalsWithLeague(
+            LeagueId.NFL,
+            LeagueId.NFL,
+            LeagueId.NFL,
+            0
+        );
+        uint256 id = _createContest(approvals);
+        Contest memory c = contestModule.getContest(id);
+        assertEq(uint(c.leagueId), uint(LeagueId.NFL));
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  SCRIPT APPROVAL TESTS — PURPOSE BINDING
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function test_revert_wrongPurpose_verifyAsScore() public {
+        OracleModule.ScriptApprovals memory approvals = _defaultApprovals();
+
+        // Overwrite verify approval with SCORE purpose
+        ScriptApproval memory bad = ScriptApproval(
+            verifyHash,
+            ScriptPurpose.SCORE,
+            LeagueId.Unknown,
+            1,
+            0
+        );
+        approvals.verifyApproval = bad;
+        approvals.verifyApprovalSig = _signApprovalFor(bad, oracleModule);
+
+        _fundLink(oracleModule, 1);
+        vm.prank(user);
+        vm.expectRevert(
+            OracleModule.OracleModule__WrongApprovalPurpose.selector
+        );
+        oracleModule.createContestFromOracle(
+            _buildParams("rd", "sp", "jo", VERIFY_JS, hex"", 1, 500_000),
+            updateHash,
+            scoreHash,
+            approvals
+        );
+    }
+
+    function test_revert_wrongPurpose_marketUpdateAsVerify() public {
+        OracleModule.ScriptApprovals memory approvals = _defaultApprovals();
+
+        ScriptApproval memory bad = ScriptApproval(
+            updateHash,
+            ScriptPurpose.VERIFY,
+            LeagueId.Unknown,
+            1,
+            0
+        );
+        approvals.marketUpdateApproval = bad;
+        approvals.marketUpdateApprovalSig = _signApprovalFor(bad, oracleModule);
+
+        _fundLink(oracleModule, 1);
+        vm.prank(user);
+        vm.expectRevert(
+            OracleModule.OracleModule__WrongApprovalPurpose.selector
+        );
+        oracleModule.createContestFromOracle(
+            _buildParams("rd", "sp", "jo", VERIFY_JS, hex"", 1, 500_000),
+            updateHash,
+            scoreHash,
+            approvals
+        );
+    }
+
+    function test_revert_wrongPurpose_scoreAsMarketUpdate() public {
+        OracleModule.ScriptApprovals memory approvals = _defaultApprovals();
+
+        ScriptApproval memory bad = ScriptApproval(
+            scoreHash,
+            ScriptPurpose.MARKET_UPDATE,
+            LeagueId.Unknown,
+            1,
+            0
+        );
+        approvals.scoreApproval = bad;
+        approvals.scoreApprovalSig = _signApprovalFor(bad, oracleModule);
+
+        _fundLink(oracleModule, 1);
+        vm.prank(user);
+        vm.expectRevert(
+            OracleModule.OracleModule__WrongApprovalPurpose.selector
+        );
+        oracleModule.createContestFromOracle(
+            _buildParams("rd", "sp", "jo", VERIFY_JS, hex"", 1, 500_000),
+            updateHash,
+            scoreHash,
+            approvals
+        );
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  SCRIPT APPROVAL TESTS — LEAGUE BINDING
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function test_callback_leagueMatchesApproved() public {
+        OracleModule.ScriptApprovals memory approvals = _approvalsWithLeague(
+            LeagueId.NBA,
+            LeagueId.Unknown,
+            LeagueId.Unknown,
+            0
+        );
+        uint256 id = _createContest(approvals);
+
+        // Oracle callback with NBA — matches approved
+        vm.prank(address(oracleModule));
+        contestModule.setContestLeagueIdAndStartTime(
+            id,
+            LeagueId.NBA,
+            uint32(block.timestamp)
+        );
+        Contest memory c = contestModule.getContest(id);
+        assertEq(uint(c.contestStatus), uint(ContestStatus.Verified));
+    }
+
+    function test_revert_callback_leagueMismatch() public {
+        OracleModule.ScriptApprovals memory approvals = _approvalsWithLeague(
+            LeagueId.NBA,
+            LeagueId.Unknown,
+            LeagueId.Unknown,
+            0
+        );
+        uint256 id = _createContest(approvals);
+
+        // Oracle callback with NFL — mismatches approved NBA
+        vm.prank(address(oracleModule));
+        vm.expectRevert(ContestModule.ContestModule__LeagueMismatch.selector);
+        contestModule.setContestLeagueIdAndStartTime(
+            id,
+            LeagueId.NFL,
+            uint32(block.timestamp)
+        );
+    }
+
+    function test_callback_wildcardAcceptsAnyLeague() public {
+        uint256 id = _createContestDefault(); // all Unknown leagues
+
+        vm.prank(address(oracleModule));
+        contestModule.setContestLeagueIdAndStartTime(
+            id,
+            LeagueId.MLS,
+            uint32(block.timestamp)
+        );
+        Contest memory c = contestModule.getContest(id);
+        assertEq(uint(c.contestStatus), uint(ContestStatus.Verified));
+    }
+
+    function test_revert_conflictingLeaguesAtCreation() public {
+        // verify=NBA, marketUpdate=NFL — conflict
+        ScriptApproval memory va = ScriptApproval(
+            verifyHash,
+            ScriptPurpose.VERIFY,
+            LeagueId.NBA,
+            1,
+            0
+        );
+        ScriptApproval memory ma = ScriptApproval(
+            updateHash,
+            ScriptPurpose.MARKET_UPDATE,
+            LeagueId.NFL,
+            1,
+            0
+        );
+        ScriptApproval memory sa = ScriptApproval(
+            scoreHash,
+            ScriptPurpose.SCORE,
+            LeagueId.Unknown,
+            1,
+            0
+        );
+
+        OracleModule.ScriptApprovals memory approvals = OracleModule
+            .ScriptApprovals({
+                verifyApproval: va,
+                verifyApprovalSig: _signApprovalFor(va, oracleModule),
+                marketUpdateApproval: ma,
+                marketUpdateApprovalSig: _signApprovalFor(ma, oracleModule),
+                scoreApproval: sa,
+                scoreApprovalSig: _signApprovalFor(sa, oracleModule)
+            });
+
+        _fundLink(oracleModule, 1);
+        vm.prank(user);
+        vm.expectRevert(
+            OracleModule.OracleModule__ConflictingApprovalLeagues.selector
+        );
+        oracleModule.createContestFromOracle(
+            _buildParams("rd", "sp", "jo", VERIFY_JS, hex"", 1, 500_000),
+            updateHash,
+            scoreHash,
+            approvals
+        );
+    }
+
+    function test_twoNonUnknownMatch_oneUnknown() public {
+        // verify=NBA, marketUpdate=NBA, score=Unknown — should resolve to NBA
+        OracleModule.ScriptApprovals memory approvals = _approvalsWithLeague(
+            LeagueId.NBA,
+            LeagueId.NBA,
+            LeagueId.Unknown,
+            0
+        );
+        uint256 id = _createContest(approvals);
+        Contest memory c = contestModule.getContest(id);
+        assertEq(uint(c.leagueId), uint(LeagueId.NBA));
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  SCRIPT APPROVAL TESTS — SIGNER VERIFICATION
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function test_revert_wrongSigner() public {
+        uint256 wrongPk = 0xBAD;
+        OracleModule.ScriptApprovals memory approvals = _defaultApprovals();
+
+        // Re-sign verify approval with wrong key
+        approvals.verifyApprovalSig = _signApprovalWithKey(
+            approvals.verifyApproval,
+            oracleModule,
+            wrongPk
+        );
+
+        _fundLink(oracleModule, 1);
+        vm.prank(user);
+        vm.expectRevert(
+            OracleModule.OracleModule__InvalidScriptApproval.selector
+        );
+        oracleModule.createContestFromOracle(
+            _buildParams("rd", "sp", "jo", VERIFY_JS, hex"", 1, 500_000),
+            updateHash,
+            scoreHash,
+            approvals
+        );
+    }
+
+    function test_revert_malformedSignature() public {
+        OracleModule.ScriptApprovals memory approvals = _defaultApprovals();
+        approvals.verifyApprovalSig = hex"deadbeef"; // too short
+
+        _fundLink(oracleModule, 1);
+        vm.prank(user);
+        vm.expectRevert(
+            OracleModule.OracleModule__InvalidScriptApproval.selector
+        );
+        oracleModule.createContestFromOracle(
+            _buildParams("rd", "sp", "jo", VERIFY_JS, hex"", 1, 500_000),
+            updateHash,
+            scoreHash,
+            approvals
+        );
+    }
+
+    function test_eip1271_validSafe() public {
+        MockERC1271Wallet safe = new MockERC1271Wallet(true);
+
+        // Deploy fresh protocol with safe as signer
+        OspexCore safeCore = new OspexCore();
+        ContestModule safeContest = new ContestModule(address(safeCore));
+        TreasuryModule safeTreasury = new TreasuryModule(
+            address(safeCore),
+            address(usdc),
+            address(0x2),
+            0,
+            0,
+            0
+        );
+        OracleModule safeOracle = new OracleModule(
+            address(safeCore),
+            address(router),
+            address(linkToken),
+            donId,
+            LINK_DENOMINATOR,
+            address(safe)
+        );
+        _bootstrap(
+            safeCore,
+            address(safeOracle),
+            address(safeContest),
+            address(safeTreasury)
+        );
+
+        // Build approvals — signature bytes don't matter, mock always validates
+        bytes
+            memory anySig = hex"0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+
+        OracleModule.ScriptApprovals memory approvals = OracleModule
+            .ScriptApprovals({
+                verifyApproval: ScriptApproval(
+                    verifyHash,
+                    ScriptPurpose.VERIFY,
+                    LeagueId.Unknown,
+                    1,
+                    0
+                ),
+                verifyApprovalSig: anySig,
+                marketUpdateApproval: ScriptApproval(
+                    updateHash,
+                    ScriptPurpose.MARKET_UPDATE,
+                    LeagueId.Unknown,
+                    1,
+                    0
+                ),
+                marketUpdateApprovalSig: anySig,
+                scoreApproval: ScriptApproval(
+                    scoreHash,
+                    ScriptPurpose.SCORE,
+                    LeagueId.Unknown,
+                    1,
+                    0
+                ),
+                scoreApprovalSig: anySig
+            });
+
+        _fundLink(safeOracle, 1);
+        vm.prank(user);
+        safeOracle.createContestFromOracle(
+            _buildParams("rd", "sp", "jo", VERIFY_JS, hex"", 1, 500_000),
+            updateHash,
+            scoreHash,
+            approvals
+        );
+        assertEq(safeContest.s_contestIdCounter(), 1);
+    }
+
+    function test_revert_eip1271_wrongMagic() public {
+        MockERC1271Wallet badSafe = new MockERC1271Wallet(false);
+
+        OspexCore safeCore = new OspexCore();
+        ContestModule safeContest = new ContestModule(address(safeCore));
+        TreasuryModule safeTreasury = new TreasuryModule(
+            address(safeCore),
+            address(usdc),
+            address(0x2),
+            0,
+            0,
+            0
+        );
+        OracleModule safeOracle = new OracleModule(
+            address(safeCore),
+            address(router),
+            address(linkToken),
+            donId,
+            LINK_DENOMINATOR,
+            address(badSafe)
+        );
+        _bootstrap(
+            safeCore,
+            address(safeOracle),
+            address(safeContest),
+            address(safeTreasury)
+        );
+
+        bytes
+            memory anySig = hex"0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+
+        OracleModule.ScriptApprovals memory approvals = OracleModule
+            .ScriptApprovals({
+                verifyApproval: ScriptApproval(
+                    verifyHash,
+                    ScriptPurpose.VERIFY,
+                    LeagueId.Unknown,
+                    1,
+                    0
+                ),
+                verifyApprovalSig: anySig,
+                marketUpdateApproval: ScriptApproval(
+                    updateHash,
+                    ScriptPurpose.MARKET_UPDATE,
+                    LeagueId.Unknown,
+                    1,
+                    0
+                ),
+                marketUpdateApprovalSig: anySig,
+                scoreApproval: ScriptApproval(
+                    scoreHash,
+                    ScriptPurpose.SCORE,
+                    LeagueId.Unknown,
+                    1,
+                    0
+                ),
+                scoreApprovalSig: anySig
+            });
+
+        _fundLink(safeOracle, 1);
+        vm.prank(user);
+        vm.expectRevert(
+            OracleModule.OracleModule__InvalidScriptApproval.selector
+        );
+        safeOracle.createContestFromOracle(
+            _buildParams("rd", "sp", "jo", VERIFY_JS, hex"", 1, 500_000),
+            updateHash,
+            scoreHash,
+            approvals
+        );
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  SCRIPT APPROVAL TESTS — EXPIRY
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function test_revert_expiredApproval() public {
+        vm.warp(1000); // Ensure block.timestamp is large enough for expiry math
+        uint64 expired = uint64(block.timestamp - 1);
+        OracleModule.ScriptApprovals memory approvals = _defaultApprovals();
+
+        // Overwrite verify with an expired approval
+        ScriptApproval memory va = ScriptApproval(
+            verifyHash,
+            ScriptPurpose.VERIFY,
+            LeagueId.Unknown,
+            1,
+            expired
+        );
+        approvals.verifyApproval = va;
+        approvals.verifyApprovalSig = _signApprovalFor(va, oracleModule);
+
+        _fundLink(oracleModule, 1);
+        vm.prank(user);
+        vm.expectRevert(
+            OracleModule.OracleModule__ScriptApprovalExpired.selector
+        );
+        oracleModule.createContestFromOracle(
+            _buildParams("rd", "sp", "jo", VERIFY_JS, hex"", 1, 500_000),
+            updateHash,
+            scoreHash,
+            approvals
+        );
+    }
+
+    function test_permanentApproval() public {
+        // validUntil = 0 means permanent — should succeed
+        uint256 id = _createContestDefault();
+        assertGt(id, 0);
+    }
+
+    function test_futureExpiryApproval() public {
+        uint64 future = uint64(block.timestamp + 90 days);
+        OracleModule.ScriptApprovals memory approvals = _approvalsWithLeague(
+            LeagueId.Unknown,
+            LeagueId.Unknown,
+            LeagueId.Unknown,
+            future
+        );
+        uint256 id = _createContest(approvals);
+        assertGt(id, 0);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  SCRIPT APPROVAL TESTS — HASH MATCH
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function test_revert_verifyHashMismatch() public {
+        OracleModule.ScriptApprovals memory approvals = _defaultApprovals();
+
+        // Overwrite verify with wrong hash
+        bytes32 wrongHash = keccak256(abi.encodePacked("wrong-verify-js"));
+        ScriptApproval memory va = ScriptApproval(
+            wrongHash,
+            ScriptPurpose.VERIFY,
+            LeagueId.Unknown,
+            1,
+            0
+        );
+        approvals.verifyApproval = va;
+        approvals.verifyApprovalSig = _signApprovalFor(va, oracleModule);
+
+        _fundLink(oracleModule, 1);
+        vm.prank(user);
+        vm.expectRevert(
+            OracleModule.OracleModule__ScriptHashMismatch.selector
+        );
+        oracleModule.createContestFromOracle(
+            _buildParams("rd", "sp", "jo", VERIFY_JS, hex"", 1, 500_000),
+            updateHash,
+            scoreHash,
+            approvals
+        );
+    }
+
+    function test_revert_marketUpdateHashMismatch() public {
+        OracleModule.ScriptApprovals memory approvals = _defaultApprovals();
+
+        bytes32 wrongHash = keccak256(abi.encodePacked("wrong-update-js"));
+        ScriptApproval memory ma = ScriptApproval(
+            wrongHash,
+            ScriptPurpose.MARKET_UPDATE,
+            LeagueId.Unknown,
+            1,
+            0
+        );
+        approvals.marketUpdateApproval = ma;
+        approvals.marketUpdateApprovalSig = _signApprovalFor(ma, oracleModule);
+
+        _fundLink(oracleModule, 1);
+        vm.prank(user);
+        vm.expectRevert(
+            OracleModule.OracleModule__ScriptHashMismatch.selector
+        );
+        oracleModule.createContestFromOracle(
+            _buildParams("rd", "sp", "jo", VERIFY_JS, hex"", 1, 500_000),
+            updateHash,
+            scoreHash,
+            approvals
+        );
+    }
+
+    function test_revert_scoreHashMismatch() public {
+        OracleModule.ScriptApprovals memory approvals = _defaultApprovals();
+
+        bytes32 wrongHash = keccak256(abi.encodePacked("wrong-score-js"));
+        ScriptApproval memory sa = ScriptApproval(
+            wrongHash,
+            ScriptPurpose.SCORE,
+            LeagueId.Unknown,
+            1,
+            0
+        );
+        approvals.scoreApproval = sa;
+        approvals.scoreApprovalSig = _signApprovalFor(sa, oracleModule);
+
+        _fundLink(oracleModule, 1);
+        vm.prank(user);
+        vm.expectRevert(
+            OracleModule.OracleModule__ScriptHashMismatch.selector
+        );
+        oracleModule.createContestFromOracle(
+            _buildParams("rd", "sp", "jo", VERIFY_JS, hex"", 1, 500_000),
+            updateHash,
+            scoreHash,
+            approvals
+        );
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  SCRIPT APPROVAL TESTS — CREATION-TIME-ONLY (score works after expiry / rotation)
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function test_scoreAfterApprovalExpiry() public {
+        // Create contest with verify approval that expires in 100 seconds
+        uint64 expiry = uint64(block.timestamp + 100);
+        OracleModule.ScriptApprovals memory approvals = _approvalsWithLeague(
+            LeagueId.Unknown,
+            LeagueId.Unknown,
+            LeagueId.Unknown,
+            expiry
+        );
+        uint256 id = _createContest(approvals);
+
+        // Verify the contest
+        vm.prank(address(oracleModule));
+        contestModule.setContestLeagueIdAndStartTime(
+            id,
+            LeagueId.NBA,
+            uint32(block.timestamp)
+        );
+
+        // Warp past expiry
+        vm.warp(block.timestamp + 200);
+
+        // Score should still work — only hash-match, no approval re-verification
+        _fundLink(oracleModule, 1);
+        vm.prank(user);
+        oracleModule.scoreContestFromOracle(
+            id,
+            SCORE_JS,
+            hex"",
+            1,
+            500_000
+        );
+        // No revert = success
+    }
+
+    function test_scoreAfterSignerRotation() public {
+        uint256 id = _createContestDefault();
+
+        vm.prank(address(oracleModule));
+        contestModule.setContestLeagueIdAndStartTime(
+            id,
+            LeagueId.NBA,
+            uint32(block.timestamp)
+        );
+
+        // Scoring works because scoreContestFromOracle only checks hash-match,
+        // not the approval signature. Signer rotation can't brick live contests.
+        _fundLink(oracleModule, 1);
+        vm.prank(user);
+        oracleModule.scoreContestFromOracle(
+            id,
+            SCORE_JS,
+            hex"",
+            1,
+            500_000
+        );
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  SCRIPT APPROVAL TESTS — AUDITABILITY
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function test_verifySourceHashStored() public {
+        uint256 id = _createContestDefault();
+        Contest memory c = contestModule.getContest(id);
+        assertEq(c.verifySourceHash, verifyHash);
+    }
+
+    function test_approvalEventsEmitted() public {
+        OracleModule.ScriptApprovals memory approvals = _defaultApprovals();
+
+        vm.recordLogs();
+        _createContest(approvals);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        // Find ScriptApprovalVerified events (topic0 = event selector)
+        bytes32 eventSig = keccak256("ScriptApprovalVerified(uint256,bytes32,uint8,uint8,uint16)");
+        uint256 found;
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].topics[0] == eventSig && logs[i].emitter == address(oracleModule)) {
+                found++;
+            }
+        }
+        assertEq(found, 3, "Should emit 3 ScriptApprovalVerified events");
+    }
+
+    function test_leagueIdStoredAndEnforced() public {
+        OracleModule.ScriptApprovals memory approvals = _approvalsWithLeague(
+            LeagueId.NHL,
+            LeagueId.Unknown,
+            LeagueId.Unknown,
+            0
+        );
+        uint256 id = _createContest(approvals);
+
+        // Verify stored
+        Contest memory c = contestModule.getContest(id);
+        assertEq(uint(c.leagueId), uint(LeagueId.NHL));
+
+        // Enforced: NHL callback succeeds
+        vm.prank(address(oracleModule));
+        contestModule.setContestLeagueIdAndStartTime(
+            id,
+            LeagueId.NHL,
+            uint32(block.timestamp)
+        );
+        Contest memory c2 = contestModule.getContest(id);
+        assertEq(uint(c2.contestStatus), uint(ContestStatus.Verified));
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  SCRIPT APPROVAL TESTS — SAFE ROTATION (old approval after signer rotation)
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function test_revert_oldApprovalAfterSignerRotation() public {
+        // Deploy a new OracleModule with a DIFFERENT signer
+        uint256 newSignerPk = 0xBEEF2;
+        address newSigner = vm.addr(newSignerPk);
+
+        OspexCore newCore = new OspexCore();
+        ContestModule newContest = new ContestModule(address(newCore));
+        TreasuryModule newTreasury = new TreasuryModule(
+            address(newCore),
+            address(usdc),
+            address(0x2),
+            0,
+            0,
+            0
+        );
+        OracleModule newOracle = new OracleModule(
+            address(newCore),
+            address(router),
+            address(linkToken),
+            donId,
+            LINK_DENOMINATOR,
+            newSigner
+        );
+        _bootstrap(
+            newCore,
+            address(newOracle),
+            address(newContest),
+            address(newTreasury)
+        );
+
+        // Sign approvals with the OLD signer key against the NEW oracle's domain
+        ScriptApproval memory va = ScriptApproval(
+            verifyHash,
+            ScriptPurpose.VERIFY,
+            LeagueId.Unknown,
+            1,
+            0
+        );
+        ScriptApproval memory ma = ScriptApproval(
+            updateHash,
+            ScriptPurpose.MARKET_UPDATE,
+            LeagueId.Unknown,
+            1,
+            0
+        );
+        ScriptApproval memory sa = ScriptApproval(
+            scoreHash,
+            ScriptPurpose.SCORE,
+            LeagueId.Unknown,
+            1,
+            0
+        );
+
+        OracleModule.ScriptApprovals memory approvals = OracleModule
+            .ScriptApprovals({
+                verifyApproval: va,
+                verifyApprovalSig: _signApprovalWithKey(
+                    va,
+                    newOracle,
+                    SIGNER_PK
+                ), // old key
+                marketUpdateApproval: ma,
+                marketUpdateApprovalSig: _signApprovalWithKey(
+                    ma,
+                    newOracle,
+                    SIGNER_PK
+                ),
+                scoreApproval: sa,
+                scoreApprovalSig: _signApprovalWithKey(
+                    sa,
+                    newOracle,
+                    SIGNER_PK
+                )
+            });
+
+        _fundLink(newOracle, 1);
+        vm.prank(user);
+        vm.expectRevert(
+            OracleModule.OracleModule__InvalidScriptApproval.selector
+        );
+        newOracle.createContestFromOracle(
+            _buildParams("rd", "sp", "jo", VERIFY_JS, hex"", 1, 500_000),
+            updateHash,
+            scoreHash,
+            approvals
+        );
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  SCRIPT APPROVAL TESTS — CONSTRUCTOR VALIDATION
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function test_revert_constructor_zeroApprovedSigner() public {
+        vm.expectRevert(OracleModule.OracleModule__InvalidAddress.selector);
+        new OracleModule(
+            address(core),
+            address(router),
+            address(linkToken),
+            donId,
+            LINK_DENOMINATOR,
+            address(0)
+        );
+    }
+
+    function test_domainSeparatorIsSet() public view {
+        bytes32 ds = oracleModule.DOMAIN_SEPARATOR();
+        assertTrue(ds != bytes32(0));
+    }
+
+    function test_approvedSignerIsSet() public view {
+        assertEq(oracleModule.i_approvedSigner(), signerAddr);
     }
 }

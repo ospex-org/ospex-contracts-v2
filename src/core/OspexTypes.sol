@@ -15,8 +15,9 @@ struct Contest {
     LeagueId leagueId;               // League ID
     ContestStatus contestStatus;     // Current status of the contest
     address contestCreator;          // Address that created the contest
-    bytes32 scoreContestSourceHash;  // Hash of the scoring source code
+    bytes32 verifySourceHash;        // Hash of the verification source code
     bytes32 marketUpdateSourceHash;  // Hash of the odds update source code
+    bytes32 scoreContestSourceHash;  // Hash of the scoring source code
     string rundownId;                // Contest ID from Rundown API
     string sportspageId;             // Contest ID from Sportspage API
     string jsonoddsId;               // Contest ID from JSONOdds API
@@ -169,4 +170,21 @@ enum LeaderboardPositionValidationResult {
     NumberDeviationTooLarge,
     OddsTooFavorable,
     MoneylineSpreadPairingNotAllowed
+}
+
+/// @notice Purpose of a script approval — prevents cross-purpose signature replay
+enum ScriptPurpose {
+    VERIFY,        // 0 — contest verification JS
+    MARKET_UPDATE, // 1 — market data update JS
+    SCORE          // 2 — contest scoring JS
+}
+
+/// @notice Signed approval for a script hash from the protocol's approved signer
+/// @dev Verified via EIP-712 signature at contest creation only
+struct ScriptApproval {
+    bytes32 scriptHash;      // keccak256 of the JS source
+    ScriptPurpose purpose;   // what this hash is approved for
+    LeagueId leagueId;       // LeagueId.Unknown (0) = all leagues
+    uint16 version;          // human-readable version for off-chain tracking
+    uint64 validUntil;       // expiry timestamp, 0 = permanent
 }

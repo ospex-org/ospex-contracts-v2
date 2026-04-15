@@ -15,11 +15,16 @@ import {
     SafeERC20
 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {
+    SignatureChecker
+} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
+import {
     Contest,
     ContestStatus,
     LeagueId,
     OracleRequestContext,
-    OracleRequestType
+    OracleRequestType,
+    ScriptApproval,
+    ScriptPurpose
 } from "../core/OspexTypes.sol";
 import {OspexCore} from "../core/OspexCore.sol";
 import {IContestModule} from "../interfaces/IContestModule.sol";
@@ -56,6 +61,18 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
     /// @notice Odds scale factor (1.91 odds = 191 ticks)
     uint16 public constant ODDS_SCALE = 100;
 
+    /// @notice EIP-712 typehash for script approval
+    bytes32 public constant SCRIPT_APPROVAL_TYPEHASH =
+        keccak256(
+            "ScriptApproval(bytes32 scriptHash,uint8 purpose,uint8 leagueId,uint16 version,uint64 validUntil)"
+        );
+
+    /// @notice EIP-712 domain separator typehash
+    bytes32 private constant EIP712_DOMAIN_TYPEHASH =
+        keccak256(
+            "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+        );
+
     // ──────────────────────────── Errors ───────────────────────────────
 
     /// @notice Thrown when a constructor address parameter is zero
@@ -85,6 +102,16 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
     error OracleModule__InvalidRequestType(OracleRequestType requestType);
     /// @notice Thrown when an immutable configuration value is invalid (e.g. zero denominator)
     error OracleModule__InvalidValue();
+    /// @notice Thrown when an EIP-712 script approval signature is invalid (wrong signer or malformed)
+    error OracleModule__InvalidScriptApproval();
+    /// @notice Thrown when a script approval has expired (validUntil != 0 and validUntil < block.timestamp)
+    error OracleModule__ScriptApprovalExpired();
+    /// @notice Thrown when a script approval's purpose field does not match the expected purpose slot
+    error OracleModule__WrongApprovalPurpose();
+    /// @notice Thrown when a script approval's scriptHash does not match the actual script hash
+    error OracleModule__ScriptHashMismatch();
+    /// @notice Thrown when two or more script approvals specify different non-Unknown leagueIds
+    error OracleModule__ConflictingApprovalLeagues();
 
     // ──────────────────────────── Events ───────────────────────────────
 
@@ -93,6 +120,59 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
     /// @param response The raw response bytes
     /// @param err The error bytes (empty on success)
     event Response(bytes32 indexed requestId, bytes response, bytes err);
+
+    /// @notice Emitted for each script approval verified during contest creation
+    /// @param contestId The contest ID (predictive — contest struct stored after verification)
+    /// @param scriptHash The approved script hash
+    /// @param purpose The script purpose (VERIFY, MARKET_UPDATE, or SCORE)
+    /// @param leagueId The league binding from the approval (Unknown = wildcard)
+    /// @param version The approval version for off-chain tracking
+    event ScriptApprovalVerified(
+        uint256 indexed contestId,
+        bytes32 scriptHash,
+        ScriptPurpose purpose,
+        LeagueId leagueId,
+        uint16 version
+    );
+
+    // ──────────────────────────── Structs ──────────────────────────────
+
+    /// @notice Bundles contest identity strings and Chainlink request configuration
+    /// @dev Passed as a single calldata struct alongside the two source hashes and script                                                                                                                                                   ///      approvals to avoid Yul stack-too-deep in createContestFromOracle.
+    /// @param rundownId External ID from Rundown API
+    /// @param sportspageId External ID from Sportspage API
+    /// @param jsonoddsId External ID from JSONOdds API
+    /// @param createContestSourceJS The JS source code for contest verification
+    /// @param encryptedSecretsUrls Chainlink Functions encrypted secrets (credentials only)
+    /// @param subscriptionId Chainlink Functions subscription ID
+    /// @param gasLimit Gas limit for the Chainlink callback
+    struct CreateContestParams {
+        string rundownId;
+        string sportspageId;
+        string jsonoddsId;
+        string createContestSourceJS;
+        bytes encryptedSecretsUrls;
+        uint64 subscriptionId;
+        uint32 gasLimit;
+    }
+
+    /// @notice Bundles all three script approvals and their signatures for contest creation
+    /// @dev Passed as a single calldata struct to avoid stack-too-deep in createContestFromOracle.
+    ///      Each approval is verified via EIP-712 at creation time only; signatures are not stored.
+    /// @param verifyApproval Approval for the verification script
+    /// @param verifyApprovalSig EIP-712 signature over verifyApproval
+    /// @param marketUpdateApproval Approval for the market update script
+    /// @param marketUpdateApprovalSig EIP-712 signature over marketUpdateApproval
+    /// @param scoreApproval Approval for the scoring script
+    /// @param scoreApprovalSig EIP-712 signature over scoreApproval
+    struct ScriptApprovals {
+        ScriptApproval verifyApproval;
+        bytes verifyApprovalSig;
+        ScriptApproval marketUpdateApproval;
+        bytes marketUpdateApprovalSig;
+        ScriptApproval scoreApproval;
+        bytes scoreApprovalSig;
+    }
 
     // ──────────────────────────── Modifiers ────────────────────────────
 
@@ -132,31 +212,39 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
     /// @notice Divisor for LINK payment (payment = 1e18 / i_linkDenominator)
     uint256 public immutable i_linkDenominator;
 
+    /// @notice The trusted signer for script approvals (EOA or EIP-1271 contract wallet e.g. Safe)
+    address public immutable i_approvedSigner;
+    /// @notice EIP-712 domain separator, baked at deployment. Domain name "OspexOracle", version "1".
+    bytes32 public immutable DOMAIN_SEPARATOR;
+
     /// @notice Request ID → request context (type + contest ID)
     mapping(bytes32 => OracleRequestContext) public s_requestContext;
 
     // ──────────────────────────── Constructor ──────────────────────────
 
     /**
-     * @notice Deploys the OracleModule with immutable Chainlink configuration
+     * @notice Deploys the OracleModule with immutable Chainlink and approval configuration
      * @param ospexCore_ The OspexCore contract address
      * @param router The Chainlink Functions router address
      * @param linkAddress The LINK token address
      * @param donId The Chainlink Functions DON ID
      * @param linkDenominator Divisor for per-request LINK payment
+     * @param approvedSigner The trusted signer for script approvals (EOA or EIP-1271 wallet)
      */
     constructor(
         address ospexCore_,
         address router,
         address linkAddress,
         bytes32 donId,
-        uint256 linkDenominator
+        uint256 linkDenominator,
+        address approvedSigner
     ) FunctionsClient(router) {
         if (
             ospexCore_ == address(0) ||
             router == address(0) ||
             linkAddress == address(0) ||
-            donId == bytes32(0)
+            donId == bytes32(0) ||
+            approvedSigner == address(0)
         ) {
             revert OracleModule__InvalidAddress();
         }
@@ -165,6 +253,16 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         i_linkAddress = linkAddress;
         i_donId = donId;
         i_linkDenominator = linkDenominator;
+        i_approvedSigner = approvedSigner;
+        DOMAIN_SEPARATOR = keccak256(
+            abi.encode(
+                EIP712_DOMAIN_TYPEHASH,
+                keccak256("OspexOracle"),
+                keccak256("1"),
+                block.chainid,
+                address(this)
+            )
+        );
     }
 
     // ──────────────────────────── Contest Creation ─────────────────────
@@ -174,59 +272,153 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
      * @dev Permissionless. Caller pays LINK for the oracle request and USDC for the
      *      contest creation fee. The contest is created as Unverified; the oracle callback
      *      sets league ID and start time via setContestLeagueIdAndStartTime.
+     *
+     *      All three script approvals (verify, marketUpdate, score) are verified via
+     *      EIP-712 signature at creation time only. After creation, scripts are validated
+     *      by hash-match only (scoreContestFromOracle, updateContestMarketsFromOracle),
+     *      so signer rotation and approval expiry cannot affect live contests.
+     *
+     *      DESIGN ASSUMPTION: encryptedSecretsUrls contain API credentials only (JSONOdds,
+     *      Rundown, Sportspage keys). They do not alter JS execution behavior. The script
+     *      hash fully determines behavior. If secrets ever become behavior-altering, a
+     *      providerSetHash field must be added to the approval system.
+     *
      *      Note: contestId is predicted by reading the counter + 1. This is coupled to
      *      ContestModule's increment-then-assign pattern.
-     * @param rundownId External ID from Rundown API
-     * @param sportspageId External ID from Sportspage API
-     * @param jsonoddsId External ID from JSONOdds API
-     * @param createContestSourceJS The JS source code for contest verification
-     * @param scoreContestSourceHash Hash of the scoring JS (stored per-contest)
+     * @param params Contest identity strings and Chainlink request configuration
      * @param marketUpdateSourceHash Hash of the odds updating JS (stored per-contest)
-     * @param encryptedSecretsUrls Chainlink Functions encrypted secrets
-     * @param subscriptionId Chainlink Functions subscription ID
-     * @param gasLimit Gas limit for the callback
+     * @param scoreContestSourceHash Hash of the scoring JS (stored per-contest)
+     * @param approvals The three script approvals and their EIP-712 signatures
      */
     function createContestFromOracle(
-        string calldata rundownId,
-        string calldata sportspageId,
-        string calldata jsonoddsId,
-        string calldata createContestSourceJS,
-        bytes32 scoreContestSourceHash,
+        CreateContestParams calldata params,
         bytes32 marketUpdateSourceHash,
-        bytes calldata encryptedSecretsUrls,
-        uint64 subscriptionId,
-        uint32 gasLimit
-    ) external nonReentrant handleLinkPayment(subscriptionId) {
+        bytes32 scoreContestSourceHash,
+        ScriptApprovals calldata approvals
+    ) external nonReentrant handleLinkPayment(params.subscriptionId) {
         IContestModule contestModule = IContestModule(
             _getModule(CONTEST_MODULE)
         );
 
         uint256 contestId = contestModule.s_contestIdCounter() + 1;
 
-        string[] memory args = new string[](3);
-        args[0] = rundownId;
-        args[1] = sportspageId;
-        args[2] = jsonoddsId;
+        bytes32 verifyHash = keccak256(
+            abi.encodePacked(params.createContestSourceJS)
+        );
 
-        contestModule.createContest(
-            rundownId,
-            sportspageId,
-            jsonoddsId,
-            scoreContestSourceHash,
+        LeagueId approvedLeague = _verifyAllApprovals(
+            approvals,
+            contestId,
+            verifyHash,
             marketUpdateSourceHash,
-            msg.sender
+            scoreContestSourceHash
         );
 
-        sendRequest(
-            createContestSourceJS,
-            encryptedSecretsUrls,
-            args,
-            subscriptionId,
-            gasLimit,
-            i_donId,
-            OracleRequestType.ContestCreate,
-            contestId
+        {
+            string[] memory args = new string[](3);
+            args[0] = params.rundownId;
+            args[1] = params.sportspageId;
+            args[2] = params.jsonoddsId;
+
+            contestModule.createContest(
+                params.rundownId,
+                params.sportspageId,
+                params.jsonoddsId,
+                verifyHash,
+                marketUpdateSourceHash,
+                scoreContestSourceHash,
+                approvedLeague,
+                msg.sender
+            );
+
+            sendRequest(
+                params.createContestSourceJS,
+                params.encryptedSecretsUrls,
+                args,
+                params.subscriptionId,
+                params.gasLimit,
+                i_donId,
+                OracleRequestType.ContestCreate,
+                contestId
+            );
+        }
+    }
+
+    /**
+     * @notice Verifies all three script approvals and resolves the approved league
+     * @dev Extracted from createContestFromOracle to reduce stack depth. Checks purpose
+     *      binding, hash matching, and EIP-712 signature for each approval in lifecycle
+     *      order (verify → marketUpdate → score). Emits ScriptApprovalVerified for each.
+     * @param approvals The three script approvals and their signatures
+     * @param contestId The predictive contest ID (for event indexing)
+     * @param verifyHash keccak256 of the verification JS source
+     * @param marketUpdateSourceHash Hash of the market update JS
+     * @param scoreContestSourceHash Hash of the scoring JS
+     * @return The resolved LeagueId from the three approvals
+     */
+    function _verifyAllApprovals(
+        ScriptApprovals calldata approvals,
+        uint256 contestId,
+        bytes32 verifyHash,
+        bytes32 marketUpdateSourceHash,
+        bytes32 scoreContestSourceHash
+    ) internal returns (LeagueId) {
+        if (approvals.verifyApproval.purpose != ScriptPurpose.VERIFY)
+            revert OracleModule__WrongApprovalPurpose();
+        if (approvals.verifyApproval.scriptHash != verifyHash)
+            revert OracleModule__ScriptHashMismatch();
+        _verifyScriptApproval(
+            approvals.verifyApproval,
+            approvals.verifyApprovalSig
         );
+        emit ScriptApprovalVerified(
+            contestId,
+            approvals.verifyApproval.scriptHash,
+            approvals.verifyApproval.purpose,
+            approvals.verifyApproval.leagueId,
+            approvals.verifyApproval.version
+        );
+
+        if (
+            approvals.marketUpdateApproval.purpose !=
+            ScriptPurpose.MARKET_UPDATE
+        ) revert OracleModule__WrongApprovalPurpose();
+        if (approvals.marketUpdateApproval.scriptHash != marketUpdateSourceHash)
+            revert OracleModule__ScriptHashMismatch();
+        _verifyScriptApproval(
+            approvals.marketUpdateApproval,
+            approvals.marketUpdateApprovalSig
+        );
+        emit ScriptApprovalVerified(
+            contestId,
+            approvals.marketUpdateApproval.scriptHash,
+            approvals.marketUpdateApproval.purpose,
+            approvals.marketUpdateApproval.leagueId,
+            approvals.marketUpdateApproval.version
+        );
+
+        if (approvals.scoreApproval.purpose != ScriptPurpose.SCORE)
+            revert OracleModule__WrongApprovalPurpose();
+        if (approvals.scoreApproval.scriptHash != scoreContestSourceHash)
+            revert OracleModule__ScriptHashMismatch();
+        _verifyScriptApproval(
+            approvals.scoreApproval,
+            approvals.scoreApprovalSig
+        );
+        emit ScriptApprovalVerified(
+            contestId,
+            approvals.scoreApproval.scriptHash,
+            approvals.scoreApproval.purpose,
+            approvals.scoreApproval.leagueId,
+            approvals.scoreApproval.version
+        );
+
+        return
+            _resolveApprovedLeague(
+                approvals.verifyApproval.leagueId,
+                approvals.marketUpdateApproval.leagueId,
+                approvals.scoreApproval.leagueId
+            );
     }
 
     // ──────────────────────────── Market Updates ──────────────────────
@@ -259,7 +451,6 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         ) {
             revert OracleModule__IncorrectUpdateSourceHash();
         }
-
 
         if (contest.contestStatus != ContestStatus.Verified) {
             revert OracleModule__ContestNotVerified();
@@ -464,18 +655,17 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
             uint16 underOdds
         ) = extractContestMarketData(marketData);
 
-        IContestModule(_getModule(CONTEST_MODULE))
-            .updateContestMarkets(
-                contestId,
-                moneylineAwayOdds,
-                moneylineHomeOdds,
-                spreadLineTicks,
-                spreadAwayOdds,
-                spreadHomeOdds,
-                totalLineTicks,
-                overOdds,
-                underOdds
-            );
+        IContestModule(_getModule(CONTEST_MODULE)).updateContestMarkets(
+            contestId,
+            moneylineAwayOdds,
+            moneylineHomeOdds,
+            spreadLineTicks,
+            spreadAwayOdds,
+            spreadHomeOdds,
+            totalLineTicks,
+            overOdds,
+            underOdds
+        );
     }
 
     /**
@@ -648,6 +838,81 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
             // forge-lint: disable-next-line(unsafe-typecast)
             return uint16(ODDS_SCALE + profit);
         }
+    }
+
+    // ──────────────────────────── Script Approval Verification ────────
+
+    /**
+     * @notice Verifies an EIP-712 signed script approval against i_approvedSigner
+     * @dev Uses SignatureChecker to support both EOA and EIP-1271 contract wallets (e.g. Safe).
+     *      Checks signature validity first, then temporal validity (expiry).
+     * @param approval The script approval struct from calldata
+     * @param signature The EIP-712 signature bytes
+     */
+    function _verifyScriptApproval(
+        ScriptApproval calldata approval,
+        bytes calldata signature
+    ) internal view {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                SCRIPT_APPROVAL_TYPEHASH,
+                approval.scriptHash,
+                uint8(approval.purpose),
+                uint8(approval.leagueId),
+                approval.version,
+                approval.validUntil
+            )
+        );
+        bytes32 digest = keccak256(
+            abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash)
+        );
+        if (
+            !SignatureChecker.isValidSignatureNow(
+                i_approvedSigner,
+                digest,
+                signature
+            )
+        ) {
+            revert OracleModule__InvalidScriptApproval();
+        }
+        if (approval.validUntil != 0 && block.timestamp > approval.validUntil) {
+            revert OracleModule__ScriptApprovalExpired();
+        }
+    }
+
+    /**
+     * @notice Resolves the approved league from three script approvals
+     * @dev If two or more approvals have different non-Unknown leagueIds, reverts.
+     *      If exactly one is non-Unknown, returns it. If all Unknown, returns Unknown.
+     * @param a LeagueId from the first approval
+     * @param b LeagueId from the second approval
+     * @param c LeagueId from the third approval
+     * @return The resolved LeagueId to set on the Contest
+     */
+    function _resolveApprovedLeague(
+        LeagueId a,
+        LeagueId b,
+        LeagueId c
+    ) internal pure returns (LeagueId) {
+        LeagueId resolved = LeagueId.Unknown;
+
+        if (a != LeagueId.Unknown) {
+            resolved = a;
+        }
+        if (b != LeagueId.Unknown) {
+            if (resolved != LeagueId.Unknown && resolved != b) {
+                revert OracleModule__ConflictingApprovalLeagues();
+            }
+            resolved = b;
+        }
+        if (c != LeagueId.Unknown) {
+            if (resolved != LeagueId.Unknown && resolved != c) {
+                revert OracleModule__ConflictingApprovalLeagues();
+            }
+            resolved = c;
+        }
+
+        return resolved;
     }
 
     // ──────────────────────────── Module Lookup ───────────────────────
