@@ -264,7 +264,8 @@ contract SpeculationModule is ISpeculationModule {
 
         if (contest.contestStatus == ContestStatus.Scored) {
             IScorerModule scorer = IScorerModule(s.speculationScorer);
-            s.winSide = scorer.determineWinSide(s.contestId, s.lineTicks);
+            WinSide winSide = scorer.determineWinSide(s.contestId, s.lineTicks);
+            s.winSide = winSide;
             s.speculationStatus = SpeculationStatus.Closed;
 
             emit SpeculationSettled(
