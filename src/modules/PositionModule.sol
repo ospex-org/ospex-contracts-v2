@@ -54,7 +54,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
     error PositionModule__InvalidAddress();
     /// @notice Thrown when a non-MatchingModule address calls recordFill
     error PositionModule__NotMatchingModule();
-    /// @notice Thrown when a risk amount is below the minimum or exceeds the position
+    /// @notice Thrown when a risk amount is 0, below the minimum or exceeds the position
     error PositionModule__InvalidAmount();
     /// @notice Thrown when a non-SecondaryMarketModule address calls transferPosition
     error PositionModule__UnauthorizedMarket();
@@ -190,6 +190,9 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         if (msg.sender != i_ospexCore.getModule(MATCHING_MODULE))
             revert PositionModule__NotMatchingModule();
 
+        if (makerRisk == 0 || takerRisk == 0)
+            revert PositionModule__InvalidAmount();
+
         ISpeculationModule specModule = ISpeculationModule(
             _getModule(SPECULATION_MODULE)
         );
@@ -244,7 +247,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         address to,
         uint256 riskAmount,
         uint256 profitAmount
-    ) external override speculationOpen(speculationId) {
+    ) external override nonReentrant speculationOpen(speculationId) {
         if (!i_ospexCore.isSecondaryMarket(msg.sender)) {
             revert PositionModule__UnauthorizedMarket();
         }
