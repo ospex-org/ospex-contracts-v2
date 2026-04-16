@@ -34,9 +34,7 @@ import "../test/mocks/MockFunctionsRouter.sol";
 contract DeployLocal is Script {
     // Deployment configuration
     struct DeploymentConfig {
-        uint8 tokenDecimals;
         uint32 voidCooldown;
-        uint256 minSpeculationAmount;
         uint256 contestCreationFee;
         uint256 speculationCreationFee;
         uint256 leaderboardCreationFee;
@@ -77,9 +75,7 @@ contract DeployLocal is Script {
         console.log("Balance:", deployer.balance);
 
         DeploymentConfig memory config = DeploymentConfig({
-            tokenDecimals: 6,
             voidCooldown: 3 days,
-            minSpeculationAmount: 1 * 10**6, // 1 USDC
             contestCreationFee: 1_000_000, // 1.00 USDC
             speculationCreationFee: 500_000, // 0.50 USDC (split between maker and taker)
             leaderboardCreationFee: 250_000, // 0.25 USDC
@@ -153,12 +149,7 @@ contract DeployLocal is Script {
         ));
         console.log("TreasuryModule deployed at:", contracts.treasuryModule);
 
-        contracts.speculationModule = address(new SpeculationModule(
-            contracts.ospexCore,
-            config.tokenDecimals,
-            config.voidCooldown,
-            config.minSpeculationAmount
-        ));
+        contracts.speculationModule = address(new SpeculationModule(contracts.ospexCore, config.voidCooldown));
         console.log("SpeculationModule deployed at:", contracts.speculationModule);
 
         contracts.positionModule = address(new PositionModule(

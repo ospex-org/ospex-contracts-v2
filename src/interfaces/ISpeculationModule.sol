@@ -13,12 +13,6 @@ interface ISpeculationModule is IModule {
     /// @notice Returns the immutable void cooldown in seconds
     function i_voidCooldown() external view returns (uint32);
 
-    /// @notice Returns the immutable minimum speculation amount (USDC token units)
-    function i_minSpeculationAmount() external view returns (uint256);
-
-    /// @notice Returns the token decimals (e.g. 6 for USDC)
-    function i_tokenDecimals() external view returns (uint8);
-
     /// @notice Creates a new speculation. Only callable by PositionModule.
     /// @param contestId The contest this speculation is for
     /// @param scorer The scorer module address

@@ -46,8 +46,8 @@ contract SpeculationModule is ISpeculationModule {
     error SpeculationModule__AlreadySettled();
     /// @notice Thrown when the speculation id does not yet exist
     error SpeculationModule__InvalidSpeculationId();
-    /// @notice Thrown when attempting to settle before the contest has started
-    error SpeculationModule__SpeculationNotStarted();
+    /// @notice Thrown when attempting to settle before the contest has started (or contest has no start time)
+    error SpeculationModule__InvalidStartTime();
     /// @notice Thrown when a speculation already exists for the given contest/scorer/line
     error SpeculationModule__SpeculationExists();
     /// @notice Thrown when attempting to create a speculation on an already-scored contest
@@ -99,10 +99,6 @@ contract SpeculationModule is ISpeculationModule {
     OspexCore public immutable i_ospexCore;
     /// @notice Seconds after contest start before unscored speculations auto-void
     uint32 public immutable i_voidCooldown;
-    /// @notice Minimum risk amount to create a speculation (USDC token units)
-    uint256 public immutable i_minSpeculationAmount;
-    /// @notice Token decimals (e.g. 6 for USDC)
-    uint8 public immutable i_tokenDecimals;
 
     /// @notice Auto-incrementing speculation ID counter
     uint256 public s_speculationIdCounter;
@@ -115,23 +111,14 @@ contract SpeculationModule is ISpeculationModule {
     /**
      * @notice Deploys the SpeculationModule with immutable configuration
      * @param ospexCore The OspexCore contract address
-     * @param tokenDecimals Token decimal precision (e.g. 6 for USDC)
      * @param voidCooldown Seconds after contest start before auto-void
-     * @param minSpeculationAmount Minimum risk amount to create a speculation
      */
-    constructor(
-        address ospexCore,
-        uint8 tokenDecimals,
-        uint32 voidCooldown,
-        uint256 minSpeculationAmount
-    ) {
+    constructor(address ospexCore, uint32 voidCooldown) {
         if (ospexCore == address(0)) {
             revert SpeculationModule__InvalidAddress();
         }
         i_ospexCore = OspexCore(ospexCore);
-        i_tokenDecimals = tokenDecimals;
         i_voidCooldown = voidCooldown;
-        i_minSpeculationAmount = minSpeculationAmount;
     }
 
     // ──────────────────────────── Module Identity ─────────────────────
@@ -208,7 +195,7 @@ contract SpeculationModule is ISpeculationModule {
             contestId: contestId,
             speculationScorer: scorer,
             lineTicks: lineTicks,
-            speculationCreator: taker,
+            speculationTaker: taker,
             speculationStatus: SpeculationStatus.Open,
             winSide: WinSide.TBD
         });
@@ -253,8 +240,10 @@ contract SpeculationModule is ISpeculationModule {
             s.contestId
         );
 
-        if (uint32(block.timestamp) < contestStartTime) {
-            revert SpeculationModule__SpeculationNotStarted();
+        if (
+            block.timestamp < uint256(contestStartTime) || contestStartTime == 0
+        ) {
+            revert SpeculationModule__InvalidStartTime();
         }
         if (s.speculationStatus == SpeculationStatus.Closed) {
             revert SpeculationModule__AlreadySettled();
@@ -280,7 +269,10 @@ contract SpeculationModule is ISpeculationModule {
             return;
         }
 
-        if (uint32(block.timestamp) >= contestStartTime + i_voidCooldown) {
+        if (
+            block.timestamp >=
+            uint256(contestStartTime) + uint256(i_voidCooldown)
+        ) {
             s.speculationStatus = SpeculationStatus.Closed;
             s.winSide = WinSide.Void;
             emit SpeculationSettled(

@@ -41,7 +41,7 @@ contract ScorerModuleTest is Test {
         spread = new SpreadScorerModule(address(core));
         total = new TotalScorerModule(address(core));
         mockContest = new MockContestModule();
-        speculationModule = new SpeculationModule(address(core), 6, 3 days, 1_000_000);
+        speculationModule = new SpeculationModule(address(core), 3 days);
         treasuryModule = new TreasuryModule(
             address(core), address(token), address(0x2),
             1_000_000, 500_000, 500_000
@@ -477,6 +477,7 @@ contract ScorerModuleTest is Test {
         Contest memory verified = c;
         verified.contestStatus = ContestStatus.Verified;
         mockContest.setContest(contestId, verified);
+        mockContest.setContestStartTime(contestId, uint32(block.timestamp));
         return contestId;
     }
     /// @dev Restores the contest to its intended final state (Scored) for settlement

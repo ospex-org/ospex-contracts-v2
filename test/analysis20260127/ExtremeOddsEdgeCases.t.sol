@@ -66,7 +66,7 @@ contract ExtremeOddsEdgeCases is Test {
         token.mint(maker, 1_000_000_000_000);
         token.mint(taker, 1_000_000_000_000);
 
-        speculationModule = new SpeculationModule(address(core), 6, 3600, 1_000_000);
+        speculationModule = new SpeculationModule(address(core), 3600);
         positionModule = new PositionModule(address(core), address(token));
         treasuryModule = new TreasuryModule(
             address(core), address(token), protocolReceiver,
@@ -192,6 +192,7 @@ contract ExtremeOddsEdgeCases is Test {
             rundownId: "", sportspageId: "", jsonoddsId: ""
         });
         mockContestModule.setContest(1, contest);
+        mockContestModule.setContestStartTime(1, uint32(block.timestamp));
     }
 
     // =========================================================================
@@ -271,24 +272,8 @@ contract ExtremeOddsEdgeCases is Test {
     // =========================================================================
 
     /// @notice takerRisk below min (1 USDC) reverts
-    function test_TakerRiskBelowMin_Reverts() public {
-        // 0.01 USDC taker risk -- well below 1 USDC min
-        vm.expectRevert(PositionModule.PositionModule__InvalidAmount.selector);
-        positionModule.recordFill(
-            1, address(mockScorer), nextLineTicks++,
-            PositionType.Upper, maker, 100, taker, 10_000
-        );
-    }
 
     /// @notice At 1.01 odds, tiny maker risk -> takerRisk = 0.000001 USDC -> reverts
-    function test_Odds101_TinyMakerRisk_Reverts() public {
-        // makerRisk=100 at 1.01 -> takerRisk = 100 * 1 / 100 = 1 (0.000001 USDC)
-        vm.expectRevert(PositionModule.PositionModule__InvalidAmount.selector);
-        positionModule.recordFill(
-            1, address(mockScorer), nextLineTicks++,
-            PositionType.Upper, maker, 100, taker, 1
-        );
-    }
 
     /// @notice takerRisk exactly at min boundary (1 USDC) succeeds
     function test_TakerRiskExactlyAtMin_Succeeds() public {
@@ -298,13 +283,6 @@ contract ExtremeOddsEdgeCases is Test {
     }
 
     /// @notice takerRisk 1 below min reverts
-    function test_TakerRiskOneBelow_Min_Reverts() public {
-        vm.expectRevert(PositionModule.PositionModule__InvalidAmount.selector);
-        positionModule.recordFill(
-            1, address(mockScorer), nextLineTicks++,
-            PositionType.Upper, maker, 999_999, taker, 999_999
-        );
-    }
 
     // =========================================================================
     // 4. ROUNDING GAP BOUNDARY
@@ -313,22 +291,6 @@ contract ExtremeOddsEdgeCases is Test {
     // =========================================================================
 
     /// @notice At oddsTick=9999, rounding pushes takerRisk below 1 USDC min -> revert
-    function test_RoundingGap_9999_FallsBelowMin() public {
-        // profitTicks = 9899
-        // rawFillMakerRisk = ceil(1_000_000 * 100 / 9899) = 10103
-        // fillMakerRisk = 10103 - 3 = 10100
-        // takerRisk = 10100 * 9899 / 100 = 999_799 (< 1 USDC)
-        (uint256 fillMakerRisk, uint256 takerRisk) = _computeFill(9999, 1_000_000);
-
-        assertEq(fillMakerRisk, 10_100, "fillMakerRisk after lot rounding");
-        assertEq(takerRisk, 999_799, "takerRisk rounds below 1 USDC min");
-
-        vm.expectRevert(PositionModule.PositionModule__InvalidAmount.selector);
-        positionModule.recordFill(
-            1, address(mockScorer), nextLineTicks++,
-            PositionType.Upper, maker, fillMakerRisk, taker, takerRisk
-        );
-    }
 
     /// @notice The next valid lot at oddsTick=9999 produces takerRisk ~1.0097 USDC -> succeeds
     function test_RoundingGap_9999_NextValidLot() public {
@@ -469,16 +431,4 @@ contract ExtremeOddsEdgeCases is Test {
     }
 
     /// @notice 1 USDC commitment at 1.50 odds: taker risk = 0.50 USDC, below 1 USDC min -> reverts
-    function test_UnfillableAtLowOdds_TakerRiskBelowMin() public {
-        // Maker commits 1 USDC at oddsTick=150 (1.50 odds)
-        // profitTicks = 50
-        // If taker wants to fill the full 1 USDC maker risk:
-        //   takerRisk = 1_000_000 * 50 / 100 = 500_000 (0.50 USDC)
-        // 0.50 USDC < 1 USDC min -> revert
-        vm.expectRevert(PositionModule.PositionModule__InvalidAmount.selector);
-        positionModule.recordFill(
-            1, address(mockScorer), nextLineTicks++,
-            PositionType.Upper, maker, 1_000_000, taker, 500_000
-        );
-    }
 }

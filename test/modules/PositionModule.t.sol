@@ -68,7 +68,6 @@ contract PositionModuleTest is Test {
 
     // SpeculationModule constructor params
     uint32 constant VOID_COOLDOWN = 3 days;
-    uint256 constant MIN_SPEC_AMOUNT = 1_000_000;
 
     // TreasuryModule fee rates (real production fees)
     uint256 constant CONTEST_FEE = 1_000_000; // 1.00 USDC
@@ -126,7 +125,7 @@ contract PositionModuleTest is Test {
         // Fund taker
         token.transfer(taker, 500_000_000);
 
-        speculationModule = new SpeculationModule(address(core), 6, VOID_COOLDOWN, MIN_SPEC_AMOUNT);
+        speculationModule = new SpeculationModule(address(core), VOID_COOLDOWN);
         positionModule = new PositionModule(
             address(core),
             address(token)
@@ -172,6 +171,9 @@ contract PositionModuleTest is Test {
         mockContestModule.setContest(1, defaultContest);
         mockContestModule.setContest(2, defaultContest);
         mockContestModule.setContest(3, defaultContest);
+        mockContestModule.setContestStartTime(1, uint32(block.timestamp));
+        mockContestModule.setContestStartTime(2, uint32(block.timestamp));
+        mockContestModule.setContestStartTime(3, uint32(block.timestamp));
 
         // Approve TreasuryModule for fee payments (speculation creation split fee)
         token.approve(address(treasuryModule), type(uint256).max);
@@ -233,7 +235,7 @@ contract PositionModuleTest is Test {
     ///         bootstraps all 12 modules, and approves TreasuryModule for standard test addresses.
     function _createLocalEnv() internal returns (LocalEnv memory env) {
         env.core = new OspexCore();
-        env.specMod = new MockSpeculationModule(address(env.core), 6, VOID_COOLDOWN, MIN_SPEC_AMOUNT);
+        env.specMod = new MockSpeculationModule(address(env.core), VOID_COOLDOWN);
         env.posMod = new PositionModule(address(env.core), address(token));
         env.market = new MockMarket(address(env.posMod));
         env.treasury = new TreasuryModule(address(env.core), address(token), protocolReceiver, CONTEST_FEE, SPEC_FEE, LB_FEE);
@@ -399,23 +401,6 @@ contract PositionModuleTest is Test {
         );
     }
 
-    function testRecordFill_RevertsIfTakerRiskOutOfRange() public {
-        token.approve(address(positionModule), 10_000_000);
-        vm.prank(taker);
-        token.approve(address(positionModule), 1);
-
-        vm.expectRevert(PositionModule.PositionModule__InvalidAmount.selector);
-        positionModule.recordFill(
-            1,
-            address(defaultScorer),
-            42,
-            PositionType.Upper,
-            address(this),
-            10_000_000,
-            taker,
-            1 // Below min speculation amount
-        );
-    }
 
     // --- recordFill with auto-speculation creation TESTS ---
 
@@ -1344,7 +1329,7 @@ contract PositionModuleTest is Test {
         uint256 makerRisk = 5_376_345;
         uint256 takerRisk = 5_000_000;
         {
-            specMod2 = new SpeculationModule(address(core2), 6, VOID_COOLDOWN, MIN_SPEC_AMOUNT);
+            specMod2 = new SpeculationModule(address(core2), VOID_COOLDOWN);
             posMod2 = new PositionModule(address(core2), address(token));
             MockMarket localMarket = new MockMarket(address(posMod2));
             TreasuryModule treasury2 = new TreasuryModule(address(core2), address(token), protocolReceiver, CONTEST_FEE, SPEC_FEE, LB_FEE);

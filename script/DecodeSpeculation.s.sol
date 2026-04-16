@@ -45,7 +45,7 @@ contract DecodeSpeculation is Script {
 
         console.log("Status:", statusStr);
         console.log("Win Side:", winSideStr);
-        console.log("Creator:", speculation.speculationCreator);
+        console.log("Taker:", speculation.speculationTaker);
         console.log("Scorer:", speculation.speculationScorer);
 
         console.log("\n-- Timestamps & Numbers --");

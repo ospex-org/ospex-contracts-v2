@@ -53,7 +53,7 @@ contract SecondaryMarketModuleTest is Test {
         core = new OspexCore();
 
         token = new MockERC20();
-        speculationModule = new SpeculationModule(address(core), 6, 3 days, 1_000_000);
+        speculationModule = new SpeculationModule(address(core), 3 days);
         positionModule = new PositionModule(
             address(core),
             address(token)
@@ -131,6 +131,7 @@ contract SecondaryMarketModuleTest is Test {
             jsonoddsId: ""
         });
         mockContestModule.setContest(1, contest);
+        mockContestModule.setContestStartTime(1, uint32(block.timestamp));
 
         // Fund seller and buyer
         token.mint(seller, 1000e6);

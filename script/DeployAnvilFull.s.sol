@@ -76,12 +76,7 @@ contract DeployAnvilFull is Script {
             250_000            // leaderboardCreationFee (0.25 USDC)
         );
 
-        SpeculationModule speculationModule = new SpeculationModule(
-            address(core),
-            6,                 // tokenDecimals (USDC)
-            3 days,            // voidCooldown
-            1_000_000          // minSpeculationAmount (1 USDC)
-        );
+        SpeculationModule speculationModule = new SpeculationModule(address(core), 3 days);
 
         PositionModule positionModule = new PositionModule(address(core), address(usdc));
         SecondaryMarketModule secondaryMarketModule = new SecondaryMarketModule(address(core), address(usdc));

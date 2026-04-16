@@ -129,24 +129,6 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         _;
     }
 
-    /**
-     * @notice Enforces a minimum bet size on the taker's risk amount
-     * @dev No maximum is enforced on-chain. The natural upper bound is available
-     *      liquidity. Enforcement is on taker risk only — maker risk is derived from
-     *      taker risk and odds via MatchingModule, so applying bounds to both sides
-     *      would create invalid-revert edge cases at extreme odds.
-     * @param takerRisk The taker's at-risk amount (USDC, 6 decimals)
-     */
-    modifier riskAmountInRange(uint256 takerRisk) {
-        ISpeculationModule specModule = ISpeculationModule(
-            _getModule(SPECULATION_MODULE)
-        );
-        if (takerRisk < specModule.i_minSpeculationAmount()) {
-            revert PositionModule__InvalidAmount();
-        }
-        _;
-    }
-
     // ──────────────────────────── State ────────────────────────────────
 
     /// @notice The OspexCore contract
@@ -185,7 +167,6 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
      * @dev Tokens flow directly from maker/taker wallets to this contract.
      *      Creates the speculation if it doesn't exist yet. When a fill auto-creates
      *      a speculation, the creation fee is split between maker and taker via processSplitFee.
-     *      Bet-size enforcement (riskAmountInRange) applies to takerRisk only.
      * @param contestId The contest ID
      * @param scorer The scorer address
      * @param lineTicks The line number (10x format, 0 for moneyline)
@@ -406,7 +387,6 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
 
     /**
      * @notice Records a fill for both maker and taker
-     * @dev riskAmountInRange applies to takerRisk; makerRisk is unchecked.
      * @param speculationId The speculation ID
      * @param makerPositionType The maker's position type
      * @param maker The maker address
@@ -421,7 +401,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         uint256 makerRisk,
         address taker,
         uint256 takerRisk
-    ) internal speculationOpen(speculationId) riskAmountInRange(takerRisk) {
+    ) internal speculationOpen(speculationId) {
         PositionType takerPositionType = makerPositionType == PositionType.Upper
             ? PositionType.Lower
             : PositionType.Upper;

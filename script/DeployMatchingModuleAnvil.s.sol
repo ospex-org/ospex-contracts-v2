@@ -19,7 +19,7 @@ contract DeployMatchingModuleAnvil is Script {
         console.log("MockERC20 deployed at:", address(token));
 
         SpeculationModule speculationModule = new SpeculationModule(
-            address(core), 6, 3 days, 1_000_000
+            address(core), 3 days
         );
         console.log("SpeculationModule deployed at:", address(speculationModule));
 

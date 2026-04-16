@@ -132,7 +132,7 @@ contract SmokeTestE2E is Script {
             address(core), address(usdc), deployer,
             1_000_000, 500_000, 250_000
         );
-        speculationModule = new SpeculationModule(address(core), 6, 3 days, 1_000_000);
+        speculationModule = new SpeculationModule(address(core), 3 days);
         positionModule = new PositionModule(address(core), address(usdc));
         secondaryMarketModule = new SecondaryMarketModule(address(core), address(usdc));
         oracleModule = new OracleModule(

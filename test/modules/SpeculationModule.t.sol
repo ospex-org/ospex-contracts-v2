@@ -16,9 +16,7 @@ contract SpeculationModuleTest is Test {
     MockContestModule mockContestModule;
     TreasuryModule treasuryModule;
     MockERC20 mockToken;
-    uint8 constant TOKEN_DECIMALS = 6;
     uint32 constant VOID_COOLDOWN = 3 days;
-    uint256 constant MIN_AMOUNT = 1_000_000; // 1 USDC
     address speculationCreator = address(0x123);
 
     // Registered scorer module addresses (registered via bootstrap)
@@ -33,7 +31,7 @@ contract SpeculationModuleTest is Test {
 
         // Deploy real modules
         speculationModule = new SpeculationModule(
-            address(core), TOKEN_DECIMALS, VOID_COOLDOWN, MIN_AMOUNT
+            address(core), VOID_COOLDOWN
         );
         treasuryModule = new TreasuryModule(
             address(core), address(mockToken), address(0x2),
@@ -87,11 +85,12 @@ contract SpeculationModuleTest is Test {
             jsonoddsId: ""
         });
         mockContestModule.setContest(1, defaultContest);
+        mockContestModule.setContestStartTime(1, uint32(block.timestamp));
     }
 
     function testConstructor_SetsImmutables() public view {
-        assertEq(speculationModule.i_tokenDecimals(), TOKEN_DECIMALS);
-        assertEq(speculationModule.i_minSpeculationAmount(), MIN_AMOUNT);
+        // i_tokenDecimals removed
+        // i_minSpeculationAmount removed
         assertEq(speculationModule.i_voidCooldown(), VOID_COOLDOWN);
     }
 
@@ -104,7 +103,7 @@ contract SpeculationModuleTest is Test {
         assertEq(s.contestId, 1);
         assertEq(s.speculationScorer, moneylineScorerAddr);
         assertEq(s.lineTicks, 0);
-        // speculationCreator in struct = maker (the initiator)
+        // speculationTaker in struct = taker (the one who completed the market)
         // Check the stored creator matches what the contract sets
         assertEq(uint(s.speculationStatus), uint(SpeculationStatus.Open));
         assertEq(uint(s.winSide), uint(WinSide.TBD));
@@ -164,7 +163,7 @@ contract SpeculationModuleTest is Test {
         mockContestModule.setContestStartTime(1, futureStartTime);
 
         vm.expectRevert(
-            SpeculationModule.SpeculationModule__SpeculationNotStarted.selector
+            SpeculationModule.SpeculationModule__InvalidStartTime.selector
         );
         speculationModule.settleSpeculation(id);
     }
@@ -393,7 +392,7 @@ contract SpeculationModuleTest is Test {
 
     function testConstructor_RevertsOnZeroAddress() public {
         vm.expectRevert(SpeculationModule.SpeculationModule__InvalidAddress.selector);
-        new SpeculationModule(address(0), 6, 3 days, 1_000_000);
+        new SpeculationModule(address(0), 3 days);
     }
 
     // --- Branch Coverage: SpeculationExists ---

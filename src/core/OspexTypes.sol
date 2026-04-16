@@ -66,7 +66,7 @@ struct Speculation {
     uint256 contestId;                   // Associated contest ID
     address speculationScorer;           // Scorer contract address
     int32 lineTicks;                     // Line/spread/total number
-    address speculationCreator;          // Creator address
+    address speculationTaker;            // Creator address
     SpeculationStatus speculationStatus; // Current status
     WinSide winSide;                     // Winning side
 }

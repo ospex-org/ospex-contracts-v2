@@ -88,7 +88,7 @@ contract RulesModuleTest is Test {
         // Deploy mock modules
         mockContestModule = new MockContestModule();
         mockScorerModule = new MockScorerModule();
-        mockSpeculationModule = new MockSpeculationModule(address(core), 6, 7 days, 1_000_000);
+        mockSpeculationModule = new MockSpeculationModule(address(core), 7 days);
 
         // Bootstrap all 12 modules
         bytes32[] memory types = new bytes32[](12);
@@ -143,7 +143,7 @@ contract RulesModuleTest is Test {
             contestId: contestId,
             speculationScorer: mockScorer,
             lineTicks: 15, // +1.5 spread (10x format)
-            speculationCreator: creator,
+            speculationTaker: creator,
             speculationStatus: SpeculationStatus.Open,
             winSide: WinSide.TBD
         });
@@ -944,7 +944,7 @@ contract RulesModuleTest is Test {
             contestId: contestId,
             speculationScorer: mockMoneylineScorer,
             lineTicks: 15,
-            speculationCreator: address(0),
+            speculationTaker: address(0),
             speculationStatus: SpeculationStatus.Open,
             winSide: WinSide.TBD
         }));
@@ -952,7 +952,7 @@ contract RulesModuleTest is Test {
             contestId: contestId,
             speculationScorer: mockSpreadScorer,
             lineTicks: 15,
-            speculationCreator: address(0),
+            speculationTaker: address(0),
             speculationStatus: SpeculationStatus.Open,
             winSide: WinSide.TBD
         }));
@@ -1029,7 +1029,7 @@ contract RulesModuleTest is Test {
             contestId: contestId,
             speculationScorer: mockSpreadScorer,
             lineTicks: 15,
-            speculationCreator: address(0),
+            speculationTaker: address(0),
             speculationStatus: SpeculationStatus.Open,
             winSide: WinSide.TBD
         }));
@@ -1037,7 +1037,7 @@ contract RulesModuleTest is Test {
             contestId: contestId,
             speculationScorer: mockMoneylineScorer,
             lineTicks: 15,
-            speculationCreator: address(0),
+            speculationTaker: address(0),
             speculationStatus: SpeculationStatus.Open,
             winSide: WinSide.TBD
         }));

@@ -89,7 +89,7 @@ contract LeaderboardModuleTest is Test {
             CONTEST_FEE, SPEC_FEE, LB_FEE
         );
         positionModule = new PositionModule(address(core), address(token));
-        speculationModule = new SpeculationModule(address(core), 6, 7 days, 1_000_000);
+        speculationModule = new SpeculationModule(address(core), 7 days);
 
         // Deploy mock modules
         mockContestModule = new MockContestModule();

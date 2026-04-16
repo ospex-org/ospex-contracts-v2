@@ -39,9 +39,7 @@ contract DeployAmoy is Script {
     uint256 constant LINK_DENOMINATOR = 10**18;
 
     struct DeploymentConfig {
-        uint8 tokenDecimals;
         uint32 voidCooldown;
-        uint256 minSpeculationAmount;
         uint256 contestCreationFee;
         uint256 speculationCreationFee;
         uint256 leaderboardCreationFee;
@@ -74,9 +72,7 @@ contract DeployAmoy is Script {
         require(deployer.balance > 0, "Deployer has zero balance");
 
         DeploymentConfig memory config = DeploymentConfig({
-            tokenDecimals: 6,
             voidCooldown: 3 days,
-            minSpeculationAmount: 1 * 10**6, // 1 USDC
             contestCreationFee: 1_000_000, // 1.00 USDC
             speculationCreationFee: 500_000, // 0.50 USDC (split between maker and taker)
             leaderboardCreationFee: 250_000, // 0.25 USDC
@@ -132,7 +128,7 @@ contract DeployAmoy is Script {
         console.log("TreasuryModule:", c.treasuryModule);
 
         c.speculationModule = address(new SpeculationModule(
-            c.ospexCore, config.tokenDecimals, config.voidCooldown, config.minSpeculationAmount
+            c.ospexCore, config.voidCooldown
         ));
         console.log("SpeculationModule:", c.speculationModule);
 

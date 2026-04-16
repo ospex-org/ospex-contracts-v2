@@ -234,12 +234,7 @@ contract OracleModuleTest is Test {
             500_000     // leaderboardCreationFeeRate
         );
         contestModule = new ContestModule(address(core));
-        speculationModule = new SpeculationModule(
-            address(core),
-            6,     // tokenDecimals
-            86400, // voidCooldown
-            1      // minSpeculationAmount
-        );
+        speculationModule = new SpeculationModule(address(core), 86400);
         leaderboardModule = new LeaderboardModule(address(core));
         positionModule = new PositionModule(address(core), address(usdc));
 

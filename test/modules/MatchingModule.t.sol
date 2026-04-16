@@ -1521,8 +1521,6 @@ contract MatchingModuleIntegrationTest is Test {
 
     uint16 constant ODDS_SCALE = 100;
     uint32 constant VOID_COOLDOWN = 3 days;
-    uint256 constant MIN_AMOUNT = 1_000_000; // 1 USDC
-    uint8 constant TOKEN_DECIMALS = 6;
 
     function setUp() public {
         maker = vm.addr(MAKER_PK);
@@ -1530,7 +1528,7 @@ contract MatchingModuleIntegrationTest is Test {
         token = new MockERC20();
 
         speculationModule = new SpeculationModule(
-            address(core), TOKEN_DECIMALS, VOID_COOLDOWN, MIN_AMOUNT
+            address(core), VOID_COOLDOWN
         );
         positionModule = new PositionModule(address(core), address(token));
         treasuryModule = new TreasuryModule(
@@ -1932,7 +1930,7 @@ contract MatchingModuleIntegrationTest is Test {
 
         // The creator should be the taker, not maker A
         Speculation memory spec = speculationModule.getSpeculation(specId);
-        assertEq(spec.speculationCreator, taker, "creator is taker, not maker");
+        assertEq(spec.speculationTaker, taker, "creator is taker, not maker");
 
         // Second fill on maker B reuses the same speculation (no new creation)
         address taker2 = address(0xDDDD);
@@ -1946,7 +1944,7 @@ contract MatchingModuleIntegrationTest is Test {
         // Creator is still the original taker
         Speculation memory spec2 = speculationModule.getSpeculation(specId);
         assertEq(
-            spec2.speculationCreator,
+            spec2.speculationTaker,
             taker,
             "creator unchanged after second fill"
         );

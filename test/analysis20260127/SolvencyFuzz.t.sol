@@ -53,7 +53,7 @@ contract SolvencyFuzz is Test {
         token.mint(maker, 1_000_000_000_000); // 1M USDC
         token.mint(taker, 1_000_000_000_000); // 1M USDC
 
-        speculationModule = new SpeculationModule(address(core), 6, 3600, 1_000_000);
+        speculationModule = new SpeculationModule(address(core), 3600);
         positionModule = new PositionModule(address(core), address(token));
         treasuryModule = new TreasuryModule(
             address(core), address(token), protocolReceiver,
@@ -96,6 +96,7 @@ contract SolvencyFuzz is Test {
             jsonoddsId: ""
         });
         mockContestModule.setContest(1, contest);
+        mockContestModule.setContestStartTime(1, uint32(block.timestamp));
 
         // Approve positionModule for both maker and taker
         vm.prank(maker);
