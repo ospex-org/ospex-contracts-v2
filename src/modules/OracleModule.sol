@@ -61,6 +61,11 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
     /// @notice Odds scale factor (1.91 odds = 191 ticks)
     uint16 public constant ODDS_SCALE = 100;
 
+    bytes32 public constant EVENT_ORACLE_RESPONSE =
+        keccak256("ORACLE_RESPONSE");
+    bytes32 public constant EVENT_SCRIPT_APPROVAL_VERIFIED =
+        keccak256("SCRIPT_APPROVAL_VERIFIED");
+
     /// @notice EIP-712 typehash for script approval
     bytes32 public constant SCRIPT_APPROVAL_TYPEHASH =
         keccak256(
@@ -378,6 +383,16 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
             approvals.verifyApproval.leagueId,
             approvals.verifyApproval.version
         );
+        i_ospexCore.emitCoreEvent(
+            EVENT_SCRIPT_APPROVAL_VERIFIED,
+            abi.encode(
+                contestId,
+                approvals.verifyApproval.scriptHash,
+                approvals.verifyApproval.purpose,
+                approvals.verifyApproval.leagueId,
+                approvals.verifyApproval.version
+            )
+        );
 
         if (
             approvals.marketUpdateApproval.purpose !=
@@ -396,6 +411,16 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
             approvals.marketUpdateApproval.leagueId,
             approvals.marketUpdateApproval.version
         );
+        i_ospexCore.emitCoreEvent(
+            EVENT_SCRIPT_APPROVAL_VERIFIED,
+            abi.encode(
+                contestId,
+                approvals.marketUpdateApproval.scriptHash,
+                approvals.marketUpdateApproval.purpose,
+                approvals.marketUpdateApproval.leagueId,
+                approvals.marketUpdateApproval.version
+            )
+        );
 
         if (approvals.scoreApproval.purpose != ScriptPurpose.SCORE)
             revert OracleModule__WrongApprovalPurpose();
@@ -411,6 +436,16 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
             approvals.scoreApproval.purpose,
             approvals.scoreApproval.leagueId,
             approvals.scoreApproval.version
+        );
+        i_ospexCore.emitCoreEvent(
+            EVENT_SCRIPT_APPROVAL_VERIFIED,
+            abi.encode(
+                contestId,
+                approvals.scoreApproval.scriptHash,
+                approvals.scoreApproval.purpose,
+                approvals.scoreApproval.leagueId,
+                approvals.scoreApproval.version
+            )
         );
 
         return
@@ -596,6 +631,10 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
             revert OracleModule__UnexpectedRequestId(requestId);
 
         emit Response(requestId, response, err);
+        i_ospexCore.emitCoreEvent(
+            EVENT_ORACLE_RESPONSE,
+            abi.encode(requestId, response, err)
+        );
 
         if (err.length > 0) {
             revert OracleModule__ChainlinkFunctionError(err);

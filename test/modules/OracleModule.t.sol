@@ -1378,27 +1378,50 @@ contract OracleModuleTest is Test {
      * @dev This test covers the final else branch that handles invalid request types
      */
     function testFulfillRequest_RevertsOnInvalidRequestType() public {
-        // Arrange - create a minimal setup
+        // Need a fresh core where the test helper is the registered ORACLE_MODULE
+        OspexCore testCore = new OspexCore();
+        ContestModule testContestModule = new ContestModule(address(testCore));
+        TreasuryModule testTreasury = new TreasuryModule(
+            address(testCore), address(usdc), address(0x2), 0, 0, 0
+        );
+
+        OracleModuleTestHelper testHelper = new OracleModuleTestHelper(
+            address(testCore),
+            address(router),
+            address(linkToken),
+            donId,
+            LINK_DENOMINATOR,
+            signerAddr
+        );
+
+        bytes32[] memory types = new bytes32[](12);
+        address[] memory addrs = new address[](12);
+        types[0] = testCore.CONTEST_MODULE();           addrs[0] = address(testContestModule);
+        types[1] = testCore.SPECULATION_MODULE();        addrs[1] = address(0xE001);
+        types[2] = testCore.POSITION_MODULE();           addrs[2] = address(0xE002);
+        types[3] = testCore.MATCHING_MODULE();           addrs[3] = address(0xE003);
+        types[4] = testCore.ORACLE_MODULE();             addrs[4] = address(testHelper);
+        types[5] = testCore.TREASURY_MODULE();           addrs[5] = address(testTreasury);
+        types[6] = testCore.LEADERBOARD_MODULE();        addrs[6] = address(0xE006);
+        types[7] = testCore.RULES_MODULE();              addrs[7] = address(0xE007);
+        types[8] = testCore.SECONDARY_MARKET_MODULE();   addrs[8] = address(0xE008);
+        types[9] = testCore.MONEYLINE_SCORER_MODULE();   addrs[9] = address(0xE009);
+        types[10] = testCore.SPREAD_SCORER_MODULE();     addrs[10] = address(0xE00A);
+        types[11] = testCore.TOTAL_SCORER_MODULE();      addrs[11] = address(0xE00B);
+        testCore.bootstrapModules(types, addrs);
+        testCore.finalize();
+
+        // Arrange - set a valid context, then try to override requestType via storage
         bytes32 requestId = bytes32(uint256(0xDEAD));
-
-        // Set an invalid request type (cast from a high number that's not in the enum)
-        // We need to use the setRequestContext function, but OracleRequestType is an enum
-        // Let's look at what values exist and use an invalid one
-
-        // From OspexTypes.sol: ContestCreate=0, ContestMarketsUpdate=1, ContestScore=2
-        // So we'll manually set the storage to an invalid value (e.g., 99)
-
-        // First set a valid context, then manually override the requestType in storage
-        oracleHelper.setRequestContext(
+        testHelper.setRequestContext(
             requestId,
             OracleRequestType.ContestCreate,
             1
         );
 
-        // Now manually override the requestType storage slot to an invalid value
-        // The requestType is the first field in OracleRequestContext struct
-        bytes32 contextSlot = keccak256(abi.encode(requestId, uint256(6))); // slot 6 is s_requestContext mapping
-        vm.store(address(oracleHelper), contextSlot, bytes32(uint256(99))); // Invalid request type
+        // Manually override the requestType storage slot to an invalid value
+        bytes32 contextSlot = keccak256(abi.encode(requestId, uint256(6)));
+        vm.store(address(testHelper), contextSlot, bytes32(uint256(99)));
 
         bytes memory response = hex"1234";
         bytes memory err = hex"";
@@ -1413,9 +1436,8 @@ contract OracleModuleTest is Test {
             uint256(32)
         ));
 
-        // Act
         vm.prank(address(this));
-        oracleHelper.testFulfillRequest(requestId, response, err);
+        testHelper.testFulfillRequest(requestId, response, err);
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -1886,9 +1908,42 @@ contract OracleModuleTest is Test {
 
     // --- Branch coverage: bytesToUint32 short input via fulfillRequest (ContestScore path) ---
     function testFulfillRequest_ContestScore_RevertsIfResponseTooShort() public {
+        // Need a fresh core where the test helper is the registered ORACLE_MODULE
+        OspexCore testCore = new OspexCore();
+        ContestModule testContestModule = new ContestModule(address(testCore));
+        TreasuryModule testTreasury = new TreasuryModule(
+            address(testCore), address(usdc), address(0x2), 0, 0, 0
+        );
+
+        OracleModuleTestHelper testHelper = new OracleModuleTestHelper(
+            address(testCore),
+            address(router),
+            address(linkToken),
+            donId,
+            LINK_DENOMINATOR,
+            signerAddr
+        );
+
+        bytes32[] memory types = new bytes32[](12);
+        address[] memory addrs = new address[](12);
+        types[0] = testCore.CONTEST_MODULE();           addrs[0] = address(testContestModule);
+        types[1] = testCore.SPECULATION_MODULE();        addrs[1] = address(0xE001);
+        types[2] = testCore.POSITION_MODULE();           addrs[2] = address(0xE002);
+        types[3] = testCore.MATCHING_MODULE();           addrs[3] = address(0xE003);
+        types[4] = testCore.ORACLE_MODULE();             addrs[4] = address(testHelper);
+        types[5] = testCore.TREASURY_MODULE();           addrs[5] = address(testTreasury);
+        types[6] = testCore.LEADERBOARD_MODULE();        addrs[6] = address(0xE006);
+        types[7] = testCore.RULES_MODULE();              addrs[7] = address(0xE007);
+        types[8] = testCore.SECONDARY_MARKET_MODULE();   addrs[8] = address(0xE008);
+        types[9] = testCore.MONEYLINE_SCORER_MODULE();   addrs[9] = address(0xE009);
+        types[10] = testCore.SPREAD_SCORER_MODULE();     addrs[10] = address(0xE00A);
+        types[11] = testCore.TOTAL_SCORER_MODULE();      addrs[11] = address(0xE00B);
+        testCore.bootstrapModules(types, addrs);
+        testCore.finalize();
+
         // Set up a ContestScore request with a response shorter than 4 bytes
         bytes32 requestId = bytes32(uint256(0xBEEF));
-        oracleHelper.setRequestContext(
+        testHelper.setRequestContext(
             requestId,
             OracleRequestType.ContestScore,
             1 // contestId
@@ -1903,7 +1958,7 @@ contract OracleModuleTest is Test {
             uint256(2),
             uint256(4)
         ));
-        oracleHelper.testFulfillRequest(requestId, shortResponse, err);
+        testHelper.testFulfillRequest(requestId, shortResponse, err);
     }
 
     // --- Branch coverage: sendRequest with non-empty encrypted secrets ---
