@@ -253,7 +253,8 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         ) {
             revert OracleModule__InvalidAddress();
         }
-        if (linkDenominator == 0) revert OracleModule__InvalidValue();
+        if (linkDenominator == 0 || linkDenominator > LINK_DIVISIBILITY)
+            revert OracleModule__InvalidValue();
         i_ospexCore = OspexCore(ospexCore_);
         i_linkAddress = linkAddress;
         i_donId = donId;
@@ -301,73 +302,69 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         bytes32 scoreContestSourceHash,
         ScriptApprovals calldata approvals
     ) external nonReentrant handleLinkPayment(params.subscriptionId) {
-        IContestModule contestModule = IContestModule(
-            _getModule(CONTEST_MODULE)
-        );
-
-        uint256 contestId = contestModule.s_contestIdCounter() + 1;
-
-        bytes32 verifyHash = keccak256(
-            abi.encodePacked(params.createContestSourceJS)
-        );
-
-        LeagueId approvedLeague = _verifyAllApprovals(
-            approvals,
-            contestId,
-            verifyHash,
-            marketUpdateSourceHash,
-            scoreContestSourceHash
-        );
-
+        uint256 contestId;
         {
-            string[] memory args = new string[](3);
-            args[0] = params.rundownId;
-            args[1] = params.sportspageId;
-            args[2] = params.jsonoddsId;
+            bytes32 verifyHash = keccak256(
+                abi.encodePacked(params.createContestSourceJS)
+            );
 
-            contestModule.createContest(
-                params.rundownId,
-                params.sportspageId,
-                params.jsonoddsId,
+            LeagueId approvedLeague = _validateApprovals(
+                approvals,
                 verifyHash,
                 marketUpdateSourceHash,
-                scoreContestSourceHash,
-                approvedLeague,
-                msg.sender
+                scoreContestSourceHash
             );
 
-            sendRequest(
-                params.createContestSourceJS,
-                params.encryptedSecretsUrls,
-                args,
-                params.subscriptionId,
-                params.gasLimit,
-                i_donId,
-                OracleRequestType.ContestCreate,
-                contestId
-            );
+            contestId = IContestModule(_getModule(CONTEST_MODULE))
+                .createContest(
+                    params.rundownId,
+                    params.sportspageId,
+                    params.jsonoddsId,
+                    verifyHash,
+                    marketUpdateSourceHash,
+                    scoreContestSourceHash,
+                    approvedLeague,
+                    msg.sender
+                );
         }
+
+        _emitApprovalEvents(approvals, contestId);
+
+        string[] memory args = new string[](3);
+        args[0] = params.rundownId;
+        args[1] = params.sportspageId;
+        args[2] = params.jsonoddsId;
+
+        sendRequest(
+            params.createContestSourceJS,
+            params.encryptedSecretsUrls,
+            args,
+            params.subscriptionId,
+            params.gasLimit,
+            i_donId,
+            OracleRequestType.ContestCreate,
+            contestId
+        );
     }
 
     /**
-     * @notice Verifies all three script approvals and resolves the approved league
-     * @dev Extracted from createContestFromOracle to reduce stack depth. Checks purpose
-     *      binding, hash matching, and EIP-712 signature for each approval in lifecycle
-     *      order (verify → marketUpdate → score). Emits ScriptApprovalVerified for each.
-     * @param approvals The three script approvals and their signatures
-     * @param contestId The predictive contest ID (for event indexing)
+     * @notice Validates all three script approvals without emitting events
+     * @dev Checks purpose binding, hash matching, and EIP-712 signature for each
+     *      approval in lifecycle order (verify, marketUpdate, score). Separated from
+     *      event emission so approvals can be validated before contest creation while
+     *      events use the real (non-predicted) contestId.
+     * @param approvals The three script approvals and their EIP-712 signatures
      * @param verifyHash keccak256 of the verification JS source
      * @param marketUpdateSourceHash Hash of the market update JS
      * @param scoreContestSourceHash Hash of the scoring JS
      * @return The resolved LeagueId from the three approvals
      */
-    function _verifyAllApprovals(
+    function _validateApprovals(
         ScriptApprovals calldata approvals,
-        uint256 contestId,
         bytes32 verifyHash,
         bytes32 marketUpdateSourceHash,
         bytes32 scoreContestSourceHash
-    ) internal returns (LeagueId) {
+    ) internal view returns (LeagueId) {
         if (approvals.verifyApproval.purpose != ScriptPurpose.VERIFY)
             revert OracleModule__WrongApprovalPurpose();
         if (approvals.verifyApproval.scriptHash != verifyHash)
@@ -376,6 +373,47 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
             approvals.verifyApproval,
             approvals.verifyApprovalSig
         );
+
+        if (
+            approvals.marketUpdateApproval.purpose !=
+            ScriptPurpose.MARKET_UPDATE
+        ) revert OracleModule__WrongApprovalPurpose();
+        if (approvals.marketUpdateApproval.scriptHash != marketUpdateSourceHash)
+            revert OracleModule__ScriptHashMismatch();
+        _verifyScriptApproval(
+            approvals.marketUpdateApproval,
+            approvals.marketUpdateApprovalSig
+        );
+
+        if (approvals.scoreApproval.purpose != ScriptPurpose.SCORE)
+            revert OracleModule__WrongApprovalPurpose();
+        if (approvals.scoreApproval.scriptHash != scoreContestSourceHash)
+            revert OracleModule__ScriptHashMismatch();
+        _verifyScriptApproval(
+            approvals.scoreApproval,
+            approvals.scoreApprovalSig
+        );
+
+        return
+            _resolveApprovedLeague(
+                approvals.verifyApproval.leagueId,
+                approvals.marketUpdateApproval.leagueId,
+                approvals.scoreApproval.leagueId
+            );
+    }
+
+    /**
+     * @notice Emits ScriptApprovalVerified events for all three script approvals
+     * @dev Called after contest creation so events carry the real contestId returned
+     *      by ContestModule, not a predicted value. Emits both the local event and
+     *      the OspexCore hub event for each approval.
+     * @param approvals The three script approvals (already validated by _validateApprovals)
+     * @param contestId The actual contest ID returned by ContestModule.createContest
+     */
+    function _emitApprovalEvents(
+        ScriptApprovals calldata approvals,
+        uint256 contestId
+    ) internal {
         emit ScriptApprovalVerified(
             contestId,
             approvals.verifyApproval.scriptHash,
@@ -394,16 +432,6 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
             )
         );
 
-        if (
-            approvals.marketUpdateApproval.purpose !=
-            ScriptPurpose.MARKET_UPDATE
-        ) revert OracleModule__WrongApprovalPurpose();
-        if (approvals.marketUpdateApproval.scriptHash != marketUpdateSourceHash)
-            revert OracleModule__ScriptHashMismatch();
-        _verifyScriptApproval(
-            approvals.marketUpdateApproval,
-            approvals.marketUpdateApprovalSig
-        );
         emit ScriptApprovalVerified(
             contestId,
             approvals.marketUpdateApproval.scriptHash,
@@ -422,14 +450,6 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
             )
         );
 
-        if (approvals.scoreApproval.purpose != ScriptPurpose.SCORE)
-            revert OracleModule__WrongApprovalPurpose();
-        if (approvals.scoreApproval.scriptHash != scoreContestSourceHash)
-            revert OracleModule__ScriptHashMismatch();
-        _verifyScriptApproval(
-            approvals.scoreApproval,
-            approvals.scoreApprovalSig
-        );
         emit ScriptApprovalVerified(
             contestId,
             approvals.scoreApproval.scriptHash,
@@ -447,13 +467,6 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
                 approvals.scoreApproval.version
             )
         );
-
-        return
-            _resolveApprovedLeague(
-                approvals.verifyApproval.leagueId,
-                approvals.marketUpdateApproval.leagueId,
-                approvals.scoreApproval.leagueId
-            );
     }
 
     // ──────────────────────────── Market Updates ──────────────────────
@@ -716,7 +729,12 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         uint256 contestId,
         bytes memory response
     ) internal {
-        uint32[2] memory scores = uintToResultScore(bytesToUint32(response));
+        if (response.length != 32) {
+            revert OracleModule__InputTooShort(response.length, 32);
+        }
+        uint32[2] memory scores = uintToResultScore(
+            abi.decode(response, (uint32))
+        );
         IContestModule(_getModule(CONTEST_MODULE)).setScores(
             contestId,
             scores[0],
@@ -727,22 +745,6 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
     // ──────────────────────────── Byte Conversion Utilities ───────────
 
     /**
-     * @notice Converts a bytes response to uint32 (reads first 32 bytes, returns as uint32)
-     * @param input The raw bytes from the DON
-     * @return output The uint32 value
-     */
-    function bytesToUint32(
-        bytes memory input
-    ) internal pure returns (uint32 output) {
-        if (input.length < 4) {
-            revert OracleModule__InputTooShort(input.length, 4);
-        }
-        assembly {
-            output := mload(add(input, 32))
-        }
-    }
-
-    /**
      * @notice Converts a bytes response to uint256 (reads first 32 bytes)
      * @param input The raw bytes from the DON
      * @return output The uint256 value
@@ -750,7 +752,7 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
     function bytesToUint256(
         bytes memory input
     ) internal pure returns (uint256 output) {
-        if (input.length < 32) {
+        if (input.length != 32) {
             revert OracleModule__InputTooShort(input.length, 32);
         }
         assembly {
@@ -771,12 +773,15 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
     function extractLeagueIdAndStartTime(
         uint256 _uint
     ) internal pure returns (LeagueId leagueId, uint32 startTime) {
-        // Safe cast: LeagueId enum has fewer than 256 values
+        uint256 rawLeague = _uint / 1e18;
+        if (rawLeague > type(uint8).max) revert OracleModule__InvalidValue();
+        uint256 rawStartTime = _uint % 1e10;
+        if (rawStartTime > type(uint32).max)
+            revert OracleModule__InvalidValue();
         // forge-lint: disable-next-line(unsafe-typecast)
-        leagueId = LeagueId(uint8(_uint / 1e18));
-        // Safe cast: modulo 1e10 always fits in uint32 (max 4.29e9)
+        leagueId = LeagueId(uint8(rawLeague));
         // forge-lint: disable-next-line(unsafe-typecast)
-        startTime = uint32(_uint % 1e10);
+        startTime = uint32(rawStartTime);
         return (leagueId, startTime);
     }
 

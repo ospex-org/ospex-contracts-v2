@@ -1901,7 +1901,7 @@ contract OracleModuleTest is Test {
         assertEq(result, 0, "Sentinel value 10000 should return 0");
     }
 
-    // --- Branch coverage: bytesToUint32 short input via fulfillRequest (ContestScore path) ---
+    // --- Branch coverage: _handleContestScore rejects non-32-byte responses ---
     function testFulfillRequest_ContestScore_RevertsIfResponseTooShort() public {
         // Need a fresh core where the test helper is the registered ORACLE_MODULE
         OspexCore testCore = new OspexCore();
@@ -1936,7 +1936,7 @@ contract OracleModuleTest is Test {
         testCore.bootstrapModules(types, addrs);
         testCore.finalize();
 
-        // Set up a ContestScore request with a response shorter than 4 bytes
+        // Set up a ContestScore request with a 2-byte response
         bytes32 requestId = bytes32(uint256(0xBEEF));
         testHelper.setRequestContext(
             requestId,
@@ -1944,14 +1944,14 @@ contract OracleModuleTest is Test {
             1 // contestId
         );
 
-        // 2-byte response -> _handleContestScore calls bytesToUint32 which reverts
+        // 2-byte response -> _handleContestScore requires exactly 32 bytes
         bytes memory shortResponse = hex"0102";
         bytes memory err = hex"";
 
         vm.expectRevert(abi.encodeWithSelector(
             OracleModule.OracleModule__InputTooShort.selector,
             uint256(2),
-            uint256(4)
+            uint256(32)
         ));
         testHelper.testFulfillRequest(requestId, shortResponse, err);
     }
@@ -2783,5 +2783,170 @@ contract OracleModuleTest is Test {
 
     function test_approvedSignerIsSet() public view {
         assertEq(oracleModule.i_approvedSigner(), signerAddr);
+    }
+
+    // ─────────── Regression: packed-vs-encoded score payloads ────────────
+
+    /**
+     * @notice Regression test: a 4-byte abi.encodePacked(uint32) score payload
+     *         must be rejected. Before the fix, bytesToUint32 accepted >= 4 bytes
+     *         and silently decoded garbage from the low bits of an mload word.
+     */
+    function testFulfillRequest_ContestScore_RevertsOnPackedPayload() public {
+        OspexCore testCore = new OspexCore();
+        ContestModule testContestModule = new ContestModule(address(testCore));
+        TreasuryModule testTreasury = new TreasuryModule(
+            address(testCore), address(usdc), address(0x2), 0, 0, 0
+        );
+        OracleModuleTestHelper testHelper = new OracleModuleTestHelper(
+            address(testCore), address(router), address(linkToken),
+            donId, LINK_DENOMINATOR, signerAddr
+        );
+
+        bytes32[] memory types = new bytes32[](12);
+        address[] memory addrs = new address[](12);
+        types[0] = testCore.CONTEST_MODULE();           addrs[0] = address(testContestModule);
+        types[1] = testCore.SPECULATION_MODULE();        addrs[1] = address(0xE001);
+        types[2] = testCore.POSITION_MODULE();           addrs[2] = address(0xE002);
+        types[3] = testCore.MATCHING_MODULE();           addrs[3] = address(0xE003);
+        types[4] = testCore.ORACLE_MODULE();             addrs[4] = address(testHelper);
+        types[5] = testCore.TREASURY_MODULE();           addrs[5] = address(testTreasury);
+        types[6] = testCore.LEADERBOARD_MODULE();        addrs[6] = address(0xE006);
+        types[7] = testCore.RULES_MODULE();              addrs[7] = address(0xE007);
+        types[8] = testCore.SECONDARY_MARKET_MODULE();   addrs[8] = address(0xE008);
+        types[9] = testCore.MONEYLINE_SCORER_MODULE();   addrs[9] = address(0xE009);
+        types[10] = testCore.SPREAD_SCORER_MODULE();     addrs[10] = address(0xE00A);
+        types[11] = testCore.TOTAL_SCORER_MODULE();      addrs[11] = address(0xE00B);
+        testCore.bootstrapModules(types, addrs);
+        testCore.finalize();
+
+        bytes32 requestId = bytes32(uint256(0xBAC4));
+        testHelper.setRequestContext(
+            requestId, OracleRequestType.ContestScore, 1
+        );
+
+        // 4-byte packed payload — would have silently decoded to garbage before the fix
+        bytes memory packedResponse = abi.encodePacked(uint32(12034));
+        assertEq(packedResponse.length, 4, "sanity: encodePacked produces 4 bytes");
+
+        vm.expectRevert(abi.encodeWithSelector(
+            OracleModule.OracleModule__InputTooShort.selector,
+            uint256(4),
+            uint256(32)
+        ));
+        testHelper.testFulfillRequest(requestId, packedResponse, hex"");
+    }
+
+    /**
+     * @notice Regression test: an oversized (33-byte) score payload must be rejected.
+     *         Extra trailing bytes could mask a DON returning an unexpected format.
+     */
+    function testFulfillRequest_ContestScore_RevertsOnOversizedPayload() public {
+        OspexCore testCore = new OspexCore();
+        ContestModule testContestModule = new ContestModule(address(testCore));
+        TreasuryModule testTreasury = new TreasuryModule(
+            address(testCore), address(usdc), address(0x2), 0, 0, 0
+        );
+        OracleModuleTestHelper testHelper = new OracleModuleTestHelper(
+            address(testCore), address(router), address(linkToken),
+            donId, LINK_DENOMINATOR, signerAddr
+        );
+
+        bytes32[] memory types = new bytes32[](12);
+        address[] memory addrs = new address[](12);
+        types[0] = testCore.CONTEST_MODULE();           addrs[0] = address(testContestModule);
+        types[1] = testCore.SPECULATION_MODULE();        addrs[1] = address(0xE001);
+        types[2] = testCore.POSITION_MODULE();           addrs[2] = address(0xE002);
+        types[3] = testCore.MATCHING_MODULE();           addrs[3] = address(0xE003);
+        types[4] = testCore.ORACLE_MODULE();             addrs[4] = address(testHelper);
+        types[5] = testCore.TREASURY_MODULE();           addrs[5] = address(testTreasury);
+        types[6] = testCore.LEADERBOARD_MODULE();        addrs[6] = address(0xE006);
+        types[7] = testCore.RULES_MODULE();              addrs[7] = address(0xE007);
+        types[8] = testCore.SECONDARY_MARKET_MODULE();   addrs[8] = address(0xE008);
+        types[9] = testCore.MONEYLINE_SCORER_MODULE();   addrs[9] = address(0xE009);
+        types[10] = testCore.SPREAD_SCORER_MODULE();     addrs[10] = address(0xE00A);
+        types[11] = testCore.TOTAL_SCORER_MODULE();      addrs[11] = address(0xE00B);
+        testCore.bootstrapModules(types, addrs);
+        testCore.finalize();
+
+        bytes32 requestId = bytes32(uint256(0xB16B));
+        testHelper.setRequestContext(
+            requestId, OracleRequestType.ContestScore, 1
+        );
+
+        // 33-byte response — one byte too many
+        bytes memory oversizedResponse = abi.encodePacked(
+            abi.encode(uint32(12034)), hex"FF"
+        );
+        assertEq(oversizedResponse.length, 33, "sanity: 32 + 1 = 33 bytes");
+
+        vm.expectRevert(abi.encodeWithSelector(
+            OracleModule.OracleModule__InputTooShort.selector,
+            uint256(33),
+            uint256(32)
+        ));
+        testHelper.testFulfillRequest(requestId, oversizedResponse, hex"");
+    }
+
+    /**
+     * @notice Positive regression test: a properly ABI-encoded 32-byte uint32
+     *         score payload still decodes correctly after the fix.
+     *         Verifies abi.decode path produces the same result as the old bytesToUint32
+     *         for well-formed input.
+     */
+    function testFulfillRequest_ContestScore_AbiEncodedPayloadDecodesCorrectly() public {
+        OspexCore testCore = new OspexCore();
+        ContestModule testContestModule = new ContestModule(address(testCore));
+        TreasuryModule testTreasury = new TreasuryModule(
+            address(testCore), address(usdc), address(0x2), 0, 0, 0
+        );
+        OracleModuleTestHelper testHelper = new OracleModuleTestHelper(
+            address(testCore), address(router), address(linkToken),
+            donId, LINK_DENOMINATOR, signerAddr
+        );
+
+        bytes32[] memory types = new bytes32[](12);
+        address[] memory addrs = new address[](12);
+        types[0] = testCore.CONTEST_MODULE();           addrs[0] = address(testContestModule);
+        types[1] = testCore.SPECULATION_MODULE();        addrs[1] = address(0xE001);
+        types[2] = testCore.POSITION_MODULE();           addrs[2] = address(0xE002);
+        types[3] = testCore.MATCHING_MODULE();           addrs[3] = address(0xE003);
+        types[4] = testCore.ORACLE_MODULE();             addrs[4] = address(testHelper);
+        types[5] = testCore.TREASURY_MODULE();           addrs[5] = address(testTreasury);
+        types[6] = testCore.LEADERBOARD_MODULE();        addrs[6] = address(0xE006);
+        types[7] = testCore.RULES_MODULE();              addrs[7] = address(0xE007);
+        types[8] = testCore.SECONDARY_MARKET_MODULE();   addrs[8] = address(0xE008);
+        types[9] = testCore.MONEYLINE_SCORER_MODULE();   addrs[9] = address(0xE009);
+        types[10] = testCore.SPREAD_SCORER_MODULE();     addrs[10] = address(0xE00A);
+        types[11] = testCore.TOTAL_SCORER_MODULE();      addrs[11] = address(0xE00B);
+        testCore.bootstrapModules(types, addrs);
+        testCore.finalize();
+
+        // Create and verify a contest so setScores succeeds
+        vm.prank(address(testHelper));
+        uint256 contestId = testContestModule.createContest(
+            "rd", "sp", "jo",
+            bytes32(0), bytes32("mkt"), bytes32("scr"),
+            LeagueId.Unknown, user
+        );
+        vm.prank(address(testHelper));
+        testContestModule.setContestLeagueIdAndStartTime(
+            contestId, LeagueId.NBA, uint32(block.timestamp)
+        );
+
+        bytes32 requestId = bytes32(uint256(0xAB1));
+        testHelper.setRequestContext(
+            requestId, OracleRequestType.ContestScore, contestId
+        );
+
+        // Properly ABI-encoded 32-byte response: away=21, home=17 => 21*1000+17=21017
+        bytes memory response = abi.encode(uint32(21017));
+        assertEq(response.length, 32, "sanity: abi.encode produces 32 bytes");
+
+        testHelper.testFulfillRequest(requestId, response, hex"");
+
+        Contest memory c = testContestModule.getContest(contestId);
+        assertEq(c.awayScore, 21, "away score mismatch");
+        assertEq(c.homeScore, 17, "home score mismatch");
     }
 }
