@@ -169,6 +169,20 @@ contract SecondaryMarketModuleTest is Test {
         );
     }
 
+    /// @dev Computes the listing hash the same way the contract does, for pre-computation in tests
+    function _computeListingHash(
+        uint256 _speculationId,
+        address _seller,
+        PositionType _positionType,
+        uint256 _price,
+        uint256 _riskAmount,
+        uint256 _profitAmount
+    ) internal pure returns (bytes32) {
+        return keccak256(abi.encode(
+            _speculationId, _seller, _positionType, _price, _riskAmount, _profitAmount
+        ));
+    }
+
     function testListPositionForSale() public {
         vm.startPrank(seller);
         uint256 price = 5e6; // 5 USDC
@@ -285,7 +299,7 @@ contract SecondaryMarketModuleTest is Test {
         vm.expectRevert(
             SecondaryMarketModule.SecondaryMarketModule__SpeculationNotActive.selector
         );
-        market.buyPosition(speculationId, seller, positionType, 5e6);
+        market.buyPosition(speculationId, seller, positionType, 5e6, bytes32(0));
     }
 
     // 2. Buying a Position
@@ -310,7 +324,8 @@ contract SecondaryMarketModuleTest is Test {
             speculationId,
             seller,
             positionType,
-            1e6
+            1e6,
+            bytes32(0)
         );
         vm.stopPrank();
     }
@@ -334,7 +349,7 @@ contract SecondaryMarketModuleTest is Test {
                 .SecondaryMarketModule__InvalidAmount
                 .selector
         );
-        market.buyPosition(speculationId, seller, positionType, 0);
+        market.buyPosition(speculationId, seller, positionType, 0, bytes32(0));
         vm.stopPrank();
     }
 
@@ -364,7 +379,8 @@ contract SecondaryMarketModuleTest is Test {
             speculationId,
             seller,
             positionType,
-            riskAmount + 1
+            riskAmount + 1,
+            bytes32(0)
         );
         vm.stopPrank();
     }
@@ -517,11 +533,13 @@ contract SecondaryMarketModuleTest is Test {
         vm.stopPrank();
         vm.startPrank(buyer);
         token.approve(address(market), price);
+        bytes32 hash = market.getListingHash(speculationId, seller, positionType);
         market.buyPosition(
             speculationId,
             seller,
             positionType,
-            riskAmount
+            riskAmount,
+            hash
         );
         vm.stopPrank();
         uint256 proceeds = market.getPendingSaleProceeds(seller);
@@ -545,6 +563,9 @@ contract SecondaryMarketModuleTest is Test {
         uint256 price = 5e6;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
+        bytes32 expectedHash = _computeListingHash(
+            speculationId, seller, positionType, price, riskAmount, profitAmount
+        );
         // Expect local event
         vm.expectEmit(true, true, false, true);
         emit SecondaryMarketModule.PositionListed(
@@ -554,7 +575,8 @@ contract SecondaryMarketModuleTest is Test {
             price,
             riskAmount,
             profitAmount,
-            uint32(block.timestamp)
+            uint32(block.timestamp),
+            expectedHash
         );
         // Expect core event (emitted by core contract)
         vm.expectEmit(true, true, false, true, address(core));
@@ -568,7 +590,8 @@ contract SecondaryMarketModuleTest is Test {
                 price,
                 riskAmount,
                 profitAmount,
-                uint32(block.timestamp)
+                uint32(block.timestamp),
+                expectedHash
             )
         );
         market.listPositionForSale(
@@ -600,11 +623,13 @@ contract SecondaryMarketModuleTest is Test {
         vm.stopPrank();
         vm.startPrank(buyer);
         token.approve(address(market), price);
+        bytes32 hash = market.getListingHash(speculationId, seller, positionType);
         market.buyPosition(
             speculationId,
             seller,
             positionType,
-            riskAmount
+            riskAmount,
+            hash
         );
         vm.stopPrank();
 
@@ -760,6 +785,9 @@ contract SecondaryMarketModuleTest is Test {
         uint256 newPrice = 6e6;
         uint256 newRiskAmount = 8e6;
         uint256 newProfitAmount = 1e6;
+        bytes32 expectedHash = _computeListingHash(
+            speculationId, seller, positionType, newPrice, newRiskAmount, newProfitAmount
+        );
         vm.expectEmit(true, true, false, true);
         emit SecondaryMarketModule.ListingUpdated(
             speculationId,
@@ -770,7 +798,8 @@ contract SecondaryMarketModuleTest is Test {
             riskAmount,
             newRiskAmount,
             profitAmount,
-            newProfitAmount
+            newProfitAmount,
+            expectedHash
         );
         vm.expectEmit(true, true, false, true, address(core));
         emit OspexCore.CoreEventEmitted(
@@ -785,7 +814,8 @@ contract SecondaryMarketModuleTest is Test {
                 riskAmount,
                 newRiskAmount,
                 profitAmount,
-                newProfitAmount
+                newProfitAmount,
+                expectedHash
             )
         );
         market.updateListing(
@@ -887,11 +917,13 @@ contract SecondaryMarketModuleTest is Test {
                 price
             )
         );
+        bytes32 hash = market.getListingHash(speculationId, seller, positionType);
         market.buyPosition(
             speculationId,
             seller,
             positionType,
-            riskAmount
+            riskAmount,
+            hash
         );
         vm.stopPrank();
         // Listing should be deleted
@@ -948,11 +980,13 @@ contract SecondaryMarketModuleTest is Test {
         vm.stopPrank();
         vm.startPrank(buyer);
         token.approve(address(market), price / 2);
+        bytes32 hash = market.getListingHash(speculationId, seller, positionType);
         market.buyPosition(
             speculationId,
             seller,
             positionType,
-            riskAmount / 2
+            riskAmount / 2,
+            hash
         );
         vm.stopPrank();
         SaleListing memory listing = market.getSaleListing(
@@ -1183,7 +1217,8 @@ contract SecondaryMarketModuleTest is Test {
         vm.startPrank(buyer);
         token.approve(address(market), expectedBuyer1Price);
         uint256 buyer1BalBefore = token.balanceOf(buyer);
-        market.buyPosition(speculationId, seller, positionType, buyer1RiskAmount);
+        bytes32 hash1 = market.getListingHash(speculationId, seller, positionType);
+        market.buyPosition(speculationId, seller, positionType, buyer1RiskAmount, hash1);
         uint256 buyer1Paid = buyer1BalBefore - token.balanceOf(buyer);
         vm.stopPrank();
 
@@ -1212,7 +1247,8 @@ contract SecondaryMarketModuleTest is Test {
         vm.startPrank(buyer2);
         token.approve(address(market), expectedBuyer2Price);
         uint256 buyer2BalBefore = token.balanceOf(buyer2);
-        market.buyPosition(speculationId, seller, positionType, buyer2RiskAmount);
+        bytes32 hash2 = market.getListingHash(speculationId, seller, positionType);
+        market.buyPosition(speculationId, seller, positionType, buyer2RiskAmount, hash2);
         uint256 buyer2Paid = buyer2BalBefore - token.balanceOf(buyer2);
         vm.stopPrank();
 
@@ -1242,7 +1278,8 @@ contract SecondaryMarketModuleTest is Test {
         vm.startPrank(buyer3);
         token.approve(address(market), expectedBuyer3Price);
         uint256 buyer3BalBefore = token.balanceOf(buyer3);
-        market.buyPosition(speculationId, seller, positionType, buyer3RiskAmount);
+        bytes32 hash3 = market.getListingHash(speculationId, seller, positionType);
+        market.buyPosition(speculationId, seller, positionType, buyer3RiskAmount, hash3);
         uint256 buyer3Paid = buyer3BalBefore - token.balanceOf(buyer3);
         vm.stopPrank();
 
@@ -1301,7 +1338,8 @@ contract SecondaryMarketModuleTest is Test {
         // Buyer buys 4 riskAmount - should pay 8 USDC (4 * 2 USDC per unit)
         vm.startPrank(buyer);
         token.approve(address(market), 8e6);
-        market.buyPosition(speculationId, seller, positionType, 4e6);
+        bytes32 hash = market.getListingHash(speculationId, seller, positionType);
+        market.buyPosition(speculationId, seller, positionType, 4e6, hash);
         vm.stopPrank();
 
         SaleListing memory listingAfter = market.getSaleListing(speculationId, seller, positionType);
@@ -1339,8 +1377,9 @@ contract SecondaryMarketModuleTest is Test {
         // Buy 1 raw unit of risk: purchasePrice = (1 * 1) / 10e6 = 0
         vm.startPrank(buyer);
         token.approve(address(market), type(uint256).max);
+        bytes32 hash = market.getListingHash(speculationId, seller, positionType);
         vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__PurchasePriceZero.selector);
-        market.buyPosition(speculationId, seller, positionType, 1);
+        market.buyPosition(speculationId, seller, positionType, 1, hash);
         vm.stopPrank();
     }
 
@@ -1354,7 +1393,8 @@ contract SecondaryMarketModuleTest is Test {
         // Buy the full amount
         vm.startPrank(buyer);
         token.approve(address(market), type(uint256).max);
-        market.buyPosition(speculationId, seller, positionType, 5e6);
+        bytes32 hash = market.getListingHash(speculationId, seller, positionType);
+        market.buyPosition(speculationId, seller, positionType, 5e6, hash);
         vm.stopPrank();
 
         // Listing should be deleted
@@ -1402,7 +1442,7 @@ contract SecondaryMarketModuleTest is Test {
         // No listing created — try to buy directly
         vm.prank(buyer);
         vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__ListingNotActive.selector);
-        market.buyPosition(speculationId, seller, positionType, 5e6);
+        market.buyPosition(speculationId, seller, positionType, 5e6, bytes32(0));
     }
 
     // --- buyPosition: position claimed while spec Open ---
@@ -1420,9 +1460,10 @@ contract SecondaryMarketModuleTest is Test {
 
         vm.prank(buyer);
         token.approve(address(market), 5e6);
+        bytes32 hash = market.getListingHash(speculationId, seller, positionType);
         vm.prank(buyer);
         vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__PositionAlreadyClaimed.selector);
-        market.buyPosition(speculationId, seller, positionType, 5e6);
+        market.buyPosition(speculationId, seller, positionType, 5e6, hash);
     }
 
     // --- updateListing: position claimed while spec Open ---
@@ -1458,5 +1499,325 @@ contract SecondaryMarketModuleTest is Test {
             )
         );
         market.updateListing(speculationId, positionType, 0, 0, 999e6);
+    }
+
+    // =========================================================================
+    // HASH COMMITMENT TESTS
+    // =========================================================================
+
+    /// @notice Buy with correct expected hash succeeds
+    function testBuyPosition_WithCorrectHash_Succeeds() public {
+        vm.prank(seller);
+        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
+
+        bytes32 hash = market.getListingHash(speculationId, seller, positionType);
+
+        vm.startPrank(buyer);
+        token.approve(address(market), 5e6);
+        market.buyPosition(speculationId, seller, positionType, 10e6, hash);
+        vm.stopPrank();
+
+        Position memory buyerPos = positionModule.getPosition(speculationId, buyer, positionType);
+        assertEq(buyerPos.riskAmount, 10e6, "Buyer should receive full risk");
+    }
+
+    /// @notice Partial buy with correct hash succeeds and listing state updates
+    function testBuyPosition_PartialBuyWithCorrectHash_Succeeds() public {
+        vm.prank(seller);
+        market.listPositionForSale(speculationId, positionType, 10e6, 10e6, 1e6);
+
+        bytes32 hash = market.getListingHash(speculationId, seller, positionType);
+
+        vm.startPrank(buyer);
+        token.approve(address(market), 5e6);
+        market.buyPosition(speculationId, seller, positionType, 5e6, hash);
+        vm.stopPrank();
+
+        SaleListing memory listing = market.getSaleListing(speculationId, seller, positionType);
+        assertEq(listing.riskAmount, 5e6, "Listing should have 5e6 remaining");
+        assertEq(listing.price, 5e6, "Price should be reduced proportionally");
+    }
+
+    /// @notice Buy reverts with stale hash after seller updates price
+    function testBuyPosition_RevertsWithStaleHash_AfterPriceUpdate() public {
+        vm.prank(seller);
+        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
+
+        bytes32 staleHash = market.getListingHash(speculationId, seller, positionType);
+
+        // Seller front-runs: updates price
+        vm.prank(seller);
+        market.updateListing(speculationId, positionType, 15e6, 0, 0);
+
+        vm.startPrank(buyer);
+        token.approve(address(market), 15e6);
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__ListingStateChanged.selector);
+        market.buyPosition(speculationId, seller, positionType, 10e6, staleHash);
+        vm.stopPrank();
+    }
+
+    /// @notice Buy reverts with stale hash after seller updates risk amount
+    function testBuyPosition_RevertsWithStaleHash_AfterRiskUpdate() public {
+        vm.prank(seller);
+        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
+
+        bytes32 staleHash = market.getListingHash(speculationId, seller, positionType);
+
+        vm.prank(seller);
+        market.updateListing(speculationId, positionType, 0, 8e6, 0);
+
+        vm.startPrank(buyer);
+        token.approve(address(market), 5e6);
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__ListingStateChanged.selector);
+        market.buyPosition(speculationId, seller, positionType, 8e6, staleHash);
+        vm.stopPrank();
+    }
+
+    /// @notice Buy reverts with stale hash after seller updates profit amount
+    function testBuyPosition_RevertsWithStaleHash_AfterProfitUpdate() public {
+        vm.prank(seller);
+        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
+
+        bytes32 staleHash = market.getListingHash(speculationId, seller, positionType);
+
+        vm.prank(seller);
+        market.updateListing(speculationId, positionType, 0, 0, 500000);
+
+        vm.startPrank(buyer);
+        token.approve(address(market), 5e6);
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__ListingStateChanged.selector);
+        market.buyPosition(speculationId, seller, positionType, 10e6, staleHash);
+        vm.stopPrank();
+    }
+
+    /// @notice Buy reverts after seller cancels listing (ListingNotActive before hash check)
+    function testBuyPosition_RevertsAfterCancelListing() public {
+        vm.prank(seller);
+        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
+
+        bytes32 staleHash = market.getListingHash(speculationId, seller, positionType);
+
+        vm.prank(seller);
+        market.cancelListing(speculationId, positionType);
+
+        vm.startPrank(buyer);
+        token.approve(address(market), 5e6);
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__ListingNotActive.selector);
+        market.buyPosition(speculationId, seller, positionType, 10e6, staleHash);
+        vm.stopPrank();
+    }
+
+    /// @notice Buy reverts when using hash computed with a different seller address
+    function testBuyPosition_RevertsWithHashFromDifferentSeller() public {
+        vm.prank(seller);
+        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
+
+        // Compute hash with wrong seller address but same terms
+        bytes32 wrongSellerHash = _computeListingHash(
+            speculationId, address(0xDEAD), positionType, 5e6, 10e6, 1e6
+        );
+
+        vm.startPrank(buyer);
+        token.approve(address(market), 5e6);
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__ListingStateChanged.selector);
+        market.buyPosition(speculationId, seller, positionType, 10e6, wrongSellerHash);
+        vm.stopPrank();
+    }
+
+    /// @notice Buy reverts when using hash computed with a different speculationId
+    function testBuyPosition_RevertsWithHashFromDifferentSpeculation() public {
+        vm.prank(seller);
+        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
+
+        bytes32 wrongSpecHash = _computeListingHash(
+            speculationId + 999, seller, positionType, 5e6, 10e6, 1e6
+        );
+
+        vm.startPrank(buyer);
+        token.approve(address(market), 5e6);
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__ListingStateChanged.selector);
+        market.buyPosition(speculationId, seller, positionType, 10e6, wrongSpecHash);
+        vm.stopPrank();
+    }
+
+    /// @notice Buy reverts when using hash computed with a different positionType
+    function testBuyPosition_RevertsWithHashFromDifferentPositionType() public {
+        vm.prank(seller);
+        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
+
+        bytes32 wrongTypeHash = _computeListingHash(
+            speculationId, seller, PositionType.Lower, 5e6, 10e6, 1e6
+        );
+
+        vm.startPrank(buyer);
+        token.approve(address(market), 5e6);
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__ListingStateChanged.selector);
+        market.buyPosition(speculationId, seller, positionType, 10e6, wrongTypeHash);
+        vm.stopPrank();
+    }
+
+    /// @notice After partial buy, second buyer with first buyer's hash reverts
+    function testBuyPosition_RevertsWithStaleHash_AfterPartialBuy() public {
+        vm.prank(seller);
+        market.listPositionForSale(speculationId, positionType, 10e6, 10e6, 1e6);
+
+        bytes32 hashBeforePartialBuy = market.getListingHash(speculationId, seller, positionType);
+
+        // First buyer buys half
+        vm.startPrank(buyer);
+        token.approve(address(market), 5e6);
+        market.buyPosition(speculationId, seller, positionType, 5e6, hashBeforePartialBuy);
+        vm.stopPrank();
+
+        // Second buyer tries with the old hash
+        address buyer2 = address(0x5555);
+        token.mint(buyer2, 1000e6);
+        vm.startPrank(buyer2);
+        token.approve(address(market), 5e6);
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__ListingStateChanged.selector);
+        market.buyPosition(speculationId, seller, positionType, 5e6, hashBeforePartialBuy);
+        vm.stopPrank();
+    }
+
+    /// @notice After partial buy, second buyer with fresh hash succeeds
+    function testBuyPosition_SucceedsWithFreshHash_AfterPartialBuy() public {
+        vm.prank(seller);
+        market.listPositionForSale(speculationId, positionType, 10e6, 10e6, 1e6);
+
+        bytes32 hash1 = market.getListingHash(speculationId, seller, positionType);
+
+        // First buyer buys half
+        vm.startPrank(buyer);
+        token.approve(address(market), 5e6);
+        market.buyPosition(speculationId, seller, positionType, 5e6, hash1);
+        vm.stopPrank();
+
+        // Second buyer gets fresh hash and succeeds
+        address buyer2 = address(0x5555);
+        token.mint(buyer2, 1000e6);
+        bytes32 hash2 = market.getListingHash(speculationId, seller, positionType);
+        assertTrue(hash1 != hash2, "Hash should change after partial buy");
+
+        vm.startPrank(buyer2);
+        token.approve(address(market), 5e6);
+        market.buyPosition(speculationId, seller, positionType, 5e6, hash2);
+        vm.stopPrank();
+
+        SaleListing memory listing = market.getSaleListing(speculationId, seller, positionType);
+        assertEq(listing.riskAmount, 0, "Listing should be deleted");
+    }
+
+    /// @notice Cancel-then-relist with identical terms: original hash still works
+    function testBuyPosition_CancelRelistIdenticalTerms_HashStillValid() public {
+        vm.prank(seller);
+        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
+
+        bytes32 originalHash = market.getListingHash(speculationId, seller, positionType);
+
+        // Cancel and relist with identical terms
+        vm.prank(seller);
+        market.cancelListing(speculationId, positionType);
+        vm.prank(seller);
+        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
+
+        bytes32 newHash = market.getListingHash(speculationId, seller, positionType);
+        assertEq(originalHash, newHash, "Hash should be identical for identical terms");
+
+        // Buy with original hash succeeds
+        vm.startPrank(buyer);
+        token.approve(address(market), 5e6);
+        market.buyPosition(speculationId, seller, positionType, 10e6, originalHash);
+        vm.stopPrank();
+
+        Position memory buyerPos = positionModule.getPosition(speculationId, buyer, positionType);
+        assertEq(buyerPos.riskAmount, 10e6, "Buyer should receive full risk");
+    }
+
+    /// @notice Cancel-then-relist with different terms: original hash fails
+    function testBuyPosition_CancelRelistDifferentTerms_HashInvalid() public {
+        vm.prank(seller);
+        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
+
+        bytes32 originalHash = market.getListingHash(speculationId, seller, positionType);
+
+        // Cancel and relist with different price
+        vm.prank(seller);
+        market.cancelListing(speculationId, positionType);
+        vm.prank(seller);
+        market.listPositionForSale(speculationId, positionType, 8e6, 10e6, 1e6);
+
+        bytes32 newHash = market.getListingHash(speculationId, seller, positionType);
+        assertTrue(originalHash != newHash, "Hash should differ for different terms");
+
+        // Buy with original hash fails
+        vm.startPrank(buyer);
+        token.approve(address(market), 8e6);
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__ListingStateChanged.selector);
+        market.buyPosition(speculationId, seller, positionType, 10e6, originalHash);
+        vm.stopPrank();
+    }
+
+    /// @notice getListingHash returns consistent value matching manual computation
+    function testGetListingHash_MatchesComputation() public {
+        uint256 price = 5e6;
+        uint256 riskAmount = 10e6;
+        uint256 profitAmount = 1e6;
+
+        vm.prank(seller);
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
+
+        bytes32 viewHash = market.getListingHash(speculationId, seller, positionType);
+        bytes32 computedHash = _computeListingHash(
+            speculationId, seller, positionType, price, riskAmount, profitAmount
+        );
+
+        assertEq(viewHash, computedHash, "View function hash should match manual computation");
+    }
+
+    /// @notice getListingHash for non-existent listing returns hash of zero values
+    function testGetListingHash_NonExistentListing_ReturnsZeroHash() public {
+        bytes32 hash = market.getListingHash(speculationId, seller, positionType);
+        bytes32 zeroHash = keccak256(abi.encode(
+            speculationId, seller, positionType, uint256(0), uint256(0), uint256(0)
+        ));
+        assertEq(hash, zeroHash, "Non-existent listing hash should be hash of zeros");
+    }
+
+    /// @notice PositionListed event includes correct listingHash
+    function testListPositionForSale_EmitsListingHash() public {
+        uint256 price = 7e6;
+        uint256 riskAmount = 10e6;
+        uint256 profitAmount = 1e6;
+        bytes32 expectedHash = _computeListingHash(
+            speculationId, seller, positionType, price, riskAmount, profitAmount
+        );
+
+        vm.prank(seller);
+        vm.expectEmit(true, true, false, true);
+        emit SecondaryMarketModule.PositionListed(
+            speculationId, seller, positionType, price, riskAmount, profitAmount,
+            uint32(block.timestamp), expectedHash
+        );
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
+    }
+
+    /// @notice ListingUpdated event includes correct updated listingHash
+    function testUpdateListing_EmitsUpdatedListingHash() public {
+        vm.startPrank(seller);
+        market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
+
+        uint256 newPrice = 8e6;
+        bytes32 expectedHash = _computeListingHash(
+            speculationId, seller, positionType, newPrice, 10e6, 1e6
+        );
+
+        vm.expectEmit(true, true, false, true);
+        emit SecondaryMarketModule.ListingUpdated(
+            speculationId, seller, positionType,
+            5e6, newPrice, 10e6, 10e6, 1e6, 1e6,
+            expectedHash
+        );
+        market.updateListing(speculationId, positionType, newPrice, 0, 0);
+        vm.stopPrank();
     }
 }

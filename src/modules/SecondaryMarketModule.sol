@@ -23,10 +23,24 @@ import {
 /**
  * @title SecondaryMarketModule
  * @notice Handles secondary market trading of matched positions in the Ospex protocol.
- * @dev Sellers list positions at a price. Buyers purchase proportionally (partial buys
- *      preserve the listing ratio). Payment flows through this contract — sellers claim
- *      proceeds separately via claimSaleProceeds(). Position ownership is transferred
- *      atomically via PositionModule.transferPosition().
+ *
+ * @dev DESIGN: NON-PROPORTIONAL LISTINGS
+ * Sellers may list any (riskAmount, profitAmount) combination within their position
+ * balances, including non-proportional slices.
+ *
+ * @dev DESIGN: HASH COMMITMENT
+ * buyPosition requires an expectedHash — the keccak256 of the listing's complete state
+ * (speculationId, seller, positionType, price, riskAmount, profitAmount). If a seller
+ * calls updateListing between buyer tx submission and execution, the hash mismatches
+ * and the buy reverts with ListingStateChanged(). Buyers obtain the current hash from
+ * PositionListed / ListingUpdated events or the getListingHash() view function.
+ *
+ * Partial buys modify listing state (reducing amounts and price proportionally), which
+ * invalidates the previous hash. Subsequent buyers must obtain the new hash.
+ *
+ * Payment flows through this contract — sellers claim proceeds separately via
+ * claimSaleProceeds(). Position ownership is transferred atomically via
+ * PositionModule.transferPosition().
  */
 contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -71,6 +85,8 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
     error SecondaryMarketModule__ModuleNotSet(bytes32 moduleType);
     /// @notice Thrown when proportional price calculation rounds to zero
     error SecondaryMarketModule__PurchasePriceZero();
+    /// @notice Thrown when the listing state has been altered since the buyer's commitment
+    error SecondaryMarketModule__ListingStateChanged();
 
     // ──────────────────────────── Events ───────────────────────────────
 
@@ -82,7 +98,8 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
         uint256 price,
         uint256 riskAmount,
         uint256 profitAmount,
-        uint32 timestamp
+        uint32 timestamp,
+        bytes32 listingHash
     );
 
     /// @notice Emitted when a listing is updated
@@ -95,7 +112,8 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
         uint256 oldRiskAmount,
         uint256 newRiskAmount,
         uint256 oldProfitAmount,
-        uint256 newProfitAmount
+        uint256 newProfitAmount,
+        bytes32 listingHash
     );
 
     /// @notice Emitted when a position is sold (fully or partially)
@@ -190,6 +208,12 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
             profitAmount: profitAmount
         });
 
+        bytes32 listingHash = _listingHash(
+            speculationId,
+            msg.sender,
+            positionType
+        );
+
         emit PositionListed(
             speculationId,
             msg.sender,
@@ -197,7 +221,8 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
             price,
             riskAmount,
             profitAmount,
-            uint32(block.timestamp)
+            uint32(block.timestamp),
+            listingHash
         );
         i_ospexCore.emitCoreEvent(
             EVENT_POSITION_LISTED,
@@ -208,7 +233,8 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
                 price,
                 riskAmount,
                 profitAmount,
-                uint32(block.timestamp)
+                uint32(block.timestamp),
+                listingHash
             )
         );
     }
@@ -217,18 +243,28 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
 
     /**
      * @notice Buys a portion (or all) of a listed position
-     * @dev Buyer specifies only riskAmount. profitAmount and purchasePrice are derived
-     *      proportionally from the listing, preserving the ratio on partial buys.
+     * @dev Buyer specifies riskAmount and expectedHash. profitAmount and purchasePrice are
+     *      derived proportionally from the listing, preserving the ratio on partial buys.
+     *      The expectedHash must match the current listing state — if the seller modified
+     *      the listing after the buyer committed, the transaction reverts.
+     *
+     *      Integration pattern:
+     *      1. Read listing via getSaleListing() or PositionListed/ListingUpdated events
+     *      2. Obtain hash via getListingHash() or from event emission
+     *      3. Submit buyPosition with the hash — if terms are different, tx reverts safely
+     *
      * @param speculationId The speculation ID
      * @param seller The seller address
      * @param positionType The position type
      * @param riskAmount The risk amount the buyer wants to purchase
+     * @param expectedHash The expected listing state hash (from getListingHash or events)
      */
     function buyPosition(
         uint256 speculationId,
         address seller,
         PositionType positionType,
-        uint256 riskAmount
+        uint256 riskAmount,
+        bytes32 expectedHash
     ) external override nonReentrant {
         if (msg.sender == seller)
             revert SecondaryMarketModule__CannotBuyOwnPosition();
@@ -250,6 +286,10 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
             revert SecondaryMarketModule__ListingNotActive();
         if (riskAmount > listing.riskAmount)
             revert SecondaryMarketModule__AmountAboveMaximum(riskAmount);
+
+        bytes32 currentHash = _listingHash(speculationId, seller, positionType);
+        if (currentHash != expectedHash)
+            revert SecondaryMarketModule__ListingStateChanged();
 
         address posModule = _getModule(POSITION_MODULE);
 
@@ -401,6 +441,12 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
             listing.profitAmount = newProfitAmount;
         }
 
+        bytes32 listingHash = _listingHash(
+            speculationId,
+            msg.sender,
+            positionType
+        );
+
         emit ListingUpdated(
             speculationId,
             msg.sender,
@@ -410,7 +456,8 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
             oldRiskAmount,
             listing.riskAmount,
             oldProfitAmount,
-            listing.profitAmount
+            listing.profitAmount,
+            listingHash
         );
         i_ospexCore.emitCoreEvent(
             EVENT_LISTING_UPDATED,
@@ -423,7 +470,8 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
                 oldRiskAmount,
                 listing.riskAmount,
                 oldProfitAmount,
-                listing.profitAmount
+                listing.profitAmount,
+                listingHash
             )
         );
     }
@@ -444,6 +492,58 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
         address seller
     ) external view override returns (uint256 amount) {
         return s_pendingSaleProceeds[seller];
+    }
+
+    /**
+     * @notice Returns the current hash of a listing's state
+     * @dev Convenience function for off-chain systems to obtain the expectedHash parameter
+     *      required by buyPosition. Also useful after partial buys when the listing state
+     *      has changed and a new hash is needed.
+     * @param speculationId The speculation ID
+     * @param seller The seller address
+     * @param positionType The position type
+     * @return The keccak256 hash of the listing's current state
+     */
+    function getListingHash(
+        uint256 speculationId,
+        address seller,
+        PositionType positionType
+    ) external view override returns (bytes32) {
+        return _listingHash(speculationId, seller, positionType);
+    }
+
+    // ──────────────────────────── Internal Functions ──────────────────
+
+    /**
+     * @notice Computes the hash of a listing's complete state for commitment verification
+     * @dev The hash captures all listing terms so any modification by the seller
+     *      between buyer commitment and execution is detected.
+     *      Includes the listing key (speculationId, seller, positionType)
+     *      to prevent cross-listing hash collisions.
+     * @param speculationId The speculation ID
+     * @param seller The seller address
+     * @param positionType The position type
+     * @return The keccak256 hash of the listing's complete state
+     */
+    function _listingHash(
+        uint256 speculationId,
+        address seller,
+        PositionType positionType
+    ) internal view returns (bytes32) {
+        SaleListing storage listing = s_saleListings[speculationId][seller][
+            positionType
+        ];
+        return
+            keccak256(
+                abi.encode(
+                    speculationId,
+                    seller,
+                    positionType,
+                    listing.price,
+                    listing.riskAmount,
+                    listing.profitAmount
+                )
+            );
     }
 
     // ──────────────────────────── Module Lookup ───────────────────────

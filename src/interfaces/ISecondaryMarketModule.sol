@@ -26,15 +26,18 @@ interface ISecondaryMarketModule is IModule {
 
     /// @notice Buys a portion (or all) of a listed position
     /// @dev profitAmount and purchasePrice are derived proportionally from the listing
+    /// @dev expectedHash must match the current listing state
     /// @param speculationId The speculation ID
     /// @param seller The seller address
     /// @param positionType The position type
     /// @param riskAmount The risk amount to purchase
+    /// @param expectedHash The expected listing state hash
     function buyPosition(
         uint256 speculationId,
         address seller,
         PositionType positionType,
-        uint256 riskAmount
+        uint256 riskAmount,
+        bytes32 expectedHash
     ) external;
 
     /// @notice Claims accumulated proceeds from sold positions
@@ -80,4 +83,15 @@ interface ISecondaryMarketModule is IModule {
     function getPendingSaleProceeds(
         address seller
     ) external view returns (uint256 amount);
+
+    /// @notice Returns the current hash of a listing's state for use as expectedHash in buyPosition
+    /// @param speculationId The speculation ID
+    /// @param seller The seller address
+    /// @param positionType The position type
+    /// @return The keccak256 hash of the listing's current state
+    function getListingHash(
+        uint256 speculationId,
+        address seller,
+        PositionType positionType
+    ) external view returns (bytes32);
 }
