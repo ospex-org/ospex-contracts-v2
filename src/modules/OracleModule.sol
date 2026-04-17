@@ -288,9 +288,6 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
      *      Rundown, Sportspage keys). They do not alter JS execution behavior. The script
      *      hash fully determines behavior. If secrets ever become behavior-altering, a
      *      providerSetHash field must be added to the approval system.
-     *
-     *      Note: contestId is predicted by reading the counter + 1. This is coupled to
-     *      ContestModule's increment-then-assign pattern.
      * @param params Contest identity strings and Chainlink request configuration
      * @param marketUpdateSourceHash Hash of the odds updating JS (stored per-contest)
      * @param scoreContestSourceHash Hash of the scoring JS (stored per-contest)

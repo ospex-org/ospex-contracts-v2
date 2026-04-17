@@ -243,9 +243,6 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
 
         uint256 makerProfit = (fillMakerRisk * profitTicks) / ODDS_SCALE;
 
-        // Lot-size alignment can produce a fillMakerRisk at a ODDS_SCALE boundary where
-        // (fillMakerRisk * profitTicks / ODDS_SCALE) exceeds takerDesiredRisk by 1 base unit.
-        // Clamp to prevent the taker from overpaying.
         if (makerProfit > takerDesiredRisk) {
             makerProfit = takerDesiredRisk;
         }

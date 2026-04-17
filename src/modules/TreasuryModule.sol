@@ -97,15 +97,30 @@ contract TreasuryModule is ITreasuryModule {
 
     // ──────────────────────────── Modifiers ────────────────────────────
 
+    /// @notice Restricts access to the OspexCore contract
     modifier onlyCore() {
         if (msg.sender != address(i_ospexCore))
             revert TreasuryModule__NotCore();
         _;
     }
 
+    /// @notice Restricts access to the registered LeaderboardModule
     modifier onlyLeaderboardModule() {
         if (msg.sender != i_ospexCore.getModule(LEADERBOARD_MODULE))
             revert TreasuryModule__NotLeaderboardModule();
+        _;
+    }
+
+    /// @notice Validates that a leaderboard exists and has not ended
+    /// @param leaderboardId The leaderboard to validate
+    modifier validLeaderboard(uint256 leaderboardId) {
+        Leaderboard memory lb = ILeaderboardModule(
+            i_ospexCore.getModule(LEADERBOARD_MODULE)
+        ).getLeaderboard(leaderboardId);
+        if (lb.creator == address(0))
+            revert TreasuryModule__InvalidLeaderboardCreator();
+        if (block.timestamp >= lb.endTime)
+            revert TreasuryModule__LeaderboardEnded();
         _;
     }
 
@@ -208,16 +223,11 @@ contract TreasuryModule is ITreasuryModule {
     // ──────────────────────────── Leaderboard Funding ─────────────────
 
     /// @inheritdoc ITreasuryModule
-    function fundLeaderboard(uint256 leaderboardId, uint256 amount) external {
+    function fundLeaderboard(
+        uint256 leaderboardId,
+        uint256 amount
+    ) external validLeaderboard(leaderboardId) {
         if (amount == 0) revert TreasuryModule__InvalidAllocation();
-        // Validate leaderboard exists
-        Leaderboard memory lb = ILeaderboardModule(
-            i_ospexCore.getModule(LEADERBOARD_MODULE)
-        ).getLeaderboard(leaderboardId);
-        if (lb.creator == address(0))
-            revert TreasuryModule__InvalidLeaderboardCreator();
-        if (block.timestamp >= lb.endTime)
-            revert TreasuryModule__LeaderboardEnded();
 
         i_token.safeTransferFrom(msg.sender, address(this), amount);
         s_leaderboardPrizePools[leaderboardId] += amount;
@@ -234,7 +244,7 @@ contract TreasuryModule is ITreasuryModule {
         address payer,
         uint256 amount,
         uint256 leaderboardId
-    ) external override onlyCore {
+    ) external override onlyCore validLeaderboard(leaderboardId) {
         i_token.safeTransferFrom(payer, address(this), amount);
         s_leaderboardPrizePools[leaderboardId] += amount;
 

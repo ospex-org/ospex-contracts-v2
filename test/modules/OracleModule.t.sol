@@ -580,6 +580,36 @@ contract OracleModuleTest is Test {
         );
     }
 
+    /**
+     * @notice Regression: linkDenominator > LINK_DIVISIBILITY (1e18) must revert.
+     *         Without this guard, payment = LINK_DIVISIBILITY / linkDenominator
+     *         rounds to zero, making oracle requests free.
+     */
+    function testConstructor_RevertsIfLinkDenominatorExceedsDivisibility() public {
+        vm.expectRevert(OracleModule.OracleModule__InvalidValue.selector);
+        new OracleModule(
+            address(core),
+            address(router),
+            address(linkToken),
+            donId,
+            LINK_DIVISIBILITY + 1, // just above the upper bound
+            signerAddr
+        );
+    }
+
+    /// @notice linkDenominator == LINK_DIVISIBILITY (payment = 1 wei LINK) should succeed
+    function testConstructor_AcceptsLinkDenominatorAtUpperBound() public {
+        OracleModule om = new OracleModule(
+            address(core),
+            address(router),
+            address(linkToken),
+            donId,
+            LINK_DIVISIBILITY, // exactly at the upper bound
+            signerAddr
+        );
+        assertEq(om.i_linkDenominator(), LINK_DIVISIBILITY);
+    }
+
     // ═════════════════════════════════════════════════════════════════════════
     //  CREATE CONTEST FROM ORACLE TESTS
     // ═════════════════════════════════════════════════════════════════════════
@@ -2779,6 +2809,87 @@ contract OracleModuleTest is Test {
     function test_domainSeparatorIsSet() public view {
         bytes32 ds = oracleModule.DOMAIN_SEPARATOR();
         assertTrue(ds != bytes32(0));
+    }
+
+    /**
+     * @notice Regression: verify the DOMAIN_SEPARATOR matches the expected EIP-712
+     *         preimage. Catches accidental changes to domain name, version, chainId,
+     *         or verifyingContract that would silently break signature verification
+     *         in production.
+     */
+    function test_domainSeparator_matchesExpectedPreimage() public view {
+        bytes32 expectedDomainTypehash = keccak256(
+            "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+        );
+        bytes32 expected = keccak256(
+            abi.encode(
+                expectedDomainTypehash,
+                keccak256("OspexOracle"),
+                keccak256("1"),
+                block.chainid,
+                address(oracleModule)
+            )
+        );
+        assertEq(
+            oracleModule.DOMAIN_SEPARATOR(),
+            expected,
+            "DOMAIN_SEPARATOR does not match expected preimage"
+        );
+    }
+
+    /**
+     * @notice Regression: a valid signature produced against one oracle's domain
+     *         must be rejected by a different oracle (different verifyingContract).
+     *         Ensures domain-binding actually prevents cross-contract signature replay.
+     */
+    function test_revert_signatureFromDifferentDomain() public {
+        // Deploy a second oracle in its own core — different address → different domain
+        OspexCore core2 = new OspexCore();
+        ContestModule contestModule2 = new ContestModule(address(core2));
+        TreasuryModule treasury2 = new TreasuryModule(
+            address(core2), address(usdc), address(0x2), 0, 0, 0
+        );
+        OracleModule oracle2 = new OracleModule(
+            address(core2),
+            address(router),
+            address(linkToken),
+            donId,
+            LINK_DENOMINATOR,
+            signerAddr
+        );
+        _bootstrap(core2, address(oracle2), address(contestModule2), address(treasury2));
+
+        // Sanity: the two oracles have different domain separators
+        assertTrue(
+            oracleModule.DOMAIN_SEPARATOR() != oracle2.DOMAIN_SEPARATOR(),
+            "domains must differ when verifyingContract differs"
+        );
+
+        // Sign approvals against the FIRST oracle's domain
+        OracleModule.ScriptApprovals memory approvals = _makeApprovalsFor(
+            VERIFY_JS, updateHash, scoreHash, oracleModule
+        );
+
+        // Fund LINK for oracle2
+        uint256 payment = LINK_DIVISIBILITY / LINK_DENOMINATOR;
+        linkToken.mint(user, payment);
+        vm.prank(user);
+        linkToken.approve(address(oracle2), payment);
+
+        // Fund USDC for contest creation fee via treasury2
+        usdc.mint(user, 100_000_000);
+        vm.prank(user);
+        usdc.approve(address(treasury2), type(uint256).max);
+
+        // Submit to the SECOND oracle — signature should fail domain check
+        vm.expectRevert(OracleModule.OracleModule__InvalidScriptApproval.selector);
+        vm.prank(user);
+        oracle2.createContestFromOracle(
+            _defaultParams(),
+            updateHash,
+            scoreHash,
+            approvals
+        );
     }
 
     function test_approvedSignerIsSet() public view {
