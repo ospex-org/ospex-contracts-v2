@@ -258,9 +258,22 @@ contract ContestModuleTest is Test {
         assertEq(feeToken.balanceOf(contestCreator), creatorBefore - fee);
     }
 
+    // --- Helpers ---
+
+    function _createVerifiedContest() internal returns (uint256 contestId) {
+        vm.prank(oracleModule);
+        contestId = contestModule.createContest(
+            "rd", "sp", "jo",
+            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
+            LeagueId.Unknown, contestCreator
+        );
+        vm.prank(oracleModule);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, uint32(block.timestamp));
+    }
+
     // --- Update Contest Markets Tests ---
     function testUpdateContestMarkets_Success() public {
-        uint256 contestId = 1;
+        uint256 contestId = _createVerifiedContest();
 
         uint16 moneylineAwayOdds = 150;
         uint16 moneylineHomeOdds = 250;
@@ -327,7 +340,7 @@ contract ContestModuleTest is Test {
     }
 
     function testUpdateContestMarkets_HandlesEdgeCaseValues() public {
-        uint256 contestId = 2;
+        uint256 contestId = _createVerifiedContest();
         vm.prank(oracleModule);
         contestModule.updateContestMarkets(
             contestId, 105, 500, -150, 105, 500, 5000, 105, 500
@@ -341,7 +354,7 @@ contract ContestModuleTest is Test {
 
     // --- Get Contest Market Tests ---
     function testGetContestMarket_ReturnsCorrectData() public {
-        uint256 contestId = 1;
+        uint256 contestId = _createVerifiedContest();
         vm.prank(oracleModule);
         contestModule.updateContestMarkets(
             contestId, 160, 240, -25, 170, 230, 2100, 180, 220
@@ -431,21 +444,24 @@ contract ContestModuleTest is Test {
     }
 
     function testUpdateContestMarkets_RevertsIfAnyOddsZero() public {
+        uint256 contestId = _createVerifiedContest();
         vm.prank(oracleModule);
         vm.expectRevert(ContestModule.ContestModule__InvalidMarketData.selector);
-        contestModule.updateContestMarkets(1, 0, 250, -35, 180, 220, 2250, 190, 210);
+        contestModule.updateContestMarkets(contestId, 0, 250, -35, 180, 220, 2250, 190, 210);
     }
 
     function testUpdateContestMarkets_RevertsIfUnderOddsZero() public {
+        uint256 contestId = _createVerifiedContest();
         vm.prank(oracleModule);
         vm.expectRevert(ContestModule.ContestModule__InvalidMarketData.selector);
-        contestModule.updateContestMarkets(1, 150, 250, -35, 180, 220, 2250, 190, 0);
+        contestModule.updateContestMarkets(contestId, 150, 250, -35, 180, 220, 2250, 190, 0);
     }
 
     function testUpdateContestMarkets_RevertsIfNegativeTotalLineTicks() public {
+        uint256 contestId = _createVerifiedContest();
         vm.prank(oracleModule);
         vm.expectRevert(ContestModule.ContestModule__InvalidMarketData.selector);
-        contestModule.updateContestMarkets(1, 150, 250, -35, 180, 220, -10, 190, 210);
+        contestModule.updateContestMarkets(contestId, 150, 250, -35, 180, 220, -10, 190, 210);
     }
 
     function testCreateContest_RevertsIfAllSourceIdsEmpty() public {
@@ -456,6 +472,263 @@ contract ContestModuleTest is Test {
             bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
             LeagueId.Unknown, contestCreator
         );
+    }
+
+    // --- Void Contest Tests ---
+
+    function testVoidContest_Success() public {
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest(
+            "rd", "sp", "jo",
+            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
+            LeagueId.Unknown, contestCreator
+        );
+        vm.prank(oracleModule);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, uint32(block.timestamp));
+
+        address speculationModuleAddr = address(0xD001);
+        vm.prank(speculationModuleAddr);
+        contestModule.voidContest(contestId);
+
+        Contest memory c = contestModule.getContest(contestId);
+        assertEq(uint(c.contestStatus), uint(ContestStatus.Voided));
+    }
+
+    function testVoidContest_EmitsEvent() public {
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest(
+            "rd", "sp", "jo",
+            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
+            LeagueId.Unknown, contestCreator
+        );
+        vm.prank(oracleModule);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, uint32(block.timestamp));
+
+        address speculationModuleAddr = address(0xD001);
+        vm.expectEmit(true, true, true, true);
+        emit ContestModule.ContestVoided(contestId);
+        vm.prank(speculationModuleAddr);
+        contestModule.voidContest(contestId);
+    }
+
+    function testVoidContest_RevertsIfNotSpeculationModule() public {
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest(
+            "rd", "sp", "jo",
+            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
+            LeagueId.Unknown, contestCreator
+        );
+        vm.prank(oracleModule);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, uint32(block.timestamp));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ContestModule.ContestModule__NotSpeculationModule.selector,
+                notOracle
+            )
+        );
+        vm.prank(notOracle);
+        contestModule.voidContest(contestId);
+    }
+
+    function testVoidContest_RevertsIfContestUnverified() public {
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest(
+            "rd", "sp", "jo",
+            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
+            LeagueId.Unknown, contestCreator
+        );
+
+        address speculationModuleAddr = address(0xD001);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ContestModule.ContestModule__ContestNotVerified.selector,
+                contestId
+            )
+        );
+        vm.prank(speculationModuleAddr);
+        contestModule.voidContest(contestId);
+    }
+
+    function testVoidContest_RevertsIfAlreadyScored() public {
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest(
+            "rd", "sp", "jo",
+            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
+            LeagueId.Unknown, contestCreator
+        );
+        vm.prank(oracleModule);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, uint32(block.timestamp));
+        vm.prank(oracleModule);
+        contestModule.setScores(contestId, 100, 95);
+
+        address speculationModuleAddr = address(0xD001);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ContestModule.ContestModule__ContestNotVerified.selector,
+                contestId
+            )
+        );
+        vm.prank(speculationModuleAddr);
+        contestModule.voidContest(contestId);
+    }
+
+    function testVoidContest_RevertsIfAlreadyVoided() public {
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest(
+            "rd", "sp", "jo",
+            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
+            LeagueId.Unknown, contestCreator
+        );
+        vm.prank(oracleModule);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, uint32(block.timestamp));
+
+        address speculationModuleAddr = address(0xD001);
+        vm.prank(speculationModuleAddr);
+        contestModule.voidContest(contestId);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ContestModule.ContestModule__ContestNotVerified.selector,
+                contestId
+            )
+        );
+        vm.prank(speculationModuleAddr);
+        contestModule.voidContest(contestId);
+    }
+
+    function testSetScores_RevertsIfContestVoided() public {
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest(
+            "rd", "sp", "jo",
+            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
+            LeagueId.Unknown, contestCreator
+        );
+        vm.prank(oracleModule);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, uint32(block.timestamp));
+
+        // Void the contest
+        address speculationModuleAddr = address(0xD001);
+        vm.prank(speculationModuleAddr);
+        contestModule.voidContest(contestId);
+
+        // Oracle tries to score — should revert (status != Verified)
+        vm.prank(oracleModule);
+        vm.expectRevert(
+            abi.encodeWithSelector(ContestModule.ContestModule__AlreadyScored.selector, contestId)
+        );
+        contestModule.setScores(contestId, 100, 95);
+    }
+
+    // --- isContestTerminal Tests ---
+
+    function testIsContestTerminal_FalseForUnverified() public {
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest(
+            "rd", "sp", "jo",
+            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
+            LeagueId.Unknown, contestCreator
+        );
+        assertFalse(contestModule.isContestTerminal(contestId));
+    }
+
+    function testIsContestTerminal_FalseForVerified() public {
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest(
+            "rd", "sp", "jo",
+            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
+            LeagueId.Unknown, contestCreator
+        );
+        vm.prank(oracleModule);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, uint32(block.timestamp));
+        assertFalse(contestModule.isContestTerminal(contestId));
+    }
+
+    function testIsContestTerminal_TrueForScored() public {
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest(
+            "rd", "sp", "jo",
+            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
+            LeagueId.Unknown, contestCreator
+        );
+        vm.prank(oracleModule);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, uint32(block.timestamp));
+        vm.prank(oracleModule);
+        contestModule.setScores(contestId, 100, 95);
+        assertTrue(contestModule.isContestTerminal(contestId));
+    }
+
+    function testIsContestTerminal_TrueForVoided() public {
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest(
+            "rd", "sp", "jo",
+            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
+            LeagueId.Unknown, contestCreator
+        );
+        vm.prank(oracleModule);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, uint32(block.timestamp));
+
+        address speculationModuleAddr = address(0xD001);
+        vm.prank(speculationModuleAddr);
+        contestModule.voidContest(contestId);
+        assertTrue(contestModule.isContestTerminal(contestId));
+    }
+
+    // --- Market Update Status Guard Tests ---
+
+    function testUpdateContestMarkets_RevertsIfContestScored() public {
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest(
+            "rd", "sp", "jo",
+            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
+            LeagueId.Unknown, contestCreator
+        );
+        vm.prank(oracleModule);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, uint32(block.timestamp));
+        vm.prank(oracleModule);
+        contestModule.setScores(contestId, 100, 95);
+
+        vm.prank(oracleModule);
+        vm.expectRevert(
+            abi.encodeWithSelector(ContestModule.ContestModule__ContestNotVerified.selector, contestId)
+        );
+        contestModule.updateContestMarkets(contestId, 150, 250, -35, 180, 220, 2250, 190, 210);
+    }
+
+    function testUpdateContestMarkets_RevertsIfContestVoided() public {
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest(
+            "rd", "sp", "jo",
+            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
+            LeagueId.Unknown, contestCreator
+        );
+        vm.prank(oracleModule);
+        contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, uint32(block.timestamp));
+
+        address speculationModuleAddr = address(0xD001);
+        vm.prank(speculationModuleAddr);
+        contestModule.voidContest(contestId);
+
+        vm.prank(oracleModule);
+        vm.expectRevert(
+            abi.encodeWithSelector(ContestModule.ContestModule__ContestNotVerified.selector, contestId)
+        );
+        contestModule.updateContestMarkets(contestId, 150, 250, -35, 180, 220, 2250, 190, 210);
+    }
+
+    function testUpdateContestMarkets_RevertsIfContestUnverified() public {
+        vm.prank(oracleModule);
+        uint256 contestId = contestModule.createContest(
+            "rd", "sp", "jo",
+            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
+            LeagueId.Unknown, contestCreator
+        );
+
+        vm.prank(oracleModule);
+        vm.expectRevert(
+            abi.encodeWithSelector(ContestModule.ContestModule__ContestNotVerified.selector, contestId)
+        );
+        contestModule.updateContestMarkets(contestId, 150, 250, -35, 180, 220, 2250, 190, 210);
     }
 
     function testCreateContest_SucceedsWithOneSourceId() public {

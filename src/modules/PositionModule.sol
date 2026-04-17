@@ -259,7 +259,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
             _getModule(SPECULATION_MODULE)
         ).getSpeculation(speculationId);
         if (
-            IContestModule(_getModule(CONTEST_MODULE)).isContestScored(
+            IContestModule(_getModule(CONTEST_MODULE)).isContestTerminal(
                 spec.contestId
             )
         ) {

@@ -891,6 +891,38 @@ contract PositionModuleTest is Test {
         );
     }
 
+    function testTransferPosition_RevertsIfContestVoided() public {
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
+            1, address(defaultScorer), 42,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        // Void the contest (but DON'T settle the speculation)
+        Contest memory voidedContest = Contest({
+            awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Voided, contestCreator: address(this),
+            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
+            rundownId: "", sportspageId: "", jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, voidedContest);
+
+        // Transfer should revert because contest is terminal (voided)
+        Position memory makerPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
+        vm.expectRevert(PositionModule.PositionModule__ContestAlreadyScored.selector);
+        vm.prank(address(defaultMarket));
+        defaultMarket.transferPosition(
+            specId, address(this), PositionType.Upper, user,
+            makerPos.riskAmount, makerPos.profitAmount
+        );
+    }
+
     // --- CLAIM POSITION EDGE CASE TESTS ---
 
     /**

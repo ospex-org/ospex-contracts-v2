@@ -214,7 +214,7 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
         }
 
         if (
-            IContestModule(_getModule(CONTEST_MODULE)).isContestScored(
+            IContestModule(_getModule(CONTEST_MODULE)).isContestTerminal(
                 commitment.contestId
             )
         ) {

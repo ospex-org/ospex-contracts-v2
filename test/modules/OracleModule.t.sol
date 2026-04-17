@@ -75,6 +75,12 @@ contract OracleModuleTestHelper is OracleModule {
             contestId: contestId
         });
     }
+    function setLatestMarketRequestId(
+        uint256 contestId,
+        bytes32 requestId
+    ) public {
+        s_latestMarketRequestId[contestId] = requestId;
+    }
 }
 
 contract OracleModuleExposed is OracleModule {
@@ -1765,6 +1771,7 @@ contract OracleModuleTest is Test {
             OracleRequestType.ContestMarketsUpdate,
             contestId
         );
+        testHelper.setLatestMarketRequestId(contestId, requestId);
 
         // Create test market data using realistic betting odds
         // Format: [moneylineAway(5)][moneylineHome(5)][spread(4)][spreadAwayLine(5)][spreadHomeLine(5)][total(4)][overLine(5)][underLine(5)]

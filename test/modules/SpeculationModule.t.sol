@@ -262,7 +262,7 @@ contract SpeculationModuleTest is Test {
         assertEq(s.speculationScorer, spreadScorerAddr);
     }
 
-    // --- Contest Already Scored ---
+    // --- Invalid Contest Status ---
 
     function testCreateSpeculation_RevertsOnScoredContest() public {
         Contest memory contest = Contest({
@@ -273,7 +273,7 @@ contract SpeculationModuleTest is Test {
         });
         mockContestModule.setContest(1, contest);
 
-        vm.expectRevert(SpeculationModule.SpeculationModule__ContestAlreadyScored.selector);
+        vm.expectRevert(SpeculationModule.SpeculationModule__InvalidContestStatus.selector);
         speculationModule.createSpeculation(
             1, moneylineScorerAddr, 0, address(this), speculationCreator
         );
@@ -409,7 +409,7 @@ contract SpeculationModuleTest is Test {
         );
     }
 
-    // --- Branch Coverage: ContestNotVerified ---
+    // --- Branch Coverage: InvalidContestStatus ---
 
     function testCreateSpeculation_RevertsOnUnverifiedContest() public {
         Contest memory unverified = Contest({
@@ -420,9 +420,24 @@ contract SpeculationModuleTest is Test {
         });
         mockContestModule.setContest(99, unverified);
 
-        vm.expectRevert(SpeculationModule.SpeculationModule__ContestNotVerified.selector);
+        vm.expectRevert(SpeculationModule.SpeculationModule__InvalidContestStatus.selector);
         speculationModule.createSpeculation(
             99, moneylineScorerAddr, 0, address(this), speculationCreator
+        );
+    }
+
+    function testCreateSpeculation_RevertsOnVoidedContest() public {
+        Contest memory voided = Contest({
+            awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Voided, contestCreator: address(this),
+            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
+            rundownId: "", sportspageId: "", jsonoddsId: ""
+        });
+        mockContestModule.setContest(1, voided);
+
+        vm.expectRevert(SpeculationModule.SpeculationModule__InvalidContestStatus.selector);
+        speculationModule.createSpeculation(
+            1, moneylineScorerAddr, 0, address(this), speculationCreator
         );
     }
 
@@ -436,5 +451,120 @@ contract SpeculationModuleTest is Test {
     function testSettleSpeculation_RevertsOnIdAboveCounter() public {
         vm.expectRevert(SpeculationModule.SpeculationModule__InvalidSpeculationId.selector);
         speculationModule.settleSpeculation(999);
+    }
+
+    // --- Contest Void Lock Tests ---
+
+    function testSettleSpeculation_VoidLocksContest() public {
+        uint256 id = speculationModule.createSpeculation(
+            1, moneylineScorerAddr, 0, address(this), speculationCreator
+        );
+
+        // Warp past cooldown — contest stays Verified (unscored)
+        vm.warp(block.timestamp + speculationModule.i_voidCooldown() + 1);
+        speculationModule.settleSpeculation(id);
+
+        // Contest should now be Voided
+        Contest memory contest = mockContestModule.getContest(1);
+        assertEq(uint(contest.contestStatus), uint(ContestStatus.Voided));
+    }
+
+    function testSettleSpeculation_SiblingSpeculationsVoidAfterContestVoided() public {
+        // Two speculations on the same contest
+        uint256 idA = speculationModule.createSpeculation(
+            1, moneylineScorerAddr, 0, address(this), speculationCreator
+        );
+        uint256 idB = speculationModule.createSpeculation(
+            1, spreadScorerAddr, -35, address(this), speculationCreator
+        );
+
+        // Warp past cooldown, contest not scored
+        vm.warp(block.timestamp + speculationModule.i_voidCooldown() + 1);
+
+        // Settle A — voids contest
+        speculationModule.settleSpeculation(idA);
+
+        // Settle B — contest already Voided, should also void
+        speculationModule.settleSpeculation(idB);
+
+        Speculation memory sA = speculationModule.getSpeculation(idA);
+        Speculation memory sB = speculationModule.getSpeculation(idB);
+        assertEq(uint(sA.winSide), uint(WinSide.Void), "speculation A should be void");
+        assertEq(uint(sB.winSide), uint(WinSide.Void), "speculation B should be void");
+        assertEq(uint(sA.speculationStatus), uint(SpeculationStatus.Closed));
+        assertEq(uint(sB.speculationStatus), uint(SpeculationStatus.Closed));
+    }
+
+    function testSettleSpeculation_NoMixedOutcomesOnSameContest() public {
+        // Core race condition test: all speculations on same contest must get same outcome type
+        uint256 idA = speculationModule.createSpeculation(
+            1, moneylineScorerAddr, 0, address(this), speculationCreator
+        );
+        uint256 idB = speculationModule.createSpeculation(
+            1, spreadScorerAddr, -35, address(this), speculationCreator
+        );
+        uint256 idC = speculationModule.createSpeculation(
+            1, totalScorerAddr, 2250, address(this), speculationCreator
+        );
+
+        // Warp past cooldown, contest not scored
+        vm.warp(block.timestamp + speculationModule.i_voidCooldown() + 1);
+
+        // Settle A — voids it and locks contest
+        speculationModule.settleSpeculation(idA);
+
+        // Contest is now Voided — even if oracle somehow scored it (impossible due to void lock),
+        // the remaining speculations must also void
+        speculationModule.settleSpeculation(idB);
+        speculationModule.settleSpeculation(idC);
+
+        Speculation memory sA = speculationModule.getSpeculation(idA);
+        Speculation memory sB = speculationModule.getSpeculation(idB);
+        Speculation memory sC = speculationModule.getSpeculation(idC);
+
+        // All three must be Void — no mixed outcomes
+        assertEq(uint(sA.winSide), uint(WinSide.Void), "A should be void");
+        assertEq(uint(sB.winSide), uint(WinSide.Void), "B should be void");
+        assertEq(uint(sC.winSide), uint(WinSide.Void), "C should be void");
+    }
+
+    function testSettleSpeculation_VoidBlocksLateScoring() public {
+        uint256 id = speculationModule.createSpeculation(
+            1, moneylineScorerAddr, 0, address(this), speculationCreator
+        );
+
+        // Warp past cooldown and void-settle
+        vm.warp(block.timestamp + speculationModule.i_voidCooldown() + 1);
+        speculationModule.settleSpeculation(id);
+
+        // Verify contest is Voided — the real ContestModule.setScores() would revert
+        // because contestStatus != Verified. With the mock we verify state directly.
+        Contest memory contest = mockContestModule.getContest(1);
+        assertEq(
+            uint(contest.contestStatus),
+            uint(ContestStatus.Voided),
+            "contest should be voided, blocking late scoring"
+        );
+    }
+
+    function testSettleSpeculation_SecondVoidDoesNotCallVoidContestAgain() public {
+        // First void settlement locks contest; second should skip voidContest (already Voided)
+        uint256 idA = speculationModule.createSpeculation(
+            1, moneylineScorerAddr, 0, address(this), speculationCreator
+        );
+        uint256 idB = speculationModule.createSpeculation(
+            1, spreadScorerAddr, -35, address(this), speculationCreator
+        );
+
+        vm.warp(block.timestamp + speculationModule.i_voidCooldown() + 1);
+
+        // Settle A — voids contest
+        speculationModule.settleSpeculation(idA);
+        assertEq(uint(mockContestModule.getContest(1).contestStatus), uint(ContestStatus.Voided));
+
+        // Settle B — contest already Voided, should still succeed (skips inner voidContest call)
+        speculationModule.settleSpeculation(idB);
+        Speculation memory sB = speculationModule.getSpeculation(idB);
+        assertEq(uint(sB.winSide), uint(WinSide.Void));
     }
 }

@@ -115,17 +115,17 @@ contract MockPositionModuleForMatching {
 }
 
 // =============================================================================
-// Mock ContestModule -- implements isContestScored with configurable return.
+// Mock ContestModule -- implements isContestTerminal with configurable return.
 // =============================================================================
 contract MockContestModuleForMatching {
-    mapping(uint256 => bool) private _scored;
+    mapping(uint256 => bool) private _terminal;
 
-    function setContestScored(uint256 contestId, bool scored) external {
-        _scored[contestId] = scored;
+    function setContestTerminal(uint256 contestId, bool terminal) external {
+        _terminal[contestId] = terminal;
     }
 
-    function isContestScored(uint256 contestId) external view returns (bool) {
-        return _scored[contestId];
+    function isContestTerminal(uint256 contestId) external view returns (bool) {
+        return _terminal[contestId];
     }
 }
 
@@ -1392,7 +1392,7 @@ contract MatchingModuleTest is Test {
      * @notice matchCommitment reverts when the contest has been scored
      */
     function test_ContestAlreadyScored_Reverts() public {
-        mockContest.setContestScored(DEFAULT_CONTEST_ID, true);
+        mockContest.setContestTerminal(DEFAULT_CONTEST_ID, true);
 
         (
             MatchingModule.OspexCommitment memory c,
@@ -1446,7 +1446,7 @@ contract MatchingModuleTest is Test {
         assertEq(mockPosition.recordFillCallCount(), 1);
 
         // Contest gets scored
-        mockContest.setContestScored(DEFAULT_CONTEST_ID, true);
+        mockContest.setContestTerminal(DEFAULT_CONTEST_ID, true);
 
         // Second fill on same commitment reverts
         vm.prank(taker);
@@ -1465,7 +1465,7 @@ contract MatchingModuleTest is Test {
      */
     function test_ContestScored_DoesNotAffectOtherContests() public {
         // Score contest 999 — not the default contest
-        mockContest.setContestScored(999, true);
+        mockContest.setContestTerminal(999, true);
 
         // Default contest (ID=1) is still fillable
         (
@@ -1479,6 +1479,27 @@ contract MatchingModuleTest is Test {
             DEFAULT_TAKER_DESIRED_RISK
         );
         assertEq(mockPosition.recordFillCallCount(), 1);
+    }
+
+    /**
+     * @notice matchCommitment reverts when the contest has been voided (terminal)
+     */
+    function test_ContestVoided_Reverts() public {
+        mockContest.setContestTerminal(DEFAULT_CONTEST_ID, true);
+
+        (
+            MatchingModule.OspexCommitment memory c,
+            bytes memory sig
+        ) = _signedDefault();
+        vm.prank(taker);
+        vm.expectRevert(
+            MatchingModule.MatchingModule__ContestAlreadyScored.selector
+        );
+        matchingModule.matchCommitment(
+            c,
+            sig,
+            DEFAULT_TAKER_DESIRED_RISK
+        );
     }
 }
 

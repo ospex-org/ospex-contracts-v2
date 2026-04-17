@@ -224,6 +224,8 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
 
     /// @notice Request ID → request context (type + contest ID)
     mapping(bytes32 => OracleRequestContext) public s_requestContext;
+    /// @notice Contest ID → latest market update request ID (only the latest callback writes)
+    mapping(uint256 => bytes32) internal s_latestMarketRequestId;
 
     // ──────────────────────────── Constructor ──────────────────────────
 
@@ -471,6 +473,8 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
     /**
      * @notice Sends an oracle request to update market data for a verified contest
      * @dev Permissionless. Caller pays LINK. Contest must be in Verified status.
+     *      Supersedes any in-flight market update for the same contest — only the
+     *      latest request's callback writes; earlier callbacks are silently dropped.
      * @param contestId The contest ID
      * @param contestMarketsUpdateSourceJS The JS source code for market data extraction
      * @param encryptedSecretsUrls Chainlink Functions encrypted secrets
@@ -506,7 +510,7 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         args[1] = contest.sportspageId;
         args[2] = contest.jsonoddsId;
 
-        sendRequest(
+        bytes32 reqId = sendRequest(
             contestMarketsUpdateSourceJS,
             encryptedSecretsUrls,
             args,
@@ -516,6 +520,7 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
             OracleRequestType.ContestMarketsUpdate,
             contestId
         );
+        s_latestMarketRequestId[contestId] = reqId;
     }
 
     // ──────────────────────────── Scoring ─────────────────────────────
@@ -653,6 +658,10 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         if (ctx.requestType == OracleRequestType.ContestCreate) {
             _handleContestCreate(ctx.contestId, response);
         } else if (ctx.requestType == OracleRequestType.ContestMarketsUpdate) {
+            if (requestId != s_latestMarketRequestId[ctx.contestId]) {
+                delete s_requestContext[requestId];
+                return;
+            }
             _handleContestMarketsUpdate(ctx.contestId, response);
         } else if (ctx.requestType == OracleRequestType.ContestScore) {
             _handleContestScore(ctx.contestId, response);

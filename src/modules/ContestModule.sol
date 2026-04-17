@@ -21,6 +21,8 @@ contract ContestModule is IContestModule {
     // ──────────────────────────── Constants ────────────────────────────
 
     bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
+    bytes32 public constant SPECULATION_MODULE =
+        keccak256("SPECULATION_MODULE");
     bytes32 public constant ORACLE_MODULE = keccak256("ORACLE_MODULE");
     bytes32 public constant TREASURY_MODULE = keccak256("TREASURY_MODULE");
     bytes32 public constant MONEYLINE_SCORER_MODULE =
@@ -38,11 +40,14 @@ contract ContestModule is IContestModule {
         keccak256("CONTEST_MARKETS_UPDATED");
     bytes32 public constant EVENT_CONTEST_SCORES_SET =
         keccak256("CONTEST_SCORES_SET");
+    bytes32 public constant EVENT_CONTEST_VOIDED = keccak256("CONTEST_VOIDED");
 
     // ──────────────────────────── Errors ───────────────────────────────
 
     /// @notice Thrown when a non-OracleModule address calls an oracle-only function
     error ContestModule__NotOracleModule(address caller);
+    /// @notice Thrown when a non-SpeculationModule address calls a speculation-only function
+    error ContestModule__NotSpeculationModule(address caller);
     /// @notice Thrown when the OspexCore address is zero
     error ContestModule__InvalidCoreAddress();
     /// @notice Thrown when a contest is missing all external IDs
@@ -57,6 +62,8 @@ contract ContestModule is IContestModule {
     error ContestModule__InvalidStatus(uint256 contestId);
     /// @notice Thrown when the oracle callback leagueId conflicts with the league set from script approvals at creation
     error ContestModule__LeagueMismatch();
+    /// @notice Thrown when attempting to void a contest that is not in Verified status
+    error ContestModule__ContestNotVerified(uint256 contestId);
 
     // ──────────────────────────── Events ───────────────────────────────
 
@@ -121,12 +128,24 @@ contract ContestModule is IContestModule {
         uint32 homeScore
     );
 
+    /// @notice Emitted when a contest is voided due to cooldown expiry without scoring
+    /// @param contestId The contest ID
+    event ContestVoided(uint256 indexed contestId);
+
     // ──────────────────────────── Modifiers ────────────────────────────
 
     /// @dev Restricts access to the registered OracleModule
     modifier onlyOracleModule() {
         if (msg.sender != _getModule(ORACLE_MODULE)) {
             revert ContestModule__NotOracleModule(msg.sender);
+        }
+        _;
+    }
+
+    /// @dev Restricts access to the registered SpeculationModule
+    modifier onlySpeculationModule() {
+        if (msg.sender != _getModule(SPECULATION_MODULE)) {
+            revert ContestModule__NotSpeculationModule(msg.sender);
         }
         _;
     }
@@ -244,6 +263,8 @@ contract ContestModule is IContestModule {
         uint16 overOdds,
         uint16 underOdds
     ) external override onlyOracleModule {
+        if (s_contests[contestId].contestStatus != ContestStatus.Verified)
+            revert ContestModule__ContestNotVerified(contestId);
         if (
             moneylineAwayOdds == 0 ||
             moneylineHomeOdds == 0 ||
@@ -368,6 +389,16 @@ contract ContestModule is IContestModule {
         );
     }
 
+    /// @inheritdoc IContestModule
+    function voidContest(uint256 contestId) external onlySpeculationModule {
+        if (s_contests[contestId].contestStatus != ContestStatus.Verified) {
+            revert ContestModule__ContestNotVerified(contestId);
+        }
+        s_contests[contestId].contestStatus = ContestStatus.Voided;
+        emit ContestVoided(contestId);
+        i_ospexCore.emitCoreEvent(EVENT_CONTEST_VOIDED, abi.encode(contestId));
+    }
+
     // ──────────────────────────── View Functions ──────────────────────
 
     /// @inheritdoc IContestModule
@@ -378,10 +409,12 @@ contract ContestModule is IContestModule {
     }
 
     /// @inheritdoc IContestModule
-    function isContestScored(
+    function isContestTerminal(
         uint256 contestId
     ) external view override returns (bool) {
-        return s_contests[contestId].contestStatus == ContestStatus.Scored;
+        return
+            s_contests[contestId].contestStatus == ContestStatus.Scored ||
+            s_contests[contestId].contestStatus == ContestStatus.Voided;
     }
 
     /// @inheritdoc IContestModule

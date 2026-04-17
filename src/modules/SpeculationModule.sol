@@ -50,10 +50,8 @@ contract SpeculationModule is ISpeculationModule {
     error SpeculationModule__InvalidStartTime();
     /// @notice Thrown when a speculation already exists for the given contest/scorer/line
     error SpeculationModule__SpeculationExists();
-    /// @notice Thrown when attempting to create a speculation on an already-scored contest
-    error SpeculationModule__ContestAlreadyScored();
-    /// @notice Thrown when attempting to create a speculation on an unverified contest
-    error SpeculationModule__ContestNotVerified();
+    /// @notice Thrown when attempting to create a speculation on a contest that is not in Verified status
+    error SpeculationModule__InvalidContestStatus();
     /// @notice Thrown when the OspexCore address is zero
     error SpeculationModule__InvalidAddress();
     /// @notice Thrown when a required module is not registered in OspexCore
@@ -168,14 +166,8 @@ contract SpeculationModule is ISpeculationModule {
 
         Contest memory contest = IContestModule(_getModule(CONTEST_MODULE))
             .getContest(contestId);
-        if (contest.contestStatus == ContestStatus.Unverified) {
-            revert SpeculationModule__ContestNotVerified();
-        }
-
-        if (contest.contestStatus == ContestStatus.Scored) {
-            revert SpeculationModule__ContestAlreadyScored();
-        }
-
+        if (contest.contestStatus != ContestStatus.Verified)
+            revert SpeculationModule__InvalidContestStatus();
         if (!i_ospexCore.isApprovedScorer(scorer)) {
             revert SpeculationModule__ScorerNotApproved();
         }
@@ -273,6 +265,9 @@ contract SpeculationModule is ISpeculationModule {
             block.timestamp >=
             uint256(contestStartTime) + uint256(i_voidCooldown)
         ) {
+            if (contest.contestStatus == ContestStatus.Verified) {
+                contestModule.voidContest(s.contestId);
+            }
             s.speculationStatus = SpeculationStatus.Closed;
             s.winSide = WinSide.Void;
             emit SpeculationSettled(
@@ -280,7 +275,6 @@ contract SpeculationModule is ISpeculationModule {
                 WinSide.Void,
                 s.speculationScorer
             );
-            // Emit protocol-wide core event
             i_ospexCore.emitCoreEvent(
                 EVENT_SPECULATION_SETTLED,
                 abi.encode(speculationId, WinSide.Void, s.speculationScorer)

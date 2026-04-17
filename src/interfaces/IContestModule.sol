@@ -42,6 +42,7 @@ interface IContestModule is IModule {
     ) external returns (uint256 contestId);
 
     /// @notice Updates all market data for a contest. Only callable by OracleModule.
+    /// @dev Requires contestStatus == Verified, rejects writes on scored, voided, or unverified contests
     /// @param contestId The contest identifier
     /// @param moneylineAway Odds tick for away team moneyline
     /// @param moneylineHome Odds tick for home team moneyline
@@ -83,6 +84,12 @@ interface IContestModule is IModule {
         uint32 homeScore
     ) external;
 
+    /// @notice Voids a contest, permanently blocking scoring. Only callable by SpeculationModule.
+    /// @dev Once voided, setScores reverts because contestStatus != Verified.
+    ///      Prevents mixed outcomes across sibling speculations on the same contest.
+    /// @param contestId The contest ID
+    function voidContest(uint256 contestId) external;
+
     /// @notice Gets contest data
     /// @param contestId The ID of the contest
     /// @return contest The contest struct
@@ -90,10 +97,10 @@ interface IContestModule is IModule {
         uint256 contestId
     ) external view returns (Contest memory contest);
 
-    /// @notice Checks if a contest has been scored
+    /// @notice Checks if a contest has been scored or voided
     /// @param contestId The ID of the contest
-    /// @return True if the contest has been scored
-    function isContestScored(uint256 contestId) external view returns (bool);
+    /// @return True if the contest has been scored or voided
+    function isContestTerminal(uint256 contestId) external view returns (bool);
 
     /// @notice Gets market data for a contest/scorer pair
     /// @param contestId The ID of the contest

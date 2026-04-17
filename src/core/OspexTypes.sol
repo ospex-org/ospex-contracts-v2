@@ -27,7 +27,8 @@ struct Contest {
 enum ContestStatus {
     Unverified,              // Initial state
     Verified,                // Contest verified by oracle
-    Scored                   // Final scores recorded
+    Scored,                  // Final scores recorded
+    Voided                   // Locked to void from speculation
 }
 
 /// @notice Represents a market for a contest
