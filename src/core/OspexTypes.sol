@@ -99,6 +99,7 @@ struct Position {
     /// Set on first fill and preserved across aggregating fills.
     /// Inherited from source on transfer (min of source and destination if both exist).
     uint32 firstFillTimestamp;
+    bool acquiredViaSecondaryMarket;
 }
 
 /// @notice Type of position taken in a speculation

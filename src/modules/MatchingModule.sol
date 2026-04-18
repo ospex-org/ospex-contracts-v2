@@ -8,6 +8,7 @@ import {
     ReentrancyGuard
 } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IContestModule} from "../interfaces/IContestModule.sol";
+import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IPositionModule} from "../interfaces/IPositionModule.sol";
 import {PositionType} from "../core/OspexTypes.sol";
 import {IModule} from "../interfaces/IModule.sol";
@@ -27,6 +28,8 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
 
     bytes32 public constant MATCHING_MODULE = keccak256("MATCHING_MODULE");
     bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
+    bytes32 public constant SPECULATION_MODULE =
+        keccak256("SPECULATION_MODULE");
     bytes32 public constant POSITION_MODULE = keccak256("POSITION_MODULE");
 
     bytes32 public constant EVENT_COMMITMENT_MATCHED =
@@ -91,6 +94,8 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
     error MatchingModule__ModuleNotSet(bytes32 moduleType);
     /// @notice Thrown when the contest has already been scored
     error MatchingModule__ContestAlreadyScored();
+    /// @notice Thrown when the contest has elapsed its void cooldown and new fills are rejected
+    error MatchingModule__ContestPastCooldown();
 
     // ──────────────────────────── Events ───────────────────────────────
 
@@ -219,6 +224,13 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
             )
         ) {
             revert MatchingModule__ContestAlreadyScored();
+        }
+
+        if (
+            ISpeculationModule(_getModule(SPECULATION_MODULE))
+                .isContestPastCooldown(commitment.contestId)
+        ) {
+            revert MatchingModule__ContestPastCooldown();
         }
 
         bytes32 commitmentHash = _validateCommitment(commitment, signature);

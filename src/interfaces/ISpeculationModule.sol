@@ -50,4 +50,11 @@ interface ISpeculationModule is IModule {
         address scorer,
         int32 lineTicks
     ) external view returns (uint256 speculationId);
+
+    /// @notice Checks whether a contest has elapsed its void cooldown
+    /// @param contestId The contest ID
+    /// @return True if block.timestamp >= contest start time + void cooldown
+    function isContestPastCooldown(
+        uint256 contestId
+    ) external view returns (bool);
 }

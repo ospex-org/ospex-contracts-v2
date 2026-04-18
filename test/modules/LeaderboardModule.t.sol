@@ -583,7 +583,7 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)"),
-            abi.encode(0, 0, uint8(0), false, uint32(0)) // riskAmount = 0
+            abi.encode(0, 0, uint8(0), false, uint32(0), false) // riskAmount = 0
         );
 
 
@@ -675,7 +675,7 @@ contract LeaderboardModuleTest is Test {
     }
 
     function _mockPositionModuleCalls() internal {
-        // Mock getPosition call - returns Position{riskAmount, profitAmount, positionType, claimed}
+        // Mock getPosition call - returns Position{riskAmount, profitAmount, positionType, claimed, firstFillTimestamp, acquiredViaSecondaryMarket}
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)"),
@@ -684,7 +684,8 @@ contract LeaderboardModuleTest is Test {
                 40_000_000,  // profitAmount: 40 USDC
                 uint8(0),    // positionType = Upper
                 false,       // claimed
-                uint32(block.timestamp)  // firstFillTimestamp
+                uint32(block.timestamp),  // firstFillTimestamp
+                false        // acquiredViaSecondaryMarket
             )
         );
 
@@ -971,7 +972,8 @@ contract LeaderboardModuleTest is Test {
                 400_000_000, // profitAmount: 400 USDC
                 uint8(0),    // positionType = Upper
                 false,       // claimed
-                uint32(block.timestamp)  // firstFillTimestamp
+                uint32(block.timestamp),  // firstFillTimestamp
+                false        // acquiredViaSecondaryMarket
             )
         );
 
@@ -1039,7 +1041,8 @@ contract LeaderboardModuleTest is Test {
                 40_000_000,  // profitAmount: 40 USDC
                 uint8(0),    // positionType = Upper
                 false,       // claimed
-                uint32(block.timestamp)  // firstFillTimestamp
+                uint32(block.timestamp),  // firstFillTimestamp
+                false        // acquiredViaSecondaryMarket
             )
         );
 
@@ -1207,7 +1210,7 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)", speculationId2, user2, uint8(0)),
-            abi.encode(50_000_000, 40_000_000, uint8(0), false, uint32(block.timestamp))
+            abi.encode(50_000_000, 40_000_000, uint8(0), false, uint32(block.timestamp), false)
         );
 
         vm.mockCall(
@@ -1256,7 +1259,8 @@ contract LeaderboardModuleTest is Test {
                 80_000_000,  // profitAmount: 80 USDC
                 uint8(0),    // positionType = Upper
                 false,       // claimed
-                uint32(block.timestamp)  // firstFillTimestamp
+                uint32(block.timestamp),  // firstFillTimestamp
+                false        // acquiredViaSecondaryMarket
             )
         );
 
@@ -1557,7 +1561,7 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)", speculationId, user1, uint8(0)),
-            abi.encode(50_000_000, 40_000_000, uint8(0), false, uint32(block.timestamp))
+            abi.encode(50_000_000, 40_000_000, uint8(0), false, uint32(block.timestamp), false)
         );
         _mockRulesModuleValidation(true);
 
@@ -1590,7 +1594,7 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)", specId2, user1, uint8(0)),
-            abi.encode(50_000_000, 40_000_000, uint8(0), false, uint32(block.timestamp))
+            abi.encode(50_000_000, 40_000_000, uint8(0), false, uint32(block.timestamp), false)
         );
         vm.prank(user1);
         leaderboardModule.registerPositionForLeaderboard(specId2, PositionType.Upper, leaderboardId);
@@ -1652,7 +1656,7 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)", speculationId, user1, uint8(0)),
-            abi.encode(50_000_000, 40_000_000, uint8(0), false, uint32(block.timestamp))
+            abi.encode(50_000_000, 40_000_000, uint8(0), false, uint32(block.timestamp), false)
         );
         _mockRulesModuleValidation(true);
 
@@ -1684,7 +1688,7 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)", specId2, user1, uint8(0)),
-            abi.encode(50_000_000, 40_000_000, uint8(0), false, uint32(block.timestamp))
+            abi.encode(50_000_000, 40_000_000, uint8(0), false, uint32(block.timestamp), false)
         );
         vm.prank(user1);
         leaderboardModule.registerPositionForLeaderboard(specId2, PositionType.Upper, leaderboardId);
@@ -1755,7 +1759,7 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)", specId2, user2, uint8(0)),
-            abi.encode(50_000_000, 40_000_000, uint8(0), false, uint32(block.timestamp))
+            abi.encode(50_000_000, 40_000_000, uint8(0), false, uint32(block.timestamp), false)
         );
         vm.mockCall(
             address(speculationModule),
@@ -1965,7 +1969,7 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)"),
-            abi.encode(50_000_000, 40_000_000, uint8(0), false, preLBTimestamp)
+            abi.encode(50_000_000, 40_000_000, uint8(0), false, preLBTimestamp, false)
         );
 
         vm.mockCall(
@@ -1996,7 +2000,7 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)"),
-            abi.encode(50_000_000, 40_000_000, uint8(0), false, lb.startTime)
+            abi.encode(50_000_000, 40_000_000, uint8(0), false, lb.startTime, false)
         );
 
         vm.mockCall(
@@ -2040,7 +2044,7 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)", speculationId, user2, uint8(0)),
-            abi.encode(50_000_000, 40_000_000, uint8(0), false, preLBTimestamp)
+            abi.encode(50_000_000, 40_000_000, uint8(0), false, preLBTimestamp, false)
         );
 
         vm.mockCall(
@@ -2079,7 +2083,7 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)", speculationId, user2, uint8(0)),
-            abi.encode(50_000_000, 40_000_000, uint8(0), false, duringLBTimestamp)
+            abi.encode(50_000_000, 40_000_000, uint8(0), false, duringLBTimestamp, false)
         );
 
         vm.mockCall(

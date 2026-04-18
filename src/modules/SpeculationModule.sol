@@ -303,6 +303,18 @@ contract SpeculationModule is ISpeculationModule {
         return s_speculationLookup[contestId][scorer][lineTicks];
     }
 
+    /// @inheritdoc ISpeculationModule
+    function isContestPastCooldown(
+        uint256 contestId
+    ) external view override returns (bool) {
+        uint32 contestStartTime = IContestModule(_getModule(CONTEST_MODULE))
+            .s_contestStartTimes(contestId);
+        if (contestStartTime == 0) return false;
+        return
+            block.timestamp >=
+            uint256(contestStartTime) + uint256(i_voidCooldown);
+    }
+
     // ──────────────────────────── Module Lookup ───────────────────────
 
     /**

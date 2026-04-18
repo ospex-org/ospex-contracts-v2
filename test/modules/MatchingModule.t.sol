@@ -130,6 +130,21 @@ contract MockContestModuleForMatching {
 }
 
 // =============================================================================
+// Mock SpeculationModule -- implements isContestPastCooldown with configurable return.
+// =============================================================================
+contract MockSpeculationModuleForMatching {
+    mapping(uint256 => bool) private _pastCooldown;
+
+    function setContestPastCooldown(uint256 contestId, bool pastCooldown) external {
+        _pastCooldown[contestId] = pastCooldown;
+    }
+
+    function isContestPastCooldown(uint256 contestId) external view returns (bool) {
+        return _pastCooldown[contestId];
+    }
+}
+
+// =============================================================================
 // Reentrant Mock -- attempts to call matchCommitment from within
 // recordFill to verify nonReentrant protection.
 // =============================================================================
@@ -186,6 +201,7 @@ contract MatchingModuleTest is Test {
     MockOspexCoreForMatching mockCore;
     MockPositionModuleForMatching mockPosition;
     MockContestModuleForMatching mockContest;
+    MockSpeculationModuleForMatching mockSpeculation;
 
     uint256 constant MAKER_PK = 0xA11CE;
     address maker;
@@ -209,10 +225,12 @@ contract MatchingModuleTest is Test {
 
         mockCore = new MockOspexCoreForMatching();
         mockPosition = new MockPositionModuleForMatching();
+        mockSpeculation = new MockSpeculationModuleForMatching();
         mockContest = new MockContestModuleForMatching();
 
         mockCore.setModule(keccak256("POSITION_MODULE"), address(mockPosition));
         mockCore.setModule(keccak256("CONTEST_MODULE"), address(mockContest));
+        mockCore.setModule(keccak256("SPECULATION_MODULE"), address(mockSpeculation));
 
         matchingModule = new MatchingModule(address(mockCore));
 
@@ -1125,8 +1143,10 @@ contract MatchingModuleTest is Test {
         MockOspexCoreForMatching reentrCore = new MockOspexCoreForMatching();
         ReentrantMockPositionModule reentrPos = new ReentrantMockPositionModule();
         MockContestModuleForMatching reentrContest = new MockContestModuleForMatching();
+        MockSpeculationModuleForMatching reentrSpec = new MockSpeculationModuleForMatching();
         reentrCore.setModule(keccak256("POSITION_MODULE"), address(reentrPos));
         reentrCore.setModule(keccak256("CONTEST_MODULE"), address(reentrContest));
+        reentrCore.setModule(keccak256("SPECULATION_MODULE"), address(reentrSpec));
         MatchingModule mmReentrant = new MatchingModule(address(reentrCore));
         reentrPos.setTarget(address(mmReentrant));
         reentrPos.setShouldReenter(true);

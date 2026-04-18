@@ -235,7 +235,8 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
      *      Transfers are blocked if the remaining position would fall below leaderboard-locked amounts.
      *      On transfer-in, the destination inherits firstFillTimestamp from the source:
      *      - If the destination is fresh (riskAmount == 0), the source's timestamp is copied directly.
-     *      - If the destination already has exposure, the earlier timestamp wins (min of source and destination)
+     *      - If the destination already has exposure, the earlier timestamp wins (min of source and destination).
+     *      - Recipients of secondary-market transfers are flagged as leaderboard-ineligible.
      * @param speculationId The speculation ID
      * @param from The sender address
      * @param positionType The position type
@@ -320,6 +321,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         }
         toPos.riskAmount += riskAmount;
         toPos.profitAmount += profitAmount;
+        toPos.acquiredViaSecondaryMarket = true;
 
         emit PositionTransferred(
             speculationId,

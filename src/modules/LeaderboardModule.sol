@@ -109,6 +109,8 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     error LeaderboardModule__NotCreator(address caller);
     /// @notice Thrown when attempting to register a position that was created prior to leaderboard creation
     error LeaderboardModule__PositionPredatesLeaderboard();
+    /// @notice Thrown when attempting to register a position acquired via the secondary market
+    error LeaderboardModule__SecondaryMarketPositionIneligible();
 
     // ──────────────────────────── Events ───────────────────────────────
 
@@ -399,9 +401,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
      * @dev Leaderboard design principles:
      *      - A leaderboard entry is an immutable snapshot of position economics at registration time.
      *      - Positions whose firstFillTimestamp predates lb.startTime are ineligible.
-     *      - Positions acquired via SecondaryMarketModule remain eligible only if the original
-     *        exposure was first filled at or after lb.startTime — the firstFillTimestamp propagates
-     *        through transfers.
+     *      - Positions acquired via SecondaryMarketModule are ineligible.
      *      - Subsequent changes to the underlying position (additional fills, transfers, secondary
      *        market sales) do not modify or invalidate the leaderboard entry.
      *      - The odds of record are a public, updatable reference point. Anyone can update them.
@@ -422,7 +422,8 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             int32 lineTicks,
             uint256 contestId,
             address scorer,
-            uint32 firstFillTimestamp
+            uint32 firstFillTimestamp,
+            bool acquiredViaSecondaryMarketplace
         ) = _getPositionAndLeaderboardData(speculationId, user, positionType);
 
         (
@@ -432,6 +433,9 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
 
         if (firstFillTimestamp < lb.startTime)
             revert LeaderboardModule__PositionPredatesLeaderboard();
+
+        if (acquiredViaSecondaryMarketplace)
+            revert LeaderboardModule__SecondaryMarketPositionIneligible();
 
         if (
             s_registeredLeaderboardSpeculation[leaderboardId][user][contestId][
@@ -540,15 +544,12 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
      * creating a tie. Multiple users can share the highest ROI. Prize distribution handles ties
      * by splitting the prize pool equally among all co-winners.
      * Leaderboard ROI is computed from resolved positions at submission time.
-     * Positions whose associated speculations remain unresolved (WinSide.TBD)
-     * contribute zero to ROI. ROI submission is final and cannot be resubmitted.
-     * This is an explicit liveness tradeoff: blocking submission on unresolved
-     * positions could prevent users from submitting any ROI during oracle or settlement delays.
-     * Contest scoring and speculation settlement are permissionless under normal
-     * protocol operation, so any participant may initiate resolution of unresolved positions.
+     * ROI submission is final and cannot be resubmitted.
      * Leaderboard creators are responsible for configuring safetyPeriodDuration
      * long enough that unresolved positions are expected to be rare by the time
      * the ROI submission window opens for the selected contests.
+     * Only positions with a resolved, non-voided outcome (Win, Loss, or Push) count
+     * toward the minimum positions requirement. TBD and Void positions do not count.
      * @param leaderboardId The ID of the leaderboard
      */
     function submitLeaderboardROI(uint256 leaderboardId) external override {
@@ -577,16 +578,20 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             revert LeaderboardModule__ROIAlreadySubmitted();
         }
 
+        (int256 roi, uint256 qualifyingCount) = _calculateROI(
+            leaderboardId,
+            msg.sender,
+            declaredBankroll
+        );
+
         if (
             !IRulesModule(_getModule(RULES_MODULE)).isMinPositionsMet(
                 leaderboardId,
-                s_userSpeculationIds[leaderboardId][msg.sender].length
+                qualifyingCount
             )
         ) {
             revert LeaderboardModule__MinimumPositionsNotMet();
         }
-
-        int256 roi = _calculateROI(leaderboardId, msg.sender, declaredBankroll);
 
         leaderboardScoring.userROIs[msg.sender] = roi;
         s_roiSubmitted[leaderboardId][msg.sender] = true;
@@ -724,6 +729,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
      * @return contestId The speculation's contest ID
      * @return scorer The speculation's scorer address
      * @return firstFillTimestamp The time that the first position fill occurred
+     * @return acquiredViaSecondaryMarketplace Whether or not the position was acquired on the secondary market
      */
     function _getPositionAndLeaderboardData(
         uint256 speculationId,
@@ -738,7 +744,8 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             int32 lineTicks,
             uint256 contestId,
             address scorer,
-            uint32 firstFillTimestamp
+            uint32 firstFillTimestamp,
+            bool acquiredViaSecondaryMarketplace
         )
     {
         IPositionModule posModule = IPositionModule(
@@ -752,6 +759,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         riskAmount = pos.riskAmount;
         profitAmount = pos.profitAmount;
         firstFillTimestamp = pos.firstFillTimestamp;
+        acquiredViaSecondaryMarketplace = pos.acquiredViaSecondaryMarket;
         if (riskAmount == 0) {
             revert LeaderboardModule__NoRiskAmount();
         }
@@ -767,54 +775,61 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             lineTicks,
             contestId,
             scorer,
-            firstFillTimestamp
+            firstFillTimestamp,
+            acquiredViaSecondaryMarketplace
         );
     }
 
     /**
-     * @notice Calculates ROI for a user's leaderboard positions
-     * @dev Positions whose speculation has winSide == TBD (unscored) are excluded
-     * from the net P&L sum. Only resolved outcomes (win, loss, push, void)
-     * contribute to ROI.
+     * @notice Calculates ROI and counts qualifying positions
+     * @dev Qualifying positions have resolved, non-voided outcomes (Win, Loss, or Push).
      * @param leaderboardId The ID of the leaderboard
      * @param user The address of the user
      * @param declaredBankroll The declared bankroll of the user
      * @return roi The ROI scaled by ROI_PRECISION
+     * @return qualifyingCount Number of positions with Win, Loss, or Push outcomes
      */
     function _calculateROI(
         uint256 leaderboardId,
         address user,
         uint256 declaredBankroll
-    ) internal view returns (int256 roi) {
+    ) internal view returns (int256 roi, uint256 qualifyingCount) {
         uint256[] storage speculationIds = s_userSpeculationIds[leaderboardId][
             user
         ];
         int256 net = 0;
+        ISpeculationModule specModule = ISpeculationModule(
+            _getModule(SPECULATION_MODULE)
+        );
         for (uint256 i = 0; i < speculationIds.length; i++) {
             LeaderboardPosition storage lbPos = s_leaderboardPositions[
                 leaderboardId
             ][user][speculationIds[i]];
-            net += _calculatePositionNet(lbPos);
+            Speculation memory spec = specModule.getSpeculation(
+                lbPos.speculationId
+            );
+            if (spec.winSide != WinSide.TBD && spec.winSide != WinSide.Void) {
+                qualifyingCount++;
+            }
+            net += _calculatePositionNet(lbPos, spec);
         }
         // Safe casts: ROI_PRECISION and declaredBankroll are USDC-scale values, well within int256 max
         // forge-lint: disable-next-line(unsafe-typecast)
         roi = (net * int256(ROI_PRECISION)) / int256(declaredBankroll);
-        return roi;
+        return (roi, qualifyingCount);
     }
 
     /**
      * @notice Calculates the net profit/loss for a single leaderboard position
      * @dev Positions with winSide == TBD (unscored) return 0 and are excluded from ROI.
      * @param lbPos The leaderboard position
+     * @param spec The pre-read speculation
      * @return net The net profit/loss (positive = win, negative = loss)
      */
     function _calculatePositionNet(
-        LeaderboardPosition storage lbPos
+        LeaderboardPosition storage lbPos,
+        Speculation memory spec
     ) internal view returns (int256 net) {
-        Speculation memory spec = ISpeculationModule(
-            _getModule(SPECULATION_MODULE)
-        ).getSpeculation(lbPos.speculationId);
-
         if (spec.winSide == WinSide.TBD) {
             return 0;
         }
