@@ -29,7 +29,8 @@ import {
  *         ROI scoring, and prize distribution for the Ospex protocol.
  * @dev Permissionless: anyone can create a leaderboard (0.50 USDC fee). The creator
  *      controls which speculations are eligible. Entry fees go entirely to the prize pool.
- *      Winners are determined by highest ROI during the submission window.
+ *      Winner-take-all: the user(s) with the single highest ROI share the entire prize
+ *      pool equally. There is no ranked or tiered payout.
  */
 
 contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {

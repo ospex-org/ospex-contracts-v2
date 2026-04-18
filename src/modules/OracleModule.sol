@@ -65,6 +65,8 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         keccak256("ORACLE_RESPONSE");
     bytes32 public constant EVENT_SCRIPT_APPROVAL_VERIFIED =
         keccak256("SCRIPT_APPROVAL_VERIFIED");
+    bytes32 public constant EVENT_ORACLE_REQUEST_FAILED =
+        keccak256("ORACLE_REQUEST_FAILED");
 
     /// @notice EIP-712 typehash for script approval
     bytes32 public constant SCRIPT_APPROVAL_TYPEHASH =
@@ -88,8 +90,6 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
     error OracleModule__IncorrectUpdateSourceHash();
     /// @notice Thrown when the scoring JS hash does not match the per-contest stored hash
     error OracleModule__IncorrectScoreSourceHash();
-    /// @notice Thrown when a Chainlink Functions callback contains an error
-    error OracleModule__ChainlinkFunctionError(bytes err);
     /// @notice Thrown when LINK transferAndCall to the DON subscription fails
     error OracleModule__SubscriptionPaymentFailed(uint256 payment);
     /// @notice Thrown when a contest is not in Verified status
@@ -140,10 +140,22 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         uint16 version
     );
 
+    /// @notice Emitted on callback error
+    /// @param requestId The oracle request id
+    /// @param contestId The contest ID
+    /// @param requestType The oracle request type
+    /// @param err The actual error that caused the failure
+    event OracleRequestFailed(
+        bytes32 indexed requestId,
+        uint256 indexed contestId,
+        OracleRequestType requestType,
+        bytes err
+    );
+
     // ──────────────────────────── Structs ──────────────────────────────
 
     /// @notice Bundles contest identity strings and Chainlink request configuration
-    /// @dev Passed as a single calldata struct alongside the two source hashes and script                                                                                                                                                   ///      approvals to avoid Yul stack-too-deep in createContestFromOracle.
+    /// @dev Passed as a single calldata struct alongside the two source hashes and script
     /// @param rundownId External ID from Rundown API
     /// @param sportspageId External ID from Sportspage API
     /// @param jsonoddsId External ID from JSONOdds API
@@ -280,6 +292,9 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
      * @dev Permissionless. Caller pays LINK for the oracle request and USDC for the
      *      contest creation fee. The contest is created as Unverified; the oracle callback
      *      sets league ID and start time via setContestLeagueIdAndStartTime.
+     *
+     *      Both the LINK payment (to the Chainlink Functions subscription) and the USDC
+     *      contest creation fee are captured upfront and are non-refundable.
      *
      *      All three script approvals (verify, marketUpdate, score) are verified via
      *      EIP-712 signature at creation time only. After creation, scripts are validated
@@ -652,7 +667,18 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         );
 
         if (err.length > 0) {
-            revert OracleModule__ChainlinkFunctionError(err);
+            emit OracleRequestFailed(
+                requestId,
+                ctx.contestId,
+                ctx.requestType,
+                err
+            );
+            i_ospexCore.emitCoreEvent(
+                EVENT_ORACLE_REQUEST_FAILED,
+                abi.encode(requestId, ctx.contestId, ctx.requestType, err)
+            );
+            delete s_requestContext[requestId];
+            return;
         }
 
         if (ctx.requestType == OracleRequestType.ContestCreate) {

@@ -1230,7 +1230,7 @@ contract OracleModuleTest is Test {
         assertEq(c.homeScore, 34);
     }
 
-    function testFulfillRequest_RevertsOnError() public {
+    function testFulfillRequest_EmitsFailureAndCleansUpOnError() public {
         // Need a fresh core where oracleHelper is the registered ORACLE_MODULE
         OspexCore testCore = new OspexCore();
         ContestModule testContestModule = new ContestModule(address(testCore));
@@ -1295,15 +1295,22 @@ contract OracleModuleTest is Test {
         );
         bytes memory response = hex"";
         bytes memory err = hex"deadbeef";
-        // Act & Assert - reverts with ChainlinkFunctionError containing the error bytes
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                OracleModule.OracleModule__ChainlinkFunctionError.selector,
-                err
-            )
+
+        // Act — should NOT revert; emits OracleRequestFailed instead
+        vm.expectEmit(true, true, false, true, address(testHelper));
+        emit OracleModule.OracleRequestFailed(
+            requestId,
+            1,
+            OracleRequestType.ContestScore,
+            err
         );
         vm.prank(address(this));
         testHelper.testFulfillRequest(requestId, response, err);
+
+        // Assert — request context was cleaned up
+        (OracleRequestType storedType, uint256 storedContestId) = testHelper.s_requestContext(requestId);
+        assertEq(storedContestId, 0, "request context should be deleted");
+        assertEq(uint8(storedType), 0, "request type should be zeroed");
     }
 
     function testFulfillRequest_RevertsOnUnexpectedRequestId() public {

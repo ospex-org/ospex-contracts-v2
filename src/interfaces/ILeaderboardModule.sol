@@ -118,8 +118,9 @@ interface ILeaderboardModule is IModule {
     /// @param leaderboardId The ID of the leaderboard
     function submitLeaderboardROI(uint256 leaderboardId) external;
 
-    /// @notice Claims the caller's share of the prize pool for a leaderboard
-    /// @dev Can be called after the ROI window is closed
+    /// @notice Claims the caller's equal share of the prize pool (pool / number of co-winners)
+    /// @dev Can be called after the ROI window is closed. Only users who submitted the
+    /// @dev highest ROI are eligible.
     /// @param leaderboardId The ID of the leaderboard
     function claimLeaderboardPrize(uint256 leaderboardId) external;
 
