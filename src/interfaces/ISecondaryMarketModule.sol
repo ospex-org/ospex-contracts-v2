@@ -11,6 +11,11 @@ import {IModule} from "./IModule.sol";
  */
 interface ISecondaryMarketModule is IModule {
     /// @notice Lists a portion of a matched position for sale
+    /// @dev Slices are not required to preserve the original position's risk/profit ratio
+    /// @dev A seller may list any (riskAmount, profitAmount) pair within their current position bounds.
+    /// @dev Solvency is preserved across the seller + buyer totals regardless of slice shape.
+    /// @dev Consumers of listings should read both riskAmount and profitAmount from the listing
+    /// @dev directly rather than assuming proportionality.
     /// @param speculationId The speculation ID
     /// @param positionType The position type
     /// @param price The asking price in USDC

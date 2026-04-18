@@ -68,7 +68,9 @@ interface ILeaderboardModule is IModule {
         address user
     ) external view returns (bool);
 
-    /// @notice Creates a new leaderboard with the specified configuration
+    /// @notice Creates a new winner-take-all leaderboard with the specified configuration
+    /// @dev Winner is based on highest ROI, if multiple users tie for highest ROI, the prize
+    /// @dev pool is split equally among tied winners. No top-n or ranked payout mode exists
     /// @param entryFee The entry fee to join the leaderboard (in token smallest units, 0 for free)
     /// @param startTime The unix timestamp when the leaderboard becomes active
     /// @param endTime The unix timestamp when the leaderboard stops accepting positions

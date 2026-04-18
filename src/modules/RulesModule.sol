@@ -124,7 +124,7 @@ contract RulesModule is IRulesModule {
     mapping(uint256 => uint16) public s_minBetPercentage;
     /// @notice Leaderboard ID → maximum bet percentage (BPS of bankroll)
     mapping(uint256 => uint16) public s_maxBetPercentage;
-    /// @notice Leaderboard ID → minimum number of positions for ROI submission
+    /// @notice Leaderboard ID → minimum number of positions for ROI submission (min/default of 1)
     mapping(uint256 => uint16) public s_minBets;
     /// @notice Leaderboard ID → odds enforcement threshold (BPS above market)
     mapping(uint256 => uint16) public s_oddsEnforcementBps;
@@ -246,6 +246,7 @@ contract RulesModule is IRulesModule {
         uint256 leaderboardId,
         uint16 value
     ) external override onlyCreatorBeforeStart(leaderboardId) {
+        if (value == 0) revert RulesModule__InvalidValue();
         s_minBets[leaderboardId] = value;
         emit RuleSet(leaderboardId, "minBets", value);
         i_ospexCore.emitCoreEvent(
@@ -368,13 +369,9 @@ contract RulesModule is IRulesModule {
         uint256 leaderboardId,
         uint256 userPositions
     ) external view override returns (bool) {
-        if (
-            s_minBets[leaderboardId] > 0 &&
-            userPositions < s_minBets[leaderboardId]
-        ) {
-            return false;
-        }
-        return true;
+        uint16 minBets = s_minBets[leaderboardId];
+        uint16 effectiveMin = minBets > 0 ? minBets : 1;
+        return userPositions >= effectiveMin;
     }
 
     /// @inheritdoc IRulesModule

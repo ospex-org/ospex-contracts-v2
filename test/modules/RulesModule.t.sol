@@ -381,9 +381,22 @@ contract RulesModuleTest is Test {
     }
 
     function testIsMinPositionsMet_NoMinimumSet() public view {
-        // No minimum set - should always return true
-        assertTrue(rulesModule.isMinPositionsMet(leaderboardId, 0));
+        // No minimum explicitly set - defaults to 1 position required
+        assertFalse(rulesModule.isMinPositionsMet(leaderboardId, 0)); // 0 < 1 default
+        assertTrue(rulesModule.isMinPositionsMet(leaderboardId, 1));  // 1 >= 1 default
+    }
+
+    function testSetMinBets_RevertsIfZero() public {
+        vm.prank(creator);
+        vm.expectRevert(RulesModule.RulesModule__InvalidValue.selector);
+        rulesModule.setMinBets(leaderboardId, 0);
+    }
+
+    function testIsMinPositionsMet_DefaultsToOneWhenUnset() public view {
+        // When no minBets is set, the effective minimum is 1 (not 0)
+        assertFalse(rulesModule.isMinPositionsMet(leaderboardId, 0));
         assertTrue(rulesModule.isMinPositionsMet(leaderboardId, 1));
+        assertTrue(rulesModule.isMinPositionsMet(leaderboardId, 100));
     }
 
     // --- validateOdds Tests (cross-multiplication: riskAmount, profitAmount, marketOddsTick) ---

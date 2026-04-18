@@ -233,6 +233,9 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
      *      to define valid transfer semantics. SecondaryMarketModule is set immutably in the
      *      module registry and is the only authorized caller.
      *      Transfers are blocked if the remaining position would fall below leaderboard-locked amounts.
+     *      On transfer-in, the destination inherits firstFillTimestamp from the source:
+     *      - If the destination is fresh (riskAmount == 0), the source's timestamp is copied directly.
+     *      - If the destination already has exposure, the earlier timestamp wins (min of source and destination)
      * @param speculationId The speculation ID
      * @param from The sender address
      * @param positionType The position type
@@ -311,6 +314,9 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         if (toPos.riskAmount == 0) {
             toPos.positionType = positionType;
             toPos.claimed = false;
+            toPos.firstFillTimestamp = fromPos.firstFillTimestamp;
+        } else if (fromPos.firstFillTimestamp < toPos.firstFillTimestamp) {
+            toPos.firstFillTimestamp = fromPos.firstFillTimestamp;
         }
         toPos.riskAmount += riskAmount;
         toPos.profitAmount += profitAmount;
@@ -390,6 +396,8 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
 
     /**
      * @notice Records a fill for both maker and taker
+     * @dev firstFillTimestamp is set to block.timestamp on the first fill only
+     * @dev firstFillTimestamp is used downstream by LeaderboardModule for eligibility checks
      * @param speculationId The speculation ID
      * @param makerPositionType The maker's position type
      * @param maker The maker address
@@ -415,6 +423,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         if (makerPos.riskAmount == 0) {
             makerPos.positionType = makerPositionType;
             makerPos.claimed = false;
+            makerPos.firstFillTimestamp = uint32(block.timestamp);
         }
         makerPos.riskAmount += makerRisk;
         makerPos.profitAmount += takerRisk;
@@ -425,6 +434,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         if (takerPos.riskAmount == 0) {
             takerPos.positionType = takerPositionType;
             takerPos.claimed = false;
+            takerPos.firstFillTimestamp = uint32(block.timestamp);
         }
         takerPos.riskAmount += takerRisk;
         takerPos.profitAmount += makerRisk;

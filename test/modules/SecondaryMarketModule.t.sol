@@ -1430,7 +1430,7 @@ contract SecondaryMarketModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)", speculationId, seller, uint8(positionType)),
-            abi.encode(Position({riskAmount: 10e6, profitAmount: 1e6, positionType: positionType, claimed: true}))
+            abi.encode(Position({riskAmount: 10e6, profitAmount: 1e6, positionType: positionType, claimed: true, firstFillTimestamp: 0}))
         );
         vm.prank(seller);
         vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__PositionAlreadyClaimed.selector);
@@ -1455,7 +1455,7 @@ contract SecondaryMarketModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)", speculationId, seller, uint8(positionType)),
-            abi.encode(Position({riskAmount: 10e6, profitAmount: 1e6, positionType: positionType, claimed: true}))
+            abi.encode(Position({riskAmount: 10e6, profitAmount: 1e6, positionType: positionType, claimed: true, firstFillTimestamp: 0}))
         );
 
         vm.prank(buyer);
@@ -1476,7 +1476,7 @@ contract SecondaryMarketModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)", speculationId, seller, uint8(positionType)),
-            abi.encode(Position({riskAmount: 10e6, profitAmount: 1e6, positionType: positionType, claimed: true}))
+            abi.encode(Position({riskAmount: 10e6, profitAmount: 1e6, positionType: positionType, claimed: true, firstFillTimestamp: 0}))
         );
 
         vm.prank(seller);

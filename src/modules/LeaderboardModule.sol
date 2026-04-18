@@ -106,6 +106,8 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
     error LeaderboardModule__SpeculationAlreadyExists(uint256 speculationId);
     /// @notice Thrown when a non-creator calls a creator-only function
     error LeaderboardModule__NotCreator(address caller);
+    /// @notice Thrown when attempting to register a position that was created prior to leaderboard creation
+    error LeaderboardModule__PositionPredatesLeaderboard();
 
     // ──────────────────────────── Events ───────────────────────────────
 
@@ -395,10 +397,12 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
      * @notice Registers a position for one leaderboard (initial registration only)
      * @dev Leaderboard design principles:
      *      - A leaderboard entry is an immutable snapshot of position economics at registration time.
-     *      - Registration is intentionally decoupled from fill time. Strategic timing is a feature.
+     *      - Positions whose firstFillTimestamp predates lb.startTime are ineligible.
+     *      - Positions acquired via SecondaryMarketModule remain eligible only if the original
+     *        exposure was first filled at or after lb.startTime — the firstFillTimestamp propagates
+     *        through transfers.
      *      - Subsequent changes to the underlying position (additional fills, transfers, secondary
      *        market sales) do not modify or invalidate the leaderboard entry.
-     *      - Positions acquired via SecondaryMarketModule are eligible for registration.
      *      - The odds of record are a public, updatable reference point. Anyone can update them.
      *        Validation occurs against the odds of record at registration time, not at fill time.
      * @param speculationId The speculation ID
@@ -416,13 +420,17 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             uint256 profitAmount,
             int32 lineTicks,
             uint256 contestId,
-            address scorer
+            address scorer,
+            uint32 firstFillTimestamp
         ) = _getPositionAndLeaderboardData(speculationId, user, positionType);
 
-        (, uint256 declaredBankroll) = _getLeaderboardAndBankroll(
-            leaderboardId,
-            user
-        );
+        (
+            Leaderboard storage lb,
+            uint256 declaredBankroll
+        ) = _getLeaderboardAndBankroll(leaderboardId, user);
+
+        if (firstFillTimestamp < lb.startTime)
+            revert LeaderboardModule__PositionPredatesLeaderboard();
 
         if (
             s_registeredLeaderboardSpeculation[leaderboardId][user][contestId][
@@ -714,6 +722,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
      * @return lineTicks The speculation's line in ticks
      * @return contestId The speculation's contest ID
      * @return scorer The speculation's scorer address
+     * @return firstFillTimestamp The time that the first position fill occurred
      */
     function _getPositionAndLeaderboardData(
         uint256 speculationId,
@@ -727,7 +736,8 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
             uint256 profitAmount,
             int32 lineTicks,
             uint256 contestId,
-            address scorer
+            address scorer,
+            uint32 firstFillTimestamp
         )
     {
         IPositionModule posModule = IPositionModule(
@@ -740,6 +750,7 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         );
         riskAmount = pos.riskAmount;
         profitAmount = pos.profitAmount;
+        firstFillTimestamp = pos.firstFillTimestamp;
         if (riskAmount == 0) {
             revert LeaderboardModule__NoRiskAmount();
         }
@@ -749,7 +760,14 @@ contract LeaderboardModule is ILeaderboardModule, ReentrancyGuard {
         lineTicks = spec.lineTicks;
         contestId = spec.contestId;
         scorer = spec.speculationScorer;
-        return (riskAmount, profitAmount, lineTicks, contestId, scorer);
+        return (
+            riskAmount,
+            profitAmount,
+            lineTicks,
+            contestId,
+            scorer,
+            firstFillTimestamp
+        );
     }
 
     /**

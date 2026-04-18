@@ -95,6 +95,10 @@ struct Position {
     uint256 profitAmount;       // net winnings if correct
     PositionType positionType;
     bool claimed;
+    /// @notice Earliest moment at which this position held non-zero exposure.
+    /// Set on first fill and preserved across aggregating fills.
+    /// Inherited from source on transfer (min of source and destination if both exist).
+    uint32 firstFillTimestamp;
 }
 
 /// @notice Type of position taken in a speculation

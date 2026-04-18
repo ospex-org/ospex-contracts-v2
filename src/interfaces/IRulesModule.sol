@@ -40,7 +40,7 @@ interface IRulesModule is IModule {
 
     /// @notice Sets the minimum number of positions required to submit ROI
     /// @param leaderboardId The ID of the leaderboard
-    /// @param value The minimum number of positions (0 to disable)
+    /// @param value The minimum number of positions (must be >= 1)
     function setMinBets(uint256 leaderboardId, uint16 value) external;
 
     /// @notice Sets the odds enforcement threshold for a leaderboard
@@ -107,7 +107,7 @@ interface IRulesModule is IModule {
     /// @notice Validates if a user has met the minimum number of positions for ROI submission
     /// @param leaderboardId The ID of the leaderboard
     /// @param userPositions The number of positions the user has in the leaderboard
-    /// @return True if the minimum is met (or no minimum set)
+    /// @return True if the minimum is met (defaults to 1 when no minimum explicitly set)
     function isMinPositionsMet(
         uint256 leaderboardId,
         uint256 userPositions

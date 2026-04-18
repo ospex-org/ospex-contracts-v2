@@ -583,7 +583,7 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)"),
-            abi.encode(0, 0, uint8(0), false) // riskAmount = 0
+            abi.encode(0, 0, uint8(0), false, uint32(0)) // riskAmount = 0
         );
 
 
@@ -683,7 +683,8 @@ contract LeaderboardModuleTest is Test {
                 50_000_000,  // riskAmount: 50 USDC
                 40_000_000,  // profitAmount: 40 USDC
                 uint8(0),    // positionType = Upper
-                false        // claimed
+                false,       // claimed
+                uint32(block.timestamp)  // firstFillTimestamp
             )
         );
 
@@ -969,7 +970,8 @@ contract LeaderboardModuleTest is Test {
                 500_000_000, // riskAmount: 500 USDC - high amount
                 400_000_000, // profitAmount: 400 USDC
                 uint8(0),    // positionType = Upper
-                false        // claimed
+                false,       // claimed
+                uint32(block.timestamp)  // firstFillTimestamp
             )
         );
 
@@ -1036,7 +1038,8 @@ contract LeaderboardModuleTest is Test {
                 50_000_000,  // riskAmount: 50 USDC
                 40_000_000,  // profitAmount: 40 USDC
                 uint8(0),    // positionType = Upper
-                false        // claimed
+                false,       // claimed
+                uint32(block.timestamp)  // firstFillTimestamp
             )
         );
 
@@ -1204,7 +1207,7 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)", speculationId2, user2, uint8(0)),
-            abi.encode(50_000_000, 40_000_000, uint8(0), false)
+            abi.encode(50_000_000, 40_000_000, uint8(0), false, uint32(block.timestamp))
         );
 
         vm.mockCall(
@@ -1252,7 +1255,8 @@ contract LeaderboardModuleTest is Test {
                 100_000_000, // riskAmount: 100 USDC (double user1's 50M)
                 80_000_000,  // profitAmount: 80 USDC
                 uint8(0),    // positionType = Upper
-                false        // claimed
+                false,       // claimed
+                uint32(block.timestamp)  // firstFillTimestamp
             )
         );
 
@@ -1553,7 +1557,7 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)", speculationId, user1, uint8(0)),
-            abi.encode(50_000_000, 40_000_000, uint8(0), false)
+            abi.encode(50_000_000, 40_000_000, uint8(0), false, uint32(block.timestamp))
         );
         _mockRulesModuleValidation(true);
 
@@ -1586,7 +1590,7 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)", specId2, user1, uint8(0)),
-            abi.encode(50_000_000, 40_000_000, uint8(0), false)
+            abi.encode(50_000_000, 40_000_000, uint8(0), false, uint32(block.timestamp))
         );
         vm.prank(user1);
         leaderboardModule.registerPositionForLeaderboard(specId2, PositionType.Upper, leaderboardId);
@@ -1648,7 +1652,7 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)", speculationId, user1, uint8(0)),
-            abi.encode(50_000_000, 40_000_000, uint8(0), false)
+            abi.encode(50_000_000, 40_000_000, uint8(0), false, uint32(block.timestamp))
         );
         _mockRulesModuleValidation(true);
 
@@ -1680,7 +1684,7 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)", specId2, user1, uint8(0)),
-            abi.encode(50_000_000, 40_000_000, uint8(0), false)
+            abi.encode(50_000_000, 40_000_000, uint8(0), false, uint32(block.timestamp))
         );
         vm.prank(user1);
         leaderboardModule.registerPositionForLeaderboard(specId2, PositionType.Upper, leaderboardId);
@@ -1751,7 +1755,7 @@ contract LeaderboardModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)", specId2, user2, uint8(0)),
-            abi.encode(50_000_000, 40_000_000, uint8(0), false)
+            abi.encode(50_000_000, 40_000_000, uint8(0), false, uint32(block.timestamp))
         );
         vm.mockCall(
             address(speculationModule),
@@ -1935,5 +1939,170 @@ contract LeaderboardModuleTest is Test {
 
         // Verify user is marked as claimed
         assertTrue(leaderboardModule.hasClaimed(freeLbId, user1));
+    }
+
+    // =====================================================================
+    // firstFillTimestamp Eligibility Tests (F3)
+    // =====================================================================
+    // These tests verify that registerPositionForLeaderboard rejects
+    // positions whose firstFillTimestamp predates lb.startTime, and accepts
+    // positions filled at or after lb.startTime.
+    //
+    // NOTE: Tests 5-8 require the src/ fix in _getPositionAndLeaderboardData
+    // to assign `firstFillTimestamp = pos.firstFillTimestamp` — without that
+    // fix, firstFillTimestamp is always 0 and ALL registrations revert.
+    // =====================================================================
+
+    /// @notice Position filled before leaderboard starts is rejected
+    function test_RegisterPosition_RejectsPreLeaderboardFill() public {
+        _setupUserRegistration();
+        _setupPositionAndSpeculation();
+
+        Leaderboard memory lb = leaderboardModule.getLeaderboard(leaderboardId);
+
+        // Mock position with firstFillTimestamp BEFORE leaderboard starts
+        uint32 preLBTimestamp = lb.startTime - 1;
+        vm.mockCall(
+            address(positionModule),
+            abi.encodeWithSignature("getPosition(uint256,address,uint8)"),
+            abi.encode(50_000_000, 40_000_000, uint8(0), false, preLBTimestamp)
+        );
+
+        vm.mockCall(
+            address(speculationModule),
+            abi.encodeWithSignature("getSpeculation(uint256)"),
+            abi.encode(contestId, address(mockScorerModule), int32(0), address(0), uint8(0), uint8(0))
+        );
+
+        _mockRulesModuleValidation(true);
+
+        vm.prank(user1);
+        vm.expectRevert(LeaderboardModule.LeaderboardModule__PositionPredatesLeaderboard.selector);
+        leaderboardModule.registerPositionForLeaderboard(
+            speculationId,
+            PositionType.Upper,
+            leaderboardId
+        );
+    }
+
+    /// @notice Position filled at or after leaderboard start is accepted
+    function test_RegisterPosition_AcceptsDuringLeaderboardFill() public {
+        _setupUserRegistration();
+        _setupPositionAndSpeculation();
+
+        Leaderboard memory lb = leaderboardModule.getLeaderboard(leaderboardId);
+
+        // Mock position with firstFillTimestamp AT leaderboard start (boundary)
+        vm.mockCall(
+            address(positionModule),
+            abi.encodeWithSignature("getPosition(uint256,address,uint8)"),
+            abi.encode(50_000_000, 40_000_000, uint8(0), false, lb.startTime)
+        );
+
+        vm.mockCall(
+            address(speculationModule),
+            abi.encodeWithSignature("getSpeculation(uint256)"),
+            abi.encode(contestId, address(mockScorerModule), int32(0), address(0), uint8(0), uint8(0))
+        );
+
+        _mockRulesModuleValidation(true);
+
+        // Should succeed — firstFillTimestamp == lb.startTime, not less than
+        vm.prank(user1);
+        leaderboardModule.registerPositionForLeaderboard(
+            speculationId,
+            PositionType.Upper,
+            leaderboardId
+        );
+
+        // Verify position was registered
+        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(
+            leaderboardId, user1, speculationId
+        );
+        assertEq(lbPos.riskAmount, 50_000_000, "Position should be registered");
+    }
+
+    /// @notice Alice fills pre-LB, transfers to Bob during LB — Bob's registration reverts
+    function test_RegisterPosition_RejectsTransferredPreLeaderboardPosition() public {
+        // Register user2 (Bob) for leaderboard
+        _mockRulesModuleForRegistration();
+        vm.warp(block.timestamp + 2 hours);
+        _approveEntryFee(user2);
+        vm.prank(user2);
+        leaderboardModule.registerUser(leaderboardId, DECLARED_BANKROLL);
+
+        _setupPositionAndSpeculation();
+
+        Leaderboard memory lb = leaderboardModule.getLeaderboard(leaderboardId);
+
+        // Bob's position has firstFillTimestamp inherited from Alice's pre-LB fill
+        uint32 preLBTimestamp = lb.startTime - 1 hours;
+        vm.mockCall(
+            address(positionModule),
+            abi.encodeWithSignature("getPosition(uint256,address,uint8)", speculationId, user2, uint8(0)),
+            abi.encode(50_000_000, 40_000_000, uint8(0), false, preLBTimestamp)
+        );
+
+        vm.mockCall(
+            address(speculationModule),
+            abi.encodeWithSignature("getSpeculation(uint256)"),
+            abi.encode(contestId, address(mockScorerModule), int32(0), address(0), uint8(0), uint8(0))
+        );
+
+        _mockRulesModuleValidation(true);
+
+        // Bob's registration should revert — inherited timestamp predates LB
+        vm.prank(user2);
+        vm.expectRevert(LeaderboardModule.LeaderboardModule__PositionPredatesLeaderboard.selector);
+        leaderboardModule.registerPositionForLeaderboard(
+            speculationId,
+            PositionType.Upper,
+            leaderboardId
+        );
+    }
+
+    /// @notice Alice fills during LB, transfers to Bob during LB — Bob's registration succeeds
+    function test_RegisterPosition_AcceptsTransferredDuringLeaderboardPosition() public {
+        // Register user2 (Bob) for leaderboard
+        _mockRulesModuleForRegistration();
+        vm.warp(block.timestamp + 2 hours);
+        _approveEntryFee(user2);
+        vm.prank(user2);
+        leaderboardModule.registerUser(leaderboardId, DECLARED_BANKROLL);
+
+        _setupPositionAndSpeculation();
+
+        Leaderboard memory lb = leaderboardModule.getLeaderboard(leaderboardId);
+
+        // Bob's position has firstFillTimestamp inherited from Alice's during-LB fill
+        uint32 duringLBTimestamp = lb.startTime + 1 hours;
+        vm.mockCall(
+            address(positionModule),
+            abi.encodeWithSignature("getPosition(uint256,address,uint8)", speculationId, user2, uint8(0)),
+            abi.encode(50_000_000, 40_000_000, uint8(0), false, duringLBTimestamp)
+        );
+
+        vm.mockCall(
+            address(speculationModule),
+            abi.encodeWithSignature("getSpeculation(uint256)"),
+            abi.encode(contestId, address(mockScorerModule), int32(0), address(0), uint8(0), uint8(0))
+        );
+
+        _mockRulesModuleValidation(true);
+
+        // Bob's registration should succeed — inherited timestamp is during LB
+        vm.prank(user2);
+        leaderboardModule.registerPositionForLeaderboard(
+            speculationId,
+            PositionType.Upper,
+            leaderboardId
+        );
+
+        // Verify position was registered
+        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(
+            leaderboardId, user2, speculationId
+        );
+        assertEq(lbPos.riskAmount, 50_000_000, "Transferred position should be registered");
+        assertEq(lbPos.user, user2, "Position should be registered to Bob");
     }
 }

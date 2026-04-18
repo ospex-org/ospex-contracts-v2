@@ -2077,6 +2077,165 @@ contract PositionModuleTest is Test {
         assertEq(recipientPos.riskAmount, takerRisk, "taker's unlocked position should transfer");
     }
 
+    // =========================================================================
+    // firstFillTimestamp Tests (F3 leaderboard eligibility fix)
+    // =========================================================================
+
+    /// @notice First recordFill on a new tuple sets firstFillTimestamp to block.timestamp
+    function test_RecordFill_SetsFirstFillTimestampOnFirstFill() public {
+        vm.warp(100_000);
+
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
+            1, address(defaultScorer), 42,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        Position memory makerPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
+        assertEq(makerPos.firstFillTimestamp, 100_000, "Maker firstFillTimestamp should be block.timestamp");
+
+        Position memory takerPos = positionModule.getPosition(specId, taker, PositionType.Lower);
+        assertEq(takerPos.firstFillTimestamp, 100_000, "Taker firstFillTimestamp should be block.timestamp");
+    }
+
+    /// @notice Subsequent fills do not overwrite the original firstFillTimestamp
+    function test_RecordFill_PreservesFirstFillTimestampOnSubsequentFills() public {
+        vm.warp(100_000);
+
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        token.approve(address(positionModule), makerRisk * 2);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk * 2);
+
+        uint256 specId = _helperRecordFill(
+            1, address(defaultScorer), 42,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        // Read the stored firstFillTimestamp (avoids via_ir timestamp caching)
+        Position memory posAfterFirst = positionModule.getPosition(specId, address(this), PositionType.Upper);
+        uint32 firstFillTime = posAfterFirst.firstFillTimestamp;
+        assertEq(firstFillTime, 100_000, "First fill should record timestamp 100_000");
+
+        // Warp forward so timestamps differ
+        vm.warp(200_000);
+
+        // Second fill on same speculation aggregates but preserves timestamp
+        _helperRecordFill(
+            1, address(defaultScorer), 42,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        Position memory makerPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
+        assertEq(makerPos.firstFillTimestamp, firstFillTime, "firstFillTimestamp must be preserved from first fill");
+        assertEq(makerPos.riskAmount, makerRisk * 2, "Risk should aggregate across fills");
+
+        Position memory takerPos = positionModule.getPosition(specId, taker, PositionType.Lower);
+        assertEq(takerPos.firstFillTimestamp, firstFillTime, "Taker firstFillTimestamp should also be preserved");
+    }
+
+    /// @notice Transfer to a fresh (empty) destination inherits source's firstFillTimestamp
+    function test_TransferPosition_InheritsFirstFillFromSourceOnFreshDestination() public {
+        vm.warp(100_000);
+
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 1_000_000;
+
+        token.approve(address(positionModule), makerRisk);
+        token.transfer(taker, takerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
+            1, address(defaultScorer), 42,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        // Read source's firstFillTimestamp from stored position
+        Position memory sourcePos = positionModule.getPosition(specId, address(this), PositionType.Upper);
+        uint32 expectedTimestamp = sourcePos.firstFillTimestamp;
+        assertEq(expectedTimestamp, 100_000, "Source fill should record timestamp 100_000");
+
+        // Warp so transfer time differs from fill time
+        vm.warp(200_000);
+
+        // Transfer full position to user (who has no existing position)
+        vm.prank(address(defaultMarket));
+        defaultMarket.transferPosition(
+            specId, address(this), PositionType.Upper,
+            user, sourcePos.riskAmount, sourcePos.profitAmount
+        );
+
+        Position memory toPos = positionModule.getPosition(specId, user, PositionType.Upper);
+        assertEq(toPos.firstFillTimestamp, expectedTimestamp, "Fresh destination should inherit source's firstFillTimestamp");
+    }
+
+    /// @notice Transfer to a destination with existing exposure results in min(from, to) timestamp
+    function test_TransferPosition_TakesMinOnExistingDestination() public {
+        vm.warp(100_000);
+
+        uint256 makerRisk = 10_000_000;
+        uint256 takerRisk = 8_000_000;
+
+        // Fill 1 at T1: address(this) = Upper maker
+        token.approve(address(positionModule), makerRisk);
+        vm.prank(taker);
+        token.approve(address(positionModule), takerRisk);
+
+        uint256 specId = _helperRecordFill(
+            1, address(defaultScorer), 42,
+            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+        );
+
+        // Read T1 from stored position
+        Position memory pos1 = positionModule.getPosition(specId, address(this), PositionType.Upper);
+        uint32 t1 = pos1.firstFillTimestamp;
+        assertEq(t1, 100_000, "First fill at T1 = 100_000");
+
+        // Warp to T2
+        vm.warp(200_000);
+
+        // Fill 2 at T2: user = Upper maker (same speculation, different maker)
+        token.transfer(user, makerRisk);
+        vm.prank(user);
+        token.approve(address(positionModule), makerRisk);
+
+        address taker2 = address(0xDEAD);
+        token.transfer(taker2, takerRisk);
+        vm.prank(taker2);
+        token.approve(address(positionModule), takerRisk);
+
+        _helperRecordFill(
+            1, address(defaultScorer), 42,
+            PositionType.Upper, user, makerRisk, taker2, takerRisk
+        );
+
+        // Read T2 from stored position
+        Position memory pos2 = positionModule.getPosition(specId, user, PositionType.Upper);
+        uint32 t2 = pos2.firstFillTimestamp;
+        assertEq(t2, 200_000, "Second fill at T2 = 200_000");
+        assertTrue(t2 > t1, "T2 must be after T1");
+
+        // Transfer some of address(this) Upper → user Upper
+        vm.prank(address(defaultMarket));
+        defaultMarket.transferPosition(
+            specId, address(this), PositionType.Upper,
+            user, 2_000_000, 1_600_000
+        );
+
+        // User's firstFillTimestamp should now be min(T1, T2) = T1
+        Position memory userAfter = positionModule.getPosition(specId, user, PositionType.Upper);
+        assertEq(userAfter.firstFillTimestamp, t1, "firstFillTimestamp should be min(T1, T2) = T1");
+    }
+
     /// @notice Excess exposure above locked amount can be transferred
     function testTransferPosition_ExcessAboveLockedCanBeTransferred() public {
         // Initial fill: maker risks 10 USDC, taker risks 8 USDC
