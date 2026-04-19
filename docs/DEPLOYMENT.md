@@ -13,11 +13,10 @@
 | RulesModule | [`0xEfDf69ef9f3657d6571bb9c979D2Ce3D7Afb6891`](https://polygonscan.com/address/0xEfDf69ef9f3657d6571bb9c979D2Ce3D7Afb6891) |
 | TreasuryModule | [`0x48Fe67B7b866Ce87eA4B6f45BF7Bcc3cf868ccD0`](https://polygonscan.com/address/0x48Fe67B7b866Ce87eA4B6f45BF7Bcc3cf868ccD0) |
 | SecondaryMarketModule | [`0x85E25F3BC29fAD936824ED44624f1A6200F3816E`](https://polygonscan.com/address/0x85E25F3BC29fAD936824ED44624f1A6200F3816E) |
-| ContributionModule | [`0x384e356422E530c1AAF934CA48c178B19CA5C4F8`](https://polygonscan.com/address/0x384e356422E530c1AAF934CA48c178B19CA5C4F8) |
 | MoneylineScorerModule | [`0x82c93AAf547fC809646A7bEd5D8A9D4B72Db3045`](https://polygonscan.com/address/0x82c93AAf547fC809646A7bEd5D8A9D4B72Db3045) |
 | SpreadScorerModule | [`0x4377A09760b3587dAf1717F094bf7bd455daD4af`](https://polygonscan.com/address/0x4377A09760b3587dAf1717F094bf7bd455daD4af) |
 | TotalScorerModule | [`0xD7b35DE1bbFD03625a17F38472d3FBa7b77cBeCf`](https://polygonscan.com/address/0xD7b35DE1bbFD03625a17F38472d3FBa7b77cBeCf) |
-| MatchingModule | (deployed, address TBD — update after next mainnet deploy) |
+| MatchingModule | (update after next mainnet deploy) |
 
 **Token:** Native USDC ([`0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359`](https://polygonscan.com/address/0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359)), 6 decimals
 
@@ -111,8 +110,8 @@ DEPLOYER_ADDRESS=0xYourWallet forge script script/DeployAmoy.s.sol:DeployAmoy \
 ### Post-Deploy Checklist (Amoy)
 
 - [ ] Deployment script completed without reverts
-- [ ] All 13 module registrations verified (script checks this automatically)
-- [ ] All 3 scorer roles verified (script checks this automatically)
+- [ ] All 12 module registrations verified (script checks this automatically)
+- [ ] All 3 scorer modules recognized by `isApprovedScorer()` (script checks this automatically)
 - [ ] Save all deployed contract addresses from the console output
 - [ ] Add OracleModule address as consumer on [Chainlink subscription 416](https://functions.chain.link/polygon-amoy/416)
 - [ ] Fund OracleModule with LINK tokens for Chainlink Functions requests
@@ -165,14 +164,13 @@ Key swaps:
 ### Post-Deploy Checklist (Mainnet)
 
 - [ ] Deployment script completed without reverts
-- [ ] All 13 module registrations verified
-- [ ] All 3 scorer roles verified
+- [ ] All 12 module registrations verified
+- [ ] All 3 scorer modules recognized by `isApprovedScorer()`
 - [ ] Contract source code verified on Polygonscan
 - [ ] Add OracleModule as consumer on [Chainlink subscription 191](https://functions.chain.link/polygon/191)
 - [ ] Fund OracleModule with LINK
 - [ ] Upload mainnet offchain-secrets
 - [ ] Update all downstream services (ospex-fdb, ospex-agent-server, ospex-lovable)
-- [ ] Transfer admin role to hardware wallet (two-step: `proposeAdmin` then `acceptAdmin`)
 - [ ] Test with small positions before announcing
 
 ---
@@ -181,8 +179,8 @@ Key swaps:
 
 The deploy scripts create contracts in this order:
 
-1. **OspexCore** — central registry and access control
-2. **ContributionModule** — voluntary donations (dormant)
+1. **OspexCore** — immutable core registry and event hub
+2. **ContestModule** — sports events (needs OspexCore)
 3. **LeaderboardModule** — competitions, ROI tracking, prizes
 4. **RulesModule** — leaderboard eligibility rules
 5. **MoneylineScorerModule** — moneyline bet scoring
@@ -190,15 +188,14 @@ The deploy scripts create contracts in this order:
 7. **TotalScorerModule** — over/under scoring
 8. **MatchingModule** — EIP-712 signed-order matching
 9. **TreasuryModule** — fee collection and prize pools (needs USDC + fee receiver)
-10. **SpeculationModule** — market lifecycle (needs token decimals)
+10. **SpeculationModule** — market lifecycle (needs void cooldown)
 11. **PositionModule** — user fund escrow (needs USDC)
-12. **SecondaryMarketModule** — position trading (needs USDC + min sale amount)
-13. **ContestModule** — sports events (needs source hashes)
-14. **OracleModule** — Chainlink Functions (needs router + LINK + DON ID)
+12. **SecondaryMarketModule** — position trading (needs USDC)
+13. **OracleModule** — Chainlink Functions (needs router + LINK + DON ID + approved signer)
 
-After deployment: all modules registered with OspexCore, SCORER_ROLE granted to 3 scorer modules.
+After deployment: all 12 modules registered with OspexCore via `bootstrapModules()`, then `finalize()` permanently locks the registry. No admin key remains.
 
-See [ADMIN_PRIVILEGES.md](ADMIN_PRIVILEGES.md) for the full trust model and role assignments.
+See [TRUST_MODEL.md](TRUST_MODEL.md) for the full trust model.
 
 ---
 
@@ -229,7 +226,7 @@ For pure local testing with mock tokens and mock Chainlink contracts:
 ```bash
 anvil
 
-forge script script/DeployLocal.s.sol:DeployLocal \
+forge script script/DeployAnvilFull.s.sol:DeployAnvilFull \
   --rpc-url http://127.0.0.1:8545 \
   --broadcast \
   --interactive \

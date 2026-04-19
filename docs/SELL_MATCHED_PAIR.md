@@ -2,34 +2,18 @@ flowchart TD
     Start([User starts]) --> SellPosition[listPositionForSale]
     
     %% Initial Parameters
-    SellPosition --> |"Params: <br>speculationId, <br>oddsPairId, <br>saleOdds, <br>price, <br>amount, <br>contributionAmount"| InitialValidations
+    SellPosition --> |"Params: <br>speculationId, <br>positionType, <br>price, <br>riskAmount, <br>profitAmount"| InitialValidations
     
     %% Combined Initial Validations
-    InitialValidations --> Validations[Check all validations:<br>speculation is Active<br>position has matched amount<br>position not claimed<br>price > 0<br>auto-cancel not active]
+    InitialValidations --> Validations[Check all validations:<br>speculation is Open<br>position has risk amount<br>position not claimed<br>price > 0<br>amounts within position]
     
     %% Handle Validation Results
-    Validations --> |"All validations pass"| ValidateAmount
+    Validations --> |"All validations pass"| CreateListing
     Validations --> |"Any validation fails"| RevertValidation[Revert: Various]
     
-    %% Amount Validation
-    ValidateAmount --> |"amount = 0"| UseFullAmount[Use full matched amount]
-    ValidateAmount --> |"amount > 0"| CheckAmount[Validate against<br>matched amount<br>and minimum sale]
-    
-    CheckAmount --> |"Invalid"| RevertAmount[Revert: AmountInvalid]
-    CheckAmount --> |"Valid"| HandleContribution{contributionAmount > 0?}
-    UseFullAmount --> HandleContribution
-    
-    %% Contribution Processing
-    HandleContribution --> |"Yes"| ProcessContribution[Process contribution]
-    ProcessContribution --> |"Success"| EmitContribution[Emit SecondaryContributionMade]
-    ProcessContribution --> |"Failure"| RevertContribution[Revert: TransferFailed]
-    
-    HandleContribution --> |"No"| CreateListing
-    EmitContribution --> CreateListing
-    
     %% Listing Creation
-    CreateListing --> StoreListing[Store listing details]
-    StoreListing --> EmitListed[Emit PositionListed event]
+    CreateListing --> StoreListing[Store listing details<br>with listing hash]
+    StoreListing --> EmitListed[Emit PositionListed event<br>includes listingHash]
     
     %% Wait for Purchase or Management
     EmitListed --> ListingOptions{What happens<br>to listing?}
@@ -38,21 +22,37 @@ flowchart TD
     ListingOptions --> |"Wait"| AwaitBuyer[Position remains listed]
     
     %% Path 2: Cancel Listing
-    ListingOptions --> |"Cancel"| CancelListing[cancelSaleListing]
-    CancelListing --> CheckListing1[Verify:<br>caller owns position<br>listing exists & active]
+    ListingOptions --> |"Cancel"| CancelListing[cancelListing]
+    CancelListing --> CheckListing1[Verify:<br>caller owns position<br>listing exists & active<br>position not claimed]
     CheckListing1 --> |"Not found/inactive"| RevertNoListing[Revert: ListingNotActive]
     CheckListing1 --> |"Valid"| DeactivateListing[Delete listing]
     DeactivateListing --> EmitCancelled[Emit ListingCancelled]
     
     %% Path 3: Update Listing
-    ListingOptions --> |"Update"| UpdateListing[updateSaleListing]
-    UpdateListing --> CheckListing2[Verify: caller owns position, listing exists, is active and unclaimed]
+    ListingOptions --> |"Update"| UpdateListing[updateListing]
+    UpdateListing --> CheckListing2[Verify: speculation Open,<br>listing exists & active,<br>position not claimed]
     CheckListing2 --> |"Not found/inactive"| RevertUpdateInvalid[Revert: ListingNotActive]
-    CheckListing2 --> |"Valid"| ValidateNewAmount[Validate new amount]
+    CheckListing2 --> |"Valid"| ValidateNewAmount[Validate new amounts<br>against position]
     
-    ValidateNewAmount --> |"Invalid"| RevertUpdateAmount[Revert: AmountInvalid]
-    ValidateNewAmount --> |"Valid"| UpdateListingDetails[Update price and amount]
-    UpdateListingDetails --> EmitUpdated[Emit ListingUpdated]
+    ValidateNewAmount --> |"Invalid"| RevertUpdateAmount[Revert: AmountAboveMaximum]
+    ValidateNewAmount --> |"Valid"| UpdateListingDetails[Update price, risk,<br>and profit amounts]
+    UpdateListingDetails --> EmitUpdated[Emit ListingUpdated<br>includes new listingHash]
+    
+    %% Path 4: Someone Buys
+    ListingOptions --> |"Buy"| BuyPosition[buyPosition]
+    BuyPosition --> CheckBuy[Verify: speculation Open,<br>listing active, not own listing,<br>expectedHash matches current,<br>position not claimed]
+    CheckBuy --> |"Hash mismatch"| RevertHash[Revert: ListingStateChanged]
+    CheckBuy --> |"Valid"| ProcessBuy[Calculate proportional<br>profitAmount and price]
+    ProcessBuy --> TransferUSDC[Transfer USDC from buyer<br>to contract]
+    TransferUSDC --> TransferPosition[Transfer position via<br>PositionModule.transferPosition]
+    TransferPosition --> UpdateOrDelete{Full or<br>partial buy?}
+    UpdateOrDelete --> |"Full"| DeleteListing[Delete listing]
+    UpdateOrDelete --> |"Partial"| ReduceListing[Reduce listing amounts<br>and price proportionally]
+    DeleteListing & ReduceListing --> EmitSold[Emit PositionSold]
+    
+    %% Claim Proceeds
+    EmitSold --> ClaimFlow[Seller calls claimSaleProceeds]
+    ClaimFlow --> TransferProceeds[Transfer accumulated<br>USDC to seller]
     
     %% Style Definitions
     classDef function fill:#bbf,stroke:#333,stroke-width:2px
@@ -61,8 +61,8 @@ flowchart TD
     classDef validation fill:#ddd,stroke:#333,stroke-width:2px
     classDef decision fill:#ffd,stroke:#333,stroke-width:2px
     
-    class SellPosition,ProcessContribution,CreateListing,CancelListing,UpdateListing,DeactivateListing,UpdateListingDetails function
-    class EmitListed,EmitContribution,EmitCancelled,EmitUpdated event
-    class RevertValidation,RevertContribution,RevertAmount,RevertNoListing,RevertUpdateInvalid,RevertUpdateAmount error
-    class Validations,CheckAmount,CheckOwner1,CheckOwner2,CheckListingExists,ValidateUpdate,ValidateNewAmount validation
-    class HandleContribution,ValidateAmount,ListingOptions decision
+    class SellPosition,CancelListing,UpdateListing,BuyPosition,DeactivateListing,UpdateListingDetails,ProcessBuy,TransferUSDC,TransferPosition,ClaimFlow,TransferProceeds function
+    class EmitListed,EmitCancelled,EmitUpdated,EmitSold event
+    class RevertValidation,RevertNoListing,RevertUpdateInvalid,RevertUpdateAmount,RevertHash error
+    class Validations,CheckListing1,CheckListing2,ValidateNewAmount,CheckBuy validation
+    class ListingOptions,UpdateOrDelete decision
