@@ -123,6 +123,7 @@ contract RulesModule is IRulesModule {
     /// @notice Leaderboard ID → minimum bet percentage (BPS of bankroll)
     mapping(uint256 => uint16) public s_minBetPercentage;
     /// @notice Leaderboard ID → maximum bet percentage (BPS of bankroll)
+    /// Default: 100% of bankroll when maxBetPercentage is unset
     mapping(uint256 => uint16) public s_maxBetPercentage;
     /// @notice Leaderboard ID → minimum number of positions for ROI submission (min/default of 1)
     mapping(uint256 => uint16) public s_minBets;
@@ -622,7 +623,7 @@ contract RulesModule is IRulesModule {
                 (bankroll * s_maxBetPercentage[leaderboardId]) /
                 MAX_BPS;
         } else {
-            maxBetAmount = type(uint256).max; // No limit
+            maxBetAmount = bankroll; // Default: 100% of bankroll
         }
         return maxBetAmount;
     }

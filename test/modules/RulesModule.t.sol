@@ -857,9 +857,9 @@ contract RulesModuleTest is Test {
         assertEq(maxBet, expected);
     }
 
-    function testGetMaxBetAmount_NoLimit() public view {
+    function testGetMaxBetAmount_DefaultCapsAtBankroll() public view {
         uint256 maxBet = rulesModule.getMaxBetAmount(leaderboardId, DECLARED_BANKROLL);
-        assertEq(maxBet, type(uint256).max);
+        assertEq(maxBet, DECLARED_BANKROLL); // Default: 100% of bankroll
     }
 
     function testGetMinBetAmount_WithMinimum() public {
