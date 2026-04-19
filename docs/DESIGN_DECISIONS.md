@@ -44,11 +44,13 @@
 
 **What it is.** `matchCommitment()` does not check whether `maker == msg.sender`. A user can sign a commitment and then match against it themselves.
 
-**What might look wrong.** Self-matching looks like wash trading. Most exchanges and prediction markets explicitly prohibit it.
+**What might look wrong.** Self-matching looks like wash trading. More specifically: a user controlling multiple wallets can self-match across them, then selectively register only the winning positions for leaderboard competitions — a cherry-picking strategy that inflates apparent ROI.
 
-**Why it's right.** Self-match prevention at the protocol layer is trivially bypassable with two wallets. Enforcing it on-chain adds gas cost for zero security benefit. If volume-based incentives or rewards are added in the future, wash-trade prevention should be enforced at the incentive/leaderboard layer where it can use richer signals (behavioral patterns, reputation) rather than a single `maker != taker` check.
+**Why it's right.** Self-matching exists primarily so that users can participate in leaderboards without depending on external liquidity. If no counterparty is available for a market, a user can self-match to take a position and register it for a leaderboard. Blocking `maker == taker` at the protocol layer would not prevent cross-wallet self-matching (trivially bypassable with two wallets), so it would cost gas for zero security benefit while removing a legitimate liquidity-access use case.
 
-**What an agent/user should know.** Self-matching is not blocked. It's economically neutral at the protocol level (you pay yourself). If you're evaluating trading volume, treat self-matches as noise.
+The leaderboard abuse surface is real but bounded by the existing rules engine. LeaderboardModule and RulesModule enforce several constraints that limit cherry-picking advantage: odds enforcement (`oddsEnforcementBps`) prevents taking unrealistically favorable odds; minimum positions (`minBets`) requires a threshold of qualifying outcomes, making pure cherry-picking expensive; bet sizing caps (`maxBetPercentage`) limit the ROI impact of any single position; one-position-per-contest-per-scorer prevents registering both sides of the same market; and positions acquired via secondary market are permanently ineligible. These are imperfect — a sufficiently capitalized attacker self-matching across many markets could still gain a statistical edge — but the cost (fees + gas on every losing side, minimum position requirements) bounds the advantage relative to the prize pool.
+
+**What an agent/user should know.** Self-matching is not blocked at the protocol layer. At the position level it is economically neutral (you pay both sides, net zero minus fees). The residual risk is at the leaderboard layer, where cross-wallet cherry-picking is possible but bounded by the rules engine. Leaderboard creators should configure odds enforcement and minimum position requirements to raise the cost of cherry-picking strategies. If you're evaluating trading volume, treat self-matches as noise.
 
 ---
 

@@ -15,7 +15,7 @@
 | Can the deployer withdraw user funds? | **No** — PositionModule has zero admin functions |
 | Can the deployer upgrade contracts? | **No** — no proxy pattern, no module swap, no upgrade path |
 | What can the deployer do after deployment? | **Nothing** — the deployer address has no on-chain privileges after `finalize()` |
-| What's the worst that can happen? | Oracle submits wrong scores (mitigated by triple-source verification); off-chain infrastructure goes down (positions remain safe on-chain) |
+| What's the worst that can happen? | An undiscovered contract bug with no admin recourse (no pause, no upgrade — see [RISKS.md](./RISKS.md#1-no-professional-audit--critical)); oracle submits wrong scores (mitigated by triple-source verification); off-chain infrastructure goes down (positions remain safe on-chain) |
 
 ---
 
@@ -43,7 +43,7 @@ Every value below is set at construction time and is immutable for the life of t
 | Protocol fee receiver | Constructor parameter | TreasuryModule `i_protocolReceiver` |
 | Fee rates (contest, speculation, leaderboard creation) | Constructor parameters | TreasuryModule `s_feeRates` |
 | Void cooldown | Constructor parameter | SpeculationModule `i_voidCooldown` |
-| LINK payment per oracle call | Constructor parameter | OracleModule `i_linkDenominator` |
+| LINK denominator (payment per oracle call = 1e18 / denominator) | Constructor parameter | OracleModule `i_linkDenominator` |
 | Approved script signer | Constructor parameter | OracleModule `i_approvedSigner` |
 | USDC token address | Constructor parameter | PositionModule, TreasuryModule, SecondaryMarketModule |
 | LINK token address | Constructor parameter | OracleModule |
