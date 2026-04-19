@@ -1052,11 +1052,27 @@ contract MatchingModuleTest is Test {
         );
     }
 
-    function test_ExpiryBoundaryAccepted() public {
+    function test_ExpiryBoundaryExactReverts() public {
         MatchingModule.OspexCommitment memory c = _defaultCommitment();
         c.expiry = block.timestamp + 1 hours;
         bytes memory sig = _signCommitment(c, MAKER_PK);
         vm.warp(c.expiry);
+        vm.prank(taker);
+        vm.expectRevert(
+            MatchingModule.MatchingModule__CommitmentExpired.selector
+        );
+        matchingModule.matchCommitment(
+            c,
+            sig,
+            DEFAULT_TAKER_DESIRED_RISK
+        );
+    }
+
+    function test_ExpiryBoundaryLastSecondAccepted() public {
+        MatchingModule.OspexCommitment memory c = _defaultCommitment();
+        c.expiry = block.timestamp + 1 hours;
+        bytes memory sig = _signCommitment(c, MAKER_PK);
+        vm.warp(c.expiry - 1);
         vm.prank(taker);
         matchingModule.matchCommitment(
             c,

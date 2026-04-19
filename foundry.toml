@@ -6,7 +6,7 @@ solc = "0.8.24"
 via_ir = true
 optimizer = true
 
-fs_permissions = [{ access = "read", path = "chainlink-functions" }]
+fs_permissions = [{ access = "read", path = "chainlink-functions" }, { access = "read-write", path = "addresses.json" }]
 
 [profile.ci]
 solc = "0.8.24"

@@ -67,15 +67,17 @@ contract DeployAnvilFull is Script {
         MatchingModule matchingModule = new MatchingModule(address(core));
 
         // ── Modules (additional deps) ──
+        // CONFIGURABLE: Protocol fee rates (USDC 6 decimals)
         TreasuryModule treasuryModule = new TreasuryModule(
             address(core),
             address(usdc),
-            deployer,          // protocolReceiver
-            1_000_000,         // contestCreationFee (1 USDC)
-            500_000,           // speculationCreationFee (0.50 USDC split)
-            250_000            // leaderboardCreationFee (0.25 USDC)
+            deployer,          // CONFIGURABLE: protocolReceiver (Anvil: deployer)
+            1_000_000,         // CONFIGURABLE: contestCreationFee — 1.00 USDC
+            500_000,           // CONFIGURABLE: speculationCreationFee — 0.50 USDC split
+            500_000            // CONFIGURABLE: leaderboardCreationFee — 0.50 USDC
         );
 
+        // CONFIGURABLE: voidCooldown — Anvil 3 days, Amoy 1 day, Mainnet 7 days
         SpeculationModule speculationModule = new SpeculationModule(address(core), 3 days);
 
         PositionModule positionModule = new PositionModule(address(core), address(usdc));
@@ -86,8 +88,8 @@ contract DeployAnvilFull is Script {
             address(router),
             address(link),
             bytes32("test_don_id"),
-            10,                // linkDenominator: payment = 1e18/10 = 0.1 LINK per request
-            signer             // approvedSigner for EIP-712 script approvals
+            10,                // CONFIGURABLE: linkDenominator — payment = 1e18/10 = 0.1 LINK per request
+            signer             // CONFIGURABLE: approvedSigner for EIP-712 script approvals
         );
 
         // ── Bootstrap + Finalize ──

@@ -404,7 +404,7 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
             revert MatchingModule__InvalidMakerAddress();
         }
 
-        if (block.timestamp > commitment.expiry) {
+        if (block.timestamp >= commitment.expiry) {
             revert MatchingModule__CommitmentExpired();
         }
 

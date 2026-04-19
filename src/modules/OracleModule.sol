@@ -951,7 +951,7 @@ contract OracleModule is FunctionsClient, ReentrancyGuard {
         ) {
             revert OracleModule__InvalidScriptApproval();
         }
-        if (approval.validUntil != 0 && block.timestamp > approval.validUntil) {
+        if (approval.validUntil != 0 && block.timestamp >= approval.validUntil) {
             revert OracleModule__ScriptApprovalExpired();
         }
     }

@@ -24,16 +24,22 @@ import "../src/modules/MatchingModule.sol";
 /**
  * @title DeployPolygon
  * @notice Deployment script for Ospex protocol on Polygon Mainnet
- * @dev Uses bootstrap+finalize pattern — no admin key after deployment.
+ * @dev ZERO-ADMIN ONE-SHOT DEPLOYMENT — re-running this deploys a fresh protocol;
+ *      there is no upgrade path. Confirm all parameters before running.
+ *      Uses bootstrap+finalize pattern — no admin key after deployment.
  */
 contract DeployPolygon is Script {
     // Polygon mainnet addresses
     address constant LINK_ADDRESS = 0xb0897686c545045aFc77CF20eC7A532E3120E0F1;
     address constant FUNCTIONS_ROUTER = 0xdc2AAF042Aeff2E68B3e8E33F19e4B9fA7C73F10;
     address constant USDC_ADDRESS = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
+    // CONFIGURABLE: Protocol fee receiver (hardware wallet / multisig for mainnet)
     address constant FEE_RECEIVER = 0xdaC630aE52b868FF0A180458eFb9ac88e7425114;
     bytes32 constant DON_ID = bytes32("fun-polygon-mainnet-1");
-    uint256 constant LINK_DENOMINATOR = 10**18;
+    // CONFIGURABLE: LINK payment per oracle call = 1e18 / LINK_DENOMINATOR (250 = 0.004 LINK)
+    uint256 constant LINK_DENOMINATOR = 250;
+    // CONFIGURABLE: EIP-712 approved signer for oracle script approvals (Safe multisig)
+    address constant APPROVED_SIGNER = 0xfd6C7Fc1F182de53AA636584f1c6B80d9D885886;
 
     struct DeploymentConfig {
         uint32 voidCooldown;
@@ -68,12 +74,13 @@ contract DeployPolygon is Script {
         console.log("Balance:", deployer.balance);
         require(deployer.balance > 0, "Deployer has zero balance");
 
+        // CONFIGURABLE: Protocol parameters — see docs/deployment/DEPLOYMENT_PARAMETERS.md
         DeploymentConfig memory config = DeploymentConfig({
-            voidCooldown: 3 days,
-            contestCreationFee: 1_000_000, // 1.00 USDC
-            speculationCreationFee: 500_000, // 0.50 USDC (split between maker and taker)
-            leaderboardCreationFee: 250_000, // 0.25 USDC
-            protocolReceiver: FEE_RECEIVER
+            voidCooldown: 7 days,                // CONFIGURABLE: Mainnet 7 days, Amoy 1 day, Anvil 3 days
+            contestCreationFee: 1_000_000,       // CONFIGURABLE: 1.00 USDC
+            speculationCreationFee: 500_000,     // CONFIGURABLE: 0.50 USDC (split between maker and taker)
+            leaderboardCreationFee: 500_000,     // CONFIGURABLE: 0.50 USDC
+            protocolReceiver: FEE_RECEIVER       // CONFIGURABLE: fee receiver address
         });
 
         vm.startBroadcast(deployer);
@@ -111,9 +118,8 @@ contract DeployPolygon is Script {
         ));
         c.positionModule = address(new PositionModule(c.ospexCore, c.usdc));
         c.secondaryMarketModule = address(new SecondaryMarketModule(c.ospexCore, c.usdc));
-        // TODO: Replace address(0x1) with the real approved signer address before production deploy
         c.oracleModule = address(new OracleModule(
-            c.ospexCore, FUNCTIONS_ROUTER, LINK_ADDRESS, DON_ID, LINK_DENOMINATOR, address(0x1)
+            c.ospexCore, FUNCTIONS_ROUTER, LINK_ADDRESS, DON_ID, LINK_DENOMINATOR, APPROVED_SIGNER
         ));
 
         console.log("All 12 modules deployed.");
@@ -174,7 +180,7 @@ contract DeployPolygon is Script {
         console.log("  SpreadScorerModule:", c.spreadScorerModule);
         console.log("  TotalScorerModule:", c.totalScorerModule);
         console.log("\n=== NEXT STEPS ===");
-        console.log("1. Add OracleModule as consumer on Chainlink subscription 191");
+        console.log("1. Add OracleModule as consumer on Chainlink Functions subscription");
         console.log("2. Update all dependent services with new addresses");
         console.log("3. Test with small positions before going live");
     }

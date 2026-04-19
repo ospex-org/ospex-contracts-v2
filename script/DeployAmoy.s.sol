@@ -36,7 +36,10 @@ contract DeployAmoy is Script {
     address constant FUNCTIONS_ROUTER = 0xC22a79eBA640940ABB6dF0f7982cc119578E11De;
     address constant USDC_ADDRESS = 0xB1D1c0A8Cc8BB165b34735972E798f64A785eaF8;
     bytes32 constant DON_ID = bytes32("fun-polygon-amoy-1");
-    uint256 constant LINK_DENOMINATOR = 10**18;
+    // CONFIGURABLE: LINK payment per oracle call = 1e18 / LINK_DENOMINATOR (250 = 0.004 LINK)
+    uint256 constant LINK_DENOMINATOR = 250;
+    // CONFIGURABLE: EIP-712 approved signer for oracle script approvals
+    address constant APPROVED_SIGNER = 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3;
 
     struct DeploymentConfig {
         uint32 voidCooldown;
@@ -71,12 +74,13 @@ contract DeployAmoy is Script {
         console.log("Deployer:", deployer);
         require(deployer.balance > 0, "Deployer has zero balance");
 
+        // CONFIGURABLE: Protocol parameters — see docs/deployment/DEPLOYMENT_PARAMETERS.md
         DeploymentConfig memory config = DeploymentConfig({
-            voidCooldown: 3 days,
-            contestCreationFee: 1_000_000, // 1.00 USDC
-            speculationCreationFee: 500_000, // 0.50 USDC (split between maker and taker)
-            leaderboardCreationFee: 250_000, // 0.25 USDC
-            protocolReceiver: deployer
+            voidCooldown: 1 days,                // CONFIGURABLE: Amoy 1 day, Anvil 3 days, Mainnet 7 days
+            contestCreationFee: 1_000_000,       // CONFIGURABLE: 1.00 USDC
+            speculationCreationFee: 500_000,     // CONFIGURABLE: 0.50 USDC (split between maker and taker)
+            leaderboardCreationFee: 500_000,     // CONFIGURABLE: 0.50 USDC
+            protocolReceiver: deployer           // CONFIGURABLE: fee receiver address
         });
 
         vm.startBroadcast(deployer);
@@ -138,9 +142,8 @@ contract DeployAmoy is Script {
         c.secondaryMarketModule = address(new SecondaryMarketModule(c.ospexCore, c.usdc));
         console.log("SecondaryMarketModule:", c.secondaryMarketModule);
 
-        // TODO: Replace address(0x1) with the real approved signer address before production deploy
         c.oracleModule = address(new OracleModule(
-            c.ospexCore, FUNCTIONS_ROUTER, LINK_ADDRESS, DON_ID, LINK_DENOMINATOR, address(0x1)
+            c.ospexCore, FUNCTIONS_ROUTER, LINK_ADDRESS, DON_ID, LINK_DENOMINATOR, APPROVED_SIGNER
         ));
         console.log("OracleModule:", c.oracleModule);
 
