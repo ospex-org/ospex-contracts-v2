@@ -157,8 +157,8 @@ contract DeployAnvilFull is Script {
         vm.serializeAddress(json, "charlie", charlie);
         string memory finalJson = vm.serializeAddress(json, "signer", signer);
 
-        vm.writeJson(finalJson, "./addresses.json");
-        console.log("\nAddresses written to addresses.json");
+        vm.writeJson(finalJson, "./deployments/addresses.json");
+        console.log("\nAddresses written to deployments/addresses.json");
 
         // ── Summary ──
         console.log("\n=== DEPLOYMENT COMPLETE ===");
