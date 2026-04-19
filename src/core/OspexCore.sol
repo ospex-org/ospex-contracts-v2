@@ -4,128 +4,171 @@ pragma solidity ^0.8.20;
 /**
  * @title OspexCore
  * @author ospex.org
- * @notice Minimal core contract for Ospex protocol: manages module registry and access control
- * @dev Implements the minimal core + plug-in modules pattern. All business logic is in modules.
- *      The core manages module addresses, access control, and protocol-wide event emission.
+ * @notice Immutable core contract for the Ospex protocol. Manages the module
+ *         registry, cross-module access control, and protocol-wide event emission.
+ * @dev Implements a bootstrap-then-finalize pattern: the deployer registers all
+ *      modules once, calls finalize(), and no admin key remains. All business
+ *      logic lives in the registered modules.
  */
 
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {ITreasuryModule} from "../interfaces/ITreasuryModule.sol";
 import {FeeType} from "./OspexTypes.sol";
 
-contract OspexCore is AccessControl {
-    /// @notice Emitted when a module address is invalid
-    /// @param moduleAddress The address of the module
+contract OspexCore {
+    // ──────────────────────────── Constants ────────────────────────────
+
+    bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
+    bytes32 public constant SPECULATION_MODULE =
+        keccak256("SPECULATION_MODULE");
+    bytes32 public constant POSITION_MODULE = keccak256("POSITION_MODULE");
+    bytes32 public constant MATCHING_MODULE = keccak256("MATCHING_MODULE");
+    bytes32 public constant ORACLE_MODULE = keccak256("ORACLE_MODULE");
+    bytes32 public constant TREASURY_MODULE = keccak256("TREASURY_MODULE");
+    bytes32 public constant LEADERBOARD_MODULE =
+        keccak256("LEADERBOARD_MODULE");
+    bytes32 public constant RULES_MODULE = keccak256("RULES_MODULE");
+    bytes32 public constant SECONDARY_MARKET_MODULE =
+        keccak256("SECONDARY_MARKET_MODULE");
+    bytes32 public constant MONEYLINE_SCORER_MODULE =
+        keccak256("MONEYLINE_SCORER_MODULE");
+    bytes32 public constant SPREAD_SCORER_MODULE =
+        keccak256("SPREAD_SCORER_MODULE");
+    bytes32 public constant TOTAL_SCORER_MODULE =
+        keccak256("TOTAL_SCORER_MODULE");
+
+    // ──────────────────────────── Errors ───────────────────────────────
+
+    /// @notice Thrown when a module address is the zero address
     error OspexCore__InvalidModuleAddress(address moduleAddress);
-    /// @notice Emitted when a new admin address is invalid
-    /// @param newAdmin The address of the new admin
-    error OspexCore__InvalidAdminAddress(address newAdmin);
-    /// @notice Emitted when a module is not registered
-    /// @param moduleAddress The address of the module
+    /// @notice Thrown when a caller is not a registered module
     error OspexCore__NotRegisteredModule(address moduleAddress);
-    /// @notice Emitted when a non-pending admin attempts to set a new admin
-    /// @param caller The address of the caller
-    error OspexCore__NotPendingAdmin(address caller);
+    /// @notice Thrown when finalize() has already been called
+    error OspexCore__AlreadyFinalized();
+    /// @notice Thrown when a non-deployer calls a deployer-only function
+    error OspexCore__NotDeployer(address caller);
+    /// @notice Thrown when bootstrap array lengths do not match
+    error OspexCore__ArrayLengthMismatch();
+    /// @notice Thrown when a module type is registered more than once
+    error OspexCore__DuplicateModuleType(bytes32 moduleType);
+    /// @notice Thrown when a module type is not registered
+    error OspexCore__ModuleNotRegistered(bytes32 moduleType);
 
-    /// @notice Emitted when a module is registered or updated
-    /// @param moduleType The bytes32 identifier for the module type
-    /// @param moduleAddress The address of the module contract
-    event ModuleRegistered(
-        bytes32 indexed moduleType,
-        address indexed moduleAddress
-    );
+    // ──────────────────────────── Events ───────────────────────────────
 
-    /// @notice Emitted when the protocol admin is changed
-    /// @param previousAdmin The previous admin address
-    /// @param newAdmin The new admin address
-    event AdminChanged(address indexed previousAdmin, address indexed newAdmin);
-
-    /// @notice Emitted when a new admin is proposed
-    /// @param currentAdmin The current admin address
-    /// @param pendingAdmin The pending admin address
-    event AdminTransferProposed(
-        address indexed currentAdmin,
-        address indexed pendingAdmin
-    );
-
-    /// @notice Emitted when a protocol-wide event is emitted for off-chain indexing
+    /// @notice Emitted by registered modules for off-chain indexing
     /// @param eventType The bytes32 event type identifier
-    /// @param emitter The address of the module that emitted the event
-    /// @param eventData Arbitrary event data (encoded)
+    /// @param emitter The module that emitted the event
+    /// @param eventData ABI-encoded event payload
     event CoreEventEmitted(
         bytes32 indexed eventType,
         address indexed emitter,
         bytes eventData
     );
 
-    /// @notice Emitted when a module is retired (replaced by a newer version)
-    /// @param moduleType The bytes32 identifier for the module type that was replaced
-    /// @param retiredAddress The address of the old module now in retired status
-    event ModuleRetired(
-        bytes32 indexed moduleType,
-        address indexed retiredAddress
-    );
+    /// @notice Emitted when all modules are registered during bootstrap
+    /// @param moduleCount The number of modules registered
+    event ModulesBootstrapped(uint256 moduleCount);
 
-    /// @notice Role for managing modules
-    bytes32 public constant MODULE_ADMIN_ROLE = keccak256("MODULE_ADMIN_ROLE");
-    /// @notice Role for approved market contracts
-    bytes32 public constant MARKET_ROLE = keccak256("MARKET_ROLE");
-    /// @notice Role for approved scorer contracts
-    bytes32 public constant SCORER_ROLE = keccak256("SCORER_ROLE");
-    /// @notice The address of the admin
-    address public s_admin;
-    /// @notice The address of the pending admin
-    address public s_pendingAdmin;
+    /// @notice Emitted when the protocol is finalized
+    event Finalized();
 
-    /// @notice Registry of module addresses by module type
+    // ──────────────────────────── Modifiers ────────────────────────────
+
+    modifier onlyDeployer() {
+        if (msg.sender != i_deployer) revert OspexCore__NotDeployer(msg.sender);
+        _;
+    }
+
+    modifier notFinalized() {
+        if (s_finalized) revert OspexCore__AlreadyFinalized();
+        _;
+    }
+
+    modifier onlyRegisteredModule() {
+        if (!s_isModuleRegistered[msg.sender])
+            revert OspexCore__NotRegisteredModule(msg.sender);
+        _;
+    }
+
+    // ──────────────────────────── State ────────────────────────────────
+
+    /// @notice The deployer address; only has power before finalize()
+    address public immutable i_deployer;
+
+    /// @notice Whether the protocol has been finalized
+    bool public s_finalized;
+
+    /// @notice Module type → module contract address
     mapping(bytes32 => address) public s_moduleRegistry;
-    /// @notice Reverse mapping to efficiently check if an address is a registered module
+
+    /// @notice Reverse lookup: is this address a registered module?
     mapping(address => bool) public s_isModuleRegistered;
-    /// @notice Tracks module addresses that have been replaced but may still need to
-    ///         complete in-flight operations (e.g., position claims).
-    /// @dev When registerModule() replaces an existing module, the old address is moved
-    ///      here instead of being fully deregistered. Retired modules are ONLY permitted
-    ///      to call emitCoreEvent — they cannot processFee or other registered-module
-    ///      functions. This is intentionally permanent: there is no removal function.
-    mapping(address => bool) public s_isRetiredModule;
 
-    /**
-     * @notice Constructor sets deployer as protocol admin and module admin
-     */
+    // ──────────────────────────── Constructor ──────────────────────────
+
     constructor() {
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _grantRole(MODULE_ADMIN_ROLE, msg.sender);
-        s_admin = msg.sender;
+        i_deployer = msg.sender;
     }
 
+    // ──────────────────────────── Bootstrap ────────────────────────────
+
     /**
-     * @notice Registers or updates a module address for a given module type
-     * @dev Only callable by MODULE_ADMIN_ROLE
-     * @param moduleType The bytes32 identifier for the module type (e.g., keccak256("POSITION_MODULE"))
-     * @param moduleAddress The address of the module contract
+     * @notice Registers module addresses.
+     *         Each module type can only be registered once.
+     * @param moduleTypes Array of bytes32 module type identifiers
+     * @param moduleAddresses Array of corresponding module contract addresses
      */
-    function registerModule(
-        bytes32 moduleType,
-        address moduleAddress
-    ) external onlyRole(MODULE_ADMIN_ROLE) {
-        if (moduleAddress == address(0)) {
-            revert OspexCore__InvalidModuleAddress(moduleAddress);
+    function bootstrapModules(
+        bytes32[] calldata moduleTypes,
+        address[] calldata moduleAddresses
+    ) external onlyDeployer notFinalized {
+        if (moduleTypes.length != moduleAddresses.length)
+            revert OspexCore__ArrayLengthMismatch();
+        for (uint256 i = 0; i < moduleTypes.length; i++) {
+            if (moduleAddresses[i] == address(0))
+                revert OspexCore__InvalidModuleAddress(moduleAddresses[i]);
+            if (s_moduleRegistry[moduleTypes[i]] != address(0))
+                revert OspexCore__DuplicateModuleType(moduleTypes[i]);
+            s_moduleRegistry[moduleTypes[i]] = moduleAddresses[i];
+            s_isModuleRegistered[moduleAddresses[i]] = true;
         }
-        address oldAddress = s_moduleRegistry[moduleType];
-        if (oldAddress != address(0) && oldAddress != moduleAddress) {
-            s_isModuleRegistered[oldAddress] = false; // Mark old address as no longer registered (for this type)
-            s_isRetiredModule[oldAddress] = true;
-            emit ModuleRetired(moduleType, oldAddress);
-        }
-        s_moduleRegistry[moduleType] = moduleAddress;
-        s_isModuleRegistered[moduleAddress] = true; // Mark new address as registered
-        emit ModuleRegistered(moduleType, moduleAddress);
+        emit ModulesBootstrapped(moduleTypes.length);
     }
 
     /**
-     * @notice Returns the address of the registered module for a given type
+     * @notice Finalizes the protocol. After this call, no modules
+     *         can be added, removed, or swapped.
+     */
+    function finalize() external onlyDeployer notFinalized {
+        bytes32[12] memory required = [
+            CONTEST_MODULE,
+            SPECULATION_MODULE,
+            POSITION_MODULE,
+            MATCHING_MODULE,
+            ORACLE_MODULE,
+            TREASURY_MODULE,
+            LEADERBOARD_MODULE,
+            RULES_MODULE,
+            SECONDARY_MARKET_MODULE,
+            MONEYLINE_SCORER_MODULE,
+            SPREAD_SCORER_MODULE,
+            TOTAL_SCORER_MODULE
+        ];
+        for (uint256 i = 0; i < required.length; i++) {
+            if (s_moduleRegistry[required[i]] == address(0))
+                revert OspexCore__ModuleNotRegistered(required[i]);
+        }
+        s_finalized = true;
+        emit Finalized();
+    }
+
+    // ──────────────────────────── Module Queries ───────────────────────
+
+    /**
+     * @notice Returns the address of the module registered for a given type
+     * @dev Returns address(0) if the module type was never registered
      * @param moduleType The bytes32 identifier for the module type
-     * @return moduleAddress The address of the module contract
+     * @return moduleAddress The module contract address
      */
     function getModule(
         bytes32 moduleType
@@ -134,169 +177,103 @@ contract OspexCore is AccessControl {
     }
 
     /**
-     * @notice Proposes a new admin
-     * @dev Only callable by DEFAULT_ADMIN_ROLE
-     * @param newAdmin The address of the new admin
-     */
-    function proposeAdmin(
-        address newAdmin
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (newAdmin == address(0)) {
-            revert OspexCore__InvalidAdminAddress(newAdmin);
-        }
-        s_pendingAdmin = newAdmin;
-        emit AdminTransferProposed(msg.sender, newAdmin);
-    }
-
-    /**
-     * @notice Accepts the proposed admin
-     * @dev Only callable by the pending admin
-     */
-    function acceptAdmin() external {
-        if (msg.sender != s_pendingAdmin) {
-            revert OspexCore__NotPendingAdmin(msg.sender);
-        }
-        address oldAdmin = s_admin;
-        _revokeRole(DEFAULT_ADMIN_ROLE, oldAdmin);
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        s_pendingAdmin = address(0);
-        s_admin = msg.sender;
-        emit AdminChanged(oldAdmin, msg.sender);
-    }
-
-    /**
-     * @notice Emits a protocol-wide event for off-chain indexing
-     * @dev Callable by any registered module or retired module. Retired modules
-     *      retain access so that in-flight operations (e.g., position claims from
-     *      a replaced PositionModule) can complete without reverting.
-     * @param eventType The bytes32 event type identifier
-     * @param eventData Arbitrary event data (encoded)
-     */
-    function emitCoreEvent(
-        bytes32 eventType,
-        bytes calldata eventData
-    ) external {
-        // Allow both active registered modules and retired modules to emit events.
-        // Allows retired modules to complete in-flight operations.
-        // This is the only gated function that retired modules are permitted to call.
-        if (
-            !s_isModuleRegistered[msg.sender] && !s_isRetiredModule[msg.sender]
-        ) {
-            revert OspexCore__NotRegisteredModule(msg.sender);
-        }
-        emit CoreEventEmitted(eventType, msg.sender, eventData);
-    }
-
-    /**
      * @notice Checks if an address is a registered module
      * @param moduleAddress The address to check
-     * @return isRegistered True if the address is a registered module
+     * @return True if the address is a registered module
      */
     function isRegisteredModule(
         address moduleAddress
-    ) public view returns (bool) {
-        // Checks the reverse mapping populated during registration
+    ) external view returns (bool) {
         return s_isModuleRegistered[moduleAddress];
     }
 
     /**
-     * @notice Grants or revokes the MARKET_ROLE for a market contract
-     * @dev Only callable by DEFAULT_ADMIN_ROLE
-     * @param market The address of the market contract
-     * @param approved True to grant, false to revoke
+     * @notice Checks if an address is the registered SecondaryMarketModule
+     * @param addr The address to check
+     * @return True if addr is the secondary market module
      */
-    function setMarketRole(
-        address market,
-        bool approved
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (approved) {
-            _grantRole(MARKET_ROLE, market);
-        } else {
-            _revokeRole(MARKET_ROLE, market);
-        }
+    function isSecondaryMarket(address addr) external view returns (bool) {
+        return addr == s_moduleRegistry[SECONDARY_MARKET_MODULE];
     }
 
     /**
-     * @notice Checks if an address has the MARKET_ROLE
-     * @param market The address to check
-     * @return True if the address has MARKET_ROLE
+     * @notice Checks if an address is one of the three approved scorer modules
+     * @param addr The address to check
+     * @return True if addr is a registered scorer module
      */
-    function hasMarketRole(address market) external view returns (bool) {
-        return hasRole(MARKET_ROLE, market);
+    function isApprovedScorer(address addr) external view returns (bool) {
+        return
+            addr == s_moduleRegistry[MONEYLINE_SCORER_MODULE] ||
+            addr == s_moduleRegistry[SPREAD_SCORER_MODULE] ||
+            addr == s_moduleRegistry[TOTAL_SCORER_MODULE];
     }
 
-    /**
-     * @notice Grants or revokes the SCORER_ROLE for a scorer contract
-     * @dev Only callable by DEFAULT_ADMIN_ROLE
-     * @param scorer The address of the scorer contract
-     * @param approved True to grant, false to revoke
-     */
-    function setScorerRole(
-        address scorer,
-        bool approved
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (approved) {
-            _grantRole(SCORER_ROLE, scorer);
-        } else {
-            _revokeRole(SCORER_ROLE, scorer);
-        }
-    }
+    // ──────────────────────────── Event Emission ──────────────────────
 
     /**
-     * @notice Checks if an address has the SCORER_ROLE
-     * @param scorer The address to check
-     * @return True if the address has SCORER_ROLE
-     */
-    function hasScorerRole(address scorer) external view returns (bool) {
-        return hasRole(SCORER_ROLE, scorer);
-    }
-
-    /**
-     * @notice Processes a fee for a given payer, amount, fee type, and leaderboard ID
+     * @notice Emits a protocol-wide event for off-chain indexing
      * @dev Only callable by registered modules
-     * @param payer The address of the payer
-     * @param amount The amount of the fee
-     * @param feeType The type of fee
-     * @param leaderboardId The ID of the leaderboard
+     * @param eventType The bytes32 event type identifier
+     * @param eventData ABI-encoded event payload
+     */
+    function emitCoreEvent(
+        bytes32 eventType,
+        bytes calldata eventData
+    ) external onlyRegisteredModule {
+        emit CoreEventEmitted(eventType, msg.sender, eventData);
+    }
+
+    // ──────────────────────────── Fee Processing ──────────────────────
+
+    /**
+     * @notice Routes a protocol fee to the TreasuryModule
+     * @dev Only callable by registered modules
+     * @param payer The address paying the fee
+     * @param feeType The category of fee being charged
      */
     function processFee(
         address payer,
-        uint256 amount,
-        FeeType feeType,
-        uint256 leaderboardId
-    ) external {
-        if (!isRegisteredModule(msg.sender)) {
-            revert OspexCore__NotRegisteredModule(msg.sender);
-        }
-        address treasuryModule = s_moduleRegistry[keccak256("TREASURY_MODULE")];
-        ITreasuryModule(treasuryModule).processFee(
+        FeeType feeType
+    ) external onlyRegisteredModule {
+        ITreasuryModule(s_moduleRegistry[TREASURY_MODULE]).processFee(
             payer,
-            amount,
-            feeType,
-            leaderboardId
+            feeType
         );
     }
 
     /**
-     * @notice Processes a leaderboard entry fee for a given payer and amount
-     * @dev Only callable by registered modules
-     * @param payer The address of the payer
-     * @param amount The amount of the fee
-     * @param leaderboardId The ID of the leaderboard
+     * @notice Routes a split protocol fee to the TreasuryModule
+     * @dev Only callable by registered modules. Fee is split equally between two payers.
+     * @param payer1 First payer (charged floor half)
+     * @param payer2 Second payer (charged remainder)
+     * @param feeType The category of fee being charged
+     */
+    function processSplitFee(
+        address payer1,
+        address payer2,
+        FeeType feeType
+    ) external onlyRegisteredModule {
+        ITreasuryModule(s_moduleRegistry[TREASURY_MODULE]).processSplitFee(
+            payer1,
+            payer2,
+            feeType
+        );
+    }
+
+    /**
+     * @notice Routes a leaderboard entry fee to the TreasuryModule
+     * @dev Only callable by registered modules. Entry fees go to the prize pool,
+     *      not the protocol receiver.
+     * @param payer The address paying the entry fee
+     * @param amount The entry fee amount in USDC
+     * @param leaderboardId The leaderboard receiving the entry
      */
     function processLeaderboardEntryFee(
         address payer,
         uint256 amount,
         uint256 leaderboardId
-    ) external {
-        if (!isRegisteredModule(msg.sender)) {
-            revert OspexCore__NotRegisteredModule(msg.sender);
-        }
-        address treasuryModule = s_moduleRegistry[keccak256("TREASURY_MODULE")];
-        ITreasuryModule(treasuryModule).processLeaderboardEntryFee(
-            payer,
-            amount,
-            leaderboardId
-        );
+    ) external onlyRegisteredModule {
+        ITreasuryModule(s_moduleRegistry[TREASURY_MODULE])
+            .processLeaderboardEntryFee(payer, amount, leaderboardId);
     }
 }

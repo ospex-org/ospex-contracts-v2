@@ -9,79 +9,85 @@ import {OspexCore} from "../core/OspexCore.sol";
 /**
  * @title SpreadScorerModule
  * @author ospex.org
- * @notice Module for spread (point difference) scoring logic
+ * @notice Scores spread (point difference) speculations. The away team's score is adjusted
+ *         by the spread line; if adjusted away > home, Away wins. Equal = Push.
  */
-
 contract SpreadScorerModule is IScorerModule {
-    /// @notice Error for not a speculation module
+    // ──────────────────────────── Constants ────────────────────────────
+
+    bytes32 public constant SPECULATION_MODULE =
+        keccak256("SPECULATION_MODULE");
+    bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
+
+    // ──────────────────────────── Errors ───────────────────────────────
+
+    /// @notice Thrown when a non-SpeculationModule address calls determineWinSide
     error SpreadScorerModule__NotSpeculationModule(address caller);
-    /// @notice Error for module not set
+    /// @notice Thrown when a required module is not registered in OspexCore
     error SpreadScorerModule__ModuleNotSet(bytes32 moduleType);
-    /// @notice Error for invalid OspexCore address
+    /// @notice Thrown when the OspexCore address is zero
     error SpreadScorerModule__InvalidOspexCore();
 
-    /// @notice The OspexCore contract
-    OspexCore public immutable i_ospexCore;
+    // ──────────────────────────── Modifiers ────────────────────────────
 
-    /// @notice Modifier to check if the caller is a speculation module
+    /// @dev Restricts access to the registered SpeculationModule
     modifier onlySpeculationModule() {
-        if (msg.sender != _getModule(keccak256("SPECULATION_MODULE"))) {
+        if (msg.sender != _getModule(SPECULATION_MODULE)) {
             revert SpreadScorerModule__NotSpeculationModule(msg.sender);
         }
         _;
     }
 
-    /**
-     * @notice Constructor
-     * @param _ospexCore The address of the OspexCore contract
-     */
-    constructor(address _ospexCore) {
-        if (_ospexCore == address(0))
+    // ──────────────────────────── State ────────────────────────────────
+
+    /// @notice The OspexCore contract
+    OspexCore public immutable i_ospexCore;
+
+    // ──────────────────────────── Constructor ──────────────────────────
+
+    /// @notice Deploys the SpreadScorerModule
+    /// @param ospexCore_ The OspexCore contract address
+    constructor(address ospexCore_) {
+        if (ospexCore_ == address(0))
             revert SpreadScorerModule__InvalidOspexCore();
-        i_ospexCore = OspexCore(_ospexCore);
+        i_ospexCore = OspexCore(ospexCore_);
     }
 
-    /**
-     * @notice Determines the winning side for a spread speculation
-     * @param contestId The ID of the contest to score
-     * @param lineTicks The spread value stored as 10x (e.g., -3.5 = -35)
-     * @return WinSide The winning side
-     */
+    // ──────────────────────────── Scoring ──────────────────────────────
+
+    /// @inheritdoc IScorerModule
     function determineWinSide(
         uint256 contestId,
         int32 lineTicks
     ) external view override onlySpeculationModule returns (WinSide) {
-        Contest memory contest = IContestModule(
-            _getModule(keccak256("CONTEST_MODULE"))
-        ).getContest(contestId);
+        Contest memory contest = IContestModule(_getModule(CONTEST_MODULE))
+            .getContest(contestId);
 
-        return scoreSpread(contest.awayScore, contest.homeScore, lineTicks);
+        return _scoreSpread(contest.awayScore, contest.homeScore, lineTicks);
     }
 
     /**
      * @notice Scores a spread speculation
-     * @param _awayScore Away team score (raw game score, not scaled)
-     * @param _homeScore Home team score (raw game score, not scaled)
-     * @param _lineTicks Point spread value, stored as 10x (e.g., -3.5 = -35).
-     *                   Positive means home team is favored, negative means away team is favored.
-     *                   Scores are scaled to 10x internally to match lineTicks's representation.
-     *                   Away side covers when awayScore * 10 + lineTicks > homeScore * 10.
-     *                   Exact equality on the adjusted spread results in a Push.
-     * @return WinSide The winning side of the speculation
+     * @dev Scores are scaled to 10x internally to match lineTicks representation.
+     *      Away side covers when awayScore * 10 + lineTicks > homeScore * 10.
+     *      Exact equality on the adjusted spread results in a Push.
+     * @param awayScore Away team score (raw, not scaled)
+     * @param homeScore Home team score (raw, not scaled)
+     * @param lineTicks Point spread (10x format, e.g. -35 = -3.5)
+     * @return The winning side (Away, Home, or Push)
      */
-    function scoreSpread(
-        uint32 _awayScore,
-        uint32 _homeScore,
-        int32 _lineTicks
+    function _scoreSpread(
+        uint32 awayScore,
+        uint32 homeScore,
+        int32 lineTicks
     ) private pure returns (WinSide) {
-        // casting to 'int32' is safe because sports scores * 10 never exceed int32 max
+        // Safe cast: sports scores * 10 never exceed int32 max
         // forge-lint: disable-next-line(unsafe-typecast)
-        int32 scaledAway = int32(_awayScore) * 10;
+        int32 scaledAway = int32(awayScore) * 10;
         // forge-lint: disable-next-line(unsafe-typecast)
-        int32 scaledHome = int32(_homeScore) * 10;
+        int32 scaledHome = int32(homeScore) * 10;
 
-        // add lineTicks to away
-        int32 adjustedAway = scaledAway + _lineTicks;
+        int32 adjustedAway = scaledAway + lineTicks;
 
         if (adjustedAway > scaledHome) {
             return WinSide.Away;
@@ -92,10 +98,12 @@ contract SpreadScorerModule is IScorerModule {
         }
     }
 
-    // --- Helper Function for Module Lookups ---
+    // ──────────────────────────── Module Lookup ───────────────────────
+
     /**
-     * @notice Gets the module address
-     * @param moduleType The type of module
+     * @notice Resolves a module address from OspexCore, reverting if not set
+     * @param moduleType The module type identifier
+     * @return module The module contract address
      */
     function _getModule(
         bytes32 moduleType

@@ -6,85 +6,55 @@ import {IModule} from "./IModule.sol";
 
 /**
  * @title ISpeculationModule
- * @notice Interface for the SpeculationModule in the Ospex protocol
- * @dev Handles creation, settlement, and management of speculations (betting markets) for contests.
+ * @notice Interface for the Ospex SpeculationModule. Handles creation and settlement
+ *         of speculations (betting markets) for contests.
  */
 interface ISpeculationModule is IModule {
-    /**
-     * @notice Returns the minimum speculation amount (in token's smallest units)
-     */
-    function s_minSpeculationAmount() external view returns (uint256);
+    /// @notice Returns the immutable void cooldown in seconds
+    function i_voidCooldown() external view returns (uint32);
 
-    /**
-     * @notice Returns the current void cooldown (in seconds)
-     */
-    function s_voidCooldown() external view returns (uint32);
-
-    /**
-     * @notice Returns the number of decimals for the token (e.g., 6 for USDC, 18 for ETH)
-     */
-    function i_tokenDecimals() external view returns (uint8);
-
-    /**
-     * @notice Creates a new speculation (betting market) for a contest
-     * @param contestId The ID of the contest
-     * @param scorer The address of the scorer contract for this speculation
-     * @param lineTicks The line/spread/total number for the speculation
-     * @param speculationCreator The address of the speculation creator
-     * @param leaderboardId The leaderboard ID (where the fee will be allocated)
-     * @return speculationId The ID of the newly created speculation
-     */
+    /// @notice Creates a new speculation. Only callable by PositionModule.
+    /// @param contestId The contest this speculation is for
+    /// @param scorer The scorer module address
+    /// @param lineTicks The line number (10x format, 0 for moneyline)
+    /// @param maker The address that initiated the market (pays floor half of creation fee)
+    /// @param taker The address that completed the market (pays remainder of creation fee)
+    /// @return speculationId The new speculation ID
     function createSpeculation(
         uint256 contestId,
         address scorer,
         int32 lineTicks,
-        address speculationCreator,
-        uint256 leaderboardId
+        address maker,
+        address taker
     ) external returns (uint256 speculationId);
 
-    /**
-     * @notice Settles a speculation after scoring (closes the market and sets the winner)
-     * @param speculationId The ID of the speculation to settle
-     */
+    /// @notice Settles a speculation after the contest is scored. Permissionless.
+    /// @dev Auto-voids if the void cooldown has elapsed and the contest remains unscored.
+    /// @param speculationId The speculation to settle
     function settleSpeculation(uint256 speculationId) external;
 
-    /**
-     * @notice Forfeits a speculation (sets status to Closed and winSide to Forfeit)
-     * @param speculationId The ID of the speculation to forfeit
-     */
-    function forfeitSpeculation(uint256 speculationId) external;
-
-    /**
-     * @notice Gets the details of a speculation
-     * @param speculationId The ID of the speculation
-     * @return speculation The Speculation struct
-     */
+    /// @notice Gets the details of a speculation
+    /// @param speculationId The speculation ID
+    /// @return speculation The Speculation struct
     function getSpeculation(
         uint256 speculationId
     ) external view returns (Speculation memory speculation);
 
-    /**
-     * @notice Gets a speculation ID by contest parameters
-     * @param contestId The ID of the contest
-     * @param scorer The scorer of the speculation
-     * @param lineTicks The number of the speculation
-     * @return speculationId The ID of the speculation (0 if doesn't exist)
-     */
+    /// @notice Gets a speculation ID by its unique key (contest/scorer/line)
+    /// @param contestId The contest ID
+    /// @param scorer The scorer module address
+    /// @param lineTicks The line number (10x format)
+    /// @return speculationId The speculation ID (0 if none exists)
     function getSpeculationId(
         uint256 contestId,
         address scorer,
         int32 lineTicks
     ) external view returns (uint256 speculationId);
 
-    /**
-     * @notice Sets the minimum speculation amount in raw token units
-     * @param minAmount The new minimum (in token's smallest units, must be > 0)
-     */
-    function setMinSpeculationAmount(uint256 minAmount) external;
-
-    /**
-     * @notice Sets the void cooldown (minimum time after start before a speculation can be voided)
-     * @param newVoidCooldown The new void cooldown (in seconds)
-     */
-    function setVoidCooldown(uint32 newVoidCooldown) external;
+    /// @notice Checks whether a contest has elapsed its void cooldown
+    /// @param contestId The contest ID
+    /// @return True if block.timestamp >= contest start time + void cooldown
+    function isContestPastCooldown(
+        uint256 contestId
+    ) external view returns (bool);
 }

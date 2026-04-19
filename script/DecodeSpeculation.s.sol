@@ -41,12 +41,11 @@ contract DecodeSpeculation is Script {
         else if (speculation.winSide == WinSide.Under) winSideStr = "Under";
         else if (speculation.winSide == WinSide.Push) winSideStr = "Push";
         else if (speculation.winSide == WinSide.Void) winSideStr = "Void";
-        else if (speculation.winSide == WinSide.Forfeit) winSideStr = "Forfeit";
         else winSideStr = "Unknown";
 
         console.log("Status:", statusStr);
         console.log("Win Side:", winSideStr);
-        console.log("Creator:", speculation.speculationCreator);
+        console.log("Taker:", speculation.speculationTaker);
         console.log("Scorer:", speculation.speculationScorer);
 
         console.log("\n-- Timestamps & Numbers --");

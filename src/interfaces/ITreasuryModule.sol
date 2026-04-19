@@ -6,29 +6,42 @@ import {IModule} from "./IModule.sol";
 
 /**
  * @title ITreasuryModule
- * @notice Interface for the TreasuryModule in the Ospex protocol
- * @dev Handles fee collection, routing, and allocation for contest creation, speculation creation, and leaderboard entry.
+ * @notice Interface for the Ospex TreasuryModule. Handles protocol fee collection,
+ *         leaderboard prize pool accounting, and prize disbursement.
  */
 interface ITreasuryModule is IModule {
     /**
-     * @notice Handles a fee payment, splits between protocol and prize pools per config and user allocation.
+     * @notice Collects a protocol fee based on the stored rate for the given FeeType
      * @param payer The address paying the fee
-     * @param amount The total fee amount
-     * @param feeType The type of fee (see FeeType enum)
-     * @param leaderboardId The leaderboard ID to allocate
+     * @param feeType The category of fee being charged
      */
-    function processFee(
-        address payer,
-        uint256 amount,
-        FeeType feeType,
-        uint256 leaderboardId
+    function processFee(address payer, FeeType feeType) external;
+
+    /**
+     * @notice Collects a protocol fee split equally between two payers.
+     *         First payer is charged floor(rate/2), second payer gets the remainder.
+     * @param payer1 First payer (charged floor half)
+     * @param payer2 Second payer (charged remainder)
+     * @param feeType The category of fee being charged
+     */
+    function processSplitFee(
+        address payer1,
+        address payer2,
+        FeeType feeType
     ) external;
 
     /**
-     * @notice Processes a leaderboard entry fee for a given payer and amount
-     * @param payer The address of the payer
-     * @param amount The amount of the fee
-     * @param leaderboardId The ID of the leaderboard
+     * @notice Permissionless funding of any leaderboard's prize pool
+     * @param leaderboardId The leaderboard to fund
+     * @param amount Amount of USDC to deposit
+     */
+    function fundLeaderboard(uint256 leaderboardId, uint256 amount) external;
+
+    /**
+     * @notice Collects a leaderboard entry fee and adds it to the prize pool
+     * @param payer The address paying the entry fee
+     * @param amount The entry fee amount in USDC
+     * @param leaderboardId The leaderboard receiving the entry
      */
     function processLeaderboardEntryFee(
         address payer,
@@ -37,50 +50,30 @@ interface ITreasuryModule is IModule {
     ) external;
 
     /**
-     * @notice Admin: sets the fee rate for a given fee type
-     * @param feeType The type of fee
-     * @param rate The new fee rate (in token units or bps, per config)
-     */
-    function setFeeRates(FeeType feeType, uint256 rate) external;
-
-    /**
-     * @notice Admin: sets the protocol cut (in basis points)
-     * @param cutBps The new protocol cut (e.g., 500 = 5%)
-     */
-    function setProtocolCut(uint256 cutBps) external;
-
-    /**
-     * @notice Admin: sets the protocol revenue receiver address
-     * @param receiver The new protocol receiver address
-     */
-    function setProtocolReceiver(address receiver) external;
-
-    /**
-     * @notice Allows LeaderboardModule to transfer prize pool funds to winners
+     * @notice Transfers prize pool funds to a winner. Only callable by LeaderboardModule.
      * @param leaderboardId The leaderboard to claim from
-     * @param to The address to send funds to
-     * @param share The share of the prize pool to claim
+     * @param to The recipient address
+     * @param amount The amount to disburse in USDC
      */
     function claimPrizePool(
         uint256 leaderboardId,
         address to,
-        uint256 share
+        uint256 amount
     ) external;
 
     /**
-     * @notice Returns the current fee rate for a given type
-     * @param feeType The type of fee
-     * @return rate The current fee rate
+     * @notice Returns the fee rate for a given FeeType (USDC token units)
+     * @param feeType The category of fee
+     * @return rate The fee amount
      */
     function getFeeRate(FeeType feeType) external view returns (uint256 rate);
 
     /**
      * @notice Returns the current prize pool balance for a leaderboard
      * @param leaderboardId The leaderboard ID
-     * @return balance The current prize pool balance
+     * @return balance The prize pool balance in USDC
      */
     function getPrizePool(
         uint256 leaderboardId
     ) external view returns (uint256 balance);
-
 }

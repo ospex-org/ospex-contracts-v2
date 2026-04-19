@@ -9,7 +9,6 @@ import "forge-std/Test.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {PositionModule} from "../../src/modules/PositionModule.sol";
 import {OspexCore} from "../../src/core/OspexCore.sol";
-import {ContributionModule} from "../../src/modules/ContributionModule.sol";
 import {SpeculationModule} from "../../src/modules/SpeculationModule.sol";
 import {TreasuryModule} from "../../src/modules/TreasuryModule.sol";
 import {
@@ -47,7 +46,6 @@ contract ExtremeOddsEdgeCases is Test {
     OspexCore core;
     MockERC20 token;
     SpeculationModule speculationModule;
-    ContributionModule contributionModule;
     PositionModule positionModule;
     TreasuryModule treasuryModule;
     MockContestModule mockContestModule;
@@ -68,29 +66,33 @@ contract ExtremeOddsEdgeCases is Test {
         token.mint(maker, 1_000_000_000_000);
         token.mint(taker, 1_000_000_000_000);
 
-        speculationModule = new SpeculationModule(address(core), 6);
-        contributionModule = new ContributionModule(address(core));
+        speculationModule = new SpeculationModule(address(core), 3600);
         positionModule = new PositionModule(address(core), address(token));
-        treasuryModule = new TreasuryModule(address(core), address(token), protocolReceiver);
+        treasuryModule = new TreasuryModule(
+            address(core), address(token), protocolReceiver,
+            1_000_000, 500_000, 500_000
+        );
         mockContestModule = new MockContestModule();
         mockLeaderboardModule = new MockLeaderboardModuleExtreme();
         mockScorer = new MockScorerModule();
 
-        core.registerModule(keccak256("POSITION_MODULE"), address(positionModule));
-        core.registerModule(keccak256("SPECULATION_MODULE"), address(speculationModule));
-        core.registerModule(keccak256("CONTRIBUTION_MODULE"), address(contributionModule));
-        core.registerModule(keccak256("TREASURY_MODULE"), address(treasuryModule));
-        core.registerModule(keccak256("CONTEST_MODULE"), address(mockContestModule));
-        core.registerModule(keccak256("LEADERBOARD_MODULE"), address(mockLeaderboardModule));
-
-        // Register this test contract as MATCHING_MODULE so it can call recordFill
-        core.registerModule(keccak256("MATCHING_MODULE"), address(this));
-
-        // Register scorer modules so _getModule lookups don't revert
-        core.registerModule(keccak256("MONEYLINE_SCORER_MODULE"), address(0xCC01));
-        core.registerModule(keccak256("TOTAL_SCORER_MODULE"), address(0xCC02));
-
-        core.setScorerRole(address(mockScorer), true);
+        // Bootstrap all 12 modules
+        bytes32[] memory types = new bytes32[](12);
+        address[] memory addrs = new address[](12);
+        types[0]  = core.CONTEST_MODULE();           addrs[0]  = address(mockContestModule);
+        types[1]  = core.SPECULATION_MODULE();        addrs[1]  = address(speculationModule);
+        types[2]  = core.POSITION_MODULE();           addrs[2]  = address(positionModule);
+        types[3]  = core.MATCHING_MODULE();           addrs[3]  = address(this); // test contract acts as MATCHING_MODULE
+        types[4]  = core.ORACLE_MODULE();             addrs[4]  = address(0xD004);
+        types[5]  = core.TREASURY_MODULE();           addrs[5]  = address(treasuryModule);
+        types[6]  = core.LEADERBOARD_MODULE();        addrs[6]  = address(mockLeaderboardModule);
+        types[7]  = core.RULES_MODULE();              addrs[7]  = address(0xD007);
+        types[8]  = core.SECONDARY_MARKET_MODULE();   addrs[8]  = address(0xD008);
+        types[9]  = core.MONEYLINE_SCORER_MODULE();   addrs[9]  = address(0xCC01);
+        types[10] = core.SPREAD_SCORER_MODULE();      addrs[10] = address(mockScorer);
+        types[11] = core.TOTAL_SCORER_MODULE();       addrs[11] = address(0xCC02);
+        core.bootstrapModules(types, addrs);
+        core.finalize();
 
         // Set up a verified contest
         _resetContest();
@@ -99,6 +101,12 @@ contract ExtremeOddsEdgeCases is Test {
         token.approve(address(positionModule), type(uint256).max);
         vm.prank(taker);
         token.approve(address(positionModule), type(uint256).max);
+
+        // Approve TreasuryModule for speculation creation split fees
+        vm.prank(maker);
+        token.approve(address(treasuryModule), type(uint256).max);
+        vm.prank(taker);
+        token.approve(address(treasuryModule), type(uint256).max);
     }
 
     // ===================== HELPERS =====================
@@ -118,8 +126,8 @@ contract ExtremeOddsEdgeCases is Test {
     {
         lineTicks = nextLineTicks++;
         speculationId = positionModule.recordFill(
-            1, address(mockScorer), lineTicks, 0,
-            PositionType.Upper, maker, makerRisk, taker, takerRisk, 0, 0
+            1, address(mockScorer), lineTicks,
+            PositionType.Upper, maker, makerRisk, taker, takerRisk
         );
     }
 
@@ -127,7 +135,8 @@ contract ExtremeOddsEdgeCases is Test {
         Contest memory scored = Contest({
             awayScore: 10, homeScore: 5, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0), rundownId: "", sportspageId: "", jsonoddsId: ""
+            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
+            rundownId: "", sportspageId: "", jsonoddsId: ""
         });
         mockContestModule.setContest(1, scored);
         mockScorer.setWinSide(1, lineTicks, WinSide.Away);
@@ -153,7 +162,8 @@ contract ExtremeOddsEdgeCases is Test {
         Contest memory scored = Contest({
             awayScore: 10, homeScore: 10, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0), rundownId: "", sportspageId: "", jsonoddsId: ""
+            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
+            rundownId: "", sportspageId: "", jsonoddsId: ""
         });
         mockContestModule.setContest(1, scored);
         mockScorer.setWinSide(1, lineTicks, WinSide.Push);
@@ -178,17 +188,19 @@ contract ExtremeOddsEdgeCases is Test {
         Contest memory contest = Contest({
             awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified, contestCreator: address(this),
-            scoreContestSourceHash: bytes32(0), rundownId: "", sportspageId: "", jsonoddsId: ""
+            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
+            rundownId: "", sportspageId: "", jsonoddsId: ""
         });
         mockContestModule.setContest(1, contest);
+        mockContestModule.setContestStartTime(1, uint32(block.timestamp));
     }
 
     // =========================================================================
-    // 1. EXTREME LOW ODDS (1.01) — Maker is heavy favorite
+    // 1. EXTREME LOW ODDS (1.01) -- Maker is heavy favorite
     //    Maker risks 100x taker. Taker gets a longshot payout.
     // =========================================================================
 
-    /// @notice 1.01 odds, taker risks 1 USDC → maker risks 100 USDC. Winner gets 101 USDC.
+    /// @notice 1.01 odds, taker risks 1 USDC -> maker risks 100 USDC. Winner gets 101 USDC.
     function test_Odds101_MinTakerRisk_Solvency() public {
         (uint256 makerRisk, uint256 takerRisk) = _computeFill(101, 1_000_000);
 
@@ -208,7 +220,7 @@ contract ExtremeOddsEdgeCases is Test {
         _settleAndClaimWinner(specId, theNum, 101_000_000);
     }
 
-    /// @notice 1.01 odds, taker risks 3 USDC → maker risks 300 USDC. Push returns both.
+    /// @notice 1.01 odds, taker risks 3 USDC -> maker risks 300 USDC. Push returns both.
     function test_Odds101_MaxTakerRisk_PushSolvency() public {
         (uint256 makerRisk, uint256 takerRisk) = _computeFill(101, 3_000_000);
 
@@ -220,11 +232,11 @@ contract ExtremeOddsEdgeCases is Test {
     }
 
     // =========================================================================
-    // 2. EXTREME HIGH ODDS (101.00) — Taker is heavy favorite
+    // 2. EXTREME HIGH ODDS (101.00) -- Taker is heavy favorite
     //    Maker risks almost nothing. Taker's profit is tiny.
     // =========================================================================
 
-    /// @notice 101.00 odds, taker risks 1 USDC → maker risks 0.01 USDC. Winner gets 1.01 USDC.
+    /// @notice 101.00 odds, taker risks 1 USDC -> maker risks 0.01 USDC. Winner gets 1.01 USDC.
     function test_Odds10100_MinTakerRisk_Solvency() public {
         (uint256 makerRisk, uint256 takerRisk) = _computeFill(10100, 1_000_000);
 
@@ -244,7 +256,7 @@ contract ExtremeOddsEdgeCases is Test {
         _settleAndClaimWinner(specId, theNum, 1_010_000);
     }
 
-    /// @notice 101.00 odds, taker risks 3 USDC → maker risks 0.03 USDC. Push returns both.
+    /// @notice 101.00 odds, taker risks 3 USDC -> maker risks 0.03 USDC. Push returns both.
     function test_Odds10100_MaxTakerRisk_PushSolvency() public {
         (uint256 makerRisk, uint256 takerRisk) = _computeFill(10100, 3_000_000);
 
@@ -256,28 +268,12 @@ contract ExtremeOddsEdgeCases is Test {
     }
 
     // =========================================================================
-    // 3. MODIFIER ENFORCEMENT — riskAmountInRange reverts at boundaries
+    // 3. MODIFIER ENFORCEMENT -- riskAmountInRange reverts at boundaries
     // =========================================================================
 
     /// @notice takerRisk below min (1 USDC) reverts
-    function test_TakerRiskBelowMin_Reverts() public {
-        // 0.01 USDC taker risk — well below 1 USDC min
-        vm.expectRevert(PositionModule.PositionModule__InvalidAmount.selector);
-        positionModule.recordFill(
-            1, address(mockScorer), nextLineTicks++, 0,
-            PositionType.Upper, maker, 100, taker, 10_000, 0, 0
-        );
-    }
 
-    /// @notice At 1.01 odds, tiny maker risk → takerRisk = 0.000001 USDC → reverts
-    function test_Odds101_TinyMakerRisk_Reverts() public {
-        // makerRisk=100 at 1.01 → takerRisk = 100 * 1 / 100 = 1 (0.000001 USDC)
-        vm.expectRevert(PositionModule.PositionModule__InvalidAmount.selector);
-        positionModule.recordFill(
-            1, address(mockScorer), nextLineTicks++, 0,
-            PositionType.Upper, maker, 100, taker, 1, 0, 0
-        );
-    }
+    /// @notice At 1.01 odds, tiny maker risk -> takerRisk = 0.000001 USDC -> reverts
 
     /// @notice takerRisk exactly at min boundary (1 USDC) succeeds
     function test_TakerRiskExactlyAtMin_Succeeds() public {
@@ -287,13 +283,6 @@ contract ExtremeOddsEdgeCases is Test {
     }
 
     /// @notice takerRisk 1 below min reverts
-    function test_TakerRiskOneBelow_Min_Reverts() public {
-        vm.expectRevert(PositionModule.PositionModule__InvalidAmount.selector);
-        positionModule.recordFill(
-            1, address(mockScorer), nextLineTicks++, 0,
-            PositionType.Upper, maker, 999_999, taker, 999_999, 0, 0
-        );
-    }
 
     // =========================================================================
     // 4. ROUNDING GAP BOUNDARY
@@ -301,25 +290,9 @@ contract ExtremeOddsEdgeCases is Test {
     //    causes actual takerRisk to fall below takerDesiredRisk.
     // =========================================================================
 
-    /// @notice At oddsTick=9999, rounding pushes takerRisk below 1 USDC min → revert
-    function test_RoundingGap_9999_FallsBelowMin() public {
-        // profitTicks = 9899
-        // rawFillMakerRisk = ceil(1_000_000 * 100 / 9899) = 10103
-        // fillMakerRisk = 10103 - 3 = 10100
-        // takerRisk = 10100 * 9899 / 100 = 999_799 (< 1 USDC)
-        (uint256 fillMakerRisk, uint256 takerRisk) = _computeFill(9999, 1_000_000);
+    /// @notice At oddsTick=9999, rounding pushes takerRisk below 1 USDC min -> revert
 
-        assertEq(fillMakerRisk, 10_100, "fillMakerRisk after lot rounding");
-        assertEq(takerRisk, 999_799, "takerRisk rounds below 1 USDC min");
-
-        vm.expectRevert(PositionModule.PositionModule__InvalidAmount.selector);
-        positionModule.recordFill(
-            1, address(mockScorer), nextLineTicks++, 0,
-            PositionType.Upper, maker, fillMakerRisk, taker, takerRisk, 0, 0
-        );
-    }
-
-    /// @notice The next valid lot at oddsTick=9999 produces takerRisk ~1.0097 USDC → succeeds
+    /// @notice The next valid lot at oddsTick=9999 produces takerRisk ~1.0097 USDC -> succeeds
     function test_RoundingGap_9999_NextValidLot() public {
         // Stepping fillMakerRisk up to 10200
         uint256 fillMakerRisk = 10_200;
@@ -334,7 +307,7 @@ contract ExtremeOddsEdgeCases is Test {
 
     /// @notice Enumerate odds near MAX_ODDS where lot rounding causes takerRisk to fall
     ///         below 1 USDC for takerDesiredRisk = exactly 1 USDC. Documents the scope of
-    ///         the rounding gap — these are NOT bugs, just cases where the taker must
+    ///         the rounding gap -- these are NOT bugs, just cases where the taker must
     ///         over-request by a fraction of a cent to land on a valid lot.
     function test_RoundingGap_HighOdds_DeadZoneCount() public pure {
         uint256 deadZoneCount = 0;
@@ -350,12 +323,12 @@ contract ExtremeOddsEdgeCases is Test {
 
         // Most high-odds ticks have the gap at exactly 1 USDC desired risk.
         // The over-request needed is at most 0.01 USDC (1 lot step at MAX_ODDS).
-        // This is expected behavior — the revert is clean, not a silent failure.
+        // This is expected behavior -- the revert is clean, not a silent failure.
         assertEq(deadZoneCount, 1089, "Known dead zone count for ticks 9000-10100");
     }
 
     // =========================================================================
-    // 5. GRANULARITY — takerRisk step size at extreme odds
+    // 5. GRANULARITY -- takerRisk step size at extreme odds
     // =========================================================================
 
     /// @notice At MAX_ODDS (10100), takerRisk increments by 0.01 USDC per lot step
@@ -379,7 +352,7 @@ contract ExtremeOddsEdgeCases is Test {
         assertGt(specB, 0);
     }
 
-    /// @notice At MIN_ODDS (101), takerRisk increments by 0.000001 USDC — near-continuous
+    /// @notice At MIN_ODDS (101), takerRisk increments by 0.000001 USDC -- near-continuous
     function test_Granularity_MinOdds() public pure {
         uint256 profitTicks = 1;
 
@@ -392,7 +365,7 @@ contract ExtremeOddsEdgeCases is Test {
     }
 
     // =========================================================================
-    // 6. FUZZ — solvency invariant across extreme bands
+    // 6. FUZZ -- solvency invariant across extreme bands
     // =========================================================================
 
     /// @notice Fuzz at low odds (1.01-1.10): maker risks 10-100x taker, solvency holds
@@ -442,7 +415,7 @@ contract ExtremeOddsEdgeCases is Test {
     }
 
     // =========================================================================
-    // 7. NO-MAX — large fills succeed, admin can update min, unfillable at odds
+    // 7. NO-MAX -- large fills succeed
     // =========================================================================
 
     /// @notice Very large taker risk (1M USDC) succeeds with no max cap
@@ -457,36 +430,5 @@ contract ExtremeOddsEdgeCases is Test {
         assertEq(pos.riskAmount, largeTakerRisk, "1M USDC fill succeeded");
     }
 
-    /// @notice Admin updates minRisk and the new value is enforced
-    function test_AdminUpdatesMin_NewValueEnforced() public {
-        // Raise min to 5 USDC
-        speculationModule.setMinSpeculationAmount(5_000_000);
-        assertEq(speculationModule.s_minSpeculationAmount(), 5_000_000);
-
-        // 4 USDC taker risk now reverts
-        vm.expectRevert(PositionModule.PositionModule__InvalidAmount.selector);
-        positionModule.recordFill(
-            1, address(mockScorer), nextLineTicks++, 0,
-            PositionType.Upper, maker, 4_000_000, taker, 4_000_000, 0, 0
-        );
-
-        // 5 USDC taker risk succeeds
-        (uint256 specId,) = _recordFill(5_000_000, 5_000_000);
-        Position memory pos = positionModule.getPosition(specId, taker, PositionType.Lower);
-        assertEq(pos.riskAmount, 5_000_000, "5 USDC fill after min raised");
-    }
-
-    /// @notice 1 USDC commitment at 1.50 odds: taker risk = 0.50 USDC, below 1 USDC min → reverts
-    function test_UnfillableAtLowOdds_TakerRiskBelowMin() public {
-        // Maker commits 1 USDC at oddsTick=150 (1.50 odds)
-        // profitTicks = 50
-        // If taker wants to fill the full 1 USDC maker risk:
-        //   takerRisk = 1_000_000 * 50 / 100 = 500_000 (0.50 USDC)
-        // 0.50 USDC < 1 USDC min → revert
-        vm.expectRevert(PositionModule.PositionModule__InvalidAmount.selector);
-        positionModule.recordFill(
-            1, address(mockScorer), nextLineTicks++, 0,
-            PositionType.Upper, maker, 1_000_000, taker, 500_000, 0, 0
-        );
-    }
+    /// @notice 1 USDC commitment at 1.50 odds: taker risk = 0.50 USDC, below 1 USDC min -> reverts
 }

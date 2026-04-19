@@ -70,7 +70,6 @@ contract DecodePosition is Script {
                 else if (speculation.winSide == WinSide.Over) winSideStr = "Over";
                 else if (speculation.winSide == WinSide.Under) winSideStr = "Under";
                 else if (speculation.winSide == WinSide.Push) winSideStr = "Push";
-                else if (speculation.winSide == WinSide.Forfeit) winSideStr = "Forfeit";
                 else if (speculation.winSide == WinSide.Void) winSideStr = "Void";
                 else winSideStr = "Unknown";
 

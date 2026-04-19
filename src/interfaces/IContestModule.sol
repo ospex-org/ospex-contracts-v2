@@ -6,84 +6,75 @@ import {Contest, LeagueId, ContestMarket} from "../core/OspexTypes.sol";
 
 /**
  * @title IContestModule
- * @notice Interface for the Ospex ContestModule
+ * @notice Interface for the Ospex ContestModule. Handles contest creation, market data,
+ *         verification, and scoring. All mutations are restricted to the OracleModule.
  */
 interface IContestModule is IModule {
-    /// @notice The contest ID counter
+    /// @notice The auto-incrementing contest ID counter
     function s_contestIdCounter() external view returns (uint256);
 
-    /// @notice The hash of the create contest source
-    function s_createContestSourceHash() external view returns (bytes32);
-
-    /// @notice The hash of the update contest markets source
-    function s_updateContestMarketsSourceHash() external view returns (bytes32);
-
-    /// @notice The contest start times
+    /// @notice Returns the start timestamp for a contest (set during verification)
+    /// @param contestId The contest ID
+    /// @return The contest start timestamp
     function s_contestStartTimes(
         uint256 contestId
     ) external view returns (uint32);
 
-    /// @notice Creates a new contest
+    /// @notice Creates a new contest. Only callable by OracleModule.
     /// @param rundownId Contest ID from Rundown API
     /// @param sportspageId Contest ID from Sportspage API
     /// @param jsonoddsId Contest ID from JSONOdds API
-    /// @param scoreContestSourceHash Hash of scoring rules
-    /// @param contestCreator Address that created the contest
-    /// @param leaderboardId The leaderboard ID (where the fee will be allocated)
+    /// @param verifySourceHash Hash of the verification JS used at creation
+    /// @param marketUpdateSourceHash Hash of the market updating source code for this contest
+    /// @param scoreContestSourceHash Hash of the scoring source code for this contest
+    /// @param approvedLeagueId Approved league from script approvals (Unknown = wildcard). Sets contest.leagueId.
+    /// @param contestCreator Address that initiated (and pays for) the contest
     /// @return contestId The unique contest identifier
     function createContest(
         string calldata rundownId,
         string calldata sportspageId,
         string calldata jsonoddsId,
+        bytes32 verifySourceHash,
+        bytes32 marketUpdateSourceHash,
         bytes32 scoreContestSourceHash,
-        address contestCreator,
-        uint256 leaderboardId
+        LeagueId approvedLeagueId,
+        address contestCreator
     ) external returns (uint256 contestId);
 
-    /// @notice Gets contest data
-    /// @param contestId The ID of the contest to retrieve
-    /// @return contest The contest struct
-    function getContest(
-        uint256 contestId
-    ) external view returns (Contest memory contest);
-
-    /// @notice Checks if a contest has been scored
-    /// @param contestId The ID of the contest
-    /// @return True if the contest has been Scored or ScoredManually
-    function isContestScored(uint256 contestId) external view returns (bool);
-
-    /// @notice Gets a contest market
-    /// @param contestId The ID of the contest
-    /// @param scorer The scorer contract address
-    /// @return contestMarket The contest market
-    function getContestMarket(
+    /// @notice Updates all market data for a contest. Only callable by OracleModule.
+    /// @dev Requires contestStatus == Verified, rejects writes on scored, voided, or unverified contests
+    /// @param contestId The contest identifier
+    /// @param moneylineAway Odds tick for away team moneyline
+    /// @param moneylineHome Odds tick for home team moneyline
+    /// @param spreadLineTicks The point spread (10x format)
+    /// @param spreadAwayLine Odds tick for away spread
+    /// @param spreadHomeLine Odds tick for home spread
+    /// @param totalLineTicks The total points (10x format)
+    /// @param overLine Odds tick for over
+    /// @param underLine Odds tick for under
+    function updateContestMarkets(
         uint256 contestId,
-        address scorer
-    ) external view returns (ContestMarket memory contestMarket);
-
-    /// @notice Sets the create contest source hash
-    /// @param newCreateContestSourceHash The new create contest source hash
-    function setCreateContestSourceHash(
-        bytes32 newCreateContestSourceHash
+        uint16 moneylineAway,
+        uint16 moneylineHome,
+        int32 spreadLineTicks,
+        uint16 spreadAwayLine,
+        uint16 spreadHomeLine,
+        int32 totalLineTicks,
+        uint16 overLine,
+        uint16 underLine
     ) external;
 
-    /// @notice Sets the update contest markets source hash
-    /// @param newUpdateContestMarketsSourceHash The new update contest markets source hash
-    function setUpdateContestMarketsSourceHash(
-        bytes32 newUpdateContestMarketsSourceHash
-    ) external;
-
-    /// @notice Sets the start time of a contest
+    /// @notice Sets the league and start time for a contest. Only callable by OracleModule.
     /// @param contestId The contest identifier
     /// @param leagueId The league ID
-    /// @param startTime The start time of the contest
+    /// @param startTime The contest start timestamp
     function setContestLeagueIdAndStartTime(
         uint256 contestId,
         LeagueId leagueId,
         uint32 startTime
     ) external;
 
-    /// @notice Sets the final scores for a contest
+    /// @notice Sets the final scores for a contest. Only callable by OracleModule.
     /// @param contestId The contest identifier
     /// @param awayScore Final away team score
     /// @param homeScore Final home team score
@@ -93,25 +84,30 @@ interface IContestModule is IModule {
         uint32 homeScore
     ) external;
 
-    /// @notice Updates all market data for a contest from oracle response
-    /// @param contestId The contest identifier
-    /// @param moneylineAway Odds tick for away team moneyline
-    /// @param moneylineHome Odds tick for home team moneyline
-    /// @param spread The point spread
-    /// @param spreadAwayLine Odds tick for away spread
-    /// @param spreadHomeLine Odds tick for home spread
-    /// @param total The total points
-    /// @param overLine Odds tick for over
-    /// @param underLine Odds tick for under
-    function updateContestMarkets(
+    /// @notice Voids a contest, permanently blocking scoring. Only callable by SpeculationModule.
+    /// @dev Once voided, setScores reverts because contestStatus != Verified.
+    ///      Prevents mixed outcomes across sibling speculations on the same contest.
+    /// @param contestId The contest ID
+    function voidContest(uint256 contestId) external;
+
+    /// @notice Gets contest data
+    /// @param contestId The ID of the contest
+    /// @return contest The contest struct
+    function getContest(
+        uint256 contestId
+    ) external view returns (Contest memory contest);
+
+    /// @notice Checks if a contest has been scored or voided
+    /// @param contestId The ID of the contest
+    /// @return True if the contest has been scored or voided
+    function isContestTerminal(uint256 contestId) external view returns (bool);
+
+    /// @notice Gets market data for a contest/scorer pair
+    /// @param contestId The ID of the contest
+    /// @param scorer The scorer contract address
+    /// @return contestMarket The contest market data
+    function getContestMarket(
         uint256 contestId,
-        uint16 moneylineAway,
-        uint16 moneylineHome,
-        int32 spread,
-        uint16 spreadAwayLine,
-        uint16 spreadHomeLine,
-        int32 total,
-        uint16 overLine,
-        uint16 underLine
-    ) external;
+        address scorer
+    ) external view returns (ContestMarket memory contestMarket);
 }

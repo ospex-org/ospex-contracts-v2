@@ -12,7 +12,6 @@ import {
 import {ISecondaryMarketModule} from "../interfaces/ISecondaryMarketModule.sol";
 import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IPositionModule} from "../interfaces/IPositionModule.sol";
-import {IContributionModule} from "../interfaces/IContributionModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {
     SafeERC20
@@ -23,67 +22,75 @@ import {
 
 /**
  * @title SecondaryMarketModule
- * @notice Handles secondary market trading of matched positions in Ospex protocol
- * @dev Implements the minimal core + plug-in modules pattern. Uses hybrid event emission.
+ * @notice Handles secondary market trading of matched positions in the Ospex protocol.
+ *
+ * @dev DESIGN: NON-PROPORTIONAL LISTINGS
+ * Sellers may list any (riskAmount, profitAmount) combination within their position
+ * balances, including non-proportional slices.
+ *
+ * @dev DESIGN: HASH COMMITMENT
+ * buyPosition requires an expectedHash — the keccak256 of the listing's complete state
+ * (speculationId, seller, positionType, price, riskAmount, profitAmount). If a seller
+ * calls updateListing between buyer tx submission and execution, the hash mismatches
+ * and the buy reverts with ListingStateChanged(). Buyers obtain the current hash from
+ * PositionListed / ListingUpdated events or the getListingHash() view function.
+ *
+ * Partial buys modify listing state (reducing amounts and price proportionally), which
+ * invalidates the previous hash. Subsequent buyers must obtain the new hash.
+ *
+ * Payment flows through this contract — sellers claim proceeds separately via
+ * claimSaleProceeds(). Position ownership is transferred atomically via
+ * PositionModule.transferPosition().
  */
 contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    // --- Custom Errors ---
-    /// @notice Error for not admin
-    error SecondaryMarketModule__NotAdmin(address admin);
-    /// @notice Error for sale amount below minimum
-    error SecondaryMarketModule__SaleAmountBelowMinimum();
-    /// @notice Error for listing not active
+    // ──────────────────────────── Constants ────────────────────────────
+
+    bytes32 public constant SECONDARY_MARKET_MODULE =
+        keccak256("SECONDARY_MARKET_MODULE");
+    bytes32 public constant SPECULATION_MODULE =
+        keccak256("SPECULATION_MODULE");
+    bytes32 public constant POSITION_MODULE = keccak256("POSITION_MODULE");
+
+    bytes32 public constant EVENT_POSITION_LISTED =
+        keccak256("POSITION_LISTED");
+    bytes32 public constant EVENT_LISTING_UPDATED =
+        keccak256("LISTING_UPDATED");
+    bytes32 public constant EVENT_POSITION_SOLD = keccak256("POSITION_SOLD");
+    bytes32 public constant EVENT_LISTING_CANCELLED =
+        keccak256("LISTING_CANCELLED");
+    bytes32 public constant EVENT_SALE_PROCEEDS_CLAIMED =
+        keccak256("SALE_PROCEEDS_CLAIMED");
+
+    // ──────────────────────────── Errors ───────────────────────────────
+
+    /// @notice Thrown when attempting to interact with a non-active listing
     error SecondaryMarketModule__ListingNotActive();
-    /// @notice Error for cannot buy own position
+    /// @notice Thrown when a buyer attempts to buy their own listing
     error SecondaryMarketModule__CannotBuyOwnPosition();
-    /// @notice Error for no proceeds available
+    /// @notice Thrown when a seller has no pending proceeds to claim
     error SecondaryMarketModule__NoProceedsAvailable();
-    /// @notice Error for amount above maximum
+    /// @notice Thrown when a requested amount exceeds the position or listing
     error SecondaryMarketModule__AmountAboveMaximum(uint256 amount);
-    /// @notice Error for speculation not active
+    /// @notice Thrown when the speculation is not in Open status
     error SecondaryMarketModule__SpeculationNotActive();
-    /// @notice Error for invalid min sale amount
-    error SecondaryMarketModule__InvalidMinSaleAmount();
-    /// @notice Error for invalid address
+    /// @notice Thrown when an address parameter is zero
     error SecondaryMarketModule__InvalidAddress();
-    /// @notice Error for invalid amount
+    /// @notice Thrown when a required amount is zero
     error SecondaryMarketModule__InvalidAmount();
-    /// @notice Error for position already claimed
+    /// @notice Thrown when the position has already been claimed
     error SecondaryMarketModule__PositionAlreadyClaimed();
-    /// @notice Error for module not set
+    /// @notice Thrown when a required module is not registered in OspexCore
     error SecondaryMarketModule__ModuleNotSet(bytes32 moduleType);
-    /// @notice Error for purchase price rounding to zero
+    /// @notice Thrown when proportional price calculation rounds to zero
     error SecondaryMarketModule__PurchasePriceZero();
-    /// @notice Error for partial buy leaving unsellable dust remainder
-    error SecondaryMarketModule__RemainderBelowMinimum();
+    /// @notice Thrown when the listing state has been altered since the buyer's commitment
+    error SecondaryMarketModule__ListingStateChanged();
 
-    // --- Storage ---
-    /// @notice The OspexCore contract
-    OspexCore public immutable i_ospexCore;
-    /// @notice The ERC20 token
-    IERC20 public immutable i_token;
-    /// @notice The minimum sale amount
-    uint256 public s_minSaleAmount;
+    // ──────────────────────────── Events ───────────────────────────────
 
-    // speculationId => seller => positionType => SaleListing
-    mapping(uint256 => mapping(address => mapping(PositionType => SaleListing)))
-        public s_saleListings;
-    // seller => amount
-    mapping(address => uint256) public s_pendingSaleProceeds;
-
-    // --- Events (module-local) ---
-    /**
-     * @notice Emitted when a matched position is listed for sale
-     * @param speculationId The ID of the speculation
-     * @param seller The address of the seller
-     * @param positionType The type of position
-     * @param price The price of the position
-     * @param riskAmount The risk amount of the position
-     * @param profitAmount The profit amount of the position
-     * @param timestamp The timestamp of the listing
-     */
+    /// @notice Emitted when a position is listed for sale
     event PositionListed(
         uint256 indexed speculationId,
         address indexed seller,
@@ -91,20 +98,11 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
         uint256 price,
         uint256 riskAmount,
         uint256 profitAmount,
-        uint32 timestamp
+        uint32 timestamp,
+        bytes32 listingHash
     );
-    /**
-     * @notice Emitted when a listing is updated
-     * @param speculationId The ID of the speculation
-     * @param seller The address of the seller
-     * @param positionType The type of position
-     * @param oldPrice The original price of the position
-     * @param newPrice The new price of the position
-     * @param oldRiskAmount The original risk amount of the position
-     * @param newRiskAmount The new risk amount of the position
-     * @param oldProfitAmount The original profit amount of the position
-     * @param newProfitAmount The new profit amount of the position
-     */
+
+    /// @notice Emitted when a listing is updated
     event ListingUpdated(
         uint256 indexed speculationId,
         address indexed seller,
@@ -114,18 +112,11 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
         uint256 oldRiskAmount,
         uint256 newRiskAmount,
         uint256 oldProfitAmount,
-        uint256 newProfitAmount
+        uint256 newProfitAmount,
+        bytes32 listingHash
     );
-    /**
-     * @notice Emitted when a position is sold
-     * @param speculationId The ID of the speculation
-     * @param seller The address of the seller
-     * @param positionType The type of position
-     * @param buyer The address of the buyer
-     * @param riskAmount The risk amount of the position
-     * @param profitAmount The profit amount of the position
-     * @param purchasePrice The amount of the purchase
-     */
+
+    /// @notice Emitted when a position is sold (fully or partially)
     event PositionSold(
         uint256 indexed speculationId,
         address indexed seller,
@@ -135,127 +126,93 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
         uint256 profitAmount,
         uint256 purchasePrice
     );
-    /**
-     * @notice Emitted when a listing is cancelled
-     * @param speculationId The ID of the speculation
-     * @param seller The address of the seller
-     * @param positionType The type of position
-     */
+
+    /// @notice Emitted when a listing is cancelled
     event ListingCancelled(
         uint256 indexed speculationId,
         address indexed seller,
         PositionType positionType
     );
-    /**
-     * @notice Emitted when sale proceeds are claimed
-     * @param seller The address of the seller
-     * @param amount The amount of the sale proceeds
-     */
+
+    /// @notice Emitted when sale proceeds are claimed
     event SaleProceedsClaimed(address indexed seller, uint256 amount);
-    /**
-     * @notice Emitted when the minimum sale amount is set
-     * @param newMinSaleAmount The new minimum sale amount
-     */
-    event MinSaleAmountSet(uint256 newMinSaleAmount);
 
-    // --- Modifiers ---
-    /**
-     * @notice Modifier to restrict function to only the OspexCore contract
-     */
-    modifier onlyAdmin() {
-        if (
-            !i_ospexCore.hasRole(i_ospexCore.DEFAULT_ADMIN_ROLE(), msg.sender)
-        ) {
-            revert SecondaryMarketModule__NotAdmin(msg.sender);
-        }
-        _;
-    }
+    // ──────────────────────────── State ────────────────────────────────
 
-    // --- Constructor ---
+    /// @notice The OspexCore contract
+    OspexCore public immutable i_ospexCore;
+    /// @notice The USDC token contract
+    IERC20 public immutable i_token;
+
+    /// @notice Speculation ID → seller → position type → SaleListing
+    mapping(uint256 => mapping(address => mapping(PositionType => SaleListing)))
+        public s_saleListings;
+    /// @notice Seller → pending proceeds from sold positions
+    mapping(address => uint256) public s_pendingSaleProceeds;
+
+    // ──────────────────────────── Constructor ──────────────────────────
+
     /**
-     * @notice Constructor for the SecondaryMarketModule
-     * @param ospexCore The address of the OspexCore contract
-     * @param token The address of the ERC20 token
-     * @param minSaleAmount The minimum sale amount
+     * @notice Deploys the SecondaryMarketModule with immutable configuration
+     * @param ospexCore_ The OspexCore contract address
+     * @param token_ The USDC token address
      */
-    constructor(
-        address ospexCore,
-        address token,
-        uint256 minSaleAmount
-    ) {
-        if (ospexCore == address(0) || token == address(0))
+    constructor(address ospexCore_, address token_) {
+        if (ospexCore_ == address(0) || token_ == address(0))
             revert SecondaryMarketModule__InvalidAddress();
-        if (minSaleAmount == 0)
-            revert SecondaryMarketModule__InvalidMinSaleAmount();
-        i_ospexCore = OspexCore(ospexCore);
-        i_token = IERC20(token);
-        s_minSaleAmount = minSaleAmount;
+        i_ospexCore = OspexCore(ospexCore_);
+        i_token = IERC20(token_);
     }
 
-    // --- IModule ---
-    /**
-     * @notice Returns the module type
-     * @return moduleType The module type
-     */
+    // ──────────────────────────── Module Identity ─────────────────────
+
+    /// @notice Returns the module type identifier
     function getModuleType() external pure override returns (bytes32) {
-        return keccak256("SECONDARY_MARKET_MODULE");
+        return SECONDARY_MARKET_MODULE;
     }
 
-    // --- ISecondaryMarketModule ---
-    /**
-     * @notice Lists a position for sale
-     * @param speculationId The ID of the speculation
-     * @param positionType The type of position
-     * @param price The price of the position
-     * @param riskAmount The risk amount of the position
-     * @param profitAmount The profit amount of the position
-     * @param contributionAmount The amount of contribution
-     */
+    // ──────────────────────────── Listing ──────────────────────────────
+
+    /// @inheritdoc ISecondaryMarketModule
     function listPositionForSale(
         uint256 speculationId,
         PositionType positionType,
         uint256 price,
         uint256 riskAmount,
-        uint256 profitAmount,
-        uint256 contributionAmount
+        uint256 profitAmount
     ) external override nonReentrant {
         if (price == 0 || riskAmount == 0 || profitAmount == 0)
             revert SecondaryMarketModule__InvalidAmount();
 
         Speculation memory spec = ISpeculationModule(
-            _getModule(keccak256("SPECULATION_MODULE"))
+            _getModule(SPECULATION_MODULE)
         ).getSpeculation(speculationId);
 
         if (spec.speculationStatus != SpeculationStatus.Open)
             revert SecondaryMarketModule__SpeculationNotActive();
 
-        Position memory position = IPositionModule(
-            _getModule(keccak256("POSITION_MODULE"))
-        ).getPosition(speculationId, msg.sender, positionType);
+        Position memory position = IPositionModule(_getModule(POSITION_MODULE))
+            .getPosition(speculationId, msg.sender, positionType);
+
+        if (position.claimed)
+            revert SecondaryMarketModule__PositionAlreadyClaimed();
 
         if (riskAmount > position.riskAmount)
             revert SecondaryMarketModule__AmountAboveMaximum(riskAmount);
         if (profitAmount > position.profitAmount)
             revert SecondaryMarketModule__AmountAboveMaximum(profitAmount);
 
-        if (riskAmount < s_minSaleAmount)
-            revert SecondaryMarketModule__SaleAmountBelowMinimum();
-
-        if (contributionAmount > 0) {
-            IContributionModule(_getModule(keccak256("CONTRIBUTION_MODULE")))
-                .handleContribution(
-                    speculationId,
-                    msg.sender,
-                    positionType,
-                    contributionAmount
-                );
-        }
-
         s_saleListings[speculationId][msg.sender][positionType] = SaleListing({
             price: price,
             riskAmount: riskAmount,
             profitAmount: profitAmount
         });
+
+        bytes32 listingHash = _listingHash(
+            speculationId,
+            msg.sender,
+            positionType
+        );
 
         emit PositionListed(
             speculationId,
@@ -264,10 +221,11 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
             price,
             riskAmount,
             profitAmount,
-            uint32(block.timestamp)
+            uint32(block.timestamp),
+            listingHash
         );
         i_ospexCore.emitCoreEvent(
-            keccak256("POSITION_LISTED"),
+            EVENT_POSITION_LISTED,
             abi.encode(
                 speculationId,
                 msg.sender,
@@ -275,26 +233,38 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
                 price,
                 riskAmount,
                 profitAmount,
-                uint32(block.timestamp)
+                uint32(block.timestamp),
+                listingHash
             )
         );
     }
 
+    // ──────────────────────────── Buying ───────────────────────────────
+
     /**
      * @notice Buys a portion (or all) of a listed position
-     * @dev Buyer specifies only the riskAmount they want. profitAmount and
-     *      purchasePrice are derived proportionally from the listing.
-     *      The listing's ratio is preserved on partial buys.
-     * @param speculationId The ID of the speculation
-     * @param seller The address of the seller
-     * @param positionType The type of position
+     * @dev Buyer specifies riskAmount and expectedHash. profitAmount and purchasePrice are
+     *      derived proportionally from the listing, preserving the ratio on partial buys.
+     *      The expectedHash must match the current listing state — if the seller modified
+     *      the listing after the buyer committed, the transaction reverts.
+     *
+     *      Integration pattern:
+     *      1. Read listing via getSaleListing() or PositionListed/ListingUpdated events
+     *      2. Obtain hash via getListingHash() or from event emission
+     *      3. Submit buyPosition with the hash — if terms are different, tx reverts safely
+     *
+     * @param speculationId The speculation ID
+     * @param seller The seller address
+     * @param positionType The position type
      * @param riskAmount The risk amount the buyer wants to purchase
+     * @param expectedHash The expected listing state hash (from getListingHash or events)
      */
     function buyPosition(
         uint256 speculationId,
         address seller,
         PositionType positionType,
-        uint256 riskAmount
+        uint256 riskAmount,
+        bytes32 expectedHash
     ) external override nonReentrant {
         if (msg.sender == seller)
             revert SecondaryMarketModule__CannotBuyOwnPosition();
@@ -302,7 +272,7 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
         if (riskAmount == 0) revert SecondaryMarketModule__InvalidAmount();
 
         Speculation memory spec = ISpeculationModule(
-            _getModule(keccak256("SPECULATION_MODULE"))
+            _getModule(SPECULATION_MODULE)
         ).getSpeculation(speculationId);
 
         if (spec.speculationStatus != SpeculationStatus.Open)
@@ -317,39 +287,39 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
         if (riskAmount > listing.riskAmount)
             revert SecondaryMarketModule__AmountAboveMaximum(riskAmount);
 
-        // Derive profitAmount and price proportionally from the listing
+        bytes32 currentHash = _listingHash(speculationId, seller, positionType);
+        if (currentHash != expectedHash)
+            revert SecondaryMarketModule__ListingStateChanged();
+
+        address posModule = _getModule(POSITION_MODULE);
+
+        Position memory pos = IPositionModule(posModule).getPosition(
+            speculationId,
+            seller,
+            positionType
+        );
+        if (pos.claimed) revert SecondaryMarketModule__PositionAlreadyClaimed();
+
         uint256 profitAmount = (listing.profitAmount * riskAmount) /
             listing.riskAmount;
         uint256 purchasePrice = (listing.price * riskAmount) /
             listing.riskAmount;
 
-        // Prevent zero-price dust buys
         if (purchasePrice == 0)
             revert SecondaryMarketModule__PurchasePriceZero();
-        // Prevent buy amount below minimum
-        if (riskAmount < s_minSaleAmount)
-            revert SecondaryMarketModule__SaleAmountBelowMinimum();
-        // Prevent partial buy leaving unsellable dust remainder
-        if (riskAmount < listing.riskAmount) {
-            if (listing.riskAmount - riskAmount < s_minSaleAmount)
-                revert SecondaryMarketModule__RemainderBelowMinimum();
-        }
 
-        // Transfer payment from buyer to contract (seller claims later)
         i_token.safeTransferFrom(msg.sender, address(this), purchasePrice);
         s_pendingSaleProceeds[seller] += purchasePrice;
 
-        IPositionModule(_getModule(keccak256("POSITION_MODULE")))
-            .transferPosition(
-                speculationId,
-                seller,
-                positionType,
-                msg.sender,
-                riskAmount,
-                profitAmount
-            );
+        IPositionModule(posModule).transferPosition(
+            speculationId,
+            seller,
+            positionType,
+            msg.sender,
+            riskAmount,
+            profitAmount
+        );
 
-        // Update or delete the listing
         if (riskAmount == listing.riskAmount) {
             delete s_saleListings[speculationId][seller][positionType];
         } else {
@@ -368,7 +338,7 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
             purchasePrice
         );
         i_ospexCore.emitCoreEvent(
-            keccak256("POSITION_SOLD"),
+            EVENT_POSITION_SOLD,
             abi.encode(
                 speculationId,
                 seller,
@@ -381,9 +351,9 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
         );
     }
 
-    /**
-     * @notice Claims sale proceeds
-     */
+    // ──────────────────────────── Proceeds ─────────────────────────────
+
+    /// @inheritdoc ISecondaryMarketModule
     function claimSaleProceeds() external override nonReentrant {
         uint256 amount = s_pendingSaleProceeds[msg.sender];
         if (amount == 0) revert SecondaryMarketModule__NoProceedsAvailable();
@@ -391,16 +361,14 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
         i_token.safeTransfer(msg.sender, amount);
         emit SaleProceedsClaimed(msg.sender, amount);
         i_ospexCore.emitCoreEvent(
-            keccak256("SALE_PROCEEDS_CLAIMED"),
+            EVENT_SALE_PROCEEDS_CLAIMED,
             abi.encode(msg.sender, amount)
         );
     }
 
-    /**
-     * @notice Cancels a listing
-     * @param speculationId The ID of the speculation
-     * @param positionType The type of position
-     */
+    // ──────────────────────────── Listing Management ──────────────────
+
+    /// @inheritdoc ISecondaryMarketModule
     function cancelListing(
         uint256 speculationId,
         PositionType positionType
@@ -412,9 +380,8 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
         if (listing.riskAmount == 0)
             revert SecondaryMarketModule__ListingNotActive();
 
-        Position memory position = IPositionModule(
-            _getModule(keccak256("POSITION_MODULE"))
-        ).getPosition(speculationId, msg.sender, positionType);
+        Position memory position = IPositionModule(_getModule(POSITION_MODULE))
+            .getPosition(speculationId, msg.sender, positionType);
         if (position.claimed)
             revert SecondaryMarketModule__PositionAlreadyClaimed();
 
@@ -422,19 +389,12 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
 
         emit ListingCancelled(speculationId, msg.sender, positionType);
         i_ospexCore.emitCoreEvent(
-            keccak256("LISTING_CANCELLED"),
+            EVENT_LISTING_CANCELLED,
             abi.encode(speculationId, msg.sender, positionType)
         );
     }
 
-    /**
-     * @notice Updates a listing with new price and/or amounts
-     * @param speculationId The ID of the speculation
-     * @param positionType The type of position
-     * @param newPrice The new price (0 to keep current)
-     * @param newRiskAmount The new risk amount (0 to keep current)
-     * @param newProfitAmount The new profit amount (0 to keep current)
-     */
+    /// @inheritdoc ISecondaryMarketModule
     function updateListing(
         uint256 speculationId,
         PositionType positionType,
@@ -443,7 +403,7 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
         uint256 newProfitAmount
     ) external override nonReentrant {
         Speculation memory spec = ISpeculationModule(
-            _getModule(keccak256("SPECULATION_MODULE"))
+            _getModule(SPECULATION_MODULE)
         ).getSpeculation(speculationId);
 
         if (spec.speculationStatus != SpeculationStatus.Open)
@@ -456,9 +416,8 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
         if (listing.riskAmount == 0)
             revert SecondaryMarketModule__ListingNotActive();
 
-        Position memory position = IPositionModule(
-            _getModule(keccak256("POSITION_MODULE"))
-        ).getPosition(speculationId, msg.sender, positionType);
+        Position memory position = IPositionModule(_getModule(POSITION_MODULE))
+            .getPosition(speculationId, msg.sender, positionType);
         if (position.claimed)
             revert SecondaryMarketModule__PositionAlreadyClaimed();
 
@@ -472,8 +431,6 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
         if (newRiskAmount > 0) {
             if (newRiskAmount > position.riskAmount)
                 revert SecondaryMarketModule__AmountAboveMaximum(newRiskAmount);
-            if (newRiskAmount < s_minSaleAmount)
-                revert SecondaryMarketModule__SaleAmountBelowMinimum();
             listing.riskAmount = newRiskAmount;
         }
         if (newProfitAmount > 0) {
@@ -484,6 +441,12 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
             listing.profitAmount = newProfitAmount;
         }
 
+        bytes32 listingHash = _listingHash(
+            speculationId,
+            msg.sender,
+            positionType
+        );
+
         emit ListingUpdated(
             speculationId,
             msg.sender,
@@ -493,10 +456,11 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
             oldRiskAmount,
             listing.riskAmount,
             oldProfitAmount,
-            listing.profitAmount
+            listing.profitAmount,
+            listingHash
         );
         i_ospexCore.emitCoreEvent(
-            keccak256("LISTING_UPDATED"),
+            EVENT_LISTING_UPDATED,
             abi.encode(
                 speculationId,
                 msg.sender,
@@ -506,35 +470,15 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
                 oldRiskAmount,
                 listing.riskAmount,
                 oldProfitAmount,
-                listing.profitAmount
+                listing.profitAmount,
+                listingHash
             )
         );
     }
 
-    /**
-     * @notice Sets the minimum sale amount
-     * @param newMinSaleAmount The new minimum sale amount
-     */
-    function setMinSaleAmount(
-        uint256 newMinSaleAmount
-    ) external override onlyAdmin {
-        if (newMinSaleAmount == 0)
-            revert SecondaryMarketModule__InvalidMinSaleAmount();
-        s_minSaleAmount = newMinSaleAmount;
-        emit MinSaleAmountSet(newMinSaleAmount);
-        i_ospexCore.emitCoreEvent(
-            keccak256("MIN_SALE_AMOUNT_SET"),
-            abi.encode(newMinSaleAmount)
-        );
-    }
+    // ──────────────────────────── View Functions ──────────────────────
 
-    // --- View Functions ---
-    /**
-     * @notice Gets a sale listing
-     * @param speculationId The ID of the speculation
-     * @param seller The address of the seller
-     * @param positionType The type of position
-     */
+    /// @inheritdoc ISecondaryMarketModule
     function getSaleListing(
         uint256 speculationId,
         address seller,
@@ -543,20 +487,71 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
         return s_saleListings[speculationId][seller][positionType];
     }
 
-    /**
-     * @notice Gets the pending sale proceeds
-     * @param seller The address of the seller
-     */
+    /// @inheritdoc ISecondaryMarketModule
     function getPendingSaleProceeds(
         address seller
     ) external view override returns (uint256 amount) {
         return s_pendingSaleProceeds[seller];
     }
 
-    // --- Helper Function for Module Lookups ---
     /**
-     * @notice Gets the module address
-     * @param moduleType The type of module
+     * @notice Returns the current hash of a listing's state
+     * @dev Convenience function for off-chain systems to obtain the expectedHash parameter
+     *      required by buyPosition. Also useful after partial buys when the listing state
+     *      has changed and a new hash is needed.
+     * @param speculationId The speculation ID
+     * @param seller The seller address
+     * @param positionType The position type
+     * @return The keccak256 hash of the listing's current state
+     */
+    function getListingHash(
+        uint256 speculationId,
+        address seller,
+        PositionType positionType
+    ) external view override returns (bytes32) {
+        return _listingHash(speculationId, seller, positionType);
+    }
+
+    // ──────────────────────────── Internal Functions ──────────────────
+
+    /**
+     * @notice Computes the hash of a listing's complete state for commitment verification
+     * @dev The hash captures all listing terms so any modification by the seller
+     *      between buyer commitment and execution is detected.
+     *      Includes the listing key (speculationId, seller, positionType)
+     *      to prevent cross-listing hash collisions.
+     * @param speculationId The speculation ID
+     * @param seller The seller address
+     * @param positionType The position type
+     * @return The keccak256 hash of the listing's complete state
+     */
+    function _listingHash(
+        uint256 speculationId,
+        address seller,
+        PositionType positionType
+    ) internal view returns (bytes32) {
+        SaleListing storage listing = s_saleListings[speculationId][seller][
+            positionType
+        ];
+        return
+            keccak256(
+                abi.encode(
+                    speculationId,
+                    seller,
+                    positionType,
+                    listing.price,
+                    listing.riskAmount,
+                    listing.profitAmount
+                )
+            );
+    }
+
+    // ──────────────────────────── Module Lookup ───────────────────────
+
+    /**
+     * @notice Resolves a module address from OspexCore, reverting if not set
+     * @param moduleType The module type identifier
+     * @return module The module contract address
      */
     function _getModule(
         bytes32 moduleType

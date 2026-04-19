@@ -24,16 +24,20 @@ contract MockContestModule {
         contestMarkets[contestId][scorer] = market;
     }
     
+    function voidContest(uint256 contestId) external {
+        contests[contestId].contestStatus = ContestStatus.Voided;
+    }
+
     function getContest(
         uint256 contestId
     ) external view returns (Contest memory) {
         return contests[contestId];
     }
 
-    function isContestScored(uint256 contestId) external view returns (bool) {
+    function isContestTerminal(uint256 contestId) external view returns (bool) {
         return
             contests[contestId].contestStatus == ContestStatus.Scored ||
-            contests[contestId].contestStatus == ContestStatus.ScoredManually;
+            contests[contestId].contestStatus == ContestStatus.Voided;
     }
     
     function getContestMarket(
