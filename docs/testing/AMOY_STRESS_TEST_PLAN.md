@@ -816,6 +816,101 @@ cast send 0x6f32665DD97482e6C89D8B9bf025d483184F5553 \
 
 ---
 
+### A-23: SPREAD FULL LIFECYCLE
+
+**Description:** Complete end-to-end spread market lifecycle: create contest, match with SpreadScorer, score contest, settle spread speculation, claim.
+
+**Prerequisites:** Verified contest exists (can reuse contest from A-01/A-02 or create a new one). MAKER and TAKER funded.
+
+**Action:**
+1. MAKER signs commitment with:
+   - scorer: `0x36F3f4A6757cB2E822A1AfCea0b3092fFcaE6c30` (SpreadScorerModule)
+   - lineTicks: -30 (spread of -3.0, stored as 10x)
+   - positionType: 0 (Upper = Away covers)
+   - oddsTick: 191
+2. TAKER matches the commitment
+3. After contest scores, settle the spread speculation
+4. Winner claims
+
+**Expected on-chain outcome:**
+- Speculation created with scorer=SpreadScorer, lineTicks=-30
+- After scoring: winSide determined by comparing (awayScore - homeScore) against the spread line
+  - If awayScore - homeScore > spread → Away covers → Upper wins
+  - If awayScore - homeScore < spread → Home covers → Lower wins
+  - If awayScore - homeScore == spread → Push
+
+**Expected Supabase outcome:**
+- `speculations` row: market_type="spread", line_ticks="-30" (or equivalent)
+- `positions` rows for both sides with correct risk/profit
+- After settlement: win_side reflects spread outcome
+- After claim: claimed=true on winner's position
+
+**Pass/Fail:**
+
+**Notes:** Use a real game where we know the final margin to predict the outcome. Verifies SpreadScorerModule integration end-to-end.
+
+---
+
+### A-24: TOTAL FULL LIFECYCLE
+
+**Description:** Complete end-to-end total (over/under) market lifecycle.
+
+**Prerequisites:** Verified contest exists. MAKER and TAKER funded.
+
+**Action:**
+1. MAKER signs commitment with:
+   - scorer: `0xB814f3779A79c6470a904f8A12670D1B13874fDE` (TotalScorerModule)
+   - lineTicks: 2150 (total of 215.0, stored as 10x — check encoding per contract)
+   - positionType: 0 (Upper = Over)
+   - oddsTick: 191
+2. TAKER matches the commitment
+3. After contest scores, settle the total speculation
+4. Winner claims
+
+**Expected on-chain outcome:**
+- Speculation created with scorer=TotalScorer, lineTicks=total line
+- After scoring: winSide determined by comparing (awayScore + homeScore) against total
+  - If total > line → Over wins (Upper)
+  - If total < line → Under wins (Lower)
+  - If total == line → Push
+
+**Expected Supabase outcome:**
+- `speculations` row: market_type="total", line_ticks set
+- Full position lifecycle reflected in Supabase
+
+**Pass/Fail:**
+
+**Notes:** Use a game where combined score is known to predict over/under outcome.
+
+---
+
+### A-25: PUSH SETTLEMENT PATH
+
+**Description:** Trigger a push outcome (neither side wins) and verify indexer handles it correctly.
+
+**Prerequisites:** Need a spread or total that exactly matches the game outcome to produce a push.
+
+**Action:**
+- Create a spread speculation where lineTicks exactly matches the actual scoring margin
+- OR create a total speculation where the total line exactly matches awayScore + homeScore
+- Score the contest → settle → both sides should get their risk back
+
+**Strategy:** Use a completed game where we know the exact margin. For example, if a game ended 110-105 (margin = 5), use lineTicks = -50 (spread of -5.0) for the favored team. This guarantees a push.
+
+**Expected on-chain outcome:**
+- Speculation settles with winSide = Push (value 5)
+- Both positions can claim (each gets back exactly their riskAmount — no profit, no loss)
+
+**Expected Supabase outcome:**
+- `speculations` row: win_side="push"
+- `positions` rows: both sides show claimed=true, claimed_amount = riskAmount (no profit)
+
+**Pass/Fail:**
+
+**Notes:** Push is a critical path that must be tested live. Leaderboard positions on pushed speculations should NOT count toward minBets (they're excluded from non-void position count). Verify this if running alongside leaderboard tests.
+
+---
+
 ## PHASE B: HARDENING PATH VALIDATION
 
 Goal: confirm specific fixes from the hardening cycle produce correct indexer state (or correct rejection).
@@ -980,6 +1075,172 @@ cast send 0xbcCe7e2E61bC614d6e58C3327e893d177545Ef37 \
 **Pass/Fail:**
 
 **Notes:** The indexer's MIN_NONCE_UPDATED handler invalidates commitments in Supabase with nonce below the new floor. Verify this side effect.
+
+---
+
+### B-07: Oracle Failure Path
+
+**Description:** Trigger an intentional oracle failure and verify no bad downstream state is produced. This is one of the highest-value live tests — mainnet risk is bad/missing callback behavior, not just happy paths.
+
+**Prerequisites:** Deployer has LINK and USDC. Use a non-existent game ID that will cause the Chainlink Functions JS to error.
+
+**Action:**
+```bash
+# Create a contest with invalid game IDs that the APIs won't recognize
+# The verify JS will fail to find the game and return an error
+cast send 0x08d1F10572071271983CE800ad63663f71A71512 \
+  "createContestFromOracle(...)" \
+  # Use rundownId="INVALID_000", sportspageId="INVALID_000", jsonoddsId="INVALID_000"
+  # All other params (script approvals, LINK, etc.) are valid
+```
+
+**Expected on-chain outcome:**
+- Contest IS created (with Unverified status — creation happens before the oracle call)
+- Chainlink callback arrives with error bytes
+- OracleRequestFailed event emitted
+- Contest remains Unverified (never verified, never scored)
+- No corrupt state — the contest exists but is inert
+
+**Expected Supabase outcome:**
+- `chain_events` row for CONTEST_CREATED (this fires at creation time, before callback)
+- `contests` row: status="unverified" — stays this way permanently
+- NO CONTEST_VERIFIED event (callback failed)
+- Verify: no downstream speculations, positions, or other state from this contest
+
+**Pass/Fail:**
+
+**Notes:** Also verify that the oracle failure doesn't block subsequent oracle calls for valid contests. Create another valid contest after this one and confirm it verifies normally.
+
+---
+
+### B-08: Secondary Market Partial Buy
+
+**Description:** Buy only a portion of a listed position (not the full amount). Verify the listing is correctly decremented and the partial transfer is indexed.
+
+**Prerequisites:** MAKER has a position listed for sale (e.g., 10 USDC risk listed). TAKER has USDC approved for SecondaryMarketModule.
+
+**Action:**
+```bash
+# Get listing hash
+LISTING_HASH=$(cast call 0x0e7b7C218db7f0e34521833e98f0Af261D204aED \
+  "getListingHash(uint256,address,uint8)(bytes32)" \
+  SPECULATION_ID MAKER_ADDRESS 0 --rpc-url $AMOY_RPC_URL)
+
+# TAKER buys only 4 USDC of the 10 USDC listing
+cast send 0x0e7b7C218db7f0e34521833e98f0Af261D204aED \
+  "buyPosition(uint256,address,uint8,uint256,bytes32)" \
+  SPECULATION_ID \
+  MAKER_ADDRESS \
+  0 \
+  4000000 \
+  $LISTING_HASH \
+  --private-key $TAKER_PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+**Expected on-chain outcome:**
+- Partial transfer: 4 USDC risk moved from MAKER to TAKER
+- Listing still active with remaining 6 USDC risk
+- Purchase price proportionally calculated
+
+**Expected Supabase outcome:**
+- `secondary_market_listings` row: risk_amount decremented to remaining (6 USDC), status still "active"
+- `positions`: MAKER risk reduced by 4, TAKER risk increased by 4
+- Profit amounts scaled proportionally
+
+**Pass/Fail:**
+
+**Notes:** This tests the indexer's partial-sale handling, which involves BigInt arithmetic to decrement remaining amounts.
+
+---
+
+### B-09: Stale Listing Hash After Update
+
+**Description:** Capture a listing hash, update the listing (changing the price), then attempt to buy with the old hash. Expected: revert.
+
+**Prerequisites:** B-08 or A-17 completed (active listing exists).
+
+**Action:**
+1. Get listing hash before update
+2. Update listing price via `updateListing`
+3. Attempt `buyPosition` with the pre-update hash
+
+**Expected on-chain outcome:**
+- `buyPosition` REVERTS (listing hash mismatch — stale state)
+- No state change beyond the listing update
+
+**Expected Supabase outcome:**
+- `secondary_market_listings`: price updated (from step 2)
+- No POSITION_SOLD event (step 3 reverted)
+
+**Pass/Fail:**
+
+**Notes:** This is a critical safety check — the expectedHash parameter prevents front-running and stale-state purchases.
+
+---
+
+### B-10: Stale Listing Hash After Partial Buy
+
+**Description:** After a partial buy changes the listing state, attempt another buy with the pre-partial-buy hash. Expected: revert.
+
+**Prerequisites:** B-08 completed (partial buy reduced the listing).
+
+**Action:**
+1. Record listing hash before partial buy (from B-08 setup)
+2. Execute partial buy (B-08)
+3. Attempt another `buyPosition` using the hash from step 1
+
+**Expected on-chain outcome:**
+- Second `buyPosition` REVERTS (listing hash changed after partial buy)
+
+**Expected Supabase outcome:**
+- Only the first partial buy is reflected. Second attempt produces no state change.
+
+**Pass/Fail:**
+
+**Notes:** This validates that the listing hash changes after every partial fill, preventing stale-state exploitation.
+
+---
+
+### B-11: Cooldown Boundary Timing
+
+**Description:** Test behavior at the exact cooldown boundary — attempt a match just before and just after the cooldown expires.
+
+**Prerequisites:** A contest with known startTime. Must wait until block.timestamp is near startTime + voidCooldown (86400s).
+
+**Action:**
+1. Create a contest with a startTime that allows us to hit the boundary during testing
+2. Just before cooldown expires: attempt matchCommitment → should SUCCEED
+3. After cooldown expires: attempt matchCommitment → should REVERT with ContestPastCooldown
+
+**Expected on-chain outcome:**
+- Pre-boundary: match succeeds, position created
+- Post-boundary: revert
+
+**Pass/Fail:**
+
+**Notes:** **Requires precise timing.** On Amoy (2-second blocks), the boundary is soft — we can't guarantee we hit the exact block. Strategy: attempt multiple rapid txs near the boundary and observe which succeed/fail. This is a live sanity check of the repo's integration test `MatchingPostCooldownRejection`.
+
+---
+
+### B-12: ROI Window Boundary Timing
+
+**Description:** Test ROI submission at the exact boundaries of the submission window.
+
+**Prerequisites:** A leaderboard with short timing (endTime=now+10min, safetyPeriod=60s, roiWindow=120s).
+
+**Action:**
+1. Before safety period ends: attempt `submitLeaderboardROI` → should REVERT
+2. During ROI window: submit → should SUCCEED
+3. After ROI window closes: attempt another submission → should REVERT (already submitted or window closed)
+
+**Expected on-chain outcome:**
+- Step 1: revert (too early)
+- Step 2: success
+- Step 3: revert (window closed or already submitted)
+
+**Pass/Fail:**
+
+**Notes:** Use short leaderboard timing to make this practical within a single session.
 
 ---
 
@@ -1151,6 +1412,97 @@ Compare `last_processed_block` against the block number of the most recent test 
 
 ---
 
+### C-06: Replay/Idempotency Drill
+
+**Description:** Re-send the same webhook payload (simulating a provider retry or indexer restart mid-stream) and confirm no duplicate rows or broken aggregates.
+
+**Prerequisites:** At least one event has been successfully processed.
+
+**Action:**
+1. Query `chain_events` for a processed event (get the raw webhook payload / tx_hash + log_index)
+2. Re-trigger the webhook endpoint with the same payload
+3. Verify: no duplicate chain_events rows (UNIQUE constraint on network, tx_hash, log_index should reject)
+4. Verify: no duplicate rows in target tables (e.g., positions not double-accumulated)
+5. Verify: handler returns success (idempotent — already processed)
+
+**Expected outcome:**
+- Duplicate detection (Postgres error 23505) is caught and logged silently
+- No new rows created
+- No aggregate values changed (e.g., position risk_amount not doubled)
+- Webhook returns 200 (not 500 — retries would be infinite otherwise)
+
+**Pass/Fail:**
+
+**Notes:** This tests the idempotency guarantee. The indexer uses UNIQUE constraints and "exists before insert" checks. Critical for production ops where webhook retries are common. Also test: if we delete a chain_events row and replay, does it correctly re-process?
+
+---
+
+### C-07: Value Reconciliation (USDC Accounting)
+
+**Description:** Full accounting pass verifying that on-chain USDC balances match the sum of all indexed economic events. Numbers must net out, not just rows.
+
+**Prerequisites:** Full lifecycle tests completed (Phase A).
+
+**Action:** Query and compare:
+
+1. **PositionModule USDC balance** (on-chain) vs sum of all:
+   - unclaimed winning positions (risk + profit for winners)
+   - unclaimed push positions (risk returned)
+   - minus already-claimed amounts
+
+2. **TreasuryModule USDC balance** vs sum of all fees:
+   - Contest creation fees (1 USDC × contests created)
+   - Speculation creation fees (0.50 USDC × speculations created)
+   - Leaderboard creation fees (0.50 USDC × leaderboards created)
+
+3. **SecondaryMarketModule USDC balance** vs sum of:
+   - Unclaimed sale proceeds
+
+4. **LeaderboardModule prize pools** vs sum of:
+   - Entry fees collected minus prizes already claimed
+
+```bash
+# On-chain balance checks
+cast call $USDC "balanceOf(address)(uint256)" $POSITION_MODULE --rpc-url $AMOY_RPC_URL
+cast call $USDC "balanceOf(address)(uint256)" $TREASURY_MODULE --rpc-url $AMOY_RPC_URL
+cast call $USDC "balanceOf(address)(uint256)" $SECONDARY_MARKET_MODULE --rpc-url $AMOY_RPC_URL
+```
+
+**Expected outcome:** All balances reconcile. Any discrepancy indicates a missed event or incorrect handler arithmetic.
+
+**Pass/Fail:**
+
+**Notes:** Document the reconciliation formula clearly so it can be automated for ongoing monitoring.
+
+---
+
+### C-08: Boundary Timing — Leaderboard Push Position Effect
+
+**Description:** Verify that push-resolved positions do NOT count toward the minBets requirement for leaderboard ROI submission.
+
+**Prerequisites:** A-25 completed (push position exists on a leaderboard-eligible speculation).
+
+**Action:**
+1. Create leaderboard with minBets=2
+2. Register user
+3. User has 1 win/loss position + 1 push position = 2 total positions
+4. Attempt submitLeaderboardROI → should REVERT (only 1 qualifying non-push position)
+5. Create a second non-push position
+6. Attempt submitLeaderboardROI → should SUCCEED
+
+**Expected on-chain outcome:**
+- Step 4: revert (push doesn't count)
+- Step 6: success (2 qualifying positions)
+
+**Expected Supabase outcome:**
+- After step 6: ROI submitted, winner determined
+
+**Pass/Fail:**
+
+**Notes:** Confirms the outcome filter works correctly on live Amoy. Push and void positions should both be excluded from the count.
+
+---
+
 ## PHASE D: AGENT INTEGRATION (Aspirational — Do Not Execute)
 
 Goal: Michelle and Dan can run against the deployment.
@@ -1205,13 +1557,15 @@ These are readiness criteria for a future workstream. Not executed in this sessi
 
 The tests are designed to be executed in order. Key dependencies:
 
-1. **A-01 through A-07** form a complete contest lifecycle (create → verify → match → score → settle → claim)
+1. **A-01 through A-07** form a complete moneyline lifecycle (create → verify → match → score → settle → claim)
 2. **A-08, A-09** are independent of the lifecycle (can run anytime)
 3. **A-10 through A-16** form a leaderboard lifecycle (depends on having a position from A-04)
 4. **A-17 through A-21** form a secondary market lifecycle (needs a SEPARATE unsettled speculation)
 5. **A-22** requires 1 day wait (create contest early, return later)
-6. **Phase B** mostly requires waiting (B-01 needs 1 day, B-04 needs multiple voids)
-7. **Phase C** runs after all Phase A tests complete
+6. **A-23, A-24** are spread and total full lifecycles (can share a contest with A-04 or use new ones)
+7. **A-25** is the push path (requires specific line selection to guarantee push outcome)
+8. **Phase B** mostly requires waiting (B-01, B-11 need 1 day; B-04 needs multiple voids)
+9. **Phase C** runs after all Phase A tests complete
 
 ### Time Dependencies
 
@@ -1220,6 +1574,8 @@ The tests are designed to be executed in order. Key dependencies:
 | A-22 | Void cooldown (1 day after contest start) | 24 hours |
 | B-01 | Same as A-22 | 24 hours |
 | B-04 | Multiple voided contests | 24+ hours |
+| B-11 | Cooldown boundary | 24 hours (precise timing) |
+| B-12 | ROI window boundary | ~12 minutes (short leaderboard) |
 | A-13 | Leaderboard startTime | 5 minutes (configurable) |
 | A-14 | endTime + safetyPeriod | 2 days + 1 hour (configurable) |
 | A-15 | Same as A-14 | Same |
@@ -1253,3 +1609,4 @@ Before execution, the following helper scripts must be created:
 | Date | Change |
 |------|--------|
 | 2026-04-20 | Initial plan created (Step 1) |
+| 2026-04-20 | OC review incorporated: added A-23/24/25 (spread, total, push lifecycles), B-07 (oracle failure), B-08/09/10 (secondary partial + stale hash), B-11/12 (boundary timing), C-06 (replay/idempotency), C-07 (value reconciliation), C-08 (push leaderboard effect). Confirmed conditional gap events (RULE_SET, FEE_PROCESSED, etc.) are intentionally not handled by indexer. |
