@@ -1,0 +1,1255 @@
+# Amoy Stress Test Plan
+
+Status: **STEP 1 — AWAITING REVIEW**
+
+## Context
+
+The ospex-fdb indexer is deployed and validated end-to-end against the hardened Amoy contracts. One event type (MIN_NONCE_UPDATED) has been tested and confirmed to flow from chain -> Alchemy -> Firebase -> Supabase. This plan covers systematic stress testing of the full event surface.
+
+## Prerequisites
+
+| Prerequisite | Status | Notes |
+|---|---|---|
+| Amoy RPC access | READY | Alchemy endpoint in .env |
+| Deployer key | READY | `0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3` — 37.8 POL, ~1B USDC, 5.32 LINK |
+| Test wallet: MAKER | PENDING | Need to generate and fund |
+| Test wallet: TAKER | PENDING | Need to generate and fund |
+| USDC approved for PositionModule | PENDING | Each wallet must `approve(PositionModule, max)` |
+| USDC approved for TreasuryModule | PENDING | Each wallet must `approve(TreasuryModule, max)` |
+| USDC approved for SecondaryMarketModule | PENDING | Buyer wallet must `approve(SecondaryMarketModule, max)` |
+| LINK approved for OracleModule | READY | Deployer already approved |
+| Forge/cast installed | READY | cast v1.6.0-nightly |
+| Supabase read access | READY | via ospex-fdb .env |
+| Contest ID counter | 0 | No existing contests — clean slate |
+
+### Test Wallets
+
+Generate two wallets for maker/taker roles. The deployer will fund them with USDC and POL.
+
+```
+MAKER_PRIVATE_KEY=<to be generated>
+TAKER_PRIVATE_KEY=<to be generated>
+```
+
+MockERC20 has a permissionless `mint(address,uint256)` function, so any wallet can mint USDC to itself. POL for gas must be transferred from the deployer.
+
+### Contract Addresses (Amoy, deployed 2026-04-19)
+
+| Contract | Address |
+|----------|---------|
+| OspexCore | `0x44fEDE66279D0609d43061Ac40D43704dDb392D7` |
+| ContestModule | `0x0b4B56fD4cb7848f804204B052A3e72d90213B52` |
+| SpeculationModule | `0x6f32665DD97482e6C89D8B9bf025d483184F5553` |
+| PositionModule | `0xf769BEC6960Ed367320549FdD5A30f7C687DB2ee` |
+| MatchingModule | `0x15a3Cac2fBb1e0Ed376a26e4F15385162cC9d8b9` |
+| OracleModule | `0x08d1F10572071271983CE800ad63663f71A71512` |
+| TreasuryModule | `0xC30C74edeEB3cbF2460D8a4a6BaddEBEe9D3ab1e` |
+| LeaderboardModule | `0xbcCe7e2E61bC614d6e58C3327e893d177545Ef37` |
+| RulesModule | `0x657804cEcBC4c16c0eC4A8Bc384dd515EA2D462C` |
+| SecondaryMarketModule | `0x0e7b7C218db7f0e34521833e98f0Af261D204aED` |
+| MoneylineScorerModule | `0x4CDf8cc2b0DcAe9bFFF34846E2bCB3A88675EdEC` |
+| SpreadScorerModule | `0x36F3f4A6757cB2E822A1AfCea0b3092fFcaE6c30` |
+| TotalScorerModule | `0xB814f3779A79c6470a904f8A12670D1B13874fDE` |
+| Mock USDC | `0xB1D1c0A8Cc8BB165b34735972E798f64A785eaF8` |
+| LINK Token | `0x0Fd9e8d3aF1aaee056EB9e802c3A762a667b1904` |
+| Chainlink Functions Router | `0xC22a79eBA640940ABB6dF0f7982cc119578E11De` |
+
+### Protocol Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| Void Cooldown | 1 day (86400s) |
+| Contest Creation Fee | 1.00 USDC |
+| Speculation Creation Fee | 0.50 USDC (split maker/taker: 0.25 each) |
+| Leaderboard Creation Fee | 0.50 USDC |
+| LINK per oracle call | 0.004 LINK |
+| Chainlink Subscription ID | 416 |
+| DON ID | `fun-polygon-amoy-1` |
+| ODDS_SCALE | 100 |
+| EIP-712 Domain (MatchingModule) | name="Ospex", version="1", chainId=80002 |
+| EIP-712 Domain (OracleModule) | name="OspexOracle", version="1", chainId=80002 |
+
+### Script Approvals (Pre-signed, expire 2026-07-19)
+
+| Purpose | Script Hash | Signature |
+|---------|-------------|-----------|
+| VERIFY (0) | `0x01c48e15068b68b7d5986d5013edd83a243ac31a761567e9db0e57b513c26c01` | `0x1c5c2a40b19a56ed5c7ed0b5f3cd999232018de58b657ef168db9bf4badf820f7dc21fc4feba4c08ec8a4a0f4b8ccdd4685057ca12af049cc9d48084556c846b1c` |
+| MARKET_UPDATE (1) | `0x7f5ce70565133fedb2e0f1aeb925f38a3b26924917cff852e7de40a9297119b4` | `0x12f15b125eae373d76fb154ef6e42b60a8c93c4c99dc82c0c22d566b9ff7376041e3e096018ffbd3f6095d8c3cd0deab4d71b109ae29e29dceb1532371cef86d1c` |
+| SCORE (2) | `0xcb2a11db3190c322239b52afb3caefccfccd850566834819b012c5520f8d31cd` | `0x860e0611a506988a66a686558f2bf3818decbfd8f22c507d122473ef9699ae175477ee99c648cdda7dff7c37b3483f606f1f0458b90436471bb314943a5e43041b` |
+
+---
+
+## PHASE A: HANDLER COVERAGE
+
+Goal: every event handler fires at least once and produces expected Supabase state.
+
+Tests are ordered so earlier ones set up state for later ones (minimal repeated setup).
+
+---
+
+### A-01: CONTEST_CREATED
+
+**Description:** Create a contest via `OracleModule.createContestFromOracle`. This triggers a Chainlink Functions call; the callback verifies the contest and emits CONTEST_CREATED.
+
+**Prerequisites:** Deployer has LINK approved for OracleModule, USDC approved for TreasuryModule.
+
+**Action:**
+```bash
+# From deployer wallet. The createContestFromOracle function:
+# 1. Charges LINK (0.004) for the Chainlink call
+# 2. Charges 1.00 USDC contest creation fee
+# 3. Creates the contest in ContestModule (Unverified status)
+# 4. Emits CONTEST_CREATED event via CoreEventEmitted
+# 5. Sends Chainlink Functions request; callback will verify
+
+cast send 0x08d1F10572071271983CE800ad63663f71A71512 \
+  "createContestFromOracle((string,string,string,string,bytes,uint64,uint32),bytes32,bytes32,((bytes32,uint8,uint8,uint16,uint64),bytes,(bytes32,uint8,uint8,uint16,uint64),bytes,(bytes32,uint8,uint8,uint16,uint64),bytes))" \
+  "(\"RD_TEST_001\",\"SP_TEST_001\",\"JO_TEST_001\",\"<VERIFY_JS_SOURCE>\",\"<ENCRYPTED_SECRETS>\",416,300000)" \
+  "0x7f5ce70565133fedb2e0f1aeb925f38a3b26924917cff852e7de40a9297119b4" \
+  "0xcb2a11db3190c322239b52afb3caefccfccd850566834819b012c5520f8d31cd" \
+  "((0x01c48e15068b68b7d5986d5013edd83a243ac31a761567e9db0e57b513c26c01,0,0,1,1784435872),0x1c5c2a40b19a56ed5c7ed0b5f3cd999232018de58b657ef168db9bf4badf820f7dc21fc4feba4c08ec8a4a0f4b8ccdd4685057ca12af049cc9d48084556c846b1c,(0x7f5ce70565133fedb2e0f1aeb925f38a3b26924917cff852e7de40a9297119b4,1,0,1,1784436310),0x12f15b125eae373d76fb154ef6e42b60a8c93c4c99dc82c0c22d566b9ff7376041e3e096018ffbd3f6095d8c3cd0deab4d71b109ae29e29dceb1532371cef86d1c,(0xcb2a11db3190c322239b52afb3caefccfccd850566834819b012c5520f8d31cd,2,0,1,1784437583),0x860e0611a506988a66a686558f2bf3818decbfd8f22c507d122473ef9699ae175477ee99c648cdda7dff7c37b3483f606f1f0458b90436471bb314943a5e43041b)" \
+  --private-key $PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+Note: The `VERIFY_JS_SOURCE` must be the exact source code from `https://raw.githubusercontent.com/ospex-org/ospex-source-files-and-other/master/src/contestCreation.js` — its keccak256 must equal the verify scriptHash. The `ENCRYPTED_SECRETS` is the encrypted secrets URL for Amoy (from offchain-secrets files).
+
+**Expected on-chain outcome:**
+- ContestModule.s_contestIdCounter() increments to 1
+- Contest struct stored with status=Unverified, rundownId="RD_TEST_001", etc.
+- CoreEventEmitted with eventType=CONTEST_CREATED fires
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="CONTEST_CREATED", entity_type="contest", entity_id="1"
+- `contests` row: contest_id=1, status="unverified", rundown_id="RD_TEST_001", sportspage_id="SP_TEST_001", jsonodds_id="JO_TEST_001", network="amoy"
+
+**Pass/Fail:**
+
+**Notes:**
+
+---
+
+### A-02: CONTEST_VERIFIED
+
+**Description:** The Chainlink callback from A-01 verifies the contest (sets leagueId and startTime). This fires CONTEST_VERIFIED.
+
+**Prerequisites:** A-01 completed (contest exists in Unverified state). Chainlink callback must arrive.
+
+**Action:** Wait for Chainlink Functions callback (~30-60 seconds on Amoy). The callback decodes the response, extracts leagueId and startTime, and calls `ContestModule.setContestLeagueIdAndStartTime`.
+
+**Expected on-chain outcome:**
+- Contest status changes to Verified
+- Contest has leagueId set (e.g., NBA=4) and startTime set
+- CoreEventEmitted with eventType=CONTEST_VERIFIED fires
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="CONTEST_VERIFIED"
+- `contests` row updated: status="verified", start_time set, league_id set
+
+**Pass/Fail:**
+
+**Notes:** Timing depends on Chainlink DON. If callback fails, check OracleRequestFailed event.
+
+---
+
+### A-03: CONTEST_MARKETS_UPDATED
+
+**Description:** Update market data (odds, lines) for the verified contest via `OracleModule.updateContestMarketsFromOracle`.
+
+**Prerequisites:** A-02 completed (contest is Verified).
+
+**Action:**
+```bash
+# The market update source JS must hash to 0x7f5ce705...
+# Fetch it from the GitHub raw URL and pass as the source parameter
+cast send 0x08d1F10572071271983CE800ad63663f71A71512 \
+  "updateContestMarketsFromOracle(uint256,string,bytes,uint64,uint32)" \
+  1 \
+  "<MARKET_UPDATE_JS_SOURCE>" \
+  "<ENCRYPTED_SECRETS>" \
+  416 \
+  300000 \
+  --private-key $PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+Wait for Chainlink callback to deliver market data.
+
+**Expected on-chain outcome:**
+- Contest market data populated (moneyline odds, spread line, total line, spread/total odds)
+- CoreEventEmitted with eventType=CONTEST_MARKETS_UPDATED fires
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="CONTEST_MARKETS_UPDATED"
+- `contests` row updated: ml_upper_odds, ml_lower_odds, spread_line, total_line, spread_upper_odds, spread_lower_odds, over_odds, under_odds all populated
+
+**Pass/Fail:**
+
+**Notes:** Market data returned by Chainlink is packed into a uint256. The indexer decodes the packed fields. Verify all 8 fields are correct.
+
+---
+
+### A-04: COMMITMENT_MATCHED + SPECULATION_CREATED + POSITION_MATCHED_PAIR
+
+**Description:** Match a commitment (first fill on this contest/scorer/line creates the speculation). This single transaction fires 3 events: COMMITMENT_MATCHED, SPECULATION_CREATED, and POSITION_MATCHED_PAIR.
+
+**Prerequisites:** 
+- A-02 completed (verified contest with known contestId)
+- MAKER wallet has USDC, approved PositionModule and TreasuryModule
+- TAKER wallet has USDC, approved PositionModule and TreasuryModule
+
+**Action:**
+1. MAKER signs an EIP-712 OspexCommitment off-chain:
+   ```
+   maker: MAKER_ADDRESS
+   contestId: 1
+   scorer: 0x4CDf8cc2b0DcAe9bFFF34846E2bCB3A88675EdEC (MoneylineScorer)
+   lineTicks: 0 (moneyline has no line)
+   positionType: 0 (Upper = Away)
+   oddsTick: 191 (1.91 odds)
+   riskAmount: 10000000 (10 USDC, must be multiple of 100)
+   nonce: 1
+   expiry: <now + 1 hour>
+   ```
+
+2. TAKER calls `MatchingModule.matchCommitment(commitment, signature, takerDesiredRisk)`:
+   ```bash
+   # takerDesiredRisk = makerProfit = (10000000 * 91) / 100 = 9100000 (9.1 USDC)
+   cast send 0x15a3Cac2fBb1e0Ed376a26e4F15385162cC9d8b9 \
+     "matchCommitment((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256),bytes,uint256)" \
+     "(MAKER_ADDRESS,1,0x4CDf8cc2b0DcAe9bFFF34846E2bCB3A88675EdEC,0,0,191,10000000,1,EXPIRY)" \
+     "SIGNATURE_HEX" \
+     9100000 \
+     --private-key $TAKER_PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+   ```
+
+**Expected on-chain outcome:**
+- SpeculationModule counter increments (speculationId = 1)
+- Maker's USDC decreases by 10.25 USDC (10 risk + 0.25 creation fee)
+- Taker's USDC decreases by 9.35 USDC (9.1 risk + 0.25 creation fee)
+- Position recorded for both maker (Upper, risk=10, profit=9.1) and taker (Lower, risk=9.1, profit=10)
+
+**Expected Supabase outcome:**
+- `chain_events`: 3 rows (COMMITMENT_MATCHED, SPECULATION_CREATED, POSITION_MATCHED_PAIR)
+- `speculations` row: speculation_id=1, contest_id=1, market_type="moneyline", status="open", line_ticks=0
+- `positions` row (maker): speculation_id=1, user=MAKER, position_type="upper", risk_amount="10000000", profit_amount="9100000"
+- `positions` row (taker): speculation_id=1, user=TAKER, position_type="lower", risk_amount="9100000", profit_amount="10000000"
+- `position_fills` row: commitment_hash, maker, taker, odds_tick=191, fill_maker_risk
+- `commitments` row: status updated via fill_commitment RPC
+
+**Pass/Fail:**
+
+**Notes:** The EIP-712 signing requires the MatchingModule domain separator `0x8968ff426f700ea9d2d5be881864d7a8267f6716c6cce2bc382565364b823bae`. A helper script will be needed to produce the signature.
+
+---
+
+### A-05: CONTEST_SCORES_SET
+
+**Description:** Score the contest after it has started and finished.
+
+**Prerequisites:** A-02 completed. Contest start time must have passed (the contest must have "started" in real-world terms). We'll use a test contest with a start time in the near past.
+
+**Action:**
+```bash
+# The score source JS must hash to 0xcb2a11db...
+cast send 0x08d1F10572071271983CE800ad63663f71A71512 \
+  "scoreContestFromOracle(uint256,string,bytes,uint64,uint32)" \
+  1 \
+  "<SCORE_JS_SOURCE>" \
+  "<ENCRYPTED_SECRETS>" \
+  416 \
+  300000 \
+  --private-key $PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+Wait for Chainlink callback.
+
+**Expected on-chain outcome:**
+- Contest awayScore and homeScore set
+- Contest status = Scored
+- CoreEventEmitted with eventType=CONTEST_SCORES_SET fires
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="CONTEST_SCORES_SET"
+- `contests` row: status="scored", away_score and home_score populated, scored_at set
+- `speculations` rows: scored_at field populated (denormalized)
+
+**Pass/Fail:**
+
+**Notes:** scoreContestFromOracle requires contest start time has passed (`block.timestamp > startTime`). If the test contest has a future start time, we must wait. The Chainlink JS fetches real scores from APIs — for a test contest with fake IDs, the response may error. **Alternative approach:** Create a contest for a real game that has already finished.
+
+---
+
+### A-06: SPECULATION_SETTLED
+
+**Description:** Settle the speculation after the contest is scored.
+
+**Prerequisites:** A-05 completed (contest scored). Speculation exists and is Open.
+
+**Action:**
+```bash
+# Permissionless — anyone can call this
+cast send 0x6f32665DD97482e6C89D8B9bf025d483184F5553 \
+  "settleSpeculation(uint256)" \
+  1 \
+  --private-key $PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+**Expected on-chain outcome:**
+- Speculation status changes to Closed
+- winSide determined (e.g., Away=1, Home=2, depending on scores and scorer logic)
+- CoreEventEmitted with eventType=SPECULATION_SETTLED fires
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="SPECULATION_SETTLED"
+- `speculations` row: status="closed", win_side populated (e.g., "away" or "home")
+
+**Pass/Fail:**
+
+**Notes:**
+
+---
+
+### A-07: POSITION_CLAIMED
+
+**Description:** Winner claims their position payout.
+
+**Prerequisites:** A-06 completed (speculation settled with a winner).
+
+**Action:**
+```bash
+# Winner (Upper if winSide=Away, Lower if winSide=Home) claims
+cast send 0xf769BEC6960Ed367320549FdD5A30f7C687DB2ee \
+  "claimPosition(uint256,uint8)" \
+  1 \
+  0 \
+  --private-key $MAKER_PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+**Expected on-chain outcome:**
+- Winner receives risk + profit USDC (e.g., 10 + 9.1 = 19.1 USDC)
+- Position marked as claimed on-chain
+- CoreEventEmitted with eventType=POSITION_CLAIMED fires
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="POSITION_CLAIMED"
+- `positions` row: claimed=true, claimed_amount populated, claimed_at timestamp set
+
+**Pass/Fail:**
+
+**Notes:** If Upper won, maker claims. If Lower won, taker claims. The loser's claim reverts with NoPayout.
+
+---
+
+### A-08: MIN_NONCE_UPDATED
+
+**Description:** Raise min nonce for a speculation key to invalidate outstanding commitments.
+
+**Prerequisites:** None beyond a funded wallet.
+
+**Action:**
+```bash
+# MAKER raises min nonce for contestId=1, MoneylineScorer, lineTicks=0
+cast send 0x15a3Cac2fBb1e0Ed376a26e4F15385162cC9d8b9 \
+  "raiseMinNonce(uint256,address,int32,uint256)" \
+  1 \
+  0x4CDf8cc2b0DcAe9bFFF34846E2bCB3A88675EdEC \
+  0 \
+  5 \
+  --private-key $MAKER_PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+**Expected on-chain outcome:**
+- s_minNonces[maker][speculationKey] = 5
+- CoreEventEmitted with eventType=MIN_NONCE_UPDATED fires
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="MIN_NONCE_UPDATED"
+- `maker_nonce_floors` row: maker=MAKER_ADDRESS, speculation_key=<hash>, min_nonce=5
+
+**Pass/Fail:**
+
+**Notes:** Already validated in prior session. Running as regression.
+
+---
+
+### A-09: COMMITMENT_CANCELLED
+
+**Description:** Cancel a specific commitment by hash.
+
+**Prerequisites:** MAKER has a commitment (no need for it to be on-chain, just signs one and cancels it).
+
+**Action:**
+```bash
+# MAKER cancels a commitment they signed
+# The commitment struct must be passed (contract hashes it to determine which to cancel)
+cast send 0x15a3Cac2fBb1e0Ed376a26e4F15385162cC9d8b9 \
+  "cancelCommitment((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256))" \
+  "(MAKER_ADDRESS,1,0x4CDf8cc2b0DcAe9bFFF34846E2bCB3A88675EdEC,0,0,191,10000000,2,EXPIRY)" \
+  --private-key $MAKER_PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+**Expected on-chain outcome:**
+- s_cancelledCommitments[commitmentHash] = true
+- CoreEventEmitted with eventType=COMMITMENT_CANCELLED fires
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="COMMITMENT_CANCELLED"
+- `commitments` row (if exists): status="cancelled"
+
+**Pass/Fail:**
+
+**Notes:** The commitment doesn't need to have been matched — cancelling prevents future matching.
+
+---
+
+### A-10: LEADERBOARD_CREATED
+
+**Description:** Create a new leaderboard.
+
+**Prerequisites:** Deployer or any wallet with USDC approved for TreasuryModule.
+
+**Action:**
+```bash
+# Create a leaderboard with:
+#   entryFee: 5 USDC (5000000)
+#   startTime: now + 5 minutes
+#   endTime: now + 2 days
+#   safetyPeriodDuration: 1 hour (3600)
+#   roiSubmissionWindow: 1 hour (3600)
+cast send 0xbcCe7e2E61bC614d6e58C3327e893d177545Ef37 \
+  "createLeaderboard(uint256,uint32,uint32,uint32,uint32)" \
+  5000000 \
+  START_TIME \
+  END_TIME \
+  3600 \
+  3600 \
+  --private-key $PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+**Expected on-chain outcome:**
+- Leaderboard ID 1 created
+- 0.50 USDC creation fee charged
+- CoreEventEmitted with eventType=LEADERBOARD_CREATED fires
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="LEADERBOARD_CREATED"
+- `leaderboards` row: leaderboard_id=1, entry_fee="5000000", start_time, end_time, safety_period_duration=3600, roi_submission_window=3600
+
+**Pass/Fail:**
+
+**Notes:**
+
+---
+
+### A-11: LEADERBOARD_SPECULATION_ADDED
+
+**Description:** Add a speculation to the leaderboard's eligible list.
+
+**Prerequisites:** A-10 (leaderboard exists), A-04 (speculation exists).
+
+**Action:**
+```bash
+# Only leaderboard creator can call this
+cast send 0xbcCe7e2E61bC614d6e58C3327e893d177545Ef37 \
+  "addLeaderboardSpeculation(uint256,uint256)" \
+  1 \
+  1 \
+  --private-key $PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+**Expected on-chain outcome:**
+- Speculation 1 registered for leaderboard 1
+- CoreEventEmitted with eventType=LEADERBOARD_SPECULATION_ADDED fires
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="LEADERBOARD_SPECULATION_ADDED"
+- `leaderboard_speculations` row: leaderboard_id=1, speculation_id=1
+
+**Pass/Fail:**
+
+**Notes:**
+
+---
+
+### A-12: USER_REGISTERED
+
+**Description:** Register a user for the leaderboard with a declared bankroll.
+
+**Prerequisites:** A-10 (leaderboard exists), user has USDC for entry fee.
+
+**Action:**
+```bash
+# MAKER registers for leaderboard 1 with bankroll of 100 USDC
+cast send 0xbcCe7e2E61bC614d6e58C3327e893d177545Ef37 \
+  "registerUser(uint256,uint256)" \
+  1 \
+  100000000 \
+  --private-key $MAKER_PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+**Expected on-chain outcome:**
+- User registered for leaderboard 1
+- Entry fee (5 USDC) charged and added to prize pool
+- CoreEventEmitted with eventType=USER_REGISTERED fires
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="USER_REGISTERED"
+- `leaderboard_registrations` row: leaderboard_id=1, user=MAKER_ADDRESS, declared_bankroll="100000000"
+- `leaderboards` row: participants incremented, prize_pool updated
+
+**Pass/Fail:**
+
+**Notes:**
+
+---
+
+### A-13: LEADERBOARD_POSITION_ADDED
+
+**Description:** Register a position for the leaderboard.
+
+**Prerequisites:** A-11 (speculation added to leaderboard), A-12 (user registered), A-04 (user has position on that speculation). Leaderboard must be active (after startTime).
+
+**Action:**
+```bash
+# MAKER registers their position (Upper) on speculation 1 for leaderboard 1
+cast send 0xbcCe7e2E61bC614d6e58C3327e893d177545Ef37 \
+  "registerPositionForLeaderboard(uint256,uint8,uint256)" \
+  1 \
+  0 \
+  1 \
+  --private-key $MAKER_PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+**Expected on-chain outcome:**
+- LeaderboardPosition created (risk/profit amounts may be capped by maxBetPercentage)
+- CoreEventEmitted with eventType=LEADERBOARD_POSITION_ADDED fires
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="LEADERBOARD_POSITION_ADDED"
+- `leaderboard_positions` row: leaderboard_id=1, speculation_id=1, user=MAKER, risk_amount, profit_amount, position_type="upper"
+- `leaderboards` row: total_positions incremented
+
+**Pass/Fail:**
+
+**Notes:** Must be called after leaderboard startTime. If startTime is in the future, wait.
+
+---
+
+### A-14: LEADERBOARD_ROI_SUBMITTED
+
+**Description:** Submit ROI for the leaderboard after the submission window opens.
+
+**Prerequisites:** A-13 (position added), all speculations the user has positions on must be settled, safety period elapsed, ROI window open.
+
+**Action:**
+```bash
+cast send 0xbcCe7e2E61bC614d6e58C3327e893d177545Ef37 \
+  "submitLeaderboardROI(uint256)" \
+  1 \
+  --private-key $MAKER_PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+**Expected on-chain outcome:**
+- ROI calculated and stored
+- CoreEventEmitted with eventType=LEADERBOARD_ROI_SUBMITTED fires
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="LEADERBOARD_ROI_SUBMITTED"
+- `leaderboard_registrations` row: roi updated
+
+**Pass/Fail:**
+
+**Notes:** Requires waiting for: endTime + safetyPeriodDuration. This test has significant time dependencies.
+
+---
+
+### A-15: LEADERBOARD_NEW_HIGHEST_ROI
+
+**Description:** When a user submits the highest ROI, this event fires.
+
+**Prerequisites:** A-14 completed — if this is the first (or highest) ROI submission, it fires automatically.
+
+**Action:** Happens automatically during A-14 if the submitted ROI is the new highest.
+
+**Expected on-chain outcome:**
+- Winner array updated
+- CoreEventEmitted with eventType=LEADERBOARD_NEW_HIGHEST_ROI fires
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="LEADERBOARD_NEW_HIGHEST_ROI"
+- `leaderboard_winners` row: leaderboard_id=1, winner=MAKER_ADDRESS, roi
+- `leaderboard_registrations` and `leaderboards` updated
+
+**Pass/Fail:**
+
+**Notes:** Fires alongside A-14 in the same transaction.
+
+---
+
+### A-16: LEADERBOARD_PRIZE_CLAIMED
+
+**Description:** Winner claims their prize share.
+
+**Prerequisites:** A-15 (winner determined), ROI window closed.
+
+**Action:**
+```bash
+cast send 0xbcCe7e2E61bC614d6e58C3327e893d177545Ef37 \
+  "claimLeaderboardPrize(uint256)" \
+  1 \
+  --private-key $MAKER_PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+**Expected on-chain outcome:**
+- Prize share transferred to winner
+- CoreEventEmitted with eventType=LEADERBOARD_PRIZE_CLAIMED fires
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="LEADERBOARD_PRIZE_CLAIMED"
+- `leaderboard_registrations`: claimed flag set
+- `leaderboard_winners`: claimed flag set
+- `leaderboards`: claimed count updated, prize pool snapshot
+
+**Pass/Fail:**
+
+**Notes:** Requires endTime + safetyPeriodDuration + roiSubmissionWindow to have elapsed.
+
+---
+
+### A-17: POSITION_LISTED
+
+**Description:** List a position for sale on the secondary market.
+
+**Prerequisites:** A-04 (user has a position). Position must be on an unsettled speculation.
+
+**Action:**
+```bash
+# MAKER lists their Upper position on speculation 1 for 12 USDC
+# riskAmount and profitAmount define the slice being sold
+cast send 0x0e7b7C218db7f0e34521833e98f0Af261D204aED \
+  "listPositionForSale(uint256,uint8,uint256,uint256,uint256)" \
+  1 \
+  0 \
+  12000000 \
+  10000000 \
+  9100000 \
+  --private-key $MAKER_PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+**Expected on-chain outcome:**
+- SaleListing created with price=12 USDC, riskAmount=10, profitAmount=9.1
+- CoreEventEmitted with eventType=POSITION_LISTED fires
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="POSITION_LISTED"
+- `secondary_market_listings` row: speculation_id=1, seller=MAKER, position_type="upper", price="12000000", risk_amount="10000000", profit_amount="9100000", status="active"
+
+**Pass/Fail:**
+
+**Notes:** Must run on a SEPARATE speculation/contest that hasn't been settled yet. The speculation from the main test flow (A-04) may be settled by the time we reach this test. **Strategy:** Create a second contest+speculation specifically for secondary market tests.
+
+---
+
+### A-18: LISTING_UPDATED
+
+**Description:** Update the price/amounts on an active listing.
+
+**Prerequisites:** A-17 (active listing exists).
+
+**Action:**
+```bash
+# MAKER updates their listing: new price = 11 USDC, keep risk/profit same
+cast send 0x0e7b7C218db7f0e34521833e98f0Af261D204aED \
+  "updateListing(uint256,uint8,uint256,uint256,uint256)" \
+  SPECULATION_ID \
+  0 \
+  11000000 \
+  0 \
+  0 \
+  --private-key $MAKER_PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+**Expected on-chain outcome:**
+- Listing price updated to 11 USDC
+- CoreEventEmitted with eventType=LISTING_UPDATED fires
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="LISTING_UPDATED"
+- `secondary_market_listings` row: price updated to "11000000"
+
+**Pass/Fail:**
+
+**Notes:**
+
+---
+
+### A-19: POSITION_SOLD + POSITION_TRANSFERRED
+
+**Description:** Buyer purchases the listed position. This fires both POSITION_SOLD and POSITION_TRANSFERRED.
+
+**Prerequisites:** A-17 (listing active), TAKER has USDC approved for SecondaryMarketModule.
+
+**Action:**
+```bash
+# Get listing hash first
+LISTING_HASH=$(cast call 0x0e7b7C218db7f0e34521833e98f0Af261D204aED \
+  "getListingHash(uint256,address,uint8)(bytes32)" \
+  SPECULATION_ID MAKER_ADDRESS 0 --rpc-url $AMOY_RPC_URL)
+
+# TAKER buys the full position
+cast send 0x0e7b7C218db7f0e34521833e98f0Af261D204aED \
+  "buyPosition(uint256,address,uint8,uint256,bytes32)" \
+  SPECULATION_ID \
+  MAKER_ADDRESS \
+  0 \
+  10000000 \
+  $LISTING_HASH \
+  --private-key $TAKER_PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+**Expected on-chain outcome:**
+- Position transferred from MAKER to TAKER
+- Listing marked sold (or partially sold)
+- TAKER's USDC decreases by purchase price
+- Sale proceeds credited to MAKER (pending claim)
+- CoreEventEmitted fires: POSITION_SOLD and POSITION_TRANSFERRED
+
+**Expected Supabase outcome:**
+- `chain_events`: 2 rows (POSITION_SOLD, POSITION_TRANSFERRED)
+- `secondary_market_listings` row: status="sold" (or remaining amounts reduced for partial)
+- `positions`: MAKER's position reduced, TAKER's position created/increased with acquiredViaSecondaryMarket flag
+
+**Pass/Fail:**
+
+**Notes:**
+
+---
+
+### A-20: LISTING_CANCELLED
+
+**Description:** Cancel an active listing.
+
+**Prerequisites:** An active listing exists (create a new listing for this test if needed).
+
+**Action:**
+```bash
+# First create a new listing, then cancel it
+cast send 0x0e7b7C218db7f0e34521833e98f0Af261D204aED \
+  "cancelListing(uint256,uint8)" \
+  SPECULATION_ID \
+  0 \
+  --private-key $MAKER_PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+**Expected on-chain outcome:**
+- Listing removed/cancelled
+- CoreEventEmitted with eventType=LISTING_CANCELLED fires
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="LISTING_CANCELLED"
+- `secondary_market_listings` row: status="cancelled"
+
+**Pass/Fail:**
+
+**Notes:**
+
+---
+
+### A-21: SALE_PROCEEDS_CLAIMED
+
+**Description:** Seller claims accumulated proceeds from sales.
+
+**Prerequisites:** A-19 completed (MAKER has pending proceeds from the sale).
+
+**Action:**
+```bash
+cast send 0x0e7b7C218db7f0e34521833e98f0Af261D204aED \
+  "claimSaleProceeds()" \
+  --private-key $MAKER_PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+**Expected on-chain outcome:**
+- Pending proceeds transferred to MAKER
+- CoreEventEmitted with eventType=SALE_PROCEEDS_CLAIMED fires
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="SALE_PROCEEDS_CLAIMED"
+- No additional table writes (handler is no-op beyond chain_events)
+
+**Pass/Fail:**
+
+**Notes:** Handler is documented as best-effort/no-op for the target table.
+
+---
+
+### A-22: CONTEST_VOIDED
+
+**Description:** Void a contest by settling a speculation after the void cooldown has elapsed without scores.
+
+**Prerequisites:** A contest must exist in Verified state with a start time in the past, AND the void cooldown (1 day) must have elapsed since start time, AND the contest must NOT be scored.
+
+**Action:**
+```bash
+# Create a new contest specifically for voiding (with a start time that's already past)
+# Wait 1 day after start time
+# Call settleSpeculation on any speculation attached to it — this triggers auto-void
+
+cast send 0x6f32665DD97482e6C89D8B9bf025d483184F5553 \
+  "settleSpeculation(uint256)" \
+  SPECULATION_ID_FOR_VOID \
+  --private-key $PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+**Expected on-chain outcome:**
+- Contest voided (status = Voided via ContestModule.voidContest)
+- Speculation winSide = Void (value 6)
+- Speculation status = Closed
+- CoreEventEmitted fires: CONTEST_VOIDED and SPECULATION_SETTLED (winSide=Void)
+
+**Expected Supabase outcome:**
+- `chain_events`: rows for CONTEST_VOIDED and SPECULATION_SETTLED
+- `contests` row: status="voided"
+- `speculations` row: status="closed", win_side="void"
+
+**Pass/Fail:**
+
+**Notes:** **Requires 1 day of real time passage.** Strategy: Create a contest early in testing with a near-past start time. After 24+ hours, return and trigger void. Document the expected completion time.
+
+---
+
+## PHASE B: HARDENING PATH VALIDATION
+
+Goal: confirm specific fixes from the hardening cycle produce correct indexer state (or correct rejection).
+
+---
+
+### B-01: Post-Cooldown Match Rejection
+
+**Description:** Attempt to match a commitment on a contest that has passed its void cooldown. Expected: transaction reverts with ContestPastCooldown.
+
+**Prerequisites:** A contest exists where block.timestamp >= startTime + voidCooldown (1 day). This is the same contest we'll use for A-22. Must have a speculation to target OR create a new commitment against it.
+
+**Action:**
+```bash
+# Attempt matchCommitment against the expired contest
+# This should revert with MatchingModule__ContestPastCooldown
+cast send 0x15a3Cac2fBb1e0Ed376a26e4F15385162cC9d8b9 \
+  "matchCommitment((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256),bytes,uint256)" \
+  "(MAKER_ADDRESS,EXPIRED_CONTEST_ID,0x4CDf8cc2b0DcAe9bFFF34846E2bCB3A88675EdEC,0,0,191,10000000,10,EXPIRY)" \
+  "SIGNATURE_HEX" \
+  9100000 \
+  --private-key $TAKER_PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+**Expected on-chain outcome:**
+- Transaction REVERTS with `MatchingModule__ContestPastCooldown()`
+- No state change
+
+**Expected Supabase outcome:**
+- NO new rows in any table (transaction reverted)
+
+**Pass/Fail:**
+
+**Notes:** Runs after A-22 (requires same 1-day wait). Confirm revert selector matches expected error.
+
+---
+
+### B-02: Secondary Market Position Becomes Ineligible
+
+**Description:** After buying a position on the secondary market, verify the buyer's position is flagged as acquired via secondary market.
+
+**Prerequisites:** A-19 completed (position was sold to TAKER via secondary market).
+
+**Action:** Query Supabase after A-19 completes.
+
+**Expected Supabase outcome:**
+- `positions` row for TAKER on the sold speculation: a field indicating `acquired_via_secondary_market = true` (or equivalent flag set by POSITION_TRANSFERRED handler)
+
+**Pass/Fail:**
+
+**Notes:** This is a read-only verification of A-19's outcome. The indexer's POSITION_TRANSFERRED handler should set this flag.
+
+---
+
+### B-03: Secondary Market Position Rejected from Leaderboard
+
+**Description:** Attempt to register a secondary-market-acquired position for a leaderboard. Expected: transaction reverts with SecondaryMarketPositionIneligible.
+
+**Prerequisites:** B-02 confirmed (TAKER has a secondary-market position). A leaderboard exists where that speculation is eligible. TAKER is registered for the leaderboard.
+
+**Action:**
+```bash
+# TAKER (who acquired position via secondary market) tries to register it
+cast send 0xbcCe7e2E61bC614d6e58C3327e893d177545Ef37 \
+  "registerPositionForLeaderboard(uint256,uint8,uint256)" \
+  SPECULATION_ID \
+  0 \
+  LEADERBOARD_ID \
+  --private-key $TAKER_PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+```
+
+**Expected on-chain outcome:**
+- Transaction REVERTS (RulesModule validation fails — secondary market position ineligible)
+- No state change
+
+**Expected Supabase outcome:**
+- NO new `leaderboard_positions` row for TAKER
+
+**Pass/Fail:**
+
+**Notes:** The exact revert reason comes from RulesModule.validateLeaderboardPosition returning a non-Valid result, which LeaderboardModule propagates as a revert.
+
+---
+
+### B-04: Void Padding Fails (Min-Positions Outcome Filter)
+
+**Description:** Register for a leaderboard with min_bets rule. Create positions on speculations that resolve as Void. Attempt ROI submission with insufficient non-void positions. Expected: revert.
+
+**Prerequisites:** 
+- Leaderboard with minBets > 1 set via RulesModule
+- User registered with positions only on voided speculations
+
+**Action:**
+1. Create leaderboard with `setMinBets(leaderboardId, 3)` (requires 3 non-void positions)
+2. Register user
+3. Create positions on speculations that later void (insufficient non-void positions)
+4. Attempt `submitLeaderboardROI` → should revert
+
+**Expected on-chain outcome:**
+- submitLeaderboardROI REVERTS (insufficient qualifying positions)
+
+**Expected Supabase outcome:**
+- No `leaderboard_registrations` ROI update
+
+**Pass/Fail:**
+
+**Notes:** Complex setup. Requires multiple voided speculations. May need to create a dedicated contest with short timing to trigger voids. **Deferred — requires multiple 1-day waits for voided contests.**
+
+---
+
+### B-05: maxBetPercentage Default Caps at 100%
+
+**Description:** Register for leaderboard with bankroll=100 USDC. Create a position with 150 USDC risk. Verify leaderboard_positions shows capped risk of 100 USDC while positions table shows actual 150 USDC.
+
+**Prerequisites:**
+- Leaderboard exists with maxBetPercentage = 10000 (100% in BPS)
+- User registered with bankroll = 100 USDC
+- User has a position with risk > 100 USDC (i.e., 150 USDC)
+- Speculation is registered for the leaderboard
+
+**Action:**
+1. Set maxBetPercentage on leaderboard: `RulesModule.setMaxBetPercentage(leaderboardId, 10000)`
+2. User registers with bankroll 100 USDC (100000000 in 6 decimals)
+3. User creates a large position (150 USDC risk) via matchCommitment
+4. User registers position for leaderboard
+
+**Expected on-chain outcome:**
+- LeaderboardPosition created with capped riskAmount = 100 USDC (100000000)
+- Underlying position still shows 150 USDC risk
+
+**Expected Supabase outcome:**
+- `leaderboard_positions` row: risk_amount = "100000000" (capped)
+- `positions` row: risk_amount = "150000000" (actual)
+
+**Pass/Fail:**
+
+**Notes:** Verify the proportional scaling of profitAmount as well.
+
+---
+
+### B-06: MIN_NONCE_UPDATED Invalidates Commitments
+
+**Description:** Post a commitment with nonce N. Raise min nonce above N. Verify commitment is invalidated. Attempt to match it — expected revert.
+
+**Prerequisites:** MAKER wallet funded. A verified contest exists.
+
+**Action:**
+1. MAKER signs commitment with nonce=3
+2. MAKER raises min nonce to 5: `raiseMinNonce(contestId, scorer, lineTicks, 5)`
+3. TAKER attempts to match the nonce=3 commitment → should revert with NonceTooLow
+4. Verify Supabase: commitment status shows nonce_invalidated (or equivalent)
+
+**Expected on-chain outcome:**
+- raiseMinNonce succeeds (A-08)
+- matchCommitment REVERTS with `MatchingModule__NonceTooLow()`
+
+**Expected Supabase outcome:**
+- `maker_nonce_floors` row: min_nonce=5
+- Matching attempt produces no new rows (reverted)
+- If commitments table has the nonce=3 entry, it should be invalidated by the indexer
+
+**Pass/Fail:**
+
+**Notes:** The indexer's MIN_NONCE_UPDATED handler invalidates commitments in Supabase with nonce below the new floor. Verify this side effect.
+
+---
+
+## PHASE C: CANONICAL-POSTURE STRESS
+
+Goal: confirm Supabase stays in sync with chain under pressure.
+
+---
+
+### C-01: Rapid-Fire Events in Single Block
+
+**Description:** Submit multiple matchCommitment transactions targeting the same block. Confirm all events index correctly and no ordering issues cause drift.
+
+**Prerequisites:** Multiple commitments signed by MAKER for different amounts/nonces.
+
+**Action:**
+```bash
+# Send 3 matchCommitment txs in rapid succession (same block if possible)
+# Each with different takerDesiredRisk but same commitment (partial fills)
+# OR different commitments (different nonces)
+
+# Tx 1: match commitment A for 5 USDC
+# Tx 2: match commitment B for 3 USDC
+# Tx 3: match commitment C for 7 USDC
+
+# Use --gas-price and timing to try to land in same block
+for i in 1 2 3; do
+  cast send ... --async
+done
+```
+
+**Expected on-chain outcome:**
+- All 3 transactions succeed in the same (or consecutive) block(s)
+- 3 COMMITMENT_MATCHED + 3 POSITION_MATCHED_PAIR events (possibly 3 SPECULATION_CREATED if different scorer/lines)
+
+**Expected Supabase outcome:**
+- All events appear in `chain_events` with correct ordering (by log_index within block)
+- `positions` table: all fills correctly accumulated (BigInt addition)
+- No duplicate or missing rows
+
+**Pass/Fail:**
+
+**Notes:** On Amoy, block time is ~2 seconds. Sending all 3 within 2 seconds may land them in the same block. Even if they don't, the rapid-fire nature tests the indexer's ability to handle multiple events per webhook delivery.
+
+---
+
+### C-02: Cross-Table Consistency
+
+**Description:** After running the complete contest lifecycle, query Supabase and verify row counts match expected totals.
+
+**Prerequisites:** All Phase A tests completed.
+
+**Action:** Run the following Supabase queries:
+```sql
+-- Count chain_events by type
+SELECT event_type, COUNT(*) FROM chain_events WHERE network='amoy' GROUP BY event_type;
+
+-- Count contests vs CONTEST_CREATED events
+SELECT COUNT(*) FROM contests WHERE network='amoy';
+SELECT COUNT(*) FROM chain_events WHERE network='amoy' AND event_type='CONTEST_CREATED';
+
+-- Count speculations vs SPECULATION_CREATED events
+SELECT COUNT(*) FROM speculations WHERE network='amoy';
+SELECT COUNT(*) FROM chain_events WHERE network='amoy' AND event_type='SPECULATION_CREATED';
+
+-- Count positions vs unique position tuples from fills
+SELECT COUNT(*) FROM positions WHERE network='amoy';
+```
+
+**Expected outcome:**
+- contests count == CONTEST_CREATED chain_events count
+- speculations count == SPECULATION_CREATED chain_events count
+- positions count matches unique (speculation_id, user, position_type) combinations from all POSITION_MATCHED_PAIR events
+
+**Pass/Fail:**
+
+**Notes:** Any mismatch indicates handler drift or missed events.
+
+---
+
+### C-03: Reconciliation Query
+
+**Description:** Build and run a comprehensive reconciliation query comparing chain_events to target tables.
+
+**Prerequisites:** Phase A completed.
+
+**Action:** Execute a script that:
+1. Counts chain_events by event_type
+2. Counts rows in each target table
+3. Compares and reports discrepancies
+
+```sql
+WITH event_counts AS (
+  SELECT event_type, COUNT(*) as cnt
+  FROM chain_events WHERE network='amoy'
+  GROUP BY event_type
+),
+table_counts AS (
+  SELECT 'contests' as tbl, COUNT(*) as cnt FROM contests WHERE network='amoy'
+  UNION ALL
+  SELECT 'speculations', COUNT(*) FROM speculations WHERE network='amoy'
+  UNION ALL
+  SELECT 'positions', COUNT(*) FROM positions WHERE network='amoy'
+  UNION ALL
+  SELECT 'commitments', COUNT(*) FROM commitments WHERE network='amoy'
+  UNION ALL
+  SELECT 'leaderboards', COUNT(*) FROM leaderboards WHERE network='amoy'
+  UNION ALL
+  SELECT 'leaderboard_speculations', COUNT(*) FROM leaderboard_speculations WHERE network='amoy'
+  UNION ALL
+  SELECT 'leaderboard_registrations', COUNT(*) FROM leaderboard_registrations WHERE network='amoy'
+  UNION ALL
+  SELECT 'leaderboard_positions', COUNT(*) FROM leaderboard_positions WHERE network='amoy'
+  UNION ALL
+  SELECT 'secondary_market_listings', COUNT(*) FROM secondary_market_listings WHERE network='amoy'
+  UNION ALL
+  SELECT 'maker_nonce_floors', COUNT(*) FROM maker_nonce_floors WHERE network='amoy'
+)
+SELECT * FROM event_counts;
+SELECT * FROM table_counts;
+```
+
+**Expected outcome:** Documented baseline counts. Template for ongoing health checks.
+
+**Pass/Fail:**
+
+**Notes:** Save this query as a reusable script for future reconciliation.
+
+---
+
+### C-04: sync_state Advancement
+
+**Description:** After each test batch, query sync_state and confirm last_processed_block matches the latest block containing events.
+
+**Prerequisites:** Any test that produces events.
+
+**Action:**
+```sql
+SELECT * FROM sync_state WHERE network='amoy' ORDER BY updated_at DESC LIMIT 1;
+```
+
+Compare `last_processed_block` against the block number of the most recent test transaction.
+
+**Expected outcome:** sync_state.last_processed_block >= block number of latest test tx.
+
+**Pass/Fail:**
+
+**Notes:** Run this after each batch of tests, not just once at the end.
+
+---
+
+### C-05: Replay Capability Smoke Test
+
+**Description:** Pick a chain_event row, decode its payload manually, and confirm it matches the corresponding Supabase target table row.
+
+**Prerequisites:** At least one event processed (e.g., CONTEST_CREATED from A-01).
+
+**Action:**
+1. Query chain_events for a specific event (e.g., the CONTEST_CREATED from A-01)
+2. Read the `payload` field (ABI-encoded event data)
+3. Decode it using the event's dataSchema
+4. Compare decoded fields to the `contests` table row
+
+**Expected outcome:** All fields match — the chain_events payload contains enough data to reconstruct the handler output.
+
+**Pass/Fail:**
+
+**Notes:** This validates the "replay from chain_events" recovery path. If the payload is sufficient to reconstruct state, we can always re-derive tables from chain_events alone.
+
+---
+
+## PHASE D: AGENT INTEGRATION (Aspirational — Do Not Execute)
+
+Goal: Michelle and Dan can run against the deployment.
+
+These are readiness criteria for a future workstream. Not executed in this session.
+
+---
+
+### D-01: Michelle Connects and Signs Commitments
+
+**Criteria:** Michelle agent-server process connects to Amoy RPC, reads contest data from Supabase, and produces EIP-712 signed commitments against the new MatchingModule (domain separator `0x8968ff...`).
+
+**What success looks like:** Michelle logs show commitment generation with correct contract addresses and domain separator.
+
+---
+
+### D-02: Dan Discovers and Matches Commitments
+
+**Criteria:** Degen Dan reads Michelle's commitments from Supabase (or mempool), validates them, and submits matchCommitment transactions that succeed.
+
+**What success looks like:** On-chain COMMITMENT_MATCHED events where maker=Michelle and taker=Dan.
+
+---
+
+### D-03: Both Read State from Supabase
+
+**Criteria:** Neither agent reads state directly from chain (no RPC calls to ContestModule.getContest, etc.). All reads go through Supabase.
+
+**What success looks like:** Agent logs show Supabase queries, no ethers.js contract.call() for state reads.
+
+---
+
+### D-04: End-to-End Cycle
+
+**Criteria:** Michelle posts commitment -> Dan matches -> position creates -> contest scores -> position claims. Full lifecycle with no manual intervention.
+
+**What success looks like:** chain_events shows the complete sequence for one contest, triggered entirely by agents.
+
+---
+
+### D-05: Multi-Day Operation Without Drift
+
+**Criteria:** Run both agents for 3+ days. At end of each day, run C-03 reconciliation query. Zero discrepancies.
+
+**What success looks like:** Reconciliation passes every day. No manual intervention needed.
+
+---
+
+## EXECUTION NOTES
+
+### Ordering Strategy
+
+The tests are designed to be executed in order. Key dependencies:
+
+1. **A-01 through A-07** form a complete contest lifecycle (create → verify → match → score → settle → claim)
+2. **A-08, A-09** are independent of the lifecycle (can run anytime)
+3. **A-10 through A-16** form a leaderboard lifecycle (depends on having a position from A-04)
+4. **A-17 through A-21** form a secondary market lifecycle (needs a SEPARATE unsettled speculation)
+5. **A-22** requires 1 day wait (create contest early, return later)
+6. **Phase B** mostly requires waiting (B-01 needs 1 day, B-04 needs multiple voids)
+7. **Phase C** runs after all Phase A tests complete
+
+### Time Dependencies
+
+| Test | Waiting For | Estimated Wait |
+|------|-------------|----------------|
+| A-22 | Void cooldown (1 day after contest start) | 24 hours |
+| B-01 | Same as A-22 | 24 hours |
+| B-04 | Multiple voided contests | 24+ hours |
+| A-13 | Leaderboard startTime | 5 minutes (configurable) |
+| A-14 | endTime + safetyPeriod | 2 days + 1 hour (configurable) |
+| A-15 | Same as A-14 | Same |
+| A-16 | endTime + safetyPeriod + roiWindow | 2 days + 2 hours |
+
+**Strategy for time-sensitive tests:** Create contests/leaderboards with the shortest possible windows. For leaderboards, use startTime=now+5min, endTime=now+10min, safetyPeriod=60s, roiWindow=60s to collapse the wait to ~12 minutes total.
+
+### Oracle Callback Handling
+
+Contest creation (A-01), verification (A-02), market updates (A-03), and scoring (A-05) all require Chainlink Functions callbacks. The JS source fetches from real APIs (JSONOdds, Rundown, Sportspage).
+
+**Strategy for testing:**
+- Use a REAL game ID (one that has already completed) so the APIs return valid data
+- The verify callback needs to return a valid leagueId + startTime
+- The score callback needs to return valid scores
+
+If Chainlink Functions fail (API errors, timeout), we'll see an OracleRequestFailed event. In that case, we may need to retry or use different game IDs.
+
+### Helper Scripts Needed
+
+Before execution, the following helper scripts must be created:
+
+1. **EIP-712 Commitment Signer** — Signs commitments for the MAKER wallet (Node.js using ethers.js)
+2. **Supabase Query Runner** — Queries Supabase tables and formats results (Node.js)
+3. **Wallet Setup Script** — Generates test wallets, mints USDC, approves contracts
+
+---
+
+## REVISION LOG
+
+| Date | Change |
+|------|--------|
+| 2026-04-20 | Initial plan created (Step 1) |
