@@ -907,7 +907,7 @@ cast send 0x6f32665DD97482e6C89D8B9bf025d483184F5553 \
 
 **Pass/Fail:**
 
-**Notes:** Push is a critical path that must be tested live. Leaderboard positions on pushed speculations should NOT count toward minBets (they're excluded from non-void position count). Verify this if running alongside leaderboard tests.
+**Notes:** Push is a critical path that must be tested live. Leaderboard positions on pushed speculations DO count toward minBets (only TBD and Void are excluded). Verify this if running alongside leaderboard tests.
 
 ---
 
@@ -1476,30 +1476,30 @@ cast call $USDC "balanceOf(address)(uint256)" $SECONDARY_MARKET_MODULE --rpc-url
 
 ---
 
-### C-08: Boundary Timing — Leaderboard Push Position Effect
+### C-08: Leaderboard Outcome Filter — Push Counts, Void Does Not
 
-**Description:** Verify that push-resolved positions do NOT count toward the minBets requirement for leaderboard ROI submission.
+**Description:** Verify that push-resolved positions DO count toward the minBets requirement, while void-resolved positions do NOT.
 
-**Prerequisites:** A-25 completed (push position exists on a leaderboard-eligible speculation).
+**Prerequisites:** A leaderboard with minBets=2. Speculations that can be settled as push and void.
 
 **Action:**
 1. Create leaderboard with minBets=2
 2. Register user
-3. User has 1 win/loss position + 1 push position = 2 total positions
-4. Attempt submitLeaderboardROI → should REVERT (only 1 qualifying non-push position)
-5. Create a second non-push position
-6. Attempt submitLeaderboardROI → should SUCCEED
+3. User has 1 win position + 1 void position = 2 total positions but only 1 qualifying
+4. Attempt submitLeaderboardROI → should REVERT (only 1 qualifying position — void excluded)
+5. User adds 1 push position (now: 1 win + 1 push + 1 void = 2 qualifying)
+6. Attempt submitLeaderboardROI → should SUCCEED (push counts)
 
 **Expected on-chain outcome:**
-- Step 4: revert (push doesn't count)
-- Step 6: success (2 qualifying positions)
+- Step 4: revert (1 win + 1 void = only 1 qualifying, void excluded)
+- Step 6: success (1 win + 1 push = 2 qualifying, push counts)
 
 **Expected Supabase outcome:**
 - After step 6: ROI submitted, winner determined
 
 **Pass/Fail:**
 
-**Notes:** Confirms the outcome filter works correctly on live Amoy. Push and void positions should both be excluded from the count.
+**Notes:** Contract logic at LeaderboardModule._calculateROI(): `if (spec.winSide != WinSide.TBD && spec.winSide != WinSide.Void) { qualifyingCount++; }`. Push (value 5) passes this filter. Only TBD (0) and Void (6) are excluded.
 
 ---
 
