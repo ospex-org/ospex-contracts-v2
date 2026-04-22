@@ -40,6 +40,17 @@ The indexer is a **pull-based polling worker** (ospex-indexer on Heroku) that re
 3. `pending_events` table has zero rows for this event after processing
 4. No errors in indexer logs: `heroku logs --app ospex-indexer --num 50`
 
+### Events Explicitly NOT Handled by Indexer
+
+The contracts emit 27 distinct CoreEventEmitted event types. The indexer handles 25. Two are intentionally excluded:
+
+| Event | Emitted By | Reason Not Handled |
+|-------|-----------|-------------------|
+| `LEADERBOARD_FUNDED` | TreasuryModule | Internal accounting event. Prize pool state is already captured via `rpc_user_registered` (which increments prize_pool on USER_REGISTERED). No additional projected row needed. |
+| `LEADERBOARD_ENTRY_FEE_PROCESSED` | TreasuryModule | Fee-processing detail event. Entry fee amount is already stored in `leaderboards.entry_fee` and reflected in prize_pool updates. No consumer needs this event separately. |
+
+These events DO land in chain_events if the indexer encounters them (the main loop inserts all CoreEventEmitted logs), but no handler dispatches — the indexer logs a `No handler registered` warning. This is expected. Phase A does NOT test these two events.
+
 ---
 
 ## Constraint: Future Contests Only
@@ -47,6 +58,42 @@ The indexer is a **pull-based polling worker** (ospex-indexer on Heroku) that re
 Verification scripts reject games whose `start_time` has already passed. All end-to-end scenarios must use contests scheduled 24-72 hours out. For tests that only need a contest to exist (not a full lifecycle), any open contest is fine.
 
 **Implication:** The full lifecycle (create → verify → score → settle → claim) spans multiple days. Session boundaries are documented in the Execution Strategy section.
+
+---
+
+## Test Tracks
+
+The tests are split into 4 independent tracks with different timing requirements. Each track uses its own contest(s) to avoid incompatible timing assumptions.
+
+**Track 1 — Score/Settle/Claim** (multi-day)
+- Contest A: future game 24-72h out
+- Day 1: Create → verify → market update → match commitments (moneyline + spread + total)
+- Day 2+: Score → settle → claim
+- Tests: A-01, A-02, A-03, A-04, A-06, A-07, A-08, A-09, A-24, A-25
+
+**Track 2 — Leaderboard** (multi-day, depends on Track 1 settling)
+- Uses Contest A's speculation(s) from Track 1
+- Creates leaderboard with endTime AFTER game is expected to end (e.g., endTime = now + 4 days)
+- startTime: near-future (e.g., now + 5 minutes) so positions can be registered on Day 1
+- Day 1: Create leaderboard → add speculation → register user → (wait for startTime) → add position
+- Day 2+ (after Track 1 settles): Submit ROI → claim prize
+- Tests: A-11, A-12, A-13, A-14, A-15, A-16
+
+**Track 3 — Secondary Market** (Day 1, single session)
+- Contest B: separate future game (or same game, different speculation)
+- Must stay unsettled throughout the secondary market tests
+- Match commitments → list → update → buy → cancel → claim proceeds
+- Also covers POSITION_TRANSFERRED and hardening checks (B-02, B-03)
+- Tests: A-17, A-18, A-19, A-20, A-21, A-10, B-02, B-03
+
+**Track 4 — Void/Cooldown** (multi-day)
+- Contest C: game that has already started (or is about to start) — will be verified with a start_time in the near past
+- Create + verify on Day 1, match a commitment so a speculation exists
+- Wait 24h+ for void cooldown
+- Day 2+: Settle → auto-void, then attempt post-cooldown match (B-01)
+- Tests: A-05, B-01
+
+**Independent (any time):** A-22 (COMMITMENT_CANCELLED), A-23 (MIN_NONCE_UPDATED), T-00 (canary), all Phase C and D tests
 
 ---
 
@@ -142,11 +189,47 @@ The following scripts handle complex ABI encoding and are needed before executio
 
 ---
 
+## T-00: INDEXER LIVENESS CANARY
+
+**Goal:** Confirm the full indexer pipeline works before spending LINK on expensive oracle calls.
+
+Fire one cheap event, verify it flows through the entire pipeline: on-chain tx → indexer picks up → chain_events insert → projection write → cursor advances → no stuck pending rows.
+
+**Action:**
+```bash
+# MIN_NONCE_UPDATED is the cheapest event — no oracle, no LINK, no fees, no dependencies.
+cast send $MATCHING_MODULE \
+  "raiseMinNonce(uint256,address,int32,uint256)" \
+  999 $MONEYLINE_SCORER 0 1 \
+  --private-key $MAKER_PK --rpc-url $AMOY_RPC
+```
+
+Record the tx hash and block number.
+
+**Checklist:**
+
+| Check | Expected | Actual |
+|-------|----------|--------|
+| Tx confirmed on-chain | tx hash + block number | |
+| `chain_events` row exists | event_type="MIN_NONCE_UPDATED", tx_hash matches | |
+| `maker_nonce_floors` row exists | maker=MAKER, source_block = tx block | |
+| `indexer_cursor.last_confirmed_block` advanced | >= tx block - 128 (confirmation depth) | |
+| `pending_events` count for this event | 0 | |
+| Indexer logs clean | No errors in last 50 lines | |
+
+**Pass/Fail:**
+
+**Evidence:**
+
+**Notes:** If ANY check fails, stop. Diagnose the indexer before proceeding. Do not burn LINK on A-01 until the canary passes. The canary uses contestId=999 (doesn't need to exist — raiseMinNonce doesn't validate the contest).
+
+---
+
 ## PHASE A: HANDLER COVERAGE
 
-**Goal:** Fire each of the 25 CoreEventEmitted events at least once and verify the indexer writes correct Supabase state.
+**Goal:** Fire each of the 25 handled CoreEventEmitted events at least once and verify the indexer writes correct Supabase state. (2 additional events — LEADERBOARD_FUNDED, LEADERBOARD_ENTRY_FEE_PROCESSED — are intentionally unhandled; see Architecture Context.)
 
-### Priority 1 — Contest Lifecycle
+### Priority 1 — Contest Lifecycle (Track 1 + Track 4)
 
 ---
 
@@ -305,7 +388,7 @@ cast send $SPECULATION_MODULE "settleSpeculation(uint256)" SPEC_ID \
 
 ---
 
-### Priority 2 — Speculation + Commitment Lifecycle
+### Priority 2 — Speculation + Commitment Lifecycle (Track 1)
 
 ---
 
@@ -411,7 +494,7 @@ cast send $SPECULATION_MODULE "settleSpeculation(uint256)" SPEC_ID \
 
 ---
 
-### Priority 3 — Position Lifecycle
+### Priority 3 — Position Lifecycle (Track 1 + Track 3)
 
 ---
 
@@ -466,7 +549,7 @@ cast send $POSITION_MODULE "claimPosition(uint256,uint8)" SPEC_ID POSITION_TYPE 
 
 ---
 
-### Priority 4 — Leaderboard Lifecycle
+### Priority 4 — Leaderboard Lifecycle (Track 2)
 
 ---
 
@@ -474,19 +557,22 @@ cast send $POSITION_MODULE "claimPosition(uint256,uint8)" SPEC_ID POSITION_TYPE 
 
 **Description:** Create a new leaderboard.
 
-**Prerequisites:** Any wallet with USDC approved for TreasuryModule.
+**Prerequisites:** Any wallet with USDC approved for TreasuryModule. Contest A (Track 1) must already exist with at least one speculation.
 
 **Action:**
 ```bash
-# Short timing for practical testing:
-# startTime = now + 5 minutes, endTime = now + 10 minutes
-# safetyPeriod = 60s, roiWindow = 60s
-START=$(( $(date +%s) + 300 ))
-END=$(( $(date +%s) + 600 ))
+# Track 2 timing: startTime soon (so we can register positions on Day 1),
+# endTime far enough out to cover the game ending + scoring + settling.
+# Game is 24-72h out, so endTime should be ~4 days from now.
+# Safety + ROI windows kept short since we control the timing.
+START=$(( $(date +%s) + 300 ))       # 5 minutes from now
+END=$(( $(date +%s) + 345600 ))      # 4 days from now
+SAFETY=60                             # 60 seconds
+ROI_WINDOW=60                         # 60 seconds
 
 cast send $LEADERBOARD_MODULE \
   "createLeaderboard(uint256,uint32,uint32,uint32,uint32)" \
-  5000000 $START $END 60 60 \
+  5000000 $START $END $SAFETY $ROI_WINDOW \
   --private-key $DEPLOYER_PK --rpc-url $AMOY_RPC
 ```
 
@@ -501,7 +587,7 @@ cast send $LEADERBOARD_MODULE \
 
 **Evidence:**
 
-**Notes:** Use SHORT timing (5min start, 10min end, 60s safety, 60s ROI) to collapse the leaderboard lifecycle into ~12 minutes.
+**Notes:** endTime is set 4 days out so the leaderboard stays open through the game ending (Track 1). startTime is 5 minutes from creation so we can register positions on Day 1. A-15 (ROI) and A-16 (prize claim) execute on Day 2+ after Track 1 settles AND after endTime + safety + ROI window elapse.
 
 ---
 
@@ -605,7 +691,7 @@ cast send $LEADERBOARD_MODULE "submitLeaderboardROI(uint256)" LEADERBOARD_ID \
 
 **Evidence:**
 
-**Notes:** Requires endTime + safetyPeriodDuration to have passed. With short timing (10min end + 60s safety), this is ~11 minutes from creation. The speculation MUST be settled before this can succeed.
+**Notes:** Requires BOTH: (a) the speculation to be settled (Track 1 must have scored + settled), and (b) endTime + safetyPeriodDuration to have elapsed. With 4-day endTime, this runs on Day 5+ unless we shorten endTime after settling. The speculation settlement is the real gate — the leaderboard timing is configurable.
 
 ---
 
@@ -630,13 +716,13 @@ cast send $LEADERBOARD_MODULE "claimLeaderboardPrize(uint256)" LEADERBOARD_ID \
 
 **Evidence:**
 
-**Notes:** With short timing: ~12 minutes from leaderboard creation (10min end + 60s safety + 60s ROI).
+**Notes:** Requires endTime + safetyPeriod + roiWindow to have elapsed. With 4-day endTime, this is Day 5+. Runs in the same session as A-15.
 
 ---
 
-### Priority 5 — Secondary Market
+### Priority 5 — Secondary Market (Track 3)
 
-All secondary market tests require a **separate unsettled speculation** (distinct from the one used for scoring/claiming). Create a second contest + speculation specifically for these tests.
+All secondary market tests use **Contest B** — a separate unsettled speculation that stays open throughout Day 1. Contest B can be the same game as Contest A or a different one; the key is that its speculation must NOT be settled during secondary market testing.
 
 ---
 
@@ -772,7 +858,7 @@ cast send $SECONDARY_MARKET_MODULE "claimSaleProceeds()" \
 
 ---
 
-### Priority 6 — Commitment Edge Cases
+### Priority 6 — Commitment Edge Cases (Independent)
 
 ---
 
@@ -1193,42 +1279,59 @@ done
 
 ---
 
-#### D-02: Cross-Table Consistency
+#### D-02: Per-Transaction Reconciliation
 
-**Description:** After completing Phase A, verify row counts match expected totals.
+**Description:** Tighter reconciliation than simple row counts. For each test transaction, verify exactly the expected events and projected rows were written — no more, no fewer.
 
-**Action:**
+Row-count equality gets noisy after secondary transfers (one POSITION_SOLD can create/modify multiple position rows). Instead, assert per-tx:
+
+**Action:** For every test transaction executed in Phase A, run the following checks:
+
+**Check 1 — Per-tx event count:**
 ```sql
--- Counts by event type
-SELECT event_type, COUNT(*) FROM chain_events WHERE network='amoy' GROUP BY event_type ORDER BY event_type;
+-- For each test tx, verify exact event count
+SELECT event_type, COUNT(*)
+FROM chain_events
+WHERE network = 'amoy' AND tx_hash = '<TX_HASH>'
+GROUP BY event_type;
+```
+Compare against the expected events for that test (e.g., A-06 expects exactly 3: SPECULATION_CREATED, COMMITMENT_MATCHED, POSITION_MATCHED_PAIR).
 
--- Projected table counts
-SELECT 'contests' as tbl, COUNT(*) as cnt FROM contests WHERE network='amoy'
-UNION ALL SELECT 'speculations', COUNT(*) FROM speculations WHERE network='amoy'
-UNION ALL SELECT 'positions', COUNT(*) FROM positions WHERE network='amoy'
-UNION ALL SELECT 'position_fills', COUNT(*) FROM position_fills WHERE network='amoy'
-UNION ALL SELECT 'commitments', COUNT(*) FROM commitments WHERE network='amoy'
-UNION ALL SELECT 'leaderboards', COUNT(*) FROM leaderboards WHERE network='amoy'
-UNION ALL SELECT 'leaderboard_speculations', COUNT(*) FROM leaderboard_speculations WHERE network='amoy'
-UNION ALL SELECT 'leaderboard_registrations', COUNT(*) FROM leaderboard_registrations WHERE network='amoy'
-UNION ALL SELECT 'leaderboard_positions', COUNT(*) FROM leaderboard_positions WHERE network='amoy'
-UNION ALL SELECT 'leaderboard_winners', COUNT(*) FROM leaderboard_winners WHERE network='amoy'
-UNION ALL SELECT 'secondary_market_listings', COUNT(*) FROM secondary_market_listings WHERE network='amoy'
-UNION ALL SELECT 'maker_nonce_floors', COUNT(*) FROM maker_nonce_floors WHERE network='amoy'
-UNION ALL SELECT 'pending_events', COUNT(*) FROM pending_events WHERE network='amoy';
+**Check 2 — Exact target-row assertions:**
+For each event, verify the specific projected row(s) exist with correct field values. Not just "row exists" but "row has risk_amount=10000000, position_type=upper, source_block=BLOCK".
+
+**Check 3 — Duplicate check:**
+```sql
+-- No duplicate chain_events (should be impossible via UNIQUE constraint, but verify)
+SELECT tx_hash, log_index, COUNT(*)
+FROM chain_events
+WHERE network = 'amoy'
+GROUP BY tx_hash, log_index
+HAVING COUNT(*) > 1;
+
+-- No duplicate positions (same user + speculation + position_type)
+SELECT speculation_id, user_address, position_type, COUNT(*)
+FROM positions
+WHERE network = 'amoy'
+GROUP BY speculation_id, user_address, position_type
+HAVING COUNT(*) > 1;
 ```
 
+**Check 4 — Replay-derived consistency:**
+For a sample of chain_events rows, decode the `payload` and verify it contains enough information to reconstruct the projected row. This validates the replay/recovery path.
+
 **Expected outcome:**
-- CONTEST_CREATED count == contests count
-- SPECULATION_CREATED count == speculations count
-- pending_events count == 0 (all resolved)
-- Document baseline for ongoing monitoring
+- Check 1: every tx has exactly the expected event count
+- Check 2: every projected row matches expected values
+- Check 3: zero duplicates
+- Check 4: decoded payloads match projected state
+- `pending_events` count = 0
 
 **Pass/Fail:**
 
 **Evidence:**
 
-**Notes:** Any mismatch = handler drift or lost events.
+**Notes:** Build the per-tx expected event map as tests are executed (each test records its tx hash + expected events). The map becomes the reconciliation input.
 
 ---
 
@@ -1261,63 +1364,75 @@ Compare against:
 
 ## EXECUTION STRATEGY
 
-### Session Boundaries
+### Contests to Create
 
-**Session 1 (Day 1):**
-| Time | Tests | Notes |
-|------|-------|-------|
-| 0:00 | Pre-flight checklist | Cleanup, wallet setup, approvals |
-| 0:30 | A-01, A-02, A-03 | Contest create/verify/markets. Wait for Chainlink callbacks. |
-| 1:00 | A-06, A-07 | Match commitments (moneyline). Speculation + position creation. |
-| 1:15 | A-24, A-25 | Spread + total matches (scorer variants). |
-| 1:30 | A-22, A-23 | Commitment cancel + min nonce update. |
-| 1:45 | A-17, A-18, A-19, A-20, A-21 | Full secondary market cycle (on second speculation). |
-| 2:15 | A-11, A-12, A-13 | Leaderboard create + add speculation + register user. |
-| 2:20 | Wait 5min | Leaderboard startTime. |
-| 2:25 | A-14 | Register position for leaderboard (after startTime). |
-| 2:30 | C-01 | Pending events dependency flow test. |
-| 2:45 | C-02, C-05, C-06 | source_block, cursor, deduplication checks. |
-| 3:00 | D-01 | Rapid-fire concurrency test. |
+| Contest | Track | Purpose | Game Selection |
+|---------|-------|---------|----------------|
+| Contest A | 1, 2 | Score/settle/claim lifecycle + leaderboard speculation source | Future game 24-72h out (STATUS_SCHEDULED) |
+| Contest B | 3 | Secondary market (must stay unsettled through Day 1) | Future game, same or different from A |
+| Contest C | 4 | Void/cooldown (intentionally left unscored for 24h) | Game whose start_time is near-past or imminent |
 
-**Session 2 (Day 2-3, after game ends):**
-| Time | Tests | Notes |
-|------|-------|-------|
-| 0:00 | A-04 | Score contest (Chainlink callback). |
-| 0:15 | A-08 | Settle speculation. |
-| 0:20 | A-09 | Claim position (winner). |
-| 0:30 | A-15 | Leaderboard ROI + new highest ROI. Note: leaderboard endTime + safety + ROI window must have passed. If using short timing from Day 1, this should be long resolved. |
-| 0:35 | A-16 | Leaderboard prize claimed. |
-| 0:40 | B-02, B-03 | Secondary market flag + leaderboard rejection. |
-| 0:50 | D-02 | Cross-table consistency. |
-| 1:00 | D-03 | USDC value reconciliation. |
-| 1:15 | C-03 | Reconcile CLI. |
-| 1:30 | C-04 | Backfill CLI. |
+### Session Plan by Track
 
-**Session 3 (Day 2-3, 24h+ after contest start):**
-| Time | Tests | Notes |
-|------|-------|-------|
-| 0:00 | A-05 | Void contest (24h cooldown elapsed). |
-| 0:10 | B-01 | Post-cooldown match rejection. |
+**Session 1 — Day 1 (all tracks, ~3 hours)**
+
+| Order | Track | Tests | Notes |
+|-------|-------|-------|-------|
+| 0:00 | — | Pre-flight checklist | Cleanup, wallets, approvals, contest_reference rows |
+| 0:15 | — | T-00 | Indexer liveness canary. **Stop if this fails.** |
+| 0:20 | 1 | A-01, A-02, A-03 | Contest A: create/verify/markets. Wait for Chainlink callbacks. |
+| 0:50 | 1 | A-06, A-07 | Match commitments on Contest A (moneyline, accumulation). |
+| 1:05 | 1 | A-24, A-25 | Spread + total matches on Contest A. |
+| 1:15 | 3 | Contest B create/verify/match | Set up Contest B + speculation for secondary market. |
+| 1:30 | 3 | A-17, A-18, A-19, A-20, A-21 | Full secondary market cycle on Contest B. |
+| 1:50 | 3 | B-02, B-03 | Verify acquiredViaSecondaryMarket flag + leaderboard rejection. |
+| 2:00 | 2 | A-11, A-12, A-13 | Leaderboard create + add speculation (from Track 1) + register user. |
+| 2:05 | 2 | Wait 5min | Leaderboard startTime. |
+| 2:10 | 2 | A-14 | Register position for leaderboard. |
+| 2:15 | 4 | Contest C create/verify/match | Set up Contest C for void (game near start_time). |
+| 2:20 | — | A-22, A-23 | Commitment cancel + min nonce (independent). |
+| 2:30 | — | C-01 | Pending events dependency flow test. |
+| 2:45 | — | C-02, C-05, C-06 | source_block, cursor, deduplication checks. |
+| 3:00 | — | D-01 | Rapid-fire concurrency test. |
+
+**Session 2 — Day 2-3 (after game A ends)**
+
+| Order | Track | Tests | Notes |
+|-------|-------|-------|-------|
+| 0:00 | 1 | A-04 | Score Contest A (Chainlink callback). |
+| 0:15 | 1 | A-08 | Settle speculation(s) on Contest A. |
+| 0:20 | 1 | A-09 | Claim position (winner). |
+| 0:30 | — | D-02 | Per-tx reconciliation (all tests so far). |
+| 0:45 | — | D-03 | USDC value reconciliation. |
+| 1:00 | — | C-03 | Reconcile CLI. |
+| 1:15 | — | C-04 | Backfill CLI on known block range. |
+
+**Session 3 — Day 2-3 (24h+ after Contest C start_time)**
+
+| Order | Track | Tests | Notes |
+|-------|-------|-------|-------|
+| 0:00 | 4 | A-05 | Void Contest C (24h cooldown elapsed). |
+| 0:10 | 4 | B-01 | Post-cooldown match rejection on Contest C. |
+
+**Session 4 — Day 5+ (after leaderboard endTime + safety + ROI window)**
+
+| Order | Track | Tests | Notes |
+|-------|-------|-------|-------|
+| 0:00 | 2 | A-15 | Submit ROI (speculation must be settled from Session 2). |
+| 0:05 | 2 | A-16 | Claim leaderboard prize. |
+| 0:10 | — | Final D-02 | Final per-tx reconciliation sweep. |
 
 ### Time Dependencies
 
-| Test | Waiting For | Estimated Wait |
-|------|-------------|----------------|
-| A-04 | Game to end | 24-72h from creation |
-| A-05 | startTime + 86400s (void cooldown) | 24h |
-| A-08 | A-04 (contest scored) | Same session as A-04 |
-| A-14 | Leaderboard startTime | 5 min (if short timing) |
-| A-15 | endTime + safetyPeriod | ~11 min (if short timing) |
-| A-16 | endTime + safetyPeriod + roiWindow | ~12 min (if short timing) |
-| B-01 | Same as A-05 | 24h |
-
-### Contests to Create
-
-| Contest | Purpose | Game Selection |
-|---------|---------|----------------|
-| Contest A | Main lifecycle (A-01→A-09) + leaderboard tests | NBA/NFL game 24-72h out |
-| Contest B | Secondary market tests (A-17→A-21) + B-02/B-03 | Same or different game, must stay unsettled through Day 1 |
-| Contest C | Void test (A-05, B-01) | Game whose start_time is soon (or just passed) — wait 24h for void cooldown |
+| Test | Waiting For | Gate |
+|------|-------------|------|
+| A-04 | Game A to end | 24-72h from creation |
+| A-05 | Contest C start_time + 86400s | 24h from Contest C creation |
+| A-08 | A-04 (contest scored) | Same session |
+| A-14 | Leaderboard startTime | 5 min from A-11 |
+| A-15 | Track 1 settled AND leaderboard endTime + safety elapsed | 4 days from A-11 |
+| A-16 | A-15 AND roiWindow elapsed | Same session as A-15 |
+| B-01 | Same as A-05 | Same session |
 
 ---
 
@@ -1326,3 +1441,4 @@ Compare against:
 | Date | Change |
 |------|--------|
 | 2026-04-22 | v2 plan created. Supersedes v1 (webhook-based). Restructured for ospex-indexer: added Phase C (indexer-specific), removed aspirational agent integration (old Phase D), added pending_events/source_block/reconcile/backfill tests, incorporated future-contests-only constraint, documented all 25 handlers with exact Supabase table targets from indexer source code. |
+| 2026-04-22 | v2.1 feedback incorporated: (1) Split linear flow into 4 independent tracks (score/settle, leaderboard, secondary market, void/cooldown) to avoid incompatible timing assumptions — leaderboard endTime extended to 4 days. (2) Added T-00 indexer liveness canary before expensive oracle calls. (3) Explicitly documented 2 unhandled events (LEADERBOARD_FUNDED, LEADERBOARD_ENTRY_FEE_PROCESSED) with rationale. (4) Replaced row-count reconciliation (D-02) with per-tx event assertions, exact target-row checks, duplicate detection, and replay-derived consistency. |

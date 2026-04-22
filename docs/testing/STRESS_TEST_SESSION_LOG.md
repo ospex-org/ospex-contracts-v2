@@ -61,35 +61,41 @@ powershell -Command "heroku ps:restart worker --app ospex-indexer"
 
 ## Test Results Summary (v2)
 
+### T-00: Canary
+
+| Test ID | Description | Result | Evidence |
+|---------|-------------|--------|----------|
+| T-00 | Indexer liveness canary (MIN_NONCE_UPDATED) | | |
+
 ### Phase A: Handler Coverage
 
-| Test ID | Event(s) | Result | Evidence |
-|---------|----------|--------|----------|
-| A-01 | CONTEST_CREATED | | |
-| A-02 | CONTEST_VERIFIED | | |
-| A-03 | CONTEST_MARKETS_UPDATED | | |
-| A-04 | CONTEST_SCORES_SET | | |
-| A-05 | CONTEST_VOIDED | | |
-| A-06 | SPECULATION_CREATED + COMMITMENT_MATCHED + POSITION_MATCHED_PAIR | | |
-| A-07 | COMMITMENT_MATCHED + POSITION_MATCHED_PAIR (accumulation) | | |
-| A-08 | SPECULATION_SETTLED | | |
-| A-09 | POSITION_CLAIMED | | |
-| A-10 | POSITION_TRANSFERRED | | |
-| A-11 | LEADERBOARD_CREATED | | |
-| A-12 | LEADERBOARD_SPECULATION_ADDED | | |
-| A-13 | USER_REGISTERED | | |
-| A-14 | LEADERBOARD_POSITION_ADDED | | |
-| A-15 | LEADERBOARD_ROI_SUBMITTED + LEADERBOARD_NEW_HIGHEST_ROI | | |
-| A-16 | LEADERBOARD_PRIZE_CLAIMED | | |
-| A-17 | POSITION_LISTED | | |
-| A-18 | LISTING_UPDATED | | |
-| A-19 | POSITION_SOLD + POSITION_TRANSFERRED | | |
-| A-20 | LISTING_CANCELLED | | |
-| A-21 | SALE_PROCEEDS_CLAIMED | | |
-| A-22 | COMMITMENT_CANCELLED | | |
-| A-23 | MIN_NONCE_UPDATED | | |
-| A-24 | SPREAD lifecycle | | |
-| A-25 | TOTAL lifecycle | | |
+| Test ID | Event(s) | Track | Result | Evidence |
+|---------|----------|-------|--------|----------|
+| A-01 | CONTEST_CREATED | 1 | | |
+| A-02 | CONTEST_VERIFIED | 1 | | |
+| A-03 | CONTEST_MARKETS_UPDATED | 1 | | |
+| A-04 | CONTEST_SCORES_SET | 1 | | |
+| A-05 | CONTEST_VOIDED | 4 | | |
+| A-06 | SPECULATION_CREATED + COMMITMENT_MATCHED + POSITION_MATCHED_PAIR | 1 | | |
+| A-07 | COMMITMENT_MATCHED + POSITION_MATCHED_PAIR (accumulation) | 1 | | |
+| A-08 | SPECULATION_SETTLED | 1 | | |
+| A-09 | POSITION_CLAIMED | 1 | | |
+| A-10 | POSITION_TRANSFERRED | 3 | | |
+| A-11 | LEADERBOARD_CREATED | 2 | | |
+| A-12 | LEADERBOARD_SPECULATION_ADDED | 2 | | |
+| A-13 | USER_REGISTERED | 2 | | |
+| A-14 | LEADERBOARD_POSITION_ADDED | 2 | | |
+| A-15 | LEADERBOARD_ROI_SUBMITTED + LEADERBOARD_NEW_HIGHEST_ROI | 2 | | |
+| A-16 | LEADERBOARD_PRIZE_CLAIMED | 2 | | |
+| A-17 | POSITION_LISTED | 3 | | |
+| A-18 | LISTING_UPDATED | 3 | | |
+| A-19 | POSITION_SOLD + POSITION_TRANSFERRED | 3 | | |
+| A-20 | LISTING_CANCELLED | 3 | | |
+| A-21 | SALE_PROCEEDS_CLAIMED | 3 | | |
+| A-22 | COMMITMENT_CANCELLED | — | | |
+| A-23 | MIN_NONCE_UPDATED | — | | |
+| A-24 | SPREAD lifecycle | 1 | | |
+| A-25 | TOTAL lifecycle | 1 | | |
 
 ### Phase B: Hardening
 
