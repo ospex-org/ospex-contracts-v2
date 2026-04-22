@@ -1,10 +1,18 @@
 # Amoy Stress Test Plan
 
-Status: **STEP 3 — EXECUTION IN PROGRESS**
+Status: **RESET — Re-executing from zero with ospex-indexer**
 
 ## Context
 
-The ospex-fdb indexer is deployed and validated end-to-end against the hardened Amoy contracts. One event type (MIN_NONCE_UPDATED) has been tested and confirmed to flow from chain -> Alchemy -> Firebase -> Supabase. This plan covers systematic stress testing of the full event surface.
+The indexing infrastructure has been replaced. The push-based webhook (ospex-fdb via Alchemy) is being replaced by a pull-based indexer (ospex-indexer via eth_getLogs polling). All previous test results validated the webhook and are archived in the session log. This plan is being re-executed from A-01 against the new indexer.
+
+**Indexer details:** ospex-indexer deployed on Heroku (worker dyno), polls Alchemy every 10s, 10-block chunks (free tier limit), 128-block confirmation depth. All 25 CoreEventEmitted event types handled.
+
+**Validation additions for indexer:** Every test should confirm:
+- `source_block IS NOT NULL` on projected rows (proves indexer wrote them, not webhook)
+- `chain_events` row exists with correct payload
+- No rows in `pending_events` after test completes
+- No errors in `heroku logs --app ospex-indexer`
 
 ## Prerequisites
 
@@ -122,7 +130,7 @@ Note: The `VERIFY_JS_SOURCE` must be the exact source code from `https://raw.git
 - `chain_events` row: event_type="CONTEST_CREATED", entity_type="contest", entity_id="1"
 - `contests` row: contest_id=1, status="unverified", rundown_id="RD_TEST_001", sportspage_id="SP_TEST_001", jsonodds_id="JO_TEST_001", network="amoy"
 
-**Pass/Fail:** **PASS**
+**Pass/Fail:** NOT TESTED (reset)
 
 **Notes:** Three contests created. Contests 1-2 (MLB) created successfully but oracle verification failed (see notes below). Contest 3 (NBA Raptors @ Cavaliers, jsonodds=0aa3aa26) created and verified. Tx: `0x5a88bd2a...`, block 36999394. Gas: 1,189,749. Helper script at `scripts/stress-test/create-contest.js` handles the complex ABI encoding. Gas limit must be ≥2,500,000 for the Chainlink Functions router.
 
@@ -147,7 +155,7 @@ Note: The `VERIFY_JS_SOURCE` must be the exact source code from `https://raw.git
 - `chain_events` row: event_type="CONTEST_VERIFIED"
 - `contests` row updated: status="verified", start_time set, league_id set
 
-**Pass/Fail:** **PASS**
+**Pass/Fail:** NOT TESTED (reset)
 
 **Notes:** Chainlink callback arrived ~6 blocks after creation (block 36999400). Contest 3 verified with start_time=2026-04-20T23:00:00Z. Callback latency ~14 seconds on Amoy. league_id stored as "unknown" in Supabase — the indexer LEAGUE_ID_MAP may not cover the numeric value returned by the oracle.
 
@@ -237,7 +245,7 @@ Wait for Chainlink callback to deliver market data.
 - `position_fills` row: commitment_hash, maker, taker, odds_tick=191, fill_maker_risk
 - `commitments` row: status updated via fill_commitment RPC
 
-**Pass/Fail:** **PASS** (with findings)
+**Pass/Fail:** NOT TESTED (reset) (with findings)
 
 **Notes:** Four match transactions executed (nonces 1-4, totaling 20 USDC maker risk / 18.2 USDC taker risk). On-chain: all 4 fills accumulated correctly. Supabase: only 2 of 4 fills indexed due to cascading failure (see FINDINGS below). Helper script at `scripts/stress-test/match-commitment.js`.
 
@@ -267,7 +275,7 @@ Wait for Chainlink callback to deliver market data.
 - `contests` row: status="scored", away_score and home_score populated, scored_at set
 - `speculations` rows: scored_at field populated (denormalized)
 
-**Pass/Fail:** **PASS**
+**Pass/Fail:** NOT TESTED (reset)
 
 **Notes:** First scoring attempt failed with "Error: Rundown API error:" (transient API failure). Second attempt succeeded — Chainlink callback delivered scores correctly. Contest 3: away_score=105 (Raptors), home_score=115 (Cavaliers). Supabase updated: contest_status="scored", scored_at="2026-04-21T05:53:28Z".
 
@@ -297,7 +305,7 @@ cast send 0x6f32665DD97482e6C89D8B9bf025d483184F5553 \
 - `chain_events` row: event_type="SPECULATION_SETTLED"
 - `speculations` row: status="closed", win_side populated (e.g., "away" or "home")
 
-**Pass/Fail:** **PASS**
+**Pass/Fail:** NOT TESTED (reset)
 
 **Notes:** Tx `0xdf9406f3...`, gas 96,099. Speculation settled with win_side="home" (Cavaliers won 115-105). Supabase updated: speculation_status="closed", win_side="home", settled_at="2026-04-21T05:54:14Z".
 
@@ -327,7 +335,7 @@ cast send 0xf769BEC6960Ed367320549FdD5A30f7C687DB2ee \
 - `chain_events` row: event_name="POSITION_CLAIMED"
 - `positions` row: claimed=true, claimed_amount populated, claimed_at timestamp set
 
-**Pass/Fail:** **PASS**
+**Pass/Fail:** NOT TESTED (reset)
 
 **Notes:** Tx `0x9fb9bbfb...`, gas 67,592. Taker claimed 38,200,000 (38.2 USDC = 18.2 risk + 20.0 profit). USDC transferred from PositionModule to taker. Supabase: claimed=true, claimed_amount=38200000, claimed_at="2026-04-21T05:54:37Z". Note: Supabase position amounts reflect only 2 of 4 fills (7 USDC risk vs 20 USDC on-chain) due to earlier event loss, but the claimed_amount correctly reflects the on-chain payout.
 
@@ -1101,7 +1109,7 @@ cast send 0x08d1F10572071271983CE800ad63663f71A71512 \
 - NO CONTEST_VERIFIED event (callback failed)
 - Verify: no downstream speculations, positions, or other state from this contest
 
-**Pass/Fail:** **PASS** (tested naturally, not intentionally)
+**Pass/Fail:** NOT TESTED (reset) (tested naturally, not intentionally)
 
 **Notes:** Observed naturally during A-01 execution. Contests 1 and 2 (MLB) had oracle callbacks fail with `RangeError: The number NaN cannot be converted to a BigInt`. Both contests remain status="unverified" with no downstream state (no speculations, no positions). Contest 3 (NBA) created after the failures verified successfully — confirming oracle failures don't block subsequent calls. Additionally, a scoring attempt for contest 3 also triggered a transient Rundown API failure (ORACLE_REQUEST_FAILED emitted), followed by a successful retry — confirming the scoring failure path is also clean.
 
