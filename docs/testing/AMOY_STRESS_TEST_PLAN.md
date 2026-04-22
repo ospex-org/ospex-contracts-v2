@@ -1,6 +1,6 @@
 # Amoy Stress Test Plan
 
-Status: **STEP 1 — AWAITING REVIEW**
+Status: **STEP 3 — EXECUTION IN PROGRESS**
 
 ## Context
 
@@ -122,9 +122,11 @@ Note: The `VERIFY_JS_SOURCE` must be the exact source code from `https://raw.git
 - `chain_events` row: event_type="CONTEST_CREATED", entity_type="contest", entity_id="1"
 - `contests` row: contest_id=1, status="unverified", rundown_id="RD_TEST_001", sportspage_id="SP_TEST_001", jsonodds_id="JO_TEST_001", network="amoy"
 
-**Pass/Fail:**
+**Pass/Fail:** **PASS**
 
-**Notes:**
+**Notes:** Three contests created. Contests 1-2 (MLB) created successfully but oracle verification failed (see notes below). Contest 3 (NBA Raptors @ Cavaliers, jsonodds=0aa3aa26) created and verified. Tx: `0x5a88bd2a...`, block 36999394. Gas: 1,189,749. Helper script at `scripts/stress-test/create-contest.js` handles the complex ABI encoding. Gas limit must be ≥2,500,000 for the Chainlink Functions router.
+
+**FINDING — MLB oracle verification failure:** The `contestCreation.js` verify script only processes games with `STATUS_SCHEDULED`. Contests 1-2 failed because: contest 1 (Tigers @ Red Sox) was `STATUS_FINAL`, contest 2 (Astros @ Guardians) was `STATUS_IN_PROGRESS`. The fallback path silently leaves all return values as `undefined`, which becomes NaN in the BigInt conversion: `RangeError: The number NaN cannot be converted to a BigInt`. This is sport-agnostic — any game that's not pre-start will fail. NBA game worked because we submitted before its start time.
 
 ---
 
@@ -145,9 +147,9 @@ Note: The `VERIFY_JS_SOURCE` must be the exact source code from `https://raw.git
 - `chain_events` row: event_type="CONTEST_VERIFIED"
 - `contests` row updated: status="verified", start_time set, league_id set
 
-**Pass/Fail:**
+**Pass/Fail:** **PASS**
 
-**Notes:** Timing depends on Chainlink DON. If callback fails, check OracleRequestFailed event.
+**Notes:** Chainlink callback arrived ~6 blocks after creation (block 36999400). Contest 3 verified with start_time=2026-04-20T23:00:00Z. Callback latency ~14 seconds on Amoy. league_id stored as "unknown" in Supabase — the indexer LEAGUE_ID_MAP may not cover the numeric value returned by the oracle.
 
 ---
 
@@ -181,9 +183,9 @@ Wait for Chainlink callback to deliver market data.
 - `chain_events` row: event_type="CONTEST_MARKETS_UPDATED"
 - `contests` row updated: ml_upper_odds, ml_lower_odds, spread_line, total_line, spread_upper_odds, spread_lower_odds, over_odds, under_odds all populated
 
-**Pass/Fail:**
+**Pass/Fail:** NOT TESTED
 
-**Notes:** Market data returned by Chainlink is packed into a uint256. The indexer decodes the packed fields. Verify all 8 fields are correct.
+**Notes:** Market data returned by Chainlink is packed into a uint256. The indexer decodes the packed fields. Verify all 8 fields are correct. Skipped in this session — not required for matching (commitments specify their own odds). Can be tested independently.
 
 ---
 
@@ -235,9 +237,15 @@ Wait for Chainlink callback to deliver market data.
 - `position_fills` row: commitment_hash, maker, taker, odds_tick=191, fill_maker_risk
 - `commitments` row: status updated via fill_commitment RPC
 
-**Pass/Fail:**
+**Pass/Fail:** **PASS** (with findings)
 
-**Notes:** The EIP-712 signing requires the MatchingModule domain separator `0x8968ff426f700ea9d2d5be881864d7a8267f6716c6cce2bc382565364b823bae`. A helper script will be needed to produce the signature.
+**Notes:** Four match transactions executed (nonces 1-4, totaling 20 USDC maker risk / 18.2 USDC taker risk). On-chain: all 4 fills accumulated correctly. Supabase: only 2 of 4 fills indexed due to cascading failure (see FINDINGS below). Helper script at `scripts/stress-test/match-commitment.js`.
+
+**FINDING — Firebase Functions scorer config mismatch:** The SPECULATION_CREATED handler crashed with `Unknown scorer address: 0x4cdf8cc2b0dcae9bfff34846e2bcb3a88675edec`. Root cause: `functions.config().scorers.*` had OLD deployment addresses. Fixed by running `firebase functions:config:set scorers.moneyline="0x4CDf8cc2..." scorers.spread="0x36F3f4..." scorers.total="0xB814f3..."` and redeploying. The crash returned 500 to the webhook, which caused Alchemy to auto-pause the webhook after repeated failures.
+
+**FINDING — Alchemy webhook auto-pause:** After receiving multiple 500 responses, Alchemy suspended the webhook ("failed to return a 2xx HTTP status over 24 hours"). Events from 2 of 4 match txs were permanently lost — Alchemy does not replay after unpausing. Required manual insertion of the missing speculation row to unblock the FK dependency, then a fresh match tx to verify the pipeline.
+
+**FINDING — Cascading FK violation:** After the scorer fix, POSITION_MATCHED_PAIR failed with `fk_position_speculation` violation because the SPECULATION_CREATED row was never created (lost during the crash). Had to manually insert the speculation row via Supabase REST API.
 
 ---
 
@@ -245,22 +253,9 @@ Wait for Chainlink callback to deliver market data.
 
 **Description:** Score the contest after it has started and finished.
 
-**Prerequisites:** A-02 completed. Contest start time must have passed (the contest must have "started" in real-world terms). We'll use a test contest with a start time in the near past.
+**Prerequisites:** A-02 completed. Contest start time must have passed.
 
-**Action:**
-```bash
-# The score source JS must hash to 0xcb2a11db...
-cast send 0x08d1F10572071271983CE800ad63663f71A71512 \
-  "scoreContestFromOracle(uint256,string,bytes,uint64,uint32)" \
-  1 \
-  "<SCORE_JS_SOURCE>" \
-  "<ENCRYPTED_SECRETS>" \
-  416 \
-  300000 \
-  --private-key $PRIVATE_KEY --rpc-url $AMOY_RPC_URL
-```
-
-Wait for Chainlink callback.
+**Action:** Used helper script `scripts/stress-test/score-contest.js` to call `scoreContestFromOracle` with the scoring JS source.
 
 **Expected on-chain outcome:**
 - Contest awayScore and homeScore set
@@ -268,13 +263,13 @@ Wait for Chainlink callback.
 - CoreEventEmitted with eventType=CONTEST_SCORES_SET fires
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="CONTEST_SCORES_SET"
+- `chain_events` row: event_name="CONTEST_SCORES_SET"
 - `contests` row: status="scored", away_score and home_score populated, scored_at set
 - `speculations` rows: scored_at field populated (denormalized)
 
-**Pass/Fail:**
+**Pass/Fail:** **PASS**
 
-**Notes:** scoreContestFromOracle requires contest start time has passed (`block.timestamp > startTime`). If the test contest has a future start time, we must wait. The Chainlink JS fetches real scores from APIs — for a test contest with fake IDs, the response may error. **Alternative approach:** Create a contest for a real game that has already finished.
+**Notes:** First scoring attempt failed with "Error: Rundown API error:" (transient API failure). Second attempt succeeded — Chainlink callback delivered scores correctly. Contest 3: away_score=105 (Raptors), home_score=115 (Cavaliers). Supabase updated: contest_status="scored", scored_at="2026-04-21T05:53:28Z".
 
 ---
 
@@ -302,9 +297,9 @@ cast send 0x6f32665DD97482e6C89D8B9bf025d483184F5553 \
 - `chain_events` row: event_type="SPECULATION_SETTLED"
 - `speculations` row: status="closed", win_side populated (e.g., "away" or "home")
 
-**Pass/Fail:**
+**Pass/Fail:** **PASS**
 
-**Notes:**
+**Notes:** Tx `0xdf9406f3...`, gas 96,099. Speculation settled with win_side="home" (Cavaliers won 115-105). Supabase updated: speculation_status="closed", win_side="home", settled_at="2026-04-21T05:54:14Z".
 
 ---
 
@@ -314,28 +309,27 @@ cast send 0x6f32665DD97482e6C89D8B9bf025d483184F5553 \
 
 **Prerequisites:** A-06 completed (speculation settled with a winner).
 
-**Action:**
+**Action:** Taker (Lower/Home) claims — Home won.
 ```bash
-# Winner (Upper if winSide=Away, Lower if winSide=Home) claims
 cast send 0xf769BEC6960Ed367320549FdD5A30f7C687DB2ee \
   "claimPosition(uint256,uint8)" \
   1 \
-  0 \
-  --private-key $MAKER_PRIVATE_KEY --rpc-url $AMOY_RPC_URL
+  1 \
+  --private-key $TAKER_PRIVATE_KEY --rpc-url $AMOY_RPC_URL
 ```
 
 **Expected on-chain outcome:**
-- Winner receives risk + profit USDC (e.g., 10 + 9.1 = 19.1 USDC)
+- Winner receives risk + profit USDC
 - Position marked as claimed on-chain
 - CoreEventEmitted with eventType=POSITION_CLAIMED fires
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="POSITION_CLAIMED"
+- `chain_events` row: event_name="POSITION_CLAIMED"
 - `positions` row: claimed=true, claimed_amount populated, claimed_at timestamp set
 
-**Pass/Fail:**
+**Pass/Fail:** **PASS**
 
-**Notes:** If Upper won, maker claims. If Lower won, taker claims. The loser's claim reverts with NoPayout.
+**Notes:** Tx `0x9fb9bbfb...`, gas 67,592. Taker claimed 38,200,000 (38.2 USDC = 18.2 risk + 20.0 profit). USDC transferred from PositionModule to taker. Supabase: claimed=true, claimed_amount=38200000, claimed_at="2026-04-21T05:54:37Z". Note: Supabase position amounts reflect only 2 of 4 fills (7 USDC risk vs 20 USDC on-chain) due to earlier event loss, but the claimed_amount correctly reflects the on-chain payout.
 
 ---
 
@@ -1107,9 +1101,9 @@ cast send 0x08d1F10572071271983CE800ad63663f71A71512 \
 - NO CONTEST_VERIFIED event (callback failed)
 - Verify: no downstream speculations, positions, or other state from this contest
 
-**Pass/Fail:**
+**Pass/Fail:** **PASS** (tested naturally, not intentionally)
 
-**Notes:** Also verify that the oracle failure doesn't block subsequent oracle calls for valid contests. Create another valid contest after this one and confirm it verifies normally.
+**Notes:** Observed naturally during A-01 execution. Contests 1 and 2 (MLB) had oracle callbacks fail with `RangeError: The number NaN cannot be converted to a BigInt`. Both contests remain status="unverified" with no downstream state (no speculations, no positions). Contest 3 (NBA) created after the failures verified successfully — confirming oracle failures don't block subsequent calls. Additionally, a scoring attempt for contest 3 also triggered a transient Rundown API failure (ORACLE_REQUEST_FAILED emitted), followed by a successful retry — confirming the scoring failure path is also clean.
 
 ---
 
@@ -1610,3 +1604,5 @@ Before execution, the following helper scripts must be created:
 |------|--------|
 | 2026-04-20 | Initial plan created (Step 1) |
 | 2026-04-20 | OC review incorporated: added A-23/24/25 (spread, total, push lifecycles), B-07 (oracle failure), B-08/09/10 (secondary partial + stale hash), B-11/12 (boundary timing), C-06 (replay/idempotency), C-07 (value reconciliation), C-08 (push leaderboard effect). Confirmed conditional gap events (RULE_SET, FEE_PROCESSED, etc.) are intentionally not handled by indexer. |
+| 2026-04-20 | Fixed C-08: push positions DO count toward leaderboard minBets (only TBD and Void excluded). |
+| 2026-04-21 | Execution results: A-01 PASS, A-02 PASS, A-03 NOT TESTED, A-04 PASS (with findings), A-05 PASS, A-06 PASS, A-07 PASS, B-07 PASS (natural). Three critical findings: (1) Firebase Functions scorer config mismatch caused handler crash, (2) Alchemy webhook auto-paused after repeated 500s with no replay on unpause, (3) cascading FK violation when parent event lost. |
