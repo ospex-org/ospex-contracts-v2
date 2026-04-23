@@ -1,6 +1,6 @@
 # Amoy Stress Test Plan v2 — ospex-indexer
 
-Status: **AWAITING REVIEW** (Step 1 complete — do not execute until approved)
+Status: **SESSION 1 COMPLETE** — 18/25 handler tests passed. Waiting for game completion (Session 2), void cooldown (Session 3), and leaderboard endTime (Session 4).
 
 ---
 
@@ -1442,3 +1442,4 @@ Compare against:
 |------|--------|
 | 2026-04-22 | v2 plan created. Supersedes v1 (webhook-based). Restructured for ospex-indexer: added Phase C (indexer-specific), removed aspirational agent integration (old Phase D), added pending_events/source_block/reconcile/backfill tests, incorporated future-contests-only constraint, documented all 25 handlers with exact Supabase table targets from indexer source code. |
 | 2026-04-22 | v2.1 feedback incorporated: (1) Split linear flow into 4 independent tracks (score/settle, leaderboard, secondary market, void/cooldown) to avoid incompatible timing assumptions — leaderboard endTime extended to 4 days. (2) Added T-00 indexer liveness canary before expensive oracle calls. (3) Explicitly documented 2 unhandled events (LEADERBOARD_FUNDED, LEADERBOARD_ENTRY_FEE_PROCESSED) with rationale. (4) Replaced row-count reconciliation (D-02) with per-tx event assertions, exact target-row checks, duplicate detection, and replay-derived consistency. |
+| 2026-04-22 | Session 1 executed. 18 of 25 handler tests passed (T-00 + 17 Phase A tests). 36 chain_events indexed, 0 pending_events. Contests 4-6 created (NBA), speculations 2-7 created, leaderboard 1 created. Key findings: (1) league_id="unknown" on all contests — indexer LEAGUE_ID_MAP may not match oracle's leagueId encoding, investigate. (2) Speculation IDs start at 2 because speculation 1 was left over from webhook-era testing on-chain. (3) Positions created before leaderboard creation are correctly rejected by LeaderboardModule__PositionPredatesLeaderboard — required creating spec 7 post-leaderboard. Remaining tests gated on game completion (Session 2), void cooldown (Session 3), and leaderboard endTime (Session 4). |

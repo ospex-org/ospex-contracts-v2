@@ -4,9 +4,9 @@ Tracks progress across sessions. Updated after each test execution.
 
 ## Current Status
 
-**Plan version:** v2 (ospex-indexer)
-**Phase:** AWAITING APPROVAL — Plan written, pending review before execution.
-**Next action:** Review `AMOY_STRESS_TEST_PLAN.md` v2 and approve for execution.
+**Plan version:** v2.1 (ospex-indexer)
+**Phase:** Session 1 COMPLETE. Waiting for games to end for Session 2.
+**Next action:** After Cavaliers @ Raptors game ends (~2026-04-24T02:30Z), run Session 2: score, settle, claim, Phase C/D reconciliation.
 
 ---
 
@@ -25,12 +25,12 @@ Tracks progress across sessions. Updated after each test execution.
 - All 25 handlers mapped to exact Supabase table writes from indexer source code
 
 **Pre-execution checklist:**
-- [ ] Pause Alchemy webhook
-- [ ] Clean Supabase test data (see cleanup SQL below)
-- [ ] Restart indexer and confirm caught up
-- [ ] Generate + fund MAKER/TAKER wallets
-- [ ] Create contest_reference rows for target games
-- [ ] Confirm contract approvals
+- [x] Pause Alchemy webhook — already paused from prior session
+- [x] Clean Supabase test data — already clean (cleanup ran prior, cursor past old blocks)
+- [x] Restart indexer and confirm caught up — running, cursor advancing at head
+- [x] Generate + fund MAKER/TAKER wallets — MAKER 0x7CA6... (~5 POL, ~1B USDC), TAKER 0x8D92... (~5 POL, ~1B USDC)
+- [x] Create contest_reference rows for target games — monitor already populated ~50 games
+- [x] Confirm contract approvals — all max(uint256) approvals confirmed
 
 **Supabase cleanup SQL (run in SQL Editor):**
 ```sql
@@ -65,37 +65,37 @@ powershell -Command "heroku ps:restart worker --app ospex-indexer"
 
 | Test ID | Description | Result | Evidence |
 |---------|-------------|--------|----------|
-| T-00 | Indexer liveness canary (MIN_NONCE_UPDATED) | | |
+| T-00 | Indexer liveness canary (MIN_NONCE_UPDATED) | **PASS** | tx `0xd0d86f...`, block 37108074. chain_events, maker_nonce_floors, cursor all verified. |
 
 ### Phase A: Handler Coverage
 
 | Test ID | Event(s) | Track | Result | Evidence |
 |---------|----------|-------|--------|----------|
-| A-01 | CONTEST_CREATED | 1 | | |
-| A-02 | CONTEST_VERIFIED | 1 | | |
-| A-03 | CONTEST_MARKETS_UPDATED | 1 | | |
-| A-04 | CONTEST_SCORES_SET | 1 | | |
-| A-05 | CONTEST_VOIDED | 4 | | |
-| A-06 | SPECULATION_CREATED + COMMITMENT_MATCHED + POSITION_MATCHED_PAIR | 1 | | |
-| A-07 | COMMITMENT_MATCHED + POSITION_MATCHED_PAIR (accumulation) | 1 | | |
-| A-08 | SPECULATION_SETTLED | 1 | | |
-| A-09 | POSITION_CLAIMED | 1 | | |
-| A-10 | POSITION_TRANSFERRED | 3 | | |
-| A-11 | LEADERBOARD_CREATED | 2 | | |
-| A-12 | LEADERBOARD_SPECULATION_ADDED | 2 | | |
-| A-13 | USER_REGISTERED | 2 | | |
-| A-14 | LEADERBOARD_POSITION_ADDED | 2 | | |
-| A-15 | LEADERBOARD_ROI_SUBMITTED + LEADERBOARD_NEW_HIGHEST_ROI | 2 | | |
-| A-16 | LEADERBOARD_PRIZE_CLAIMED | 2 | | |
-| A-17 | POSITION_LISTED | 3 | | |
-| A-18 | LISTING_UPDATED | 3 | | |
-| A-19 | POSITION_SOLD + POSITION_TRANSFERRED | 3 | | |
-| A-20 | LISTING_CANCELLED | 3 | | |
-| A-21 | SALE_PROCEEDS_CLAIMED | 3 | | |
-| A-22 | COMMITMENT_CANCELLED | — | | |
-| A-23 | MIN_NONCE_UPDATED | — | | |
-| A-24 | SPREAD lifecycle | 1 | | |
-| A-25 | TOTAL lifecycle | 1 | | |
+| A-01 | CONTEST_CREATED | 1 | **PASS** | 3 contests (IDs 4,5,6). tx `0xc565a6...` block 37114019, `0x31f1f4...` block 37114042, `0xdba666...` block 37114061. All indexed with team names from contest_reference, source_block set. |
+| A-02 | CONTEST_VERIFIED | 1 | **PASS** | Chainlink callbacks at blocks 37114027, 37114059, 37114067 (~8 block latency). contest_status="verified", start_time set. |
+| A-03 | CONTEST_MARKETS_UPDATED | 1 | | Deferred — not required for matching. |
+| A-04 | CONTEST_SCORES_SET | 1 | | Day 2+ — game not yet ended. |
+| A-05 | CONTEST_VOIDED | 4 | | Day 2+ — 24h cooldown not elapsed. |
+| A-06 | SPECULATION_CREATED + COMMITMENT_MATCHED + POSITION_MATCHED_PAIR | 1 | **PASS** | 3 first-fills (specs 2,3,4). Each tx emitted 4 CoreEventEmitted (incl. fee). Positions: maker upper 10M, taker lower 9.1M. source_block set on all rows. |
+| A-07 | COMMITMENT_MATCHED + POSITION_MATCHED_PAIR (accumulation) | 1 | **PASS** | tx `0x0d4cb6...` block 37114542. Only 2 events (no SPECULATION_CREATED). Taker lower risk accumulated to 13,650,000 (9.1M+4.55M). |
+| A-08 | SPECULATION_SETTLED | 1 | | Day 2+ — contest not yet scored. |
+| A-09 | POSITION_CLAIMED | 1 | | Day 2+ — speculation not yet settled. |
+| A-10 | POSITION_TRANSFERRED | 3 | **PASS** | Covered by A-19. MAKER upper on spec 3 reduced from 15M to 5M, TAKER gained 10M upper via rpc_position_transferred. |
+| A-11 | LEADERBOARD_CREATED | 2 | **PASS** | tx `0x4d4957...` block 37114594. Leaderboard 1: entry_fee=5M, start=2026-04-22T22:46:14Z, end=2026-04-26T22:41:14Z, source_block set. |
+| A-12 | LEADERBOARD_SPECULATION_ADDED | 2 | **PASS** | Speculations 2, 3, 7 added. tx `0xa21410...` block 37114657 (spec 2). source_block set. |
+| A-13 | USER_REGISTERED | 2 | **PASS** | tx `0x58812d...` block 37114613. MAKER registered, bankroll=100M, prize_pool/participants updated via rpc_user_registered. |
+| A-14 | LEADERBOARD_POSITION_ADDED | 2 | **PASS** | tx `0x9cc5f4...` block 37115074. Spec 7 (spread, lineTicks=-50) position registered. Required creating a new speculation after leaderboard creation (positions predating leaderboard are rejected). |
+| A-15 | LEADERBOARD_ROI_SUBMITTED + LEADERBOARD_NEW_HIGHEST_ROI | 2 | | Day 5+ — leaderboard endTime not elapsed. |
+| A-16 | LEADERBOARD_PRIZE_CLAIMED | 2 | | Day 5+ — ROI window not elapsed. |
+| A-17 | POSITION_LISTED | 3 | **PASS** | tx `0x26f4f5...` block 37114679. Listing on spec 3: price=12M, risk=10M, profit=9.1M, status="active", source_block set. |
+| A-18 | LISTING_UPDATED | 3 | **PASS** | tx `0x76bce5...` block 37114681. Price updated to 11M, listing_hash changed. |
+| A-19 | POSITION_SOLD + POSITION_TRANSFERRED | 3 | **PASS** | tx `0x1b28c4...` block 37114684. 2 CoreEventEmitted events. Listing status="sold", position transferred. |
+| A-20 | LISTING_CANCELLED | 3 | **PASS** | tx `0x63d57b...` block 37114709. TAKER listed then cancelled. status="cancelled". |
+| A-21 | SALE_PROCEEDS_CLAIMED | 3 | **PASS** | tx `0xd9730e...` block 37114711. MAKER claimed 11M USDC. Handler is no-op (chain_events only). |
+| A-22 | COMMITMENT_CANCELLED | — | **PASS** | tx `0xcefdf6...` block 37114573. chain_events row with COMMITMENT_CANCELLED. |
+| A-23 | MIN_NONCE_UPDATED | — | **PASS** | tx `0xd298ef...` block 37114575. maker_nonce_floors: min_nonce=10, source_block=37114575. |
+| A-24 | SPREAD lifecycle | 1 | **PASS** | Speculation 5: market_type="spread", line_ticks=-30, source_block set. |
+| A-25 | TOTAL lifecycle | 1 | **PASS** | Speculation 6: market_type="total", line_ticks=2150, source_block set. |
 
 ### Phase B: Hardening
 
@@ -128,9 +128,66 @@ powershell -Command "heroku ps:restart worker --app ospex-indexer"
 
 ## Session Execution Log
 
-### Session 1 — Day 1 (TBD)
+### Session 1 — 2026-04-22 (Day 1)
 
-_Execution not yet started. Awaiting plan approval._
+**Duration:** ~2.5 hours (20:00–22:55 UTC)
+
+**Contests created:**
+
+| Contest | ID | Game | jsonodds_id | start_time | Track |
+|---------|----|------|-------------|------------|-------|
+| A | 4 | Cleveland Cavaliers @ Toronto Raptors | `14ae309a-522d-4b96-aaf1-4f6110390566` | 2026-04-24T00:00:00Z | 1 (score/settle) |
+| B | 5 | Boston Celtics @ Philadelphia 76ers | `81d367a7-a471-41c9-b027-09a8a983fdda` | 2026-04-24T23:00:00Z | 3 (secondary market) |
+| C | 6 | Orlando Magic @ Detroit Pistons | `67181d02-aaec-4ebd-82a7-d317cfe461bd` | 2026-04-22T23:00:00Z | 4 (void/cooldown) |
+
+**Speculation IDs created:**
+
+| Spec ID | Contest | Market | Notes |
+|---------|---------|--------|-------|
+| 1 | Old (webhook era) | — | Pre-existing from prior testing. Not in Supabase (cleanup ran). On-chain only. |
+| 2 | C (6) | moneyline | First new match. Track 4. |
+| 3 | A (4) | moneyline | Track 1 primary. Accumulation test + secondary market sale. |
+| 4 | B (5) | moneyline | Track 3. |
+| 5 | A (4) | spread | lineTicks=-30. |
+| 6 | A (4) | total | lineTicks=2150. |
+| 7 | A (4) | spread | lineTicks=-50. Created post-leaderboard for A-14 registration. |
+
+**Test wallets:**
+
+| Role | Address |
+|------|---------|
+| Deployer | `0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3` |
+| MAKER | `0x7CA624C92b8Aed9ee83Ed621A898f7524FAfBa24` |
+| TAKER | `0x8D92451e7457b0076349eBA44d60b36a1038bF31` |
+
+**Leaderboard:**
+
+| ID | startTime | endTime | safety | roiWindow | Speculations |
+|----|-----------|---------|--------|-----------|-------------|
+| 1 | 2026-04-22T22:46:14Z | 2026-04-26T22:41:14Z | 60s | 60s | 2, 3, 7 |
+
+**Indexer state at end of session:**
+- 36 chain_events rows (16 distinct event types)
+- 5 speculations (IDs 2-6, plus 7 created late)
+- 11 position rows across 6 speculations
+- 0 pending_events
+- Cursor at block ~37115100, advancing normally
+- Zero indexer errors
+
+**Findings:**
+
+1. **league_id="unknown" on all contests.** The oracle returns a numeric leagueId value that does not appear in the indexer's `LEAGUE_ID_MAP`. NBA should map to 4→"nba", but "unknown" was stored. Investigate the oracle callback's actual leagueId encoding vs the indexer's mapping. Non-blocking for testing.
+
+2. **Speculation 1 is from the webhook era.** The on-chain speculation counter was at 1 before Session 1 started (from old contest 1-3 testing). Our new speculations start at ID 2. Speculation 1 exists on-chain but not in Supabase (cleanup deleted it, cursor past those blocks).
+
+3. **LeaderboardModule__PositionPredatesLeaderboard.** Positions created before the leaderboard was created cannot be registered. Required creating a new speculation (ID 7) after leaderboard creation (block 37114594) to have an eligible position. This is correct contract behavior — leaderboards enforce that positions were taken after the leaderboard was created.
+
+4. **LeaderboardModule__ContestAlreadyStarted.** Attempting to add speculation 1 (from old webhook-era contest) to the leaderboard failed because that old contest's start_time had already passed. This is expected — the contract prevents adding speculations from already-started contests to new leaderboards.
+
+**Next session gates:**
+- Session 2: Cavaliers @ Raptors game ends (~2026-04-24T02:30Z) → score, settle, claim
+- Session 3: Contest C void cooldown (~2026-04-23T23:00Z + 24h = 2026-04-24T23:00Z) → void, post-cooldown rejection
+- Session 4: Leaderboard endTime (2026-04-26T22:41:14Z + 60s safety + 60s ROI) → ROI submission, prize claim
 
 ---
 
