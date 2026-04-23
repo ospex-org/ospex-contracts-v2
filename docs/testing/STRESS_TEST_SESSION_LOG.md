@@ -4,9 +4,9 @@ Tracks progress across sessions. Updated after each test execution.
 
 ## Current Status
 
-**Plan version:** v2.1 (ospex-indexer)
-**Phase:** Session 1 + Phase C partial COMPLETE. Waiting for games to end for Session 2.
-**Next action:** After Cavaliers @ Raptors game ends (~2026-04-24T02:30Z), run Session 2: score, settle, claim. league_id fix PR open (ospex-org/ospex-indexer#8). Backfill CLI needs chunking fix before C-04 can pass.
+**Plan version:** v3.0 (post-indexer PRs 8-15)
+**Phase:** SUPABASE WIPED — ready for clean Session 1 re-test.
+**Next action:** Confirm indexer redeployed with migrations 025-029 + league_id fix. Wait for cursor to catch up. Then execute Session 1 from scratch.
 
 ---
 
@@ -59,43 +59,56 @@ powershell -Command "heroku ps:restart worker --app ospex-indexer"
 
 ---
 
-## Test Results Summary (v2)
+## Test Results Summary (v3 — clean re-test)
+
+Prior Session 1 results (2026-04-22) are archived below. This section is for the clean re-test after PRs 8-15 and Supabase wipe.
 
 ### T-00: Canary
 
 | Test ID | Description | Result | Evidence |
 |---------|-------------|--------|----------|
-| T-00 | Indexer liveness canary (MIN_NONCE_UPDATED) | **PASS** | tx `0xd0d86f...`, block 37108074. chain_events, maker_nonce_floors, cursor all verified. |
+| T-00 | Indexer liveness canary (MIN_NONCE_UPDATED) | | |
 
 ### Phase A: Handler Coverage
 
 | Test ID | Event(s) | Track | Result | Evidence |
 |---------|----------|-------|--------|----------|
-| A-01 | CONTEST_CREATED | 1 | **PASS** | 3 contests (IDs 4,5,6). tx `0xc565a6...` block 37114019, `0x31f1f4...` block 37114042, `0xdba666...` block 37114061. All indexed with team names from contest_reference, source_block set. |
-| A-02 | CONTEST_VERIFIED | 1 | **PASS** | Chainlink callbacks at blocks 37114027, 37114059, 37114067 (~8 block latency). contest_status="verified", start_time set. |
-| A-03 | CONTEST_MARKETS_UPDATED | 1 | | Deferred — not required for matching. |
-| A-04 | CONTEST_SCORES_SET | 1 | | Day 2+ — game not yet ended. |
-| A-05 | CONTEST_VOIDED | 4 | | Day 2+ — 24h cooldown not elapsed. |
-| A-06 | SPECULATION_CREATED + COMMITMENT_MATCHED + POSITION_MATCHED_PAIR | 1 | **PASS** | 3 first-fills (specs 2,3,4). Each tx emitted 4 CoreEventEmitted (incl. fee). Positions: maker upper 10M, taker lower 9.1M. source_block set on all rows. |
-| A-07 | COMMITMENT_MATCHED + POSITION_MATCHED_PAIR (accumulation) | 1 | **PASS** | tx `0x0d4cb6...` block 37114542. Only 2 events (no SPECULATION_CREATED). Taker lower risk accumulated to 13,650,000 (9.1M+4.55M). |
-| A-08 | SPECULATION_SETTLED | 1 | | Day 2+ — contest not yet scored. |
-| A-09 | POSITION_CLAIMED | 1 | | Day 2+ — speculation not yet settled. |
-| A-10 | POSITION_TRANSFERRED | 3 | **PASS** | Covered by A-19. MAKER upper on spec 3 reduced from 15M to 5M, TAKER gained 10M upper via rpc_position_transferred. |
-| A-11 | LEADERBOARD_CREATED | 2 | **PASS** | tx `0x4d4957...` block 37114594. Leaderboard 1: entry_fee=5M, start=2026-04-22T22:46:14Z, end=2026-04-26T22:41:14Z, source_block set. |
-| A-12 | LEADERBOARD_SPECULATION_ADDED | 2 | **PASS** | Speculations 2, 3, 7 added. tx `0xa21410...` block 37114657 (spec 2). source_block set. |
-| A-13 | USER_REGISTERED | 2 | **PASS** | tx `0x58812d...` block 37114613. MAKER registered, bankroll=100M, prize_pool/participants updated via rpc_user_registered. |
-| A-14 | LEADERBOARD_POSITION_ADDED | 2 | **PASS** | tx `0x9cc5f4...` block 37115074. Spec 7 (spread, lineTicks=-50) position registered. Required creating a new speculation after leaderboard creation (positions predating leaderboard are rejected). |
-| A-15 | LEADERBOARD_ROI_SUBMITTED + LEADERBOARD_NEW_HIGHEST_ROI | 2 | | Day 5+ — leaderboard endTime not elapsed. |
-| A-16 | LEADERBOARD_PRIZE_CLAIMED | 2 | | Day 5+ — ROI window not elapsed. |
-| A-17 | POSITION_LISTED | 3 | **PASS** | tx `0x26f4f5...` block 37114679. Listing on spec 3: price=12M, risk=10M, profit=9.1M, status="active", source_block set. |
-| A-18 | LISTING_UPDATED | 3 | **PASS** | tx `0x76bce5...` block 37114681. Price updated to 11M, listing_hash changed. |
-| A-19 | POSITION_SOLD + POSITION_TRANSFERRED | 3 | **PASS** | tx `0x1b28c4...` block 37114684. 2 CoreEventEmitted events. Listing status="sold", position transferred. |
-| A-20 | LISTING_CANCELLED | 3 | **PASS** | tx `0x63d57b...` block 37114709. TAKER listed then cancelled. status="cancelled". |
-| A-21 | SALE_PROCEEDS_CLAIMED | 3 | **PASS** | tx `0xd9730e...` block 37114711. MAKER claimed 11M USDC. Handler is no-op (chain_events only). |
-| A-22 | COMMITMENT_CANCELLED | — | **PASS** | tx `0xcefdf6...` block 37114573. chain_events row with COMMITMENT_CANCELLED. |
-| A-23 | MIN_NONCE_UPDATED | — | **PASS** | tx `0xd298ef...` block 37114575. maker_nonce_floors: min_nonce=10, source_block=37114575. |
-| A-24 | SPREAD lifecycle | 1 | **PASS** | Speculation 5: market_type="spread", line_ticks=-30, source_block set. |
-| A-25 | TOTAL lifecycle | 1 | **PASS** | Speculation 6: market_type="total", line_ticks=2150, source_block set. |
+| A-01 | CONTEST_CREATED | 1 | | |
+| A-02 | CONTEST_VERIFIED | 1 | | |
+| A-03 | CONTEST_MARKETS_UPDATED | 1 | | |
+| A-04 | CONTEST_SCORES_SET | 1 | | |
+| A-05 | CONTEST_VOIDED | 4 | | |
+| A-06 | SPECULATION_CREATED + COMMITMENT_MATCHED + POSITION_MATCHED_PAIR | 1 | | |
+| A-07 | COMMITMENT_MATCHED + POSITION_MATCHED_PAIR (accumulation) | 1 | | |
+| A-08 | SPECULATION_SETTLED | 1 | | |
+| A-09 | POSITION_CLAIMED | 1 | | |
+| A-10 | POSITION_TRANSFERRED | 3 | | |
+| A-11 | LEADERBOARD_CREATED | 2 | | |
+| A-12 | LEADERBOARD_SPECULATION_ADDED | 2 | | |
+| A-13 | USER_REGISTERED | 2 | | |
+| A-14 | LEADERBOARD_POSITION_ADDED | 2 | | |
+| A-15 | LEADERBOARD_ROI_SUBMITTED + LEADERBOARD_NEW_HIGHEST_ROI | 2 | | |
+| A-16 | LEADERBOARD_PRIZE_CLAIMED | 2 | | |
+| A-17 | POSITION_LISTED | 3 | | |
+| A-18 | LISTING_UPDATED | 3 | | |
+| A-19 | POSITION_SOLD + POSITION_TRANSFERRED | 3 | | |
+| A-20 | LISTING_CANCELLED | 3 | | |
+| A-21 | SALE_PROCEEDS_CLAIMED | 3 | | |
+| A-22 | COMMITMENT_CANCELLED | — | | |
+| A-23 | MIN_NONCE_UPDATED | — | | |
+| A-24 | SPREAD lifecycle | 1 | | |
+| A-25 | TOTAL lifecycle | 1 | | |
+
+### New field verifications (PRs 8-15)
+
+| After test | Field | Expected | Result | Evidence |
+|------------|-------|----------|--------|----------|
+| A-01/A-02 | contests.league_id | Real sport slug (e.g., "nba"), NOT "unknown" | | |
+| A-06 | commitments row exists | source='indexer', contest_id/scorer/odds_tick populated | | |
+| A-19 | positions.acquired_via_secondary_market | true for buyer | | |
+| A-19 | positions.first_fill_timestamp | = seller's original fill time | | |
+| A-19 | listings.sold_price/risk/profit | Pre-sale values populated | | |
+| A-22 | commitments row for cancelled hash | status='cancelled', source='indexer' | | |
 
 ### Phase B: Hardening
 

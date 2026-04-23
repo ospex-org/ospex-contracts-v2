@@ -1,21 +1,43 @@
-# Amoy Stress Test Plan v2 — ospex-indexer
+# Amoy Stress Test Plan v3 — ospex-indexer (post PRs 8-15)
 
-Status: **SESSION 1 COMPLETE** — 18/25 handler tests passed. Waiting for game completion (Session 2), void cooldown (Session 3), and leaderboard endTime (Session 4).
+Status: **SUPABASE WIPED — READY FOR RE-TEST.** Prior Session 1 results are stale. Awaiting indexer redeploy + catchup before clean Session 1 execution.
 
 ---
 
 ## Supersedes
 
-This plan **supersedes** the prior v1 plan in its entirety. All v1 test results were validated against the Alchemy-webhook/ospex-fdb pipeline, which has been retired. Those results are archived in `STRESS_TEST_SESSION_LOG.md` under "Archived: Previous Webhook Test Results" for reference only — they do not validate the indexer.
+This plan **supersedes** v2/v2.1 and all prior Session 1 results. Supabase was wiped on 2026-04-23 after merging indexer PRs 8-15. All prior pass/fail results are stale.
 
-Key v1 findings that remain relevant:
-- **Oracle verify script rejects non-scheduled games** — still true. Only `STATUS_SCHEDULED` games pass verification. All end-to-end tests must use future games (24-72h out).
-- **Rundown API transient failures** — still possible. Retry scoring if Chainlink callback returns error.
+### PRs merged since last test run
 
-Key v1 findings no longer applicable:
-- Firebase Functions scorer config mismatch — webhook-specific.
-- Alchemy webhook auto-pause on 500s — no webhook.
-- Cascading FK violations from lost events — addressed by pending_events system.
+| PR | What it fixes | New verification |
+|----|--------------|-----------------|
+| #8 | league_id derived from contest_reference sport, not approvedLeagueId | Verify `contests.league_id` is "nba"/"mlb"/etc., not "unknown" |
+| #9 | POSITION_TRANSFERRED sets acquired_via_secondary_market + first_fill_timestamp | Verify buyer position has `acquired_via_secondary_market=true` and `first_fill_timestamp` = sender's original fill time |
+| #10 | Backfill CLI atomic with dependency closure | C-04 test can now run (after Alchemy chunking addressed) |
+| #11 | COMMITMENT_MATCHED upserts commitment row | Verify `commitments` table populated after match (even without agent server) |
+| #12 | COMMITMENT_CANCELLED upserts, recompute creates missing rows | Verify `commitments` row after cancel of unknown hash |
+| #13 | Preservation test + canonicality docs | Agent-enriched fields preserved on indexer upsert |
+| #14 | Sold listing snapshots (sold_price/risk/profit) | Verify `sold_price`, `sold_risk_amount`, `sold_profit_amount` on full sale |
+| #15 | CI checks on main | Automated typecheck + test + lint |
+
+### New verification steps (add to each relevant test)
+
+After A-01/A-02: `contests.league_id` must be a real sport slug (e.g., "nba"), NOT "unknown".
+
+After A-06 (first match): `commitments` table must have a row for the commitment hash with `source='indexer'`, `contest_id`, `scorer`, `odds_tick` populated.
+
+After A-19 (POSITION_SOLD + POSITION_TRANSFERRED):
+- Buyer's position: `acquired_via_secondary_market=true`
+- Buyer's position: `first_fill_timestamp` = seller's original fill time (NOT the transfer block time)
+- Listing: `sold_price`, `sold_risk_amount`, `sold_profit_amount` populated with pre-sale values; live columns zeroed
+
+After A-22 (COMMITMENT_CANCELLED): `commitments` table must have a row for the cancelled hash with `status='cancelled'`, `source='indexer'`.
+
+### Findings that still apply
+- **Oracle verify script rejects non-scheduled games** — use future games (24-72h out)
+- **Rundown API transient failures** — retry scoring on callback failure
+- **Future contests only** constraint still stands for end-to-end scenarios
 
 ---
 
