@@ -856,6 +856,26 @@ cast send $SECONDARY_MARKET_MODULE "cancelListing(uint256,uint8)" SPEC_ID POSITI
 
 ---
 
+#### A-20b: RELIST AFTER SALE — sold_* cleared (PR #14 relist fix)
+
+**Description:** After A-19 (full sale) and A-20 (cancel), relist on the same (network, speculation_id, seller, position_type) key. Verify that stale sold_* columns from the prior sale are cleared.
+
+**Prerequisites:** A-19 completed (listing sold with sold_price/risk/profit populated). Seller has remaining position to relist.
+
+**Action:** List the same position key again (POSITION_LISTED fires, upsert on conflict).
+
+**Expected Supabase outcome:**
+- `secondary_market_listings` row: status="active", price/risk/profit set to new values
+- `sold_price` = null, `sold_risk_amount` = null, `sold_profit_amount` = null, `sold_at` = null
+
+**Pass/Fail:**
+
+**Evidence:**
+
+**Notes:** This is the relist fix from PR #14 review. The POSITION_LISTED upsert explicitly nulls sold_* columns on conflict.
+
+---
+
 #### A-21: SALE_PROCEEDS_CLAIMED
 
 **Description:** Seller claims accumulated proceeds from sales.
@@ -928,6 +948,8 @@ cast send $MATCHING_MODULE \
 - `chain_events` row: event_type="MIN_NONCE_UPDATED"
 - `maker_nonce_floors` row: maker=MAKER, speculation_key=hash, min_nonce=5, source_block set
 - `commitments`: any rows with nonce < 5 for this maker/speculation_key have `nonce_invalidated=true` (best-effort)
+
+**PR #11-13 commitment invalidation check:** After this test, query commitments for this maker/speculation_key. If indexer-created commitment rows exist from A-06 matches (which used nonces 1-2), verify `nonce_invalidated=true` on those rows. This confirms the MIN_NONCE_UPDATED handler's best-effort invalidation works on indexer-created rows, not just agent-created ones.
 
 **Pass/Fail:**
 
@@ -1206,11 +1228,25 @@ SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... CHAIN_ID=80002 \
 - Field values identical
 - chain_events re-inserted with same data
 
+**Post-backfill invariant checks (PR #10):**
+
+C-04a: **No orphaned projections** — every projected row with `source_block` in the backfill range must have at least one corresponding `chain_events` row at that block. Query:
+```sql
+SELECT 'contests' as tbl, source_block FROM contests WHERE network='amoy' AND source_block BETWEEN FROM AND TO
+EXCEPT
+SELECT 'contests', block_number FROM chain_events WHERE network='amoy' AND block_number BETWEEN FROM AND TO;
+-- Must return zero rows. Repeat for speculations, positions, etc.
+```
+
+C-04b: **Leaderboard rows complete** — if the backfill range touched speculations that are referenced by leaderboard_speculations or leaderboard_positions, those leaderboard rows must still be present after backfill. The RPC's dependency closure should have expanded to include the parent leaderboard for rebuild.
+
+C-04c: **Commitment fields correct** — for each commitment hash in the backfill range, verify `filled_risk_amount`, `applied_fills`, and `status` match the chain_events-derived state. The recompute step should have created missing commitment rows and computed correct fill totals.
+
 **Pass/Fail:**
 
 **Evidence:**
 
-**Notes:** The backfill process: deletes chain_events + projected rows in range, re-fetches logs from chain, re-inserts chain_events, rebuilds projected state from complete history. Tests the 10-step repair sequence. Critical for production recovery confidence.
+**Notes:** The backfill CLI now uses `rpc_backfill_range` (PR #10) — all deletes + inserts in one Postgres transaction. If the RPC fails, nothing changes. Rebuild runs after the RPC commits. The consistency check runs automatically at the end of every successful backfill.
 
 ---
 
@@ -1464,4 +1500,6 @@ Compare against:
 |------|--------|
 | 2026-04-22 | v2 plan created. Supersedes v1 (webhook-based). Restructured for ospex-indexer: added Phase C (indexer-specific), removed aspirational agent integration (old Phase D), added pending_events/source_block/reconcile/backfill tests, incorporated future-contests-only constraint, documented all 25 handlers with exact Supabase table targets from indexer source code. |
 | 2026-04-22 | v2.1 feedback incorporated: (1) Split linear flow into 4 independent tracks (score/settle, leaderboard, secondary market, void/cooldown) to avoid incompatible timing assumptions — leaderboard endTime extended to 4 days. (2) Added T-00 indexer liveness canary before expensive oracle calls. (3) Explicitly documented 2 unhandled events (LEADERBOARD_FUNDED, LEADERBOARD_ENTRY_FEE_PROCESSED) with rationale. (4) Replaced row-count reconciliation (D-02) with per-tx event assertions, exact target-row checks, duplicate detection, and replay-derived consistency. |
-| 2026-04-22 | Session 1 executed. 18 of 25 handler tests passed (T-00 + 17 Phase A tests). 36 chain_events indexed, 0 pending_events. Contests 4-6 created (NBA), speculations 2-7 created, leaderboard 1 created. Key findings: (1) league_id="unknown" on all contests — indexer LEAGUE_ID_MAP may not match oracle's leagueId encoding, investigate. (2) Speculation IDs start at 2 because speculation 1 was left over from webhook-era testing on-chain. (3) Positions created before leaderboard creation are correctly rejected by LeaderboardModule__PositionPredatesLeaderboard — required creating spec 7 post-leaderboard. Remaining tests gated on game completion (Session 2), void cooldown (Session 3), and leaderboard endTime (Session 4). |
+| 2026-04-22 | Session 1 executed (now stale — superseded by v3 re-test). |
+| 2026-04-23 | v3 plan: Supabase wiped after PRs 8-15 merged. Added new verification steps for league_id, acquired_via_secondary_market, first_fill_timestamp, commitment upserts, sold_* snapshot. All pass/fail reset. |
+| 2026-04-23 | OC review additions: (1) A-20b relist check — verify sold_* cleared on relist. (2) C-04a/b/c — explicit backfill invariants: no orphaned projections, leaderboard rows complete, commitment fields correct. (3) A-23 commitment invalidation check — verify nonce_invalidated on indexer-created commitments. (4) Annotated "commitments empty by design" finding as superseded by PRs 11-13. |

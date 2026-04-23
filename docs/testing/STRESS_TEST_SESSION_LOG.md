@@ -108,7 +108,9 @@ Prior Session 1 results (2026-04-22) are archived below. This section is for the
 | A-19 | positions.acquired_via_secondary_market | true for buyer | | |
 | A-19 | positions.first_fill_timestamp | = seller's original fill time | | |
 | A-19 | listings.sold_price/risk/profit | Pre-sale values populated | | |
+| A-20 relist | listings.sold_* after relist | sold_price/risk/profit/at ALL null on new active listing | | |
 | A-22 | commitments row for cancelled hash | status='cancelled', source='indexer' | | |
+| A-23 | commitments.nonce_invalidated | Commitments below nonce floor marked invalidated (if present) | | |
 
 ### Phase B: Hardening
 
@@ -122,12 +124,15 @@ Prior Session 1 results (2026-04-22) are archived below. This section is for the
 
 | Test ID | Description | Result | Evidence |
 |---------|-------------|--------|----------|
-| C-01 | Pending events dependency flow | | Deferred — requires contest with missing contest_reference. |
-| C-02 | source_block population | **PASS** | Zero null source_block across 9 tables (33 rows). |
-| C-03 | Reconcile CLI | **PASS** | All 13 tables compared, zero drift. Exit code 0. |
-| C-04 | Backfill CLI | **BLOCKED** | Two issues: (1) Alchemy free tier limits eth_getLogs to 10-block ranges, CLI doesn't chunk. (2) Partial-range backfill hits FK constraints when parent rows have children outside the range. See findings. |
-| C-05 | Cursor advancement | **PASS** | Cursor at block 37129455, hash matches on-chain exactly. Lag=135 blocks (~128 depth + processing). |
-| C-06 | Chain events deduplication | **PASS** | Zero duplicates across chain_events (46 rows), positions (14), speculations (6). pending_events=0. |
+| C-01 | Pending events dependency flow | | |
+| C-02 | source_block population | | |
+| C-03 | Reconcile CLI | | |
+| C-04 | Backfill CLI (PR #10 atomic RPC) | | |
+| C-04a | Backfill: no orphaned projections | | No projected row in range without backing chain_events |
+| C-04b | Backfill: leaderboard rows complete | | Leaderboard rows tied to touched speculations still present after backfill |
+| C-04c | Backfill: commitment fields correct | | Commitments filled_risk_amount, applied_fills, status match chain_events-derived state |
+| C-05 | Cursor advancement | | |
+| C-06 | Chain events deduplication | | |
 
 ### Phase D: Volume / Concurrency
 
@@ -201,7 +206,7 @@ Prior Session 1 results (2026-04-22) are archived below. This section is for the
 
 6. **Backfill CLI partial-range FK violation.** When backfilling a range that contains a parent row (contest) but not its children (speculations in later blocks), the delete step fails with `fk_speculation_contest`. The CLI needs to either: (a) expand the affected set to include dependent rows outside the range, or (b) use `CASCADE` deletes, or (c) require full-entity-lifecycle ranges. This is a real limitation that would affect production recovery scenarios.
 
-7. **commitments table empty by design.** The `rpc_commitment_matched` RPC writes to `position_fills` (9 rows) but not `commitments`. The `commitments` table is populated by the agent server when off-chain commitments are created (Michelle posts them). The indexer only updates existing commitment rows (via COMMITMENT_CANCELLED and MIN_NONCE_UPDATED). Stress tests created commitments purely on-chain, bypassing the agent pipeline.
+7. **~~commitments table empty by design~~** — SUPERSEDED by PRs #11-#13. The indexer now upserts commitment rows on COMMITMENT_MATCHED and COMMITMENT_CANCELLED. The commitments table should be populated after any on-chain match or cancel, even without the agent server. This finding from Session 1 no longer applies.
 
 **Next session gates:**
 - Session 2: Cavaliers @ Raptors game ends (~2026-04-24T02:30Z) → score, settle, claim
