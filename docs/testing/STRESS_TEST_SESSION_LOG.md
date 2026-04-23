@@ -5,8 +5,8 @@ Tracks progress across sessions. Updated after each test execution.
 ## Current Status
 
 **Plan version:** v2.1 (ospex-indexer)
-**Phase:** Session 1 COMPLETE. Waiting for games to end for Session 2.
-**Next action:** After Cavaliers @ Raptors game ends (~2026-04-24T02:30Z), run Session 2: score, settle, claim, Phase C/D reconciliation.
+**Phase:** Session 1 + Phase C partial COMPLETE. Waiting for games to end for Session 2.
+**Next action:** After Cavaliers @ Raptors game ends (~2026-04-24T02:30Z), run Session 2: score, settle, claim. league_id fix PR open (ospex-org/ospex-indexer#8). Backfill CLI needs chunking fix before C-04 can pass.
 
 ---
 
@@ -109,12 +109,12 @@ powershell -Command "heroku ps:restart worker --app ospex-indexer"
 
 | Test ID | Description | Result | Evidence |
 |---------|-------------|--------|----------|
-| C-01 | Pending events dependency flow | | |
-| C-02 | source_block population | | |
-| C-03 | Reconcile CLI | | |
-| C-04 | Backfill CLI | | |
-| C-05 | Cursor advancement | | |
-| C-06 | Chain events deduplication | | |
+| C-01 | Pending events dependency flow | | Deferred — requires contest with missing contest_reference. |
+| C-02 | source_block population | **PASS** | Zero null source_block across 9 tables (33 rows). |
+| C-03 | Reconcile CLI | **PASS** | All 13 tables compared, zero drift. Exit code 0. |
+| C-04 | Backfill CLI | **BLOCKED** | Two issues: (1) Alchemy free tier limits eth_getLogs to 10-block ranges, CLI doesn't chunk. (2) Partial-range backfill hits FK constraints when parent rows have children outside the range. See findings. |
+| C-05 | Cursor advancement | **PASS** | Cursor at block 37129455, hash matches on-chain exactly. Lag=135 blocks (~128 depth + processing). |
+| C-06 | Chain events deduplication | **PASS** | Zero duplicates across chain_events (46 rows), positions (14), speculations (6). pending_events=0. |
 
 ### Phase D: Volume / Concurrency
 
@@ -183,6 +183,12 @@ powershell -Command "heroku ps:restart worker --app ospex-indexer"
 3. **LeaderboardModule__PositionPredatesLeaderboard.** Positions created before the leaderboard was created cannot be registered. Required creating a new speculation (ID 7) after leaderboard creation (block 37114594) to have an eligible position. This is correct contract behavior — leaderboards enforce that positions were taken after the leaderboard was created.
 
 4. **LeaderboardModule__ContestAlreadyStarted.** Attempting to add speculation 1 (from old webhook-era contest) to the leaderboard failed because that old contest's start_time had already passed. This is expected — the contract prevents adding speculations from already-started contests to new leaderboards.
+
+5. **Backfill CLI does not chunk eth_getLogs.** The live indexer uses `BLOCK_RANGE_CHUNK=10` (Heroku config) to respect Alchemy free-tier limits. The backfill CLI sends the full range in one call, which fails on free-tier Alchemy with >10 blocks. Fix: add chunking to the backfill CLI, or use a PAYG RPC for backfills.
+
+6. **Backfill CLI partial-range FK violation.** When backfilling a range that contains a parent row (contest) but not its children (speculations in later blocks), the delete step fails with `fk_speculation_contest`. The CLI needs to either: (a) expand the affected set to include dependent rows outside the range, or (b) use `CASCADE` deletes, or (c) require full-entity-lifecycle ranges. This is a real limitation that would affect production recovery scenarios.
+
+7. **commitments table empty by design.** The `rpc_commitment_matched` RPC writes to `position_fills` (9 rows) but not `commitments`. The `commitments` table is populated by the agent server when off-chain commitments are created (Michelle posts them). The indexer only updates existing commitment rows (via COMMITMENT_CANCELLED and MIN_NONCE_UPDATED). Stress tests created commitments purely on-chain, bypassing the agent pipeline.
 
 **Next session gates:**
 - Session 2: Cavaliers @ Raptors game ends (~2026-04-24T02:30Z) → score, settle, claim
