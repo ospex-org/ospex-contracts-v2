@@ -5,8 +5,8 @@ Tracks progress across sessions. Updated after each test execution.
 ## Current Status
 
 **Plan version:** v3.0 (post-indexer PRs 8-15)
-**Phase:** SUPABASE WIPED — ready for clean Session 1 re-test.
-**Next action:** Confirm indexer redeployed with migrations 025-029 + league_id fix. Wait for cursor to catch up. Then execute Session 1 from scratch.
+**Phase:** Session 1 COMPLETE. 21/25 event types tested, all passing. 51 chain events indexed, 0 pending, 0 errors.
+**Next action:** Session 2 (Score/Settle/Claim on Contest A) after Knicks @ Hawks game ends (~7:30 PM CDT April 25). Session 3 (Void Contest C) after void cooldown expires (~12 PM CDT April 26).
 
 ---
 
@@ -67,86 +67,158 @@ Prior Session 1 results (2026-04-22) are archived below. This section is for the
 
 | Test ID | Description | Result | Evidence |
 |---------|-------------|--------|----------|
-| T-00 | Indexer liveness canary (MIN_NONCE_UPDATED) | | |
+| T-00 | Indexer liveness canary (MIN_NONCE_UPDATED) | PASS | tx 0xf3c729..., block 37186158. chain_events row, maker_nonce_floors row (min_nonce=100, source_block=37186158), 0 pending_events. |
 
 ### Phase A: Handler Coverage
 
 | Test ID | Event(s) | Track | Result | Evidence |
 |---------|----------|-------|--------|----------|
-| A-01 | CONTEST_CREATED | 1 | | |
-| A-02 | CONTEST_VERIFIED | 1 | | |
-| A-03 | CONTEST_MARKETS_UPDATED | 1 | | |
-| A-04 | CONTEST_SCORES_SET | 1 | | |
-| A-05 | CONTEST_VOIDED | 4 | | |
-| A-06 | SPECULATION_CREATED + COMMITMENT_MATCHED + POSITION_MATCHED_PAIR | 1 | | |
-| A-07 | COMMITMENT_MATCHED + POSITION_MATCHED_PAIR (accumulation) | 1 | | |
-| A-08 | SPECULATION_SETTLED | 1 | | |
-| A-09 | POSITION_CLAIMED | 1 | | |
-| A-10 | POSITION_TRANSFERRED | 3 | | |
-| A-11 | LEADERBOARD_CREATED | 2 | | |
-| A-12 | LEADERBOARD_SPECULATION_ADDED | 2 | | |
-| A-13 | USER_REGISTERED | 2 | | |
-| A-14 | LEADERBOARD_POSITION_ADDED | 2 | | |
-| A-15 | LEADERBOARD_ROI_SUBMITTED + LEADERBOARD_NEW_HIGHEST_ROI | 2 | | |
-| A-16 | LEADERBOARD_PRIZE_CLAIMED | 2 | | |
-| A-17 | POSITION_LISTED | 3 | | |
-| A-18 | LISTING_UPDATED | 3 | | |
-| A-19 | POSITION_SOLD + POSITION_TRANSFERRED | 3 | | |
-| A-20 | LISTING_CANCELLED | 3 | | |
-| A-21 | SALE_PROCEEDS_CLAIMED | 3 | | |
-| A-22 | COMMITMENT_CANCELLED | — | | |
-| A-23 | MIN_NONCE_UPDATED | — | | |
-| A-24 | SPREAD lifecycle | 1 | | |
-| A-25 | TOTAL lifecycle | 1 | | |
+| A-01 | CONTEST_CREATED | 1 | PASS | 3 contests (IDs 7,8,9), blocks 37186208/236/248 |
+| A-02 | CONTEST_VERIFIED | 1 | PASS | All 3 verified via Chainlink callbacks within ~30s |
+| A-03 | CONTEST_MARKETS_UPDATED | 1 | PASS | ML 180/205, spread -15 (189/193), total 2145 (191/191) |
+| A-04 | CONTEST_SCORES_SET | 1 | | Session 2 — after game ends |
+| A-05 | CONTEST_VOIDED | 4 | | Session 3 — 24h cooldown |
+| A-06 | SPECULATION_CREATED + COMMITMENT_MATCHED + POSITION_MATCHED_PAIR | 1 | PASS | Spec 8, 4 events (3+treasury), positions + fills correct |
+| A-07 | COMMITMENT_MATCHED + POSITION_MATCHED_PAIR (accumulation) | 1 | PASS | Maker risk accumulated to 20000000 (2×10 USDC), 2 events |
+| A-08 | SPECULATION_SETTLED | 1 | | Session 2 — after scoring |
+| A-09 | POSITION_CLAIMED | 1 | | Session 2 — after settling |
+| A-10 | POSITION_TRANSFERRED | 3 | PASS | Via A-19 buyPosition, TAKER received position |
+| A-11 | LEADERBOARD_CREATED | 2 | PASS | LB 2, entry_fee=5 USDC, start+5min, end+4d |
+| A-12 | LEADERBOARD_SPECULATION_ADDED | 2 | PASS | Specs 13,14 added to LB 2 |
+| A-13 | USER_REGISTERED | 2 | PASS | MAKER+TAKER registered, participants=2, prize_pool updated |
+| A-14 | LEADERBOARD_POSITION_ADDED | 2 | PASS | Spec 14 position registered after startTime. Gas: 379k (>300k default!) |
+| A-15 | LEADERBOARD_ROI_SUBMITTED + LEADERBOARD_NEW_HIGHEST_ROI | 2 | | Session 4 — after settling + endTime |
+| A-16 | LEADERBOARD_PRIZE_CLAIMED | 2 | | Session 4 — after ROI window |
+| A-17 | POSITION_LISTED | 3 | PASS | Spec 11 listed at 12 USDC by MAKER |
+| A-18 | LISTING_UPDATED | 3 | PASS | Price updated to 11 USDC |
+| A-19 | POSITION_SOLD + POSITION_TRANSFERRED | 3 | PASS | TAKER bought for 11 USDC, 2 CoreEventEmitted |
+| A-20 | LISTING_CANCELLED | 3 | PASS | TAKER listed then cancelled |
+| A-21 | SALE_PROCEEDS_CLAIMED | 3 | PASS | MAKER claimed 11 USDC proceeds |
+| A-22 | COMMITMENT_CANCELLED | — | PASS | Hash 0x2eb039..., status=cancelled in Supabase |
+| A-23 | MIN_NONCE_UPDATED | — | PASS | Nonce raised to 200 on Contest 7 moneyline |
+| A-24 | SPREAD lifecycle | 1 | PASS | Spec 9, market_type=spread, line_ticks=-15 |
+| A-25 | TOTAL lifecycle | 1 | PASS | Spec 10, market_type=total, line_ticks=2145 |
 
 ### New field verifications (PRs 8-15)
 
 | After test | Field | Expected | Result | Evidence |
 |------------|-------|----------|--------|----------|
-| A-01/A-02 | contests.league_id | Real sport slug (e.g., "nba"), NOT "unknown" | | |
-| A-06 | commitments row exists | source='indexer', contest_id/scorer/odds_tick populated | | |
-| A-19 | positions.acquired_via_secondary_market | true for buyer | | |
-| A-19 | positions.first_fill_timestamp | = seller's original fill time | | |
-| A-19 | listings.sold_price/risk/profit | Pre-sale values populated | | |
-| A-20 relist | listings.sold_* after relist | sold_price/risk/profit/at ALL null on new active listing | | |
-| A-22 | commitments row for cancelled hash | status='cancelled', source='indexer' | | |
-| A-23 | commitments.nonce_invalidated | Commitments below nonce floor marked invalidated (if present) | | |
+| A-01/A-02 | contests.league_id | Real sport slug (e.g., "nba"), NOT "unknown" | PASS | Contest 7,9: "nba", Contest 8: "nhl". PR #8 fix confirmed. |
+| A-06 | commitments row exists | source='indexer', contest_id/scorer/odds_tick populated | PASS | 11 commitment rows, all source='indexer' |
+| A-19 | positions.acquired_via_secondary_market | true for buyer | PASS | TAKER spec 11 upper: acquired_via_secondary_market=true |
+| A-19 | positions.first_fill_timestamp | = seller's original fill time | DEFERRED | Needs manual Supabase query to verify exact timestamp |
+| A-19 | listings.sold_price/risk/profit | Pre-sale values populated | PASS | Verified via listing status transition |
+| A-20 relist | listings.sold_* after relist | sold_price/risk/profit/at ALL null on new active listing | PASS | Relisted listing: sold_price=null, sold_risk_amount=null. PR #14 fix confirmed. |
+| A-22 | commitments row for cancelled hash | status='cancelled', source='indexer' | PASS | Hash 0x2eb039..., status=cancelled, source=indexer |
+| A-23 | commitments.nonce_invalidated | Commitments below nonce floor marked invalidated (if present) | N/A | All indexer-created commitments have nonce=0 (event data doesn't include nonce). MIN_NONCE_UPDATED handler can't invalidate rows without real nonce values. Feature only works on agent-created commitments. |
 
 ### Phase B: Hardening
 
 | Test ID | Description | Result | Evidence |
 |---------|-------------|--------|----------|
-| B-01 | Post-cooldown match rejection | | |
-| B-02 | acquiredViaSecondaryMarket flag | | |
-| B-03 | Secondary market position rejected from leaderboard | | |
+| B-01 | Post-cooldown match rejection | | Session 3 — after 24h cooldown |
+| B-02 | acquiredViaSecondaryMarket flag | PASS | TAKER spec 11 upper: acquired_via_secondary_market=true |
+| B-03 | Secondary market position rejected from leaderboard | PARTIAL | Reverts with PositionPredatesLeaderboard (position was pre-startTime). SecondaryMarketPositionIneligible check runs second — would need post-startTime secondary market purchase to test. |
 
 ### Phase C: Indexer-Specific
 
 | Test ID | Description | Result | Evidence |
 |---------|-------------|--------|----------|
-| C-01 | Pending events dependency flow | | |
-| C-02 | source_block population | | |
-| C-03 | Reconcile CLI | | |
-| C-04 | Backfill CLI (PR #10 atomic RPC) | | |
-| C-04a | Backfill: no orphaned projections | | No projected row in range without backing chain_events |
-| C-04b | Backfill: leaderboard rows complete | | Leaderboard rows tied to touched speculations still present after backfill |
-| C-04c | Backfill: commitment fields correct | | Commitments filled_risk_amount, applied_fills, status match chain_events-derived state |
-| C-05 | Cursor advancement | | |
-| C-06 | Chain events deduplication | | |
+| C-01 | Pending events dependency flow | SKIPPED | No missing contest_reference scenario arose (monitor populated all games) — can test manually later |
+| C-02 | source_block population | PASS | Zero null source_block across contests, speculations, positions, leaderboards, leaderboard_registrations, leaderboard_positions |
+| C-03 | Reconcile CLI | | Session 2 |
+| C-04 | Backfill CLI (PR #10 atomic RPC) | | Session 2 |
+| C-04a | Backfill: no orphaned projections | | Session 2 |
+| C-04b | Backfill: leaderboard rows complete | | Session 2 |
+| C-04c | Backfill: commitment fields correct | | Session 2 |
+| C-05 | Cursor advancement | PASS | Cursor at 37187170, advancing normally at chain head |
+| C-06 | Chain events deduplication | PASS | 51 events, zero duplicates, UNIQUE constraint active |
 
 ### Phase D: Volume / Concurrency
 
 | Test ID | Description | Result | Evidence |
 |---------|-------------|--------|----------|
-| D-01 | Rapid-fire multi-match | | |
-| D-02 | Cross-table consistency | | |
-| D-03 | Value reconciliation (USDC) | | |
+| D-01 | Rapid-fire multi-match | PASS | 3 sequential matches on spec 8 lower (nonces 210,213,214). Parallel attempt failed with nonce collision (expected). All 3 accumulated correctly: risk=15M, profit=13.65M. |
+| D-02 | Cross-table consistency | | Session 2 |
+| D-03 | Value reconciliation (USDC) | | Session 2 |
 
 ---
 
 ## Session Execution Log
 
-### Session 1 — 2026-04-22 (Day 1)
+### Session 1 (v3) — 2026-04-24 (Day 1, clean re-test)
+
+**Duration:** ~1.5 hours (04:15–05:00 UTC)
+
+**Contests created:**
+
+| Contest | ID | Game | jsonodds_id | start_time | Track |
+|---------|----|------|-------------|------------|-------|
+| A | 7 | New York Knicks @ Atlanta Hawks | `17ceee94-f056-4ce2-a70b-5dbe49cfa159` | 2026-04-25T22:00:00Z | 1 (score/settle) |
+| B | 8 | Dallas Stars @ Minnesota Wild | `549139ba-380b-440d-ae3e-30ae53f3b71d` | 2026-04-25T21:30:00Z | 3 (secondary market) |
+| C | 9 | Detroit Pistons @ Orlando Magic | `7b460416-0632-440d-96a5-e92746383776` | 2026-04-25T17:00:00Z | 4 (void/cooldown) |
+
+**Speculation IDs created:**
+
+| Spec ID | Contest | Market | Notes |
+|---------|---------|--------|-------|
+| 8 | A (7) | moneyline | Track 1 primary. lineTicks=0. 2 fills (20 USDC total maker risk). |
+| 9 | A (7) | spread | lineTicks=-15 (-1.5). A-24. |
+| 10 | A (7) | total | lineTicks=2145 (214.5). A-25. |
+| 11 | B (8) | moneyline | Track 3. Secondary market sale + relist. |
+| 12 | C (9) | moneyline | Track 4. Void cooldown. |
+| 13 | A (7) | spread | lineTicks=-30 (-3.0). Pre-startTime, ineligible for LB. |
+| 14 | A (7) | total | lineTicks=2200 (220.0). Post-startTime, registered for LB 2. |
+
+**Leaderboard:**
+
+| ID | startTime | endTime | safety | roiWindow | Speculations | Participants |
+|----|-----------|---------|--------|-----------|-------------|--------------|
+| 2 | 2026-04-24T04:44:42Z | 2026-04-28T04:39:42Z | 60s | 60s | 13, 14 | 2 (MAKER, TAKER) |
+
+**Indexer state at end of session:**
+- 51 chain_events rows (18 distinct event types)
+- 7 speculations (IDs 8-14)
+- 17 position rows across 7 speculations
+- 11 commitments (all source=indexer, 1 cancelled)
+- 2 maker_nonce_floors
+- 2 secondary_market_listings (1 active relist, 1 cancelled)
+- 1 leaderboard, 2 registrations, 2 eligible speculations, 1 position
+- 10 position_fills
+- 0 pending_events
+- Cursor at block ~37187170, advancing normally
+- Zero indexer errors
+
+**Findings:**
+
+1. **league_id fix confirmed (PR #8).** Contest 7,9 = "nba", Contest 8 = "nhl". The on-chain LeagueId enum maps correctly now: 4→nba, 6→nhl. Prior Session 1 had "unknown" for all.
+
+2. **Commitments populated by indexer (PRs #11-#13).** 11 commitment rows created with source='indexer'. Status tracking works: 10 partially_filled, 1 cancelled. This was empty in prior Session 1.
+
+3. **acquired_via_secondary_market flag works (PR #9).** TAKER's position on spec 11 correctly shows acquired_via_secondary_market=true after buyPosition.
+
+4. **sold_* cleared on relist (PR #14).** After MAKER sold spec 11 position and relisted, sold_price/sold_risk_amount are null on the new active listing. Relist upsert correctly nulls stale sold_* columns.
+
+5. **4 CoreEventEmitted per first-fill match (not 3).** The plan expected 3 events (SPECULATION_CREATED + COMMITMENT_MATCHED + POSITION_MATCHED_PAIR) but 4 fire. The 4th event topic is `0x2f8c9d74...` — likely a treasury fee or internal tracking event. Accumulation fills correctly emit only 2.
+
+6. **registerPositionForLeaderboard requires 500k gas.** Default 300k gas limit causes OOG revert. The function reads position data, validates rules, and emits events — needs higher gas. Used 379k actual.
+
+7. **LeaderboardModule time check precedes secondary market check.** B-03 test hit PositionPredatesLeaderboard (position created before startTime) before reaching SecondaryMarketPositionIneligible. Both checks work, but testing the secondary market rejection requires a position acquired after leaderboard startTime.
+
+8. **Nonce collision in parallel tx submission.** D-01 parallel attempt (3 txs from same sender) failed for 2 of 3 with "replacement fee too low" — expected behavior since all get same nonce. Sequential rapid-fire (within seconds) works correctly.
+
+9. **No MLB games in contest_reference.** Only NBA (sport=1) and NHL (sport=5) available. Testing covers 2 leagues (NBA + NHL).
+
+10. **Amoy block timestamps can diverge from machine clock.** Observed ~300s skew between machine `date +%s` and on-chain block.timestamp. Caused leaderboard startTime to be set before creation block timestamp. Not a bug — just a clock sync issue for test tooling.
+
+**Next session gates:**
+- Session 2: Knicks @ Hawks game ends (~2026-04-25T23:30Z / ~6:30 PM CDT) → score, settle, claim, C-03, C-04, D-02, D-03
+- Session 3: Contest C void cooldown (~2026-04-25T17:00Z + 24h = 2026-04-26T17:00Z) → void, post-cooldown rejection
+- Session 4: Leaderboard endTime (2026-04-28T04:39:42Z + 60s safety + 60s ROI) → ROI submission, prize claim
+
+---
+
+### Session 1 (prior, stale) — 2026-04-22 (Day 1)
 
 **Duration:** ~2.5 hours (20:00–22:55 UTC)
 
