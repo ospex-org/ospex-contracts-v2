@@ -215,6 +215,7 @@ Prior Session 1 results (2026-04-22) are archived below. This section is for the
 - Session 2: Knicks @ Hawks game ends (~2026-04-25T23:30Z / ~6:30 PM CDT) → score, settle, claim, C-03, C-04, D-02, D-03
 - Session 3: Contest C void cooldown (~2026-04-25T17:00Z + 24h = 2026-04-26T17:00Z) → void, post-cooldown rejection
 - Session 4: Leaderboard endTime (2026-04-28T04:39:42Z + 60s safety + 60s ROI) → ROI submission, prize claim
+  - **Note:** Leaderboard 2 was created with 60s safety/ROI windows before the 24-hour minimum policy was established. Future leaderboards must use ≥86400s for both. See AMOY_STRESS_TEST_PLAN.md A-11 notes.
 
 ---
 

@@ -586,11 +586,11 @@ cast send $POSITION_MODULE "claimPosition(uint256,uint8)" SPEC_ID POSITION_TYPE 
 # Track 2 timing: startTime soon (so we can register positions on Day 1),
 # endTime far enough out to cover the game ending + scoring + settling.
 # Game is 24-72h out, so endTime should be ~4 days from now.
-# Safety + ROI windows kept short since we control the timing.
+# Safety + ROI windows: minimum 24 hours each (see policy note in A-11 Notes).
 START=$(( $(date +%s) + 300 ))       # 5 minutes from now
 END=$(( $(date +%s) + 345600 ))      # 4 days from now
-SAFETY=60                             # 60 seconds
-ROI_WINDOW=60                         # 60 seconds
+SAFETY=86400                          # 24 hours (minimum)
+ROI_WINDOW=86400                      # 24 hours (minimum)
 
 cast send $LEADERBOARD_MODULE \
   "createLeaderboard(uint256,uint32,uint32,uint32,uint32)" \
@@ -603,13 +603,15 @@ cast send $LEADERBOARD_MODULE \
 
 **Expected Supabase outcome:**
 - `chain_events` row: event_type="LEADERBOARD_CREATED"
-- `leaderboards` row: leaderboard_id=N, entry_fee="5000000", start_time, end_time, safety_period_duration=60, roi_submission_window=60, prize_pool=0, current_participants=0, total_positions=0, source_block set
+- `leaderboards` row: leaderboard_id=N, entry_fee="5000000", start_time, end_time, safety_period_duration=86400, roi_submission_window=86400, prize_pool=0, current_participants=0, total_positions=0, source_block set
 
 **Pass/Fail:**
 
 **Evidence:**
 
-**Notes:** endTime is set 4 days out so the leaderboard stays open through the game ending (Track 1). startTime is 5 minutes from creation so we can register positions on Day 1. A-15 (ROI) and A-16 (prize claim) execute on Day 2+ after Track 1 settles AND after endTime + safety + ROI window elapse.
+**Notes:** endTime is set 4 days out so the leaderboard stays open through the game ending (Track 1). startTime is 5 minutes from creation so we can register positions on Day 1. Safety period and ROI submission window are each 24 hours (the production-realistic minimum). A-15 (ROI) executes on Day 5+ after endTime + 24h safety elapses. A-16 (prize claim) executes on Day 6+ after endTime + 24h safety + 24h ROI window elapses.
+
+**Minimum window policy:** Safety period and ROI submission window must each be at minimum 24 hours (86400 seconds). Shorter windows are unusable in production — real users and agents cannot reliably hit a 60-second window. If a testing session requires shorter windows to fit a time budget, flag this as an issue rather than silently shortening.
 
 ---
 
@@ -696,7 +698,7 @@ cast send $LEADERBOARD_MODULE \
 
 **Description:** Submit ROI after submission window opens. If this is the first/highest ROI, LEADERBOARD_NEW_HIGHEST_ROI fires in the same transaction.
 
-**Prerequisites:** A-14 completed. All speculations the user has positions on must be settled. Wait for: endTime + safetyPeriod (with short timing: ~11 minutes from leaderboard creation).
+**Prerequisites:** A-14 completed. All speculations the user has positions on must be settled. Wait for: endTime + safetyPeriod (endTime + 24 hours).
 
 **Action:**
 ```bash
@@ -713,7 +715,7 @@ cast send $LEADERBOARD_MODULE "submitLeaderboardROI(uint256)" LEADERBOARD_ID \
 
 **Evidence:**
 
-**Notes:** Requires BOTH: (a) the speculation to be settled (Track 1 must have scored + settled), and (b) endTime + safetyPeriodDuration to have elapsed. With 4-day endTime, this runs on Day 5+ unless we shorten endTime after settling. The speculation settlement is the real gate — the leaderboard timing is configurable.
+**Notes:** Requires BOTH: (a) the speculation to be settled (Track 1 must have scored + settled), and (b) endTime + safetyPeriodDuration to have elapsed. With 4-day endTime + 24h safety, this runs on Day 5+. The speculation settlement is the real gate — the leaderboard timing is configurable but must respect the 24-hour minimum window policy (see A-11 notes).
 
 ---
 
@@ -738,7 +740,7 @@ cast send $LEADERBOARD_MODULE "claimLeaderboardPrize(uint256)" LEADERBOARD_ID \
 
 **Evidence:**
 
-**Notes:** Requires endTime + safetyPeriod + roiWindow to have elapsed. With 4-day endTime, this is Day 5+. Runs in the same session as A-15.
+**Notes:** Requires endTime + safetyPeriod + roiWindow to have elapsed. With 4-day endTime + 24h safety + 24h ROI, this is Day 6+. Runs after A-15 (ROI must be submitted during the 24h ROI window before prize claim is possible).
 
 ---
 
@@ -1472,7 +1474,7 @@ Compare against:
 | 0:00 | 4 | A-05 | Void Contest C (24h cooldown elapsed). |
 | 0:10 | 4 | B-01 | Post-cooldown match rejection on Contest C. |
 
-**Session 4 — Day 5+ (after leaderboard endTime + safety + ROI window)**
+**Session 4 — Day 6+ (after leaderboard endTime + 24h safety + 24h ROI window)**
 
 | Order | Track | Tests | Notes |
 |-------|-------|-------|-------|
@@ -1488,8 +1490,8 @@ Compare against:
 | A-05 | Contest C start_time + 86400s | 24h from Contest C creation |
 | A-08 | A-04 (contest scored) | Same session |
 | A-14 | Leaderboard startTime | 5 min from A-11 |
-| A-15 | Track 1 settled AND leaderboard endTime + safety elapsed | 4 days from A-11 |
-| A-16 | A-15 AND roiWindow elapsed | Same session as A-15 |
+| A-15 | Track 1 settled AND leaderboard endTime + safety elapsed | 5 days from A-11 (4d endTime + 24h safety) |
+| A-16 | A-15 AND roiWindow elapsed | 6 days from A-11 (4d endTime + 24h safety + 24h ROI) |
 | B-01 | Same as A-05 | Same session |
 
 ---
@@ -1503,3 +1505,4 @@ Compare against:
 | 2026-04-22 | Session 1 executed (now stale — superseded by v3 re-test). |
 | 2026-04-23 | v3 plan: Supabase wiped after PRs 8-15 merged. Added new verification steps for league_id, acquired_via_secondary_market, first_fill_timestamp, commitment upserts, sold_* snapshot. All pass/fail reset. |
 | 2026-04-23 | OC review additions: (1) A-20b relist check — verify sold_* cleared on relist. (2) C-04a/b/c — explicit backfill invariants: no orphaned projections, leaderboard rows complete, commitment fields correct. (3) A-23 commitment invalidation check — verify nonce_invalidated on indexer-created commitments. (4) Annotated "commitments empty by design" finding as superseded by PRs 11-13. |
+| 2026-04-24 | Leaderboard minimum window policy: safety period and ROI submission window must each be at minimum 24 hours (86400s). Updated A-11 from 60s to 86400s for both windows. Updated all downstream timing references (A-15, A-16, Session 4 header, time dependencies table). Rationale: shorter windows are unusable in production and make testing hostile. |
