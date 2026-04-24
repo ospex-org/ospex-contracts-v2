@@ -207,7 +207,7 @@ Prior Session 1 results (2026-04-22) are archived below. This section is for the
 
 8. **Nonce collision in parallel tx submission.** D-01 parallel attempt (3 txs from same sender) failed for 2 of 3 with "replacement fee too low" — expected behavior since all get same nonce. Sequential rapid-fire (within seconds) works correctly.
 
-9. **No MLB games in contest_reference.** Only NBA (sport=1) and NHL (sport=5) available. Testing covers 2 leagues (NBA + NHL).
+9. **No MLB games in contest_reference.** Only NBA (sport=1) and NHL (sport=5) available. Testing covers 2 leagues (NBA + NHL). **Post-session policy:** Multi-sport coverage is now mandatory — future sessions must halt if any available sport is missing. See AMOY_STRESS_TEST_PLAN.md "Constraint: Multi-Sport Coverage".
 
 10. **Amoy block timestamps can diverge from machine clock.** Observed ~300s skew between machine `date +%s` and on-chain block.timestamp. Caused leaderboard startTime to be set before creation block timestamp. Not a bug — just a clock sync issue for test tooling.
 

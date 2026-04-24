@@ -83,6 +83,42 @@ Verification scripts reject games whose `start_time` has already passed. All end
 
 ---
 
+## Constraint: Multi-Sport Coverage
+
+Every testing session must include at least one contest per available sport in `contest_reference`. Currently available sports:
+
+| Sport ID | League | Typical Season |
+|----------|--------|----------------|
+| 0 | MLB | April–October |
+| 1 | NBA | October–June |
+| 5 | NHL | October–June |
+
+Update this table as the monitor populates new sports.
+
+**If any available sport lacks same-day-settleable contests** (no games scheduled within the session's lifecycle window), **halt the session with an explicit error** explaining which sport is missing and why. Do not silently substitute another sport or skip coverage.
+
+**Rationale:** Session 1 (v3) only tested NBA + NHL (finding #9). Sport-specific differences in oracle behavior, scoring APIs, and `league_id` mapping are real failure vectors that silent substitution masks.
+
+---
+
+## Constraint: Game Selection Review Gate
+
+After the T-00 canary passes and games have been identified for each track/sport, **Claude Code must pause and present the selected games for user review** before proceeding with on-chain contest creation.
+
+The review presentation must include:
+- Game matchup (away @ home, using actual team names)
+- Sport / league
+- **Local start time in CST/CDT** (explicitly labeled)
+- **Expected end time in CST/CDT** (based on typical game duration for the sport)
+- Which track/contest role (A, B, C) the game is assigned to
+- JSONOdds ID
+
+**Do not proceed with contest creation until the user explicitly approves the game selections.**
+
+**Rationale:** We have repeatedly mis-parsed game times from search results — assuming UTC when times are local, or vice versa. A human review gate before burning testnet gas and LINK is cheap insurance.
+
+---
+
 ## Test Tracks
 
 The tests are split into 4 independent tracks with different timing requirements. Each track uses its own contest(s) to avoid incompatible timing assumptions.
@@ -185,6 +221,7 @@ MAKER and TAKER wallets: generate via `cast wallet new`, fund with POL from depl
 - [ ] Approve USDC for PositionModule + TreasuryModule (both wallets)
 - [ ] Approve USDC for SecondaryMarketModule (TAKER wallet, for buying)
 - [ ] Ensure `contest_reference` rows exist in Supabase for chosen game(s) — the CONTEST_CREATED handler depends on this
+- [ ] Verify `contest_reference` has games for all required sports (currently 0=MLB, 1=NBA, 5=NHL) — **halt if any sport is missing**
 - [ ] Confirm deployer has LINK approved for OracleModule, USDC approved for TreasuryModule
 
 ### Required Approvals (per wallet)
@@ -1426,11 +1463,17 @@ Compare against:
 
 ### Contests to Create
 
-| Contest | Track | Purpose | Game Selection |
-|---------|-------|---------|----------------|
-| Contest A | 1, 2 | Score/settle/claim lifecycle + leaderboard speculation source | Future game 24-72h out (STATUS_SCHEDULED) |
-| Contest B | 3 | Secondary market (must stay unsettled through Day 1) | Future game, same or different from A |
-| Contest C | 4 | Void/cooldown (intentionally left unscored for 24h) | Game whose start_time is near-past or imminent |
+Each session must cover every available sport in `contest_reference` (see Multi-Sport Coverage constraint). Assign contests to tracks so that each sport appears at least once. Current sport → track mapping:
+
+| Contest | Track | Sport | Purpose | Game Selection |
+|---------|-------|-------|---------|----------------|
+| Contest A | 1, 2 | Varies (rotate per session) | Score/settle/claim lifecycle + leaderboard speculation source | Future game 24-72h out (STATUS_SCHEDULED) |
+| Contest B | 3 | Varies (different sport from A) | Secondary market (must stay unsettled through Day 1) | Future game |
+| Contest C | 4 | Varies (remaining sport) | Void/cooldown (intentionally left unscored for 24h) | Game whose start_time is near-past or imminent |
+
+If more than 3 sports are available, create additional contests to cover them (any track that accepts multiple contests).
+
+**After selecting games, present them for user review before contest creation** (see Game Selection Review Gate constraint).
 
 ### Session Plan by Track
 
@@ -1440,7 +1483,8 @@ Compare against:
 |-------|-------|-------|-------|
 | 0:00 | — | Pre-flight checklist | Cleanup, wallets, approvals, contest_reference rows |
 | 0:15 | — | T-00 | Indexer liveness canary. **Stop if this fails.** |
-| 0:20 | 1 | A-01, A-02, A-03 | Contest A: create/verify/markets. Wait for Chainlink callbacks. |
+| 0:17 | — | Game selection review | Identify games for each sport/track. Present to user with CST times. **Wait for approval.** |
+| 0:25 | 1 | A-01, A-02, A-03 | Contest A: create/verify/markets. Wait for Chainlink callbacks. |
 | 0:50 | 1 | A-06, A-07 | Match commitments on Contest A (moneyline, accumulation). |
 | 1:05 | 1 | A-24, A-25 | Spread + total matches on Contest A. |
 | 1:15 | 3 | Contest B create/verify/match | Set up Contest B + speculation for secondary market. |
@@ -1506,3 +1550,4 @@ Compare against:
 | 2026-04-23 | v3 plan: Supabase wiped after PRs 8-15 merged. Added new verification steps for league_id, acquired_via_secondary_market, first_fill_timestamp, commitment upserts, sold_* snapshot. All pass/fail reset. |
 | 2026-04-23 | OC review additions: (1) A-20b relist check — verify sold_* cleared on relist. (2) C-04a/b/c — explicit backfill invariants: no orphaned projections, leaderboard rows complete, commitment fields correct. (3) A-23 commitment invalidation check — verify nonce_invalidated on indexer-created commitments. (4) Annotated "commitments empty by design" finding as superseded by PRs 11-13. |
 | 2026-04-24 | Leaderboard minimum window policy: safety period and ROI submission window must each be at minimum 24 hours (86400s). Updated A-11 from 60s to 86400s for both windows. Updated all downstream timing references (A-15, A-16, Session 4 header, time dependencies table). Rationale: shorter windows are unusable in production and make testing hostile. |
+| 2026-04-24 | Multi-sport coverage + game selection review gate: (1) Every session must include at least one contest per available sport in contest_reference (currently 0=MLB, 1=NBA, 5=NHL). Halt if any sport is missing. (2) After T-00 canary, present selected games with CST times for user review before contest creation. Rationale: Session 1 v3 only tested 2 of 3 sports; repeated time zone parsing errors have wasted testnet gas. |
