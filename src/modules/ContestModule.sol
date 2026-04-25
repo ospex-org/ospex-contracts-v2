@@ -91,8 +91,13 @@ contract ContestModule is IContestModule {
 
     /// @notice Emitted when a contest is verified with league and start time
     /// @param contestId The contest ID
+    /// @param leagueId The resolved league ID (may differ from creation if created as Unknown)
     /// @param startTime The contest start timestamp
-    event ContestVerified(uint256 indexed contestId, uint256 startTime);
+    event ContestVerified(
+        uint256 indexed contestId,
+        LeagueId leagueId,
+        uint256 startTime
+    );
 
     /// @notice Emitted when market data is updated for a contest
     /// @param contestId The contest ID
@@ -353,10 +358,10 @@ contract ContestModule is IContestModule {
         s_contests[contestId].leagueId = leagueId;
         s_contestStartTimes[contestId] = startTime;
         s_contests[contestId].contestStatus = ContestStatus.Verified;
-        emit ContestVerified(contestId, startTime);
+        emit ContestVerified(contestId, leagueId, startTime);
         i_ospexCore.emitCoreEvent(
             EVENT_CONTEST_VERIFIED,
-            abi.encode(contestId, startTime)
+            abi.encode(contestId, leagueId, startTime)
         );
     }
 

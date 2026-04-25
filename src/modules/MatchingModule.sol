@@ -106,23 +106,39 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
         address indexed taker,
         uint256 contestId,
         uint256 speculationId,
+        address scorer,
+        int32 lineTicks,
         PositionType makerPositionType,
         uint16 oddsTick,
-        uint256 makerProfitAmount,
-        uint256 takerProfitAmount
+        uint256 makerRisk,
+        uint256 takerRisk,
+        uint256 commitmentRiskAmount,
+        uint256 nonce,
+        uint256 expiry
     );
 
     /// @notice Emitted when a single commitment is cancelled by its maker
     event CommitmentCancelled(
         bytes32 indexed commitmentHash,
-        address indexed maker
+        address indexed maker,
+        uint256 contestId,
+        address scorer,
+        int32 lineTicks,
+        PositionType positionType,
+        uint16 oddsTick,
+        uint256 riskAmount,
+        uint256 nonce,
+        uint256 expiry
     );
 
     /// @notice Emitted when a maker raises their minimum nonce for a speculation
     event MinNonceUpdated(
         address indexed maker,
-        bytes32 indexed speculationKey,
-        uint256 newMinNonce
+        uint256 contestId,
+        address scorer,
+        int32 lineTicks,
+        uint256 newMinNonce,
+        bytes32 indexed speculationKey
     );
 
     // ──────────────────────────── Structs ──────────────────────────────
@@ -253,10 +269,10 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
             revert MatchingModule__InvalidFillMakerRisk();
         }
 
-        uint256 makerProfit = (fillMakerRisk * profitTicks) / ODDS_SCALE;
+        uint256 takerRisk = (fillMakerRisk * profitTicks) / ODDS_SCALE;
 
-        if (makerProfit > takerDesiredRisk) {
-            makerProfit = takerDesiredRisk;
+        if (takerRisk > takerDesiredRisk) {
+            takerRisk = takerDesiredRisk;
         }
 
         s_filledRisk[commitmentHash] += fillMakerRisk;
@@ -270,7 +286,7 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
                 commitment.maker,
                 fillMakerRisk,
                 msg.sender,
-                makerProfit
+                takerRisk
             );
 
         emit CommitmentMatched(
@@ -279,10 +295,15 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
             msg.sender,
             commitment.contestId,
             speculationId,
+            commitment.scorer,
+            commitment.lineTicks,
             commitment.positionType,
             commitment.oddsTick,
-            makerProfit,
-            fillMakerRisk
+            fillMakerRisk,
+            takerRisk,
+            commitment.riskAmount,
+            commitment.nonce,
+            commitment.expiry
         );
         i_ospexCore.emitCoreEvent(
             EVENT_COMMITMENT_MATCHED,
@@ -292,10 +313,15 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
                 msg.sender,
                 commitment.contestId,
                 speculationId,
+                commitment.scorer,
+                commitment.lineTicks,
                 commitment.positionType,
                 commitment.oddsTick,
-                makerProfit,
-                fillMakerRisk
+                fillMakerRisk,
+                takerRisk,
+                commitment.riskAmount,
+                commitment.nonce,
+                commitment.expiry
             )
         );
     }
@@ -313,10 +339,32 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
         bytes32 commitmentHash = _hashCommitment(commitment);
         s_cancelledCommitments[commitmentHash] = true;
 
-        emit CommitmentCancelled(commitmentHash, msg.sender);
+        emit CommitmentCancelled(
+            commitmentHash,
+            msg.sender,
+            commitment.contestId,
+            commitment.scorer,
+            commitment.lineTicks,
+            commitment.positionType,
+            commitment.oddsTick,
+            commitment.riskAmount,
+            commitment.nonce,
+            commitment.expiry
+        );
         i_ospexCore.emitCoreEvent(
             EVENT_COMMITMENT_CANCELLED,
-            abi.encode(commitmentHash, msg.sender)
+            abi.encode(
+                commitmentHash,
+                msg.sender,
+                commitment.contestId,
+                commitment.scorer,
+                commitment.lineTicks,
+                commitment.positionType,
+                commitment.oddsTick,
+                commitment.riskAmount,
+                commitment.nonce,
+                commitment.expiry
+            )
         );
     }
 
@@ -355,10 +403,24 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
             revert MatchingModule__NonceMustIncrease();
         }
         s_minNonces[msg.sender][speculationKey] = newMinNonce;
-        emit MinNonceUpdated(msg.sender, speculationKey, newMinNonce);
+        emit MinNonceUpdated(
+            msg.sender,
+            contestId,
+            scorer,
+            lineTicks,
+            newMinNonce,
+            speculationKey
+        );
         i_ospexCore.emitCoreEvent(
             EVENT_MIN_NONCE_UPDATED,
-            abi.encode(msg.sender, speculationKey, newMinNonce)
+            abi.encode(
+                msg.sender,
+                contestId,
+                scorer,
+                lineTicks,
+                newMinNonce,
+                speculationKey
+            )
         );
     }
 
