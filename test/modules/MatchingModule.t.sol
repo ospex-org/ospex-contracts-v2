@@ -1102,9 +1102,9 @@ contract MatchingModuleTest is Test {
         bytes32 expectedHash = matchingModule.getCommitmentHash(c);
 
         // Independent calc: oddsTick=191, takerDesiredRisk=10_000_000
-        // fillMakerRisk = 10_989_000, makerProfit = 9_999_990
+        // fillMakerRisk = 10_989_000, takerRisk = 9_999_990
         uint256 fillMakerRisk = 10_989_000;
-        uint256 expectedMakerProfit = 9_999_990;
+        uint256 expectedTakerRisk = 9_999_990;
 
         vm.expectEmit(true, true, true, true);
         emit MatchingModule.CommitmentMatched(
@@ -1113,10 +1113,15 @@ contract MatchingModuleTest is Test {
             taker,
             DEFAULT_CONTEST_ID,
             1,
+            defaultScorer,
+            DEFAULT_LINE_TICKS,
             PositionType.Upper,
             DEFAULT_ODDS_TICK,
-            expectedMakerProfit,
-            fillMakerRisk
+            fillMakerRisk,
+            expectedTakerRisk,
+            DEFAULT_RISK_AMOUNT,
+            1,
+            block.timestamp + 1 hours
         );
 
         vm.prank(taker);
@@ -1132,7 +1137,18 @@ contract MatchingModuleTest is Test {
         bytes32 expectedHash = matchingModule.getCommitmentHash(c);
 
         vm.expectEmit(true, true, false, true);
-        emit MatchingModule.CommitmentCancelled(expectedHash, maker);
+        emit MatchingModule.CommitmentCancelled(
+            expectedHash,
+            maker,
+            DEFAULT_CONTEST_ID,
+            defaultScorer,
+            DEFAULT_LINE_TICKS,
+            PositionType.Upper,
+            DEFAULT_ODDS_TICK,
+            DEFAULT_RISK_AMOUNT,
+            1,
+            block.timestamp + 1 hours
+        );
 
         vm.prank(maker);
         matchingModule.cancelCommitment(c);
@@ -1144,7 +1160,14 @@ contract MatchingModuleTest is Test {
         );
 
         vm.expectEmit(true, true, false, true);
-        emit MatchingModule.MinNonceUpdated(maker, expectedKey, 5);
+        emit MatchingModule.MinNonceUpdated(
+            maker,
+            DEFAULT_CONTEST_ID,
+            defaultScorer,
+            DEFAULT_LINE_TICKS,
+            5,
+            expectedKey
+        );
 
         vm.prank(maker);
         matchingModule.raiseMinNonce(

@@ -65,6 +65,20 @@ contract TreasuryModule is ITreasuryModule {
         uint256 amount
     );
 
+    /// @notice Emitted when a fee from speculation creation (which is split between maker and taker) is collected
+    /// @param payer1 The address charged floor half
+    /// @param payer2 The address charged remainder
+    /// @param feeType The category of fee
+    /// @param firstHalf The fee amount of the floor half in USDC
+    /// @param secondHalf The fee amount of the remainder in USDC
+    event SplitFeeProcessed(
+        address indexed payer1,
+        address indexed payer2,
+        FeeType indexed feeType,
+        uint256 firstHalf,
+        uint256 secondHalf
+    );
+
     /// @notice Emitted when anyone sponsors a leaderboard prize pool
     /// @param leaderboardId The leaderboard that received funding
     /// @param funder The address that deposited funds
@@ -212,8 +226,7 @@ contract TreasuryModule is ITreasuryModule {
         i_token.safeTransferFrom(payer1, i_protocolReceiver, firstHalf);
         i_token.safeTransferFrom(payer2, i_protocolReceiver, secondHalf);
 
-        emit FeeProcessed(payer1, feeType, firstHalf);
-        emit FeeProcessed(payer2, feeType, secondHalf);
+        emit SplitFeeProcessed(payer1, payer2, feeType, firstHalf, secondHalf);
         i_ospexCore.emitCoreEvent(
             EVENT_SPLIT_FEE_PROCESSED,
             abi.encode(payer1, payer2, feeType, firstHalf, secondHalf)
