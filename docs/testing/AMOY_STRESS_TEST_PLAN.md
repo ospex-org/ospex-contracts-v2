@@ -1,6 +1,6 @@
-# Amoy Stress Test Plan v4 — R4 contracts (post-redeploy 2026-04-25)
+# Amoy Stress Test Plan v4.1 — R4 contracts + R4.1 indexer replay/projection retest
 
-Status: **R4 CONTRACTS DEPLOYED — TEST CYCLE STARTING.** R4 contracts deployed 2026-04-25 at block 37285105. Supabase amoy data wiped, indexer config updated to R4 addresses, indexer caught up to chain head. Awaiting Phase 1 game selection approval.
+Status: **R4 SESSION 1 DAY 1 COMPLETE; R4.1 RETEST PENDING.** R4 contracts deployed 2026-04-25 at block 37285105. R4 Session 1 Day 1 executed 2026-04-26 (see session log). Indexer PRs #16-22 merged 2026-04-24..26 closed the gaps surfaced in R4 Day 1: 35-event recognition, finalized-block safe-head, pending-events retry cap, full COMMITMENT_MATCHED/COMMITMENT_CANCELLED field coverage with `speculation_key`, and projection of FEE/SPLIT_FEE/LEADERBOARD_FUNDED/RULE_SET/DEVIATION_RULE_SET partials into typed tables. **R4.1 retest is an indexer replay/projection validation pass against existing R4 chain data (block 37285105 → head); only restart on-chain testing if replay/reconcile cannot repair state.**
 
 ---
 
@@ -20,6 +20,13 @@ This plan **supersedes** v2/v2.1 and all prior Session 1 results. Supabase was w
 | #13 | Preservation test + canonicality docs | Agent-enriched fields preserved on indexer upsert |
 | #14 | Sold listing snapshots (sold_price/risk/profit) | Verify `sold_price`, `sold_risk_amount`, `sold_profit_amount` on full sale |
 | #15 | CI checks on main | Automated typecheck + test + lint |
+| #16 | Finality gap instrumentation (Step 1) | Papertrail logs `finality-gap` line every ~60s with head/finalized deltas |
+| #17 | **35-event recognition (was 25)** — adds 10 missing TreasuryModule/RulesModule/OracleModule event types to `events.ts`/`ingest.ts`/`registry.ts` | Verify all 35 event types appear in `chain_events` when emitted on-chain (especially `SPLIT_FEE_PROCESSED` on first-fill, `FEE_PROCESSED` on contest creation, `LEADERBOARD_ENTRY_FEE_PROCESSED` on registration, oracle/script-approval events on Chainlink callbacks) |
+| #18 | Event schema enrichments (R4 contract emissions) | Decoded payload fields match enriched ABI: COMMITMENT_MATCHED has `scorer/lineTicks/commitmentRiskAmount/nonce/expiry/makerRisk/takerRisk`; COMMITMENT_CANCELLED has full commitment field set; MIN_NONCE_UPDATED has `contestId/scorer/lineTicks/speculationKey`; CONTEST_VERIFIED has `leagueId` |
+| #19 | Use `finalized` block tag for safe-head (replaces `head − 128` heuristic) | Indexer cursor now ~2-4 blocks behind head (~4-8s), not ~128 blocks (~5 min) |
+| #20 | `PENDING_MAX_ATTEMPTS` cap on retry worker (default 360 = ~1h at 10s tick) | C-01 retry-cap test: pending row deleted (or skipped) after MAX attempts; no log spam thereafter |
+| #21 | **COMMITMENT_MATCHED/CANCELLED full R4 field coverage + `speculation_key` derivation** | After COMMITMENT_MATCHED: `commitments` row has `nonce/expiry/risk_amount/speculation_key` populated (not 0/null). After COMMITMENT_CANCELLED (cancel-only path): full R4 fields populated, not just hash/maker. After MIN_NONCE_UPDATED: indexer-created rows below floor get `nonce_invalidated=true` (works because nonce is now real, not 0). |
+| #22 | **Project R4 partial events into typed tables** — FEE_PROCESSED + SPLIT_FEE_PROCESSED → `fees`; LEADERBOARD_FUNDED → `leaderboard_fundings` + atomic `prize_pool` increment; RULE_SET → `leaderboard_rules`; DEVIATION_RULE_SET → `leaderboard_deviation_rules`. Also fixes recovery.ts source_block on existing rows during recompute. | After replay/backfill of R4 history: 5 new tables populated. SCRIPT_APPROVAL_VERIFIED, ORACLE_RESPONSE, ORACLE_REQUEST_FAILED remain audit-only (chain_events row, no projection). LEADERBOARD_ENTRY_FEE_PROCESSED + PRIZE_POOL_CLAIMED also audit-only (handlers are noops; their state already covered elsewhere). |
 
 ### New verification steps (add to each relevant test)
 
@@ -47,12 +54,12 @@ The indexer is a **pull-based polling worker** (ospex-indexer on Heroku) that re
 
 | Property | Value |
 |----------|-------|
-| Polling interval | 2000ms (`POLL_INTERVAL_MS`) |
+| Polling interval | **15000ms (`POLL_INTERVAL_MS`) — minimum.** Alchemy free-tier rate limits prevent shorter intervals; the running indexer was set to 2000ms in earlier docs but was throttling. |
 | Block chunk size | 2000 blocks (`BLOCK_RANGE_CHUNK`) |
-| Confirmation depth | 128 blocks (`CONFIRMATION_DEPTH`) |
+| Safe-head source | **Chain `finalized` block tag (PR #19)** — Heimdall v2 milestone finality, ~2-5s behind head. Replaces the older `head − CONFIRMATION_DEPTH` heuristic (~5 min). `CONFIRMATION_DEPTH=128` is still consumed for the reorg-detection scan window, not for safe-head. |
 | Cursor table | `indexer_cursor` (PK: network) |
 | Event deduplication | UNIQUE on `(network, tx_hash, log_index)` in `chain_events` |
-| Dependency handling | `pending_events` table + retry worker (10s interval) |
+| Dependency handling | `pending_events` table + retry worker (10s interval). Capped per `PENDING_MAX_ATTEMPTS` (default 360, ~1h) — see PR #20. |
 | Reorg recovery | Automatic fork detection, state rollback, entity rebuild |
 | CLIs | `yarn reconcile`, `yarn backfill` |
 
@@ -62,17 +69,23 @@ The indexer is a **pull-based polling worker** (ospex-indexer on Heroku) that re
 3. `pending_events` table has zero rows for this event after processing
 4. No errors in indexer logs: `heroku logs --app ospex-indexer --num 50`
 
-### Events Explicitly NOT Handled by Indexer
+### Event Coverage — 35 CoreEventEmitted Types (Post-PR #17/#22)
 
-The contracts emit 27 distinct CoreEventEmitted event types. The indexer handles 26. One is intentionally excluded:
+Contracts emit **35 distinct CoreEventEmitted event types**. After PR #17 (recognition) and PR #22 (partials projection), every type is registered in the indexer. 30 have projection logic; 5 are recorded in `chain_events` for audit-only.
 
-| Event | Emitted By | Reason Not Handled |
-|-------|-----------|-------------------|
-| `LEADERBOARD_ENTRY_FEE_PROCESSED` | TreasuryModule | Fee-processing detail event. Entry fee amount is already stored in `leaderboards.entry_fee` and reflected in prize_pool updates. No consumer needs this event separately. |
+**Projecting (30):** `CONTEST_CREATED`, `CONTEST_VERIFIED`, `CONTEST_MARKETS_UPDATED`, `CONTEST_SCORES_SET`, `CONTEST_VOIDED`, `SPECULATION_CREATED`, `SPECULATION_SETTLED`, `POSITION_MATCHED_PAIR`, `POSITION_CLAIMED`, `POSITION_TRANSFERRED`, `COMMITMENT_MATCHED`, `COMMITMENT_CANCELLED`, `MIN_NONCE_UPDATED`, `LEADERBOARD_CREATED`, `LEADERBOARD_SPECULATION_ADDED`, `USER_REGISTERED`, `LEADERBOARD_ROI_SUBMITTED`, `LEADERBOARD_NEW_HIGHEST_ROI`, `LEADERBOARD_PRIZE_CLAIMED`, `LEADERBOARD_POSITION_ADDED`, `POSITION_LISTED`, `LISTING_UPDATED`, `POSITION_SOLD`, `LISTING_CANCELLED`, `SALE_PROCEEDS_CLAIMED`, `FEE_PROCESSED` (→ `fees`, single shape), `SPLIT_FEE_PROCESSED` (→ `fees`, split shape), `LEADERBOARD_FUNDED` (→ `leaderboard_fundings` + atomic `prize_pool` increment), `RULE_SET` (→ `leaderboard_rules`), `DEVIATION_RULE_SET` (→ `leaderboard_deviation_rules`).
 
-`LEADERBOARD_FUNDED` IS handled — it dispatches `rpc_leaderboard_funded` which atomically increments `leaderboards.prize_pool` for external sponsorships routed through `TreasuryModule.fundLeaderboard()`.
+**Audit-only — chain_events row, no projection (5):**
 
-This event DOES land in chain_events if the indexer encounters it (the main loop inserts all CoreEventEmitted logs), but no handler dispatches — the indexer logs a `No handler registered` warning. This is expected. Phase A does NOT test this event.
+| Event | Emitted By | Reason |
+|-------|-----------|--------|
+| `LEADERBOARD_ENTRY_FEE_PROCESSED` | TreasuryModule | Fee detail. Entry fee amount already stored in `leaderboards.entry_fee` and reflected in `prize_pool` via `rpc_user_registered`. |
+| `PRIZE_POOL_CLAIMED` | TreasuryModule | Tracking detail. `LEADERBOARD_PRIZE_CLAIMED` already records the claim in `leaderboard_registrations`/`leaderboard_winners`. |
+| `ORACLE_RESPONSE` | OracleModule | Diagnostic — corresponding state changes are emitted as `CONTEST_VERIFIED` / `CONTEST_MARKETS_UPDATED` / `CONTEST_SCORES_SET`. |
+| `ORACLE_REQUEST_FAILED` | OracleModule | Diagnostic — observed when a Chainlink callback fails (R4 finding #1). Useful for debugging; no projection state change. |
+| `SCRIPT_APPROVAL_VERIFIED` | OracleModule | Diagnostic — fires alongside oracle calls to attest the script-hash signature was valid. |
+
+The indexer's main loop inserts all CoreEventEmitted logs, so audit-only events still produce a `chain_events` row even though their handler is a no-op.
 
 ---
 
@@ -295,7 +308,7 @@ Record the tx hash and block number.
 
 ## PHASE A: HANDLER COVERAGE
 
-**Goal:** Fire each of the 26 handled CoreEventEmitted events at least once and verify the indexer writes correct Supabase state. (1 additional event — LEADERBOARD_ENTRY_FEE_PROCESSED — is intentionally unhandled; see Architecture Context.)
+**Goal:** Fire each of the 35 recognized CoreEventEmitted events at least once and verify the indexer writes correct Supabase state. 30 events have projection logic; 5 are audit-only (chain_events row, no projection — see Architecture Context). Tests A-01..A-25 cover the original 25 lifecycle handlers; **tests A-26..A-31 (added in v4.1) cover the 5 partial-projections from PR #22 plus the audit-only landing check.**
 
 ### Priority 1 — Contest Lifecycle (Track 1 + Track 4)
 
@@ -498,12 +511,13 @@ cast send $SPECULATION_MODULE "settleSpeculation(uint256)" SPEC_ID \
 - Taker USDC decreases by 9.35 USDC (9.1 risk + 0.25 fee)
 
 **Expected Supabase outcome:**
-- `chain_events`: 3 rows — SPECULATION_CREATED, COMMITMENT_MATCHED, POSITION_MATCHED_PAIR
+- `chain_events`: **4 rows** — SPECULATION_CREATED, COMMITMENT_MATCHED, POSITION_MATCHED_PAIR, **SPLIT_FEE_PROCESSED** (the speculation-creation fee split, emitted alongside the three lifecycle events; recognized + projected to `fees` since indexer PR #17/#22)
 - `speculations` row: speculation_id=N, contest_id, market_type="moneyline", speculation_status="open", line_ticks=0, win_side="tbd", source_block set
 - `positions` row (maker): user_address=MAKER, position_type="upper", risk_amount="10000000", profit_amount="9100000", source_block set
 - `positions` row (taker): user_address=TAKER, position_type="lower", risk_amount="9100000", profit_amount="10000000", source_block set
 - `position_fills` row: commitment_hash, maker, taker, odds_tick=191
-- `commitments` row: status via rpc_commitment_matched, source_block set
+- `commitments` row (PR #21): `nonce=1`, `expiry`, `risk_amount=10000000`, `speculation_key` populated (NOT 0/null), source_block set
+- `fees` row (PR #22, split shape): `fee_type='speculation_creation'`, `amount=250000` + `second_amount=250000` (0.25 USDC maker share + 0.25 USDC taker share), `total_amount=500000`
 
 **Pass/Fail:**
 
@@ -966,15 +980,24 @@ cast send $MATCHING_MODULE \
   --private-key $MAKER_PK --rpc-url $AMOY_RPC
 ```
 
-**Expected Supabase outcome:**
+**Expected Supabase outcome (post-indexer-PR #21):**
 - `chain_events` row: event_type="COMMITMENT_CANCELLED"
-- `commitments` row (if exists): status="cancelled" (best-effort update — handler only updates if row exists with status "open" or "partially_filled")
+- `commitments` row exists (UPSERT — created if missing, updated if present) with **all R4 fields populated from the event payload**:
+  - `commitment_hash`, `maker`
+  - `contest_id`, `scorer`, `line_ticks`, `position_type`, `odds_tick`, `risk_amount`, `nonce`, `expiry`
+  - `speculation_key` derived as `keccak256(abi.encode(uint256, address, int32))` — same scheme as `MatchingModule.raiseMinNonce` and `_validateCommitment`
+  - `market_type` derived from scorer→type mapping (works for cancel-only — no speculation lookup)
+  - `status='cancelled'`, `source='indexer'`, `source_block` set
+
+**R4.1 retest verification (post-PR #21 deploy):**
+- Replay/recovery path: rerun the COMMITMENT_CANCELLED row from R4 Session 1 A-22 (block 37305539, hash `0x5790469bd7...`) through `recovery.ts` and confirm the previously null fields (`contest_id`, `scorer`, `line_ticks`, `position_type`, `odds_tick`, `risk_amount`, `nonce`, `expiry`, `speculation_key`) are now populated. PR #21 made backfill produce the same shape as live indexing.
+- Live path (if testing fresh): cancel a new commitment after PR #21 is deployed; confirm row populated on first insert.
 
 **Pass/Fail:**
 
 **Evidence:**
 
-**Notes:** Best-effort handler — if commitment doesn't exist in Supabase, the handler logs a warning and succeeds. Cancelling prevents future matching.
+**Notes:** Indexer PR #21 closed the R4 Session 1 finding #6 gap (cancel-only rows had nulls). The handler is now full-fidelity, no longer "best-effort" — every cancel produces a fully-populated row.
 
 ---
 
@@ -995,9 +1018,11 @@ cast send $MATCHING_MODULE \
 **Expected Supabase outcome:**
 - `chain_events` row: event_type="MIN_NONCE_UPDATED"
 - `maker_nonce_floors` row: maker=MAKER, speculation_key=hash, min_nonce=5, source_block set
-- `commitments`: any rows with nonce < 5 for this maker/speculation_key have `nonce_invalidated=true` (best-effort)
+- `commitments`: any rows with `nonce < 5` for this `(maker, speculation_key)` have `nonce_invalidated=true`
 
-**PR #11-13 commitment invalidation check:** After this test, query commitments for this maker/speculation_key. If indexer-created commitment rows exist from A-06 matches (which used nonces 1-2), verify `nonce_invalidated=true` on those rows. This confirms the MIN_NONCE_UPDATED handler's best-effort invalidation works on indexer-created rows, not just agent-created ones.
+**PR #21 invalidation check (was R4 Session 1 finding #7):** Indexer PR #11-#13 wrote indexer-created commitment rows with `nonce=0` because the contract event didn't include nonce — so `MIN_NONCE_UPDATED` had nothing to compare against and the invalidation was a no-op for indexer-created rows. **PR #21 fixed this** by extracting `nonce`, `expiry`, `risk_amount`, and deriving `speculation_key` on COMMITMENT_MATCHED. After replay/redeploy, indexer-created rows have real nonces and `nonce_invalidated=true` lands correctly when their nonce is below the new floor.
+
+**R4.1 retest verification (post-PR #21):** Identify indexer-created commitments from R4 Session 1 (A-06/A-07/D-01 matches) and confirm `nonce` matches the on-chain commitment payload (not 0) and `speculation_key` is populated. Then either replay A-23's MIN_NONCE_UPDATED at block 37305554 or trigger a fresh raiseMinNonce above the matched nonce; assert `nonce_invalidated=true` on the affected rows.
 
 **Pass/Fail:**
 
@@ -1056,6 +1081,158 @@ These verify that different scorer modules produce correct `market_type` values.
 **Evidence:**
 
 **Notes:** After game ends: settle and verify win_side reflects total outcome (away + home vs line).
+
+---
+
+### Priority 7 — Treasury / Rules / Leaderboard Funding (added in v4.1 — indexer PR #22 projections)
+
+These tests target the 5 partials that PR #22 introduced typed-table projections for. Most of the underlying events already fire as side-effects of A-01/A-06/A-13 (i.e., the chain_events rows already exist for R4 history); these tests assert the **typed-table projection** lands correctly. The replay/backfill path of R4.1 should reproduce all of these from existing R4 chain_events without any new on-chain action.
+
+---
+
+#### A-26: FEE_PROCESSED projection → `fees` table
+
+**Description:** Verify single-shape fee events project to the `fees` table. The contest creation fee (1.00 USDC) emits `FEE_PROCESSED` (single, not split) every time A-01 runs.
+
+**Prerequisites:** A-01 already executed (R4 Session 1 produced ≥3 contest creations on R4 — Contests 2/3/4/5).
+
+**Action:** No new on-chain action required for replay validation. For a fresh trigger, run any A-01 (1 USDC + 0.004 LINK).
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="FEE_PROCESSED" (one per contest creation)
+- `fees` row (single shape): `fee_type='contest_creation'`, `amount=1000000`, `second_amount=null`, `total_amount=1000000` (generated column), `tx_hash`, `block_number`, `source_block` set, no `to_recipient_secondary`
+
+**Pass/Fail:**
+
+**Evidence:**
+
+**Notes:** Indexer PR #22 introduced the `fee_type` Postgres enum (`'contest_creation' | 'speculation_creation' | 'leaderboard_creation'`). `total_amount` is a STORED generated column. Idempotent re-insert (Postgres 23505) is silently ignored — replay-safe.
+
+---
+
+#### A-27: SPLIT_FEE_PROCESSED projection → `fees` table
+
+**Description:** Verify split-shape fee events project to the same `fees` table. Speculation creation fee splits 0.25 USDC maker share + 0.25 USDC taker share → 1 row in `fees`.
+
+**Prerequisites:** A-06 already executed (R4 Session 1 produced ≥4 first-fills across Tracks 1/3/4 — see session log).
+
+**Action:** No new on-chain action required for replay validation.
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="SPLIT_FEE_PROCESSED"
+- `fees` row (split shape): `fee_type='speculation_creation'`, `amount=250000`, `second_amount=250000`, `total_amount=500000` (generated), both recipient fields set
+- Asymmetric halves (if any production case ever splits non-50/50) are preserved as-is — the row stores `amount` and `second_amount` independently.
+
+**Pass/Fail:**
+
+**Evidence:**
+
+**Notes:** Pre-PR #17, this event was silently dropped (`decodeLog()` returned null for unknown topic[1]). All R4 Session 1 first-fills initially recorded 3 `chain_events` rows; after PR #17 deploy + replay/backfill, all should show 4. Verify via the per-tx event count check (D-02).
+
+---
+
+#### A-28: LEADERBOARD_FUNDED → `leaderboard_fundings` + atomic prize_pool increment
+
+**Description:** External sponsor funds an existing leaderboard via `TreasuryModule.fundLeaderboard()`. PR #22 atomically (a) appends a row to `leaderboard_fundings` with the funder/amount/tx/block, AND (b) increments `leaderboards.prize_pool` — same idempotency pattern as `rpc_user_registered` (only increments on genuine new rows).
+
+**Prerequisites:** Existing leaderboard (R4 Session 1 created LB 1). Funder wallet has USDC approved for TreasuryModule.
+
+**Action:** No new on-chain action required if R4.1 replay is sufficient — but R4 Session 1 did NOT include a `fundLeaderboard()` call, so this event has not yet fired on R4. To trigger:
+```bash
+cast send $TREASURY_MODULE "fundLeaderboard(uint256,uint256)" \
+  1 5000000 \
+  --private-key $DEPLOYER_PK --rpc-url $AMOY_RPC
+```
+(LB id=1, funding 5 USDC.)
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="LEADERBOARD_FUNDED"
+- `leaderboard_fundings` row: `leaderboard_id=1`, `funder=$DEPLOYER`, `amount=5000000`, `tx_hash`, `block_number`, `source_block` set
+- `leaderboards.prize_pool` incremented by 5000000 (atomic with the insert — verify via `rpc_leaderboard_funded`)
+
+**Pass/Fail:**
+
+**Evidence:**
+
+**Notes:** Indexer PR #22 explicitly says: "if the dispatch produces no new row (idempotent re-insert), prize_pool is NOT double-incremented." Verify by running the same handler twice and asserting prize_pool only increases once. Replay/backfill is also idempotent.
+
+---
+
+#### A-29: RULE_SET → `leaderboard_rules` table
+
+**Description:** Set or update a rule (e.g., `minBankroll`, `maxBankroll`) on a leaderboard via `RulesModule`. PR #22 upserts into `leaderboard_rules` keyed on `(network, leaderboard_id, rule_type)`.
+
+**Prerequisites:** Existing leaderboard. Caller must be authorized per RulesModule.
+
+**Action:** No new on-chain action required if R4.1 replay is sufficient — but R4 Session 1 did NOT include a `RULE_SET` event. To trigger:
+```bash
+# Example: set minBankroll = 50 USDC on LB 1
+cast send $RULES_MODULE "setRule(uint256,string,uint256)" \
+  1 "minBankroll" 50000000 \
+  --private-key $DEPLOYER_PK --rpc-url $AMOY_RPC
+```
+Adjust function name/signature to match `RulesModule.sol` — the event field `rule_type` is a `string`, not an enum.
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="RULE_SET"
+- `leaderboard_rules` row: `leaderboard_id=1`, `rule_type='minBankroll'` (verbatim from contract — string), `value=50000000`, source_block set
+
+**Re-fire same key:** Second `RULE_SET` event with the same `(leaderboard_id, rule_type)` UPSERTs — does NOT duplicate. Verify via tests/partials.test.ts coverage.
+
+**Pass/Fail:**
+
+**Evidence:**
+
+**Notes:** PR #22 stores `rule_type` verbatim as `text` (not an enum) so future contract additions don't need a coordinated DB migration. Contract emits string literals like `"minBankroll"`, `"maxBankroll"` directly.
+
+---
+
+#### A-30: DEVIATION_RULE_SET → `leaderboard_deviation_rules` table
+
+**Description:** Set a deviation rule (max odds deviation by league/scorer/position type) on a leaderboard. PR #22 upserts into `leaderboard_deviation_rules` keyed on `(network, leaderboard_id, league_id, scorer, position_type)`.
+
+**Prerequisites:** Existing leaderboard.
+
+**Action:** No new on-chain action required if R4.1 replay is sufficient — but R4 Session 1 did NOT include a `DEVIATION_RULE_SET` event. To trigger:
+```bash
+# Example: max deviation 200bps for NBA moneyline upper
+cast send $RULES_MODULE \
+  "setDeviationRule(uint256,uint8,address,uint8,int32)" \
+  1 4 $MONEYLINE_SCORER 0 200 \
+  --private-key $DEPLOYER_PK --rpc-url $AMOY_RPC
+```
+(LB 1, leagueId=4=NBA, scorer=Moneyline, positionType=0=Upper, maxDeviation=200.) Adjust to match `RulesModule.sol`.
+
+**Expected Supabase outcome:**
+- `chain_events` row: event_type="DEVIATION_RULE_SET"
+- `leaderboard_deviation_rules` row: `leaderboard_id=1`, `league_id='nba'` (slug), `scorer`, `position_type='upper'` (slug), `max_deviation=200`, source_block set
+
+**Pass/Fail:**
+
+**Evidence:**
+
+**Notes:** `max_deviation` is `int32` per `RulesModule.sol`'s `DeviationRuleSet` event, but the contract reverts on negative values, so DB stores as `integer NOT NULL CHECK (max_deviation >= 0)`. `leagueId` and `positionType` are slug-mapped (unknown leagueId → `'unknown'`).
+
+---
+
+#### A-31: Audit-only events land in `chain_events`
+
+**Description:** Verify that the 5 audit-only event types still produce `chain_events` rows even though their handlers are noops. These were silently dropped pre-PR #17.
+
+**Prerequisites:** R4 history contains examples of each (R4 Session 1 captured `SCRIPT_APPROVAL_VERIFIED` and `ORACLE_REQUEST_FAILED`; A-13 captures `LEADERBOARD_ENTRY_FEE_PROCESSED`; `ORACLE_RESPONSE` fires on every successful Chainlink callback; `PRIZE_POOL_CLAIMED` fires alongside `LEADERBOARD_PRIZE_CLAIMED`).
+
+**Action:** Replay-only verification.
+
+**Expected Supabase outcome:**
+- `chain_events` rows present for: `LEADERBOARD_ENTRY_FEE_PROCESSED`, `PRIZE_POOL_CLAIMED`, `ORACLE_RESPONSE`, `ORACLE_REQUEST_FAILED`, `SCRIPT_APPROVAL_VERIFIED`
+- No projection-table writes from these events (handlers are noops)
+- No `pending_events` rows for these events
+
+**Pass/Fail:**
+
+**Evidence:**
+
+**Notes:** Pre-PR #17, the indexer's `decodeLog()` returned null for these unknown `topic[1]` hashes and skipped them entirely. After PR #17 they're recognized; their registry entries are explicit `noop` handlers. Use this test to prove the visibility regression closed.
 
 ---
 
@@ -1181,7 +1358,16 @@ cast send $LEADERBOARD_MODULE \
 
 **Evidence:**
 
-**Notes:** This is the highest-value indexer test — validates the entire dependency resolution system. The retry worker runs every 10s. If the event has been retried > 20 times or exists > 1 hour, the indexer logs an alert.
+**Notes:** This is the highest-value indexer test — validates the entire dependency resolution system. The retry worker runs every 10s. If the event has been retried > 20 times or exists > 1 hour, the indexer logs a warning (early signal); after `PENDING_MAX_ATTEMPTS` (default 360, ~1h at 10s tick) the row is **deleted** by default (or **skipped** if `PENDING_MAX_ATTEMPTS_ACTION=skip` — preserves audit trail). See PR #20.
+
+**R4 Session 1 status:** C-01 was NOT triggered organically (every selected game already had a `contest_reference` row). **R4.1 must run this manually:**
+1. Pick a `jsonodds_id` with no `contest_reference` row (e.g., a random UUID).
+2. Run `OracleModule.createContestFromOracle(...)` with the bogus id (1 USDC + 0.004 LINK on testnet — permissionless entry point, no game-timing concern).
+3. Verify `pending_events` row appears with `reason='missing_contest_reference'`, attempts increment.
+4. Insert the missing `contest_reference` row in Supabase.
+5. Verify `pending_events` row deleted on next retry tick (~10s) and `contests` row created.
+
+**C-01b: Retry-cap behavior (PR #20).** Variant: do NOT insert the `contest_reference` row in step 4. Instead, lower `PENDING_MAX_ATTEMPTS` temporarily on Heroku (e.g., 5) and confirm the row is deleted (default action) or stops being retried (skip action) at attempts ≥ MAX. Verify no log spam after the cap is hit. Restore `PENDING_MAX_ATTEMPTS` to its production default after the test.
 
 ---
 
@@ -1401,7 +1587,7 @@ FROM chain_events
 WHERE network = 'amoy' AND tx_hash = '<TX_HASH>'
 GROUP BY event_type;
 ```
-Compare against the expected events for that test (e.g., A-06 expects exactly 3: SPECULATION_CREATED, COMMITMENT_MATCHED, POSITION_MATCHED_PAIR).
+Compare against the expected events for that test (e.g., **A-06 expects exactly 4: SPECULATION_CREATED, COMMITMENT_MATCHED, POSITION_MATCHED_PAIR, SPLIT_FEE_PROCESSED** — the speculation-creation fee split fires in the same tx; A-07 accumulation expects exactly 2: COMMITMENT_MATCHED, POSITION_MATCHED_PAIR).
 
 **Check 2 — Exact target-row assertions:**
 For each event, verify the specific projected row(s) exist with correct field values. Not just "row exists" but "row has risk_amount=10000000, position_type=upper, source_block=BLOCK".
@@ -1465,6 +1651,87 @@ Compare against:
 **Evidence:**
 
 **Notes:** Document reconciliation formulas. Any discrepancy = missed event or incorrect handler arithmetic.
+
+---
+
+## PHASE E: R4.1 REPLAY / PROJECTION VALIDATION (NEW IN v4.1)
+
+**Goal:** Validate that the indexer (post-PRs #16–#22) can replay/backfill R4 history (block 37285105 → head) and reproduce all projection state cleanly. This is the primary workstream for R4.1 — only fall back to a full new on-chain round if replay/reconcile fails to repair state.
+
+**Scope decision tree:**
+1. Run E-01 / E-02 / E-03 below.
+2. If they pass → continue Round 4 (Sessions 2/3/4 proceed as planned in the original session log).
+3. If E-01 (replay) reproduces state but E-02 (reconcile) shows drift → file a targeted fix in ospex-indexer; do NOT wipe.
+4. If replay cannot repair state at all → wipe `amoy*` Supabase data and rerun the backfill from block 37285105. **Only then** consider starting a new on-chain round.
+
+---
+
+#### E-01: Indexer Replay/Backfill from R4 deployment block
+
+**Description:** Run `yarn backfill --from 37285105 --to <head>` against the R4 history. Verify all 35 event types land in `chain_events`, all 30 projection-handler events produce typed-table rows (especially the 5 new partials projected by PR #22), and all 5 audit-only events produce chain_events rows with no projection writes.
+
+**Prerequisites:** Indexer deployed at PR #22 or later. Alchemy RPC with chunking respected (`BLOCK_RANGE_CHUNK`). `EMITTER_ALLOWLIST` includes R4 OspexCore + 3 scorer modules.
+
+**Action:**
+```bash
+cd /c/Users/vince/Documents/solidity/ospex-matched-pairs/ospex-indexer
+ALCHEMY_RPC_URL=... SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... CHAIN_ID=80002 \
+  EMITTER_ALLOWLIST=0xD47456F17b8f1D232799aE8670330b76A924422e \
+  SCORER_MONEYLINE=0x2E6Fd04Bf32E2fFd46AAd9549D86Ab619938167b \
+  SCORER_SPREAD=0x0dE8B42Fe14Bf008ef26A510E45f663f083eBd77 \
+  SCORER_TOTAL=0xAc2Ec406C3F1aDe03f5e25233B7379FAA0FAE85b \
+  yarn backfill --from 37285105 --to <head>
+```
+
+**Expected outcome:**
+- `chain_events` populated for the full R4 range, ≥35 distinct event types (subject to which fired during R4 history).
+- 30 projection-handler events have corresponding typed-table rows.
+- 5 audit-only events (`LEADERBOARD_ENTRY_FEE_PROCESSED`, `PRIZE_POOL_CLAIMED`, `ORACLE_RESPONSE`, `ORACLE_REQUEST_FAILED`, `SCRIPT_APPROVAL_VERIFIED`) have chain_events rows but no projection writes.
+- New tables (`fees`, `leaderboard_fundings`, `leaderboard_rules`, `leaderboard_deviation_rules`) populated where source events fired.
+- All 7 R4 first-fill txs from Session 1 show **4 chain_events** rows (not 3) — the previously-dropped `SPLIT_FEE_PROCESSED` is now present.
+- All COMMITMENT_MATCHED rows have `nonce`, `expiry`, `risk_amount`, `speculation_key` populated (PR #21).
+- The R4 Session 1 A-22 cancelled commitment row (hash `0x5790469bd7...`) has full R4 fields populated post-recovery, not just hash/maker.
+
+**Pass/Fail:**
+
+**Evidence:**
+
+**Notes:** PR #22 made `recovery.ts` set `source_block` on both new and pre-existing rows during recompute, so this replay should produce a clean state with no NULL `source_block` even on rows that pre-existed the partials projection migration.
+
+---
+
+#### E-02: Reconcile (C-03) post-replay
+
+**Description:** Same as C-03 — run `yarn reconcile`. After E-01 the reconcile should pass with zero drift across all 13+ projection tables (now including `fees`, `leaderboard_fundings`, `leaderboard_rules`, `leaderboard_deviation_rules`).
+
+**Action:** Run C-03 (see Phase C). Verify zero drift output.
+
+**Expected outcome:** Exit 0, zero discrepancies across all projection tables.
+
+---
+
+#### E-03: Per-tx + USDC value reconciliation post-replay
+
+**Description:** Same as D-02 + D-03 — run per-tx event count assertions and USDC balance reconciliation. R4 first-fill txs now expect **4 events** (PR #17/#22), not 3.
+
+**Action:** Run D-02 and D-03 (see Phase D). Recompute the per-tx expected-event map for R4 Session 1's tx hashes using the corrected expectations:
+- A-06 first-fills (3 occurrences in Session 1): expect 4 events each.
+- A-07 accumulations: expect 2 events each (unchanged).
+- A-01 contest creations: expect CONTEST_CREATED + 3× SCRIPT_APPROVAL_VERIFIED + FEE_PROCESSED + (eventually) ORACLE_RESPONSE/CONTEST_VERIFIED on callback.
+
+**Expected outcome:** Zero per-tx event-count discrepancies. USDC reconciliation against the new TreasuryModule balance + `fees` totals.
+
+---
+
+#### E-04: Targeted re-tests for events not yet on R4 chain
+
+**Description:** Five event types did not fire during R4 Session 1 and so cannot be validated by replay alone. They are: `LEADERBOARD_FUNDED` (A-28), `RULE_SET` (A-29), `DEVIATION_RULE_SET` (A-30), and the C-01 `pending_events` flow + retry cap. **Trigger each on-chain via the cheapest possible call** and verify the new projections.
+
+**Action:** Run A-28, A-29, A-30, C-01, C-01b. None of these have game-timing dependencies — they're free-running on-chain operations against the existing R4 deployment.
+
+**Cost:** A-28 ~5 USDC into `prize_pool` (recoverable on prize claim — not lost). A-29/A-30 free (just gas). C-01 ~1 USDC + 0.004 LINK for the bogus contest creation (permissionless entry).
+
+**Expected outcome:** All 5 typed tables populated as described in the per-test sections above.
 
 ---
 
@@ -1560,3 +1827,4 @@ If more than 3 sports are available, create additional contests to cover them (a
 | 2026-04-23 | OC review additions: (1) A-20b relist check — verify sold_* cleared on relist. (2) C-04a/b/c — explicit backfill invariants: no orphaned projections, leaderboard rows complete, commitment fields correct. (3) A-23 commitment invalidation check — verify nonce_invalidated on indexer-created commitments. (4) Annotated "commitments empty by design" finding as superseded by PRs 11-13. |
 | 2026-04-24 | Leaderboard minimum window policy: safety period and ROI submission window must each be at minimum 24 hours (86400s). Updated A-11 from 60s to 86400s for both windows. Updated all downstream timing references (A-15, A-16, Session 4 header, time dependencies table). Rationale: shorter windows are unusable in production and make testing hostile. |
 | 2026-04-24 | Multi-sport coverage + game selection review gate: (1) Every session must include at least one contest per available sport in contest_reference (currently 0=MLB, 1=NBA, 5=NHL). Halt if any sport is missing. (2) After T-00 canary, present selected games with CST times for user review before contest creation. Rationale: Session 1 v3 only tested 2 of 3 sports; repeated time zone parsing errors have wasted testnet gas. |
+| 2026-04-26 | **v4.1** — R4 Session 1 Day 1 surfaced doc gaps closed by indexer PRs #16–#22. Changes: (1) Event count corrected from 27/26 to **35** with explicit projecting (30) vs audit-only (5) split. (2) Polling interval corrected from 2000ms to **15000ms minimum** — Alchemy free-tier rate-limits enforce this. (3) **A-06 / D-02 first-fill expectation corrected from 3 events to 4** — `SPLIT_FEE_PROCESSED` was silently dropped pre-PR #17. (4) **A-22 expected outcome rewritten** — post-PR #21, COMMITMENT_CANCELLED upserts a fully populated row (contest_id/scorer/lineTicks/positionType/oddsTick/riskAmount/nonce/expiry/speculation_key), not best-effort hash/maker only. (5) **A-23 expected outcome updated** — post-PR #21, indexer-created commitments have real nonces (not 0), so `nonce_invalidated` works on them. (6) **Added A-26..A-31** — explicit tests for FEE_PROCESSED, SPLIT_FEE_PROCESSED, LEADERBOARD_FUNDED (PR #22 → `leaderboard_fundings`), RULE_SET (PR #22 → `leaderboard_rules`), DEVIATION_RULE_SET (PR #22 → `leaderboard_deviation_rules`), and audit-only landing check. (7) **Added Phase E (R4.1 replay/backfill validation)** — primary R4.1 workstream: replay R4 history block 37285105 → head, run reconcile + per-tx + USDC value, then targeted re-tests for events not yet on R4 chain. (8) Updated C-01 with PR #20 retry-cap details and explicit manual-trigger procedure (R4 Session 1 didn't trigger C-01 organically). (9) Safe-head source updated to chain `finalized` block tag per PR #19. |
