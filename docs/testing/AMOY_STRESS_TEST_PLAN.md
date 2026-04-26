@@ -494,7 +494,7 @@ cast send $SPECULATION_MODULE "settleSpeculation(uint256)" SPEC_ID \
    ```
    maker: MAKER_ADDRESS
    contestId: CONTEST_ID
-   scorer: 0x4CDf8cc2b0DcAe9bFFF34846E2bCB3A88675EdEC (MoneylineScorer)
+   scorer: $MONEYLINE_SCORER (R4: 0x2E6Fd04Bf32E2fFd46AAd9549D86Ab619938167b)
    lineTicks: 0 (moneyline)
    positionType: 0 (Upper = Away)
    oddsTick: 191 (1.91x)
@@ -1052,7 +1052,7 @@ These verify that different scorer modules produce correct `market_type` values.
 **Prerequisites:** Verified contest, MAKER/TAKER funded.
 
 **Action:** Sign commitment with:
-- scorer: `0x36F3f4A6757cB2E822A1AfCea0b3092fFcaE6c30` (SpreadScorerModule)
+- scorer: `$SPREAD_SCORER` (R4: `0x0dE8B42Fe14Bf008ef26A510E45f663f083eBd77`)
 - lineTicks: -30 (spread of -3.0)
 - positionType: 0 (Upper = Away covers)
 
@@ -1075,7 +1075,7 @@ These verify that different scorer modules produce correct `market_type` values.
 **Prerequisites:** Verified contest, MAKER/TAKER funded.
 
 **Action:** Sign commitment with:
-- scorer: `0xB814f3779A79c6470a904f8A12670D1B13874fDE` (TotalScorerModule)
+- scorer: `$TOTAL_SCORER` (R4: `0xAc2Ec406C3F1aDe03f5e25233B7379FAA0FAE85b`)
 - lineTicks: 2150 (total of 215.0)
 - positionType: 0 (Upper = Over)
 
@@ -1484,16 +1484,17 @@ SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... CHAIN_ID=80002 \
 
 **Action:**
 1. Record current Supabase state (row counts + key field values) for affected tables
-2. Run backfill:
+2. Run backfill (R4 contract addresses — see plan §"Contract Addresses (Amoy, R4 deployed 2026-04-25)"):
    ```bash
    cd /c/Users/vince/Documents/solidity/ospex-matched-pairs/ospex-indexer
    ALCHEMY_RPC_URL=... SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... CHAIN_ID=80002 \
-     EMITTER_ALLOWLIST=0x44fEDE66279D0609d43061Ac40D43704dDb392D7 \
-     SCORER_MONEYLINE=0x4CDf8cc2b0DcAe9bFFF34846E2bCB3A88675EdEC \
-     SCORER_SPREAD=0x36F3f4A6757cB2E822A1AfCea0b3092fFcaE6c30 \
-     SCORER_TOTAL=0xB814f3779A79c6470a904f8A12670D1B13874fDE \
+     EMITTER_ALLOWLIST=0xD47456F17b8f1D232799aE8670330b76A924422e \
+     SCORER_MONEYLINE=0x2E6Fd04Bf32E2fFd46AAd9549D86Ab619938167b \
+     SCORER_SPREAD=0x0dE8B42Fe14Bf008ef26A510E45f663f083eBd77 \
+     SCORER_TOTAL=0xAc2Ec406C3F1aDe03f5e25233B7379FAA0FAE85b \
      yarn backfill --from FROM_BLOCK --to TO_BLOCK
    ```
+   For R4.1 replay, `FROM_BLOCK=37285105` (R4 deploy) and `TO_BLOCK=<head>`. For partial replays, choose a block range that covers a complete entity lifecycle (FK closure — see PR #10 atomic backfill RPC).
 3. Compare Supabase state to pre-backfill snapshot
 
 **Expected outcome:**
