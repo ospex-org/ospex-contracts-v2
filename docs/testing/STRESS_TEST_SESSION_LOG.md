@@ -7,7 +7,7 @@ Tracks progress across sessions. Updated after each test execution.
 **Plan version:** v4.1 (R4 contracts + R4.1 indexer replay/projection retest)
 **Phase:** R4 Session 1 Day 1 complete; **R4.1 retest pending.** Indexer PRs #16–#22 merged 2026-04-24..26 closed the gaps surfaced in R4 Day 1 findings (35-event recognition, finalized-block safe-head, pending-events retry cap, full COMMITMENT_MATCHED/COMMITMENT_CANCELLED field coverage with `speculation_key`, projection of FEE/SPLIT_FEE/LEADERBOARD_FUNDED/RULE_SET/DEVIATION_RULE_SET partials).
 **Branch:** `docs/r4.1-indexer-replay-retest` (foundry repo) — doc updates for R4.1. The on-chain testing branch `feature/r4-stress-test-session-1` was merged for Session 1 Day 1 results.
-**Next action:** Run R4.1 retest checklist (see below). If indexer replay/reconcile passes, continue Round 4 with Session 2 (score/settle/claim Cavs game) → Session 3 (Mon void cooldown) → Session 4 (LB ROI/prize). If replay fails, wipe Supabase amoy data and reindex from block 37285105 before considering a new round.
+**Next action:** Run R4.1 retest checklist (see below). If indexer replay/reconcile passes, continue Round 4 with Session 2 (score/settle/claim Cavs game **once the game is FINAL — Contest 5 on-chain start_time is `2026-04-26T22:00:00Z` = 5:00 PM CDT, so earliest scoring window is ~7:30 PM CDT today; verify FINAL via API before calling `scoreContestFromOracle`**) → Session 3 (Mon void cooldown) → Session 4 (LB ROI/prize). If replay fails, wipe Supabase amoy data and reindex from block 37285105 before considering a new round.
 
 R3 results below (Sessions 1–4) preserved for reference. R4 is a separate test cycle against re-deployed contracts.
 
@@ -183,7 +183,7 @@ All three games have both `rundown_id` and `sportspage_id` populated (dual oracl
 
 6. **R4 ABI gap — COMMITMENT_CANCELLED handler doesn't extract new fields.** R4 emit added contestId, scorer, lineTicks, positionType, oddsTick, riskAmount, nonce, expiry to CommitmentCancelled (per `docs/testing/POST_DEPLOY_SMOKE_TEST.md`), but the indexer handler at `src/handlers/commitments.ts:13-31` only reads `commitmentHash` and `maker`. When the cancelled commitment has no pre-existing row (cancel-only path), the resulting row stores nulls for the new fields. **Non-blocking** — status='cancelled' tracking still works. **Recommend ospex-indexer PR** to extract and store the new fields on cancel-only inserts. **→ RESOLVED by ospex-indexer PR #21 (merged 2026-04-26):** handler now persists full R4 field set including derived `speculation_key`. `recovery.ts` produces same shape on backfill. R4.1 retest must verify the existing R4 Session 1 cancelled row (hash `0x5790469bd7...`, block 37305539) is repaired to full population on replay.
 
-7. **R4 ABI gap — nonce always 0 on indexer-created commitment rows.** Per R3 finding A-23: same issue carries to R4. The new R4 CommitmentMatched event includes `nonce`, but the indexer's match handler still records nonce=0. This blocks MIN_NONCE_UPDATED's nonce_invalidated logic from working on indexer-created rows. **Recommend ospex-indexer PR** to extract and store nonce on COMMITMENT_MATCHED. **→ RESOLVED by ospex-indexer PR #21:** `rpc_commitment_matched` now accepts `p_commitment_risk_amount`, `p_nonce`, `p_expiry`, `p_speculation_key`. R4.1 retest must verify the 9 indexer-created COMMITMENT_MATCHED rows from Session 1 have real nonces post-replay, then assert MIN_NONCE_UPDATED at block 37305554 (raise to 100) marks nonce-1/2 commitments as `nonce_invalidated=true`.
+7. **R4 ABI gap — nonce always 0 on indexer-created commitment rows.** Per R3 finding A-23: same issue carries to R4. The new R4 CommitmentMatched event includes `nonce`, but the indexer's match handler still records nonce=0. This blocks MIN_NONCE_UPDATED's nonce_invalidated logic from working on indexer-created rows. **Recommend ospex-indexer PR** to extract and store nonce on COMMITMENT_MATCHED. **→ RESOLVED by ospex-indexer PR #21:** `rpc_commitment_matched` now accepts `p_commitment_risk_amount`, `p_nonce`, `p_expiry`, `p_speculation_key`. R4.1 retest must verify the 9 indexer-created COMMITMENT_MATCHED rows from Session 1 have real nonces post-replay, then assert MIN_NONCE_UPDATED at block 37305554 (A-23 raised Contest 3 / Moneyline / lineTicks=0 to nonce 100 on speculation_key `0x1687c295fb...`) marks every commitment with `(maker, speculation_key)` matching and `nonce < 100` as `nonce_invalidated=true`. Spec 1 first-fill at nonce 1 is the primary affected row.
 
 8. **4 CoreEvents per first-fill match (not 3) carries from R3.** SPECULATION_CREATED + COMMITMENT_MATCHED + POSITION_MATCHED_PAIR + SPLIT_FEE_PROCESSED. Plan documentation should be updated to expect 4. **→ RESOLVED by ospex-indexer PR #17 (recognition) + plan doc v4.1 (expectation update).** Pre-PR #17 indexer was silently dropping `SPLIT_FEE_PROCESSED` because `decodeLog()` returned null for unknown topic[1] hashes; all 7 R4 first-fill txs initially recorded 3/4 events. R4.1 retest must verify all 7 first-fill txs now have 4 chain_events rows after replay.
 
@@ -201,7 +201,7 @@ All three games have both `rundown_id` and `sportspage_id` populated (dual oracl
 
 #### Next session gates
 
-- **Session 2 (Day 2 — after Cavs game ends, ~3 PM CDT 2026-04-26):** A-04 score Contest 5 → A-08 settle Specs 3/4/5 → A-09 claim winning positions. Then C-03 reconcile, C-04 backfill, D-02 per-tx reconciliation, D-03 USDC value reconciliation.
+- **Session 2 (after Cavs game is FINAL):** A-04 score Contest 5 → A-08 settle Specs 3/4/5 → A-09 claim winning positions. Then C-03 reconcile, C-04 backfill, D-02 per-tx reconciliation, D-03 USDC value reconciliation. **Pre-flight:** the on-chain `start_time` for Contest 5 is `2026-04-26T22:00:00Z` (= 5:00 PM CDT, **not** 3 PM CDT — earlier session-log entries had the wrong CDT). Earliest defensible scoring window: `start_time + ~2.5h NBA duration` ≈ 2026-04-27T00:30Z (~7:30 PM CDT 2026-04-26). **Mandatory pre-flight gate (see plan A-04 Notes):** confirm via `getContest()` AND the scoring API that the game is FINAL before calling `scoreContestFromOracle`. Do not assume "3 hours after the planned tip-off" is enough; the on-chain start_time is canonical.
 - **Session 3 (Day 2 — after Mon ~12:35 PM CDT 2026-04-27, Contest 4 cooldown elapses):** A-05 void Contest C via settleSpeculation(2) → B-01 post-cooldown match rejection.
 - **Session 4 (Day 5+ — after LB endTime + 24h safety + 24h ROI):** A-15 submit ROI → A-16 claim leaderboard prize.
 - **Pending verification later this session:** A-14 (LB position registration with 500k gas).
@@ -225,7 +225,7 @@ All three games have both `rundown_id` and `sportspage_id` populated (dual oracl
 - [ ] Confirm `POLL_INTERVAL_MS=15000` (Heroku config) and `EMITTER_ALLOWLIST` includes R4 OspexCore + 3 scorer modules.
 - [ ] Snapshot current `amoy*` Supabase state (row counts per projection table) before replay.
 - [ ] Run `yarn backfill --from 37285105 --to <head>` against R4 history.
-- [ ] Verify all 35 event types now appear where they fired:
+- [ ] Verify the event types that **fired during R4 Session 1** all appear in `chain_events` post-replay (replay can only validate events that happened on-chain — see Phase E-01 caveat for the events that didn't fire and need §4 / Sessions 2-4):
   - [ ] All 7 R4 first-fill txs from Session 1 show **4 chain_events rows** (not 3) — the previously-dropped `SPLIT_FEE_PROCESSED` is now present.
   - [ ] `SCRIPT_APPROVAL_VERIFIED` rows present for every Chainlink-script call (A-01 / A-03 / A-04).
   - [ ] `FEE_PROCESSED` rows present for every contest creation (Contests 2/3/4/5).
@@ -242,26 +242,31 @@ All three games have both `rundown_id` and `sportspage_id` populated (dual oracl
   - [ ] All commitment rows have `source='indexer'`, `source_block` set.
 - [ ] Verify `source_block` repair on pre-existing rows (PR #22 recovery.ts fix): zero NULL `source_block` across all 16+ projection tables (12 from R4 Session 1 + 4 new).
 
-#### §2 — Reconcile (Phase E-02 = C-03)
+#### §2 — Reconcile (Phase E-02 = C-03 + explicit SQL for new tables)
 
-- [ ] `yarn reconcile` exit 0, zero drift across all projection tables.
+- [ ] `yarn reconcile` exit 0, zero drift across the 13 tables it covers (`contests`, `speculations`, `positions`, `position_fills`, `commitments`, `maker_nonce_floors`, `leaderboards`, `leaderboard_registrations`, `leaderboard_speculations`, `leaderboard_winners`, `leaderboard_positions`, `secondary_market_listings`, `chain_events`).
+- [ ] **`yarn reconcile` does NOT cover the 4 PR #22 tables.** Run the explicit SQL queries from Phase E-02 Part B in the test plan against `fees`, `leaderboard_fundings`, `leaderboard_rules`, `leaderboard_deviation_rules`. Expect zero unmatched chain_events, zero key-duplicates, zero NULL `source_block`.
+- [ ] File ospex-indexer follow-up to add the 4 new tables to `reconcile.ts:TABLES`.
 - [ ] Cursor at chain head, no stuck `pending_events`.
 
 #### §3 — Per-tx + USDC value reconciliation (Phase E-03 = D-02 + D-03)
 
 - [ ] Per-tx event counts match the **corrected** A-06 = 4 / A-07 = 2 expectation.
 - [ ] No duplicate `chain_events` rows.
-- [ ] USDC reconciliation: TreasuryModule balance = sum of `fees` rows + `leaderboards.prize_pool` + outstanding-but-not-claimed leaderboard prizes.
-- [ ] PositionModule balance = sum of unclaimed positions (risk + profit on winners; risk on push).
-- [ ] SecondaryMarketModule balance = sum of unclaimed sale proceeds.
+- [ ] **USDC reconciliation (per-balance, see D-03 / E-03 for formulas):**
+  - [ ] `PositionModule.balanceOf(USDC)` = sum of unclaimed positions (winners: risk + profit; push: risk only).
+  - [ ] `TreasuryModule.balanceOf(USDC)` = `SUM(leaderboards.prize_pool)` (= entry fees + LEADERBOARD_FUNDED amounts − claimed prizes). **Fees DO NOT live here — they go straight to `i_protocolReceiver`.**
+  - [ ] `protocolReceiver.balanceOf(USDC)` delta since R4 deploy block = `SUM(fees.total_amount)`.
+  - [ ] `SecondaryMarketModule.balanceOf(USDC)` = sum of unclaimed sale proceeds.
 
 #### §4 — Targeted re-tests for events not yet on R4 chain (Phase E-04)
 
-These five events did not fire in R4 Session 1 and so cannot be validated by replay alone. **Each is a free-running on-chain operation against the existing R4 deployment — no game-timing dependency.** All must be triggered before R4.1 can claim full coverage.
+These five events did not fire in R4 Session 1 and so cannot be validated by replay alone. **Each is a free-running on-chain operation against the existing R4 deployment — no game-timing dependency.** A-29/A-30 require a **new pre-start leaderboard** (LB 1 has already started; rule setters revert with `RulesModule__LeaderboardStarted` once `block.timestamp >= lb.startTime`, so they cannot run on LB 1).
 
-- [ ] **A-28 LEADERBOARD_FUNDED:** `TreasuryModule.fundLeaderboard(1, 5_000_000)` from any funder. Verify `leaderboard_fundings` row + atomic `leaderboards.prize_pool += 5_000_000`. Cost: 5 USDC into LB 1's prize pool (recoverable via prize claim — not lost).
-- [ ] **A-29 RULE_SET:** `RulesModule.setRule(1, "minBankroll", 50_000_000)` (or equivalent). Verify `leaderboard_rules` row, `rule_type='minBankroll'` stored verbatim. Re-fire same key → UPSERT (no duplicate).
-- [ ] **A-30 DEVIATION_RULE_SET:** `RulesModule.setDeviationRule(1, NBA, MoneylineScorer, Upper, 200)`. Verify `leaderboard_deviation_rules` row keyed on `(network, lb, league, scorer, position_type)` with slug-mapped fields.
+- [ ] **A-28 LEADERBOARD_FUNDED:** `TreasuryModule.fundLeaderboard(1, 5_000_000)` from any funder (LB 1 is fine — `fundLeaderboard()` is permissionless and has no pre-start gate). Verify `leaderboard_fundings` row + atomic `leaderboards.prize_pool += 5_000_000`. Cost: 5 USDC into LB 1's prize pool — funder does NOT directly recover it; it's distributed to the leaderboard winner on prize claim.
+- [ ] **(Setup for A-29/A-30) Create new pre-start LB N:** `LeaderboardModule.createLeaderboard(...)` with `startTime = now + 1800` (30 min from creation), 4-day endTime, 24h+ safety + 24h+ ROI windows. Cost: 0.50 USDC creation fee. From a wallet that will be `lb.creator` for the rule setters.
+- [ ] **A-29 RULE_SET:** call any `RulesModule.set*` from the LB N creator wallet **before its startTime**. The contract has no `setRule(uint256,string,uint256)` — use the actual setters: `setMinBankroll(N, 50_000_000)` is the simplest. Verify `leaderboard_rules` row, `rule_type='minBankroll'` stored verbatim. Re-fire same key → UPSERT (no duplicate).
+- [ ] **A-30 DEVIATION_RULE_SET:** `RulesModule.setDeviationRule(N, NBA(=4), MoneylineScorer, Upper(=0), 200)` from LB N creator wallet **before LB N startTime**. Verify `leaderboard_deviation_rules` row keyed on `(network, lb, league, scorer, position_type)` with slug-mapped fields and `max_deviation=200`.
 - [ ] **C-01 pending_events flow:** trigger CONTEST_CREATED with bogus `jsonodds_id` (no contest_reference row); confirm `pending_events` row appears with `reason='missing_contest_reference'`; insert reference; confirm row clears within ~10s. Cost: 1 USDC + 0.004 LINK.
 - [ ] **C-01b retry-cap (PR #20):** repeat C-01 but do NOT insert the reference; lower `PENDING_MAX_ATTEMPTS` to 5 on Heroku temporarily; confirm pending row deleted (default action) at attempts ≥ 5; restore default after.
 
@@ -273,9 +278,23 @@ These five events did not fire in R4 Session 1 and so cannot be validated by rep
 
 #### §6 — On exit
 
-- [ ] If §1–§4 all pass, mark R4.1 complete in this log and proceed to R4 Session 2 (score Cavs game, settle, claim, reconcile).
+- [ ] If §1–§4 all pass, mark R4.1 complete in this log and proceed to R4 Session 2 (score Cavs game, settle, claim, reconcile) **only after the Cavs game is FINAL**.
+- [ ] **Settlement gate (mandatory for Session 2):** before calling `scoreContestFromOracle(5)`:
+  - [ ] Read on-chain `start_time` via `cast call $CONTEST_MODULE "getContest(uint256)" 5` — for R4 Contest 5 this is `1777240800` (`2026-04-26T22:00:00Z` = 5:00 PM CDT, earliest defensible scoring at ~2026-04-27T00:30Z = ~7:30 PM CDT).
+  - [ ] `block.timestamp >= start_time + 9000` (≥ 2.5 hours after start, NBA typical).
+  - [ ] Game status from a scoring API (Rundown / Sportspage / JSONOdds) explicitly reports the game as FINAL.
+  - [ ] If any of the above fails, **do not score**. Document the wait-gate in the session log and check again later.
 - [ ] If any §1–§3 step fails, file ospex-indexer issue with reproducer + Supabase row dump; do not proceed to §4.
 - [ ] If §4 events trigger but the typed-table projections don't land, file ospex-indexer issue; do not assume the handler is correct.
+
+#### Testing-agent guidance (post-doc-fix)
+
+- Do NOT restart R4. R4.1 is replay/projection validation against existing R4 history.
+- Do NOT run A-04 / A-08 / A-09 (settlement / claim) until §6 settlement gate confirms the Cavs game is FINAL.
+- First: run §1 replay/backfill from block 37285105 with the indexer at PR #22 or later.
+- Verify: fired R4 events, commitment-row repair (full R4 fields including `speculation_key`), `fees` rows for FEE_PROCESSED + SPLIT_FEE_PROCESSED, no duplicate or missing first-fill SPLIT_FEE_PROCESSED.
+- Run the explicit SQL queries from §2 Part B for the 4 PR #22 tables (reconcile CLI does NOT cover them yet).
+- Only after the Cavs game is FINAL via the scoring API, continue Session 2 scoring/settlement/claim.
 
 ---
 
