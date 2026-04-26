@@ -64,7 +64,7 @@ The indexer is a **pull-based polling worker** (ospex-indexer on Heroku) that re
 | CLIs | `yarn reconcile`, `yarn backfill` |
 
 **Every test must validate** (standard checklist applied to all tests):
-1. `chain_events` row exists with correct `event_type`, `entity_type`, `entity_id`
+1. `chain_events` row exists with correct `event_name`, `entity_type`, `entity_id` (note: the chain_events column is `event_name`; `pending_events` has its own `event_type` column — don't confuse the two)
 2. `source_block IS NOT NULL` on every **inserted** projected row (UPDATEs don't change source_block)
 3. `pending_events` table has zero rows for this event after processing
 4. No errors in indexer logs: `heroku logs --app ospex-indexer --num 50`
@@ -292,7 +292,7 @@ Record the tx hash and block number.
 | Check | Expected | Actual |
 |-------|----------|--------|
 | Tx confirmed on-chain | tx hash + block number | |
-| `chain_events` row exists | event_type="MIN_NONCE_UPDATED", tx_hash matches | |
+| `chain_events` row exists | event_name="MIN_NONCE_UPDATED", tx_hash matches | |
 | `maker_nonce_floors` row exists | maker=MAKER, source_block = tx block | |
 | `indexer_cursor.last_confirmed_block` advanced | >= tx block - 128 (confirmation depth) | |
 | `pending_events` count for this event | 0 | |
@@ -340,7 +340,7 @@ Or raw cast (see v1 plan A-01 for full tuple structure).
 - CoreEventEmitted with eventType=CONTEST_CREATED fires
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="CONTEST_CREATED", entity_type="contest"
+- `chain_events` row: event_name="CONTEST_CREATED", entity_type="contest"
 - `contests` row: contest_id=N, contest_status="unverified", jsonodds_id matches, away_team/home_team from contest_reference, source_block set
 - No pending_events rows for this event
 
@@ -368,7 +368,7 @@ cast call $CONTEST_MODULE "getContest(uint256)" CONTEST_ID --rpc-url $AMOY_RPC
 - Contest status = Verified, leagueId and startTime populated
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="CONTEST_VERIFIED"
+- `chain_events` row: event_name="CONTEST_VERIFIED"
 - `contests` row updated: contest_status="verified", start_time set, league_id set (check `LEAGUE_ID_MAP` for correctness), verified_at set
 - source_block NOT changed (UPDATE, not INSERT)
 
@@ -399,7 +399,7 @@ Wait for Chainlink callback to deliver market data.
 - CoreEventEmitted with eventType=CONTEST_MARKETS_UPDATED fires
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="CONTEST_MARKETS_UPDATED"
+- `chain_events` row: event_name="CONTEST_MARKETS_UPDATED"
 - `contests` row updated: `spread_line_ticks`, `total_line_ticks`, `ml_upper_odds`, `ml_lower_odds`, `spread_upper_odds`, `spread_lower_odds`, `total_upper_odds`, `total_lower_odds`, `markets_updated_at` all populated
 - Verify all 8 fields are non-null and reasonable
 
@@ -435,7 +435,7 @@ Wait for Chainlink callback to deliver scores.
 - Contest awayScore/homeScore set, status=Scored
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="CONTEST_SCORES_SET"
+- `chain_events` row: event_name="CONTEST_SCORES_SET"
 - `contests` row: contest_status="scored", away_score and home_score populated, scored_at set
 - `speculations` rows (if any exist for this contest): scored_at denormalized (UPDATE, not INSERT)
 
@@ -465,7 +465,7 @@ cast send $SPECULATION_MODULE "settleSpeculation(uint256)" SPEC_ID \
 - CONTEST_VOIDED event fires (alongside SPECULATION_SETTLED with winSide=Void)
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="CONTEST_VOIDED"
+- `chain_events` row: event_name="CONTEST_VOIDED"
 - `contests` row: contest_status="voided", voided_at set
 
 **Pass/Fail:**
@@ -524,7 +524,7 @@ cast send $SPECULATION_MODULE "settleSpeculation(uint256)" SPEC_ID \
 - `positions` row (taker): user_address=TAKER, position_type="lower", risk_amount="9100000", profit_amount="10000000", source_block set
 - `position_fills` row: commitment_hash, maker, taker, odds_tick=191
 - `commitments` row (PR #21): `nonce=1`, `expiry`, `risk_amount=10000000`, `speculation_key` populated (NOT 0/null), source_block set
-- `fees` row (PR #22, split shape): `fee_type='speculation_creation'`, `amount=250000` + `second_amount=250000` (0.25 USDC maker share + 0.25 USDC taker share), `total_amount=500000`
+- `fees` row (PR #22, split shape; schema per migration `032_partials_projection.sql:41-61`): `fee_event_type='split'`, `fee_type='speculation_creation'`, `payer1=MAKER`, `payer2=TAKER`, `amount=250000` + `second_amount=250000` (0.25 USDC maker share + 0.25 USDC taker share), `total_amount=500000` (generated)
 
 **Pass/Fail:**
 
@@ -572,7 +572,7 @@ cast send $SPECULATION_MODULE "settleSpeculation(uint256)" SPEC_ID \
 - Speculation status = Closed, winSide determined by scores + scorer logic
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="SPECULATION_SETTLED"
+- `chain_events` row: event_name="SPECULATION_SETTLED"
 - `speculations` row: speculation_status="closed", win_side populated (e.g., "away"/"home"), settled_at set, voided=false
 
 **Pass/Fail:**
@@ -605,7 +605,7 @@ cast send $POSITION_MODULE "claimPosition(uint256,uint8)" SPEC_ID POSITION_TYPE 
 - Position marked claimed
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="POSITION_CLAIMED"
+- `chain_events` row: event_name="POSITION_CLAIMED"
 - `positions` row: claimed=true, claimed_amount populated (risk + profit in winner's favor), claimed_at set
 - source_block NOT changed (UPDATE, not INSERT)
 
@@ -669,7 +669,7 @@ cast send $LEADERBOARD_MODULE \
 - Leaderboard ID increments, 0.50 USDC creation fee charged
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="LEADERBOARD_CREATED"
+- `chain_events` row: event_name="LEADERBOARD_CREATED"
 - `leaderboards` row: leaderboard_id=N, entry_fee="5000000", start_time, end_time, safety_period_duration=86400, roi_submission_window=86400, prize_pool=0, current_participants=0, total_positions=0, source_block set
 
 **Pass/Fail:**
@@ -696,7 +696,7 @@ cast send $LEADERBOARD_MODULE "addLeaderboardSpeculation(uint256,uint256)" \
 ```
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="LEADERBOARD_SPECULATION_ADDED"
+- `chain_events` row: event_name="LEADERBOARD_SPECULATION_ADDED"
 - `leaderboard_speculations` row: leaderboard_id, speculation_id, added_at, source_block set
 
 **Pass/Fail:**
@@ -721,7 +721,7 @@ cast send $LEADERBOARD_MODULE "registerUser(uint256,uint256)" \
 ```
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="USER_REGISTERED"
+- `chain_events` row: event_name="USER_REGISTERED"
 - `leaderboard_registrations` row: leaderboard_id, user_address=MAKER, declared_bankroll="100000000", source_block set
 - `leaderboards` row: current_participants incremented, prize_pool updated (via `rpc_user_registered`)
 
@@ -749,7 +749,7 @@ cast send $LEADERBOARD_MODULE \
 ```
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="LEADERBOARD_POSITION_ADDED"
+- `chain_events` row: event_name="LEADERBOARD_POSITION_ADDED"
 - `leaderboard_positions` row: leaderboard_id, speculation_id, user_address=MAKER, position_type="upper", risk_amount, profit_amount, source_block set
 - `leaderboards` row: total_positions incremented (via `rpc_leaderboard_position_added`)
 
@@ -799,7 +799,7 @@ cast send $LEADERBOARD_MODULE "claimLeaderboardPrize(uint256)" LEADERBOARD_ID \
 ```
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="LEADERBOARD_PRIZE_CLAIMED"
+- `chain_events` row: event_name="LEADERBOARD_PRIZE_CLAIMED"
 - `leaderboard_registrations`: claimed flag set (via `rpc_leaderboard_prize_claimed`)
 - `leaderboard_winners`: claimed flag set
 
@@ -832,7 +832,7 @@ cast send $SECONDARY_MARKET_MODULE \
 ```
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="POSITION_LISTED"
+- `chain_events` row: event_name="POSITION_LISTED"
 - `secondary_market_listings` row: speculation_id, seller=MAKER, position_type="upper", price="12000000", risk_amount="10000000", profit_amount="9100000", listing_hash set, status="active", source_block set
 
 **Pass/Fail:**
@@ -858,7 +858,7 @@ cast send $SECONDARY_MARKET_MODULE \
 ```
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="LISTING_UPDATED"
+- `chain_events` row: event_name="LISTING_UPDATED"
 - `secondary_market_listings` row: price updated to "11000000", listing_hash updated, updated_at_chain set
 
 **Pass/Fail:**
@@ -914,7 +914,7 @@ cast send $SECONDARY_MARKET_MODULE "cancelListing(uint256,uint8)" SPEC_ID POSITI
 ```
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="LISTING_CANCELLED"
+- `chain_events` row: event_name="LISTING_CANCELLED"
 - `secondary_market_listings` row: status="cancelled", cancelled_at set
 
 **Pass/Fail:**
@@ -958,7 +958,7 @@ cast send $SECONDARY_MARKET_MODULE "claimSaleProceeds()" \
 ```
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="SALE_PROCEEDS_CLAIMED"
+- `chain_events` row: event_name="SALE_PROCEEDS_CLAIMED"
 - No additional table writes (handler is no-op beyond chain_events)
 
 **Pass/Fail:**
@@ -988,7 +988,7 @@ cast send $MATCHING_MODULE \
 ```
 
 **Expected Supabase outcome (post-indexer-PR #21):**
-- `chain_events` row: event_type="COMMITMENT_CANCELLED"
+- `chain_events` row: event_name="COMMITMENT_CANCELLED"
 - `commitments` row exists (UPSERT — created if missing, updated if present) with **all R4 fields populated from the event payload**:
   - `commitment_hash`, `maker`
   - `contest_id`, `scorer`, `line_ticks`, `position_type`, `odds_tick`, `risk_amount`, `nonce`, `expiry`
@@ -1023,7 +1023,7 @@ cast send $MATCHING_MODULE \
 ```
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="MIN_NONCE_UPDATED"
+- `chain_events` row: event_name="MIN_NONCE_UPDATED"
 - `maker_nonce_floors` row: maker=MAKER, speculation_key=hash, min_nonce=5, source_block set
 - `commitments`: any rows with `nonce < 5` for this `(maker, speculation_key)` have `nonce_invalidated=true`
 
@@ -1099,42 +1099,49 @@ These tests target the 5 partials that PR #22 introduced typed-table projections
 
 #### A-26: FEE_PROCESSED projection → `fees` table
 
-**Description:** Verify single-shape fee events project to the `fees` table. The contest creation fee (1.00 USDC) emits `FEE_PROCESSED` (single, not split) every time A-01 runs.
+**Description:** Verify single-shape fee events project to the `fees` table. `TreasuryModule.processFee()` emits `FEE_PROCESSED` (single shape, payer1 only) for two distinct fee types in R4 Session 1: **contest creation** (1.00 USDC, fired on every `A-01` / `OracleModule.createContestFromOracle`) AND **leaderboard creation** (0.50 USDC, fired on every `A-11` / `LeaderboardModule.createLeaderboard`). The `speculation_creation` fee always fires as `SPLIT_FEE_PROCESSED` instead (see A-27).
 
-**Prerequisites:** A-01 already executed (R4 Session 1 produced ≥3 contest creations on R4 — Contests 2/3/4/5).
+**Prerequisites:** R4 Session 1 already produced FEE_PROCESSED for: Contests 2/3/4/5 (4× contest_creation) and LB 1 (1× leaderboard_creation).
 
-**Action:** No new on-chain action required for replay validation. For a fresh trigger, run any A-01 (1 USDC + 0.004 LINK).
+**Action:** No new on-chain action required for replay validation. For a fresh trigger, run any A-01 (1 USDC + 0.004 LINK) or A-11 (0.50 USDC).
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="FEE_PROCESSED" (one per contest creation)
-- `fees` row (single shape): `fee_type='contest_creation'`, `amount=1000000`, `second_amount=null`, `total_amount=1000000` (generated column), `tx_hash`, `block_number`, `source_block` set, no `to_recipient_secondary`
+- `chain_events` rows: `event_name="FEE_PROCESSED"` — one per fee call (Contests 2/3/4/5 → 4 rows; LB 1 → 1 row).
+- `fees` rows (single shape — per migration `032_partials_projection.sql:41-61`):
+  - `fee_event_type='single'`, `payer1=<contest creator or LB creator>`, `payer2=NULL`, `amount=<fee amount>`, `second_amount=NULL`, `total_amount=<amount>` (generated column).
+  - `fee_type='contest_creation'` (`amount=1000000` for 1.00 USDC) for the 4 contest creations.
+  - `fee_type='leaderboard_creation'` (`amount=500000` for 0.50 USDC) for LB 1's creation.
+  - `tx_hash`, `log_index`, `block_number`, `block_time`, `source_block` populated.
+- The CHECK `chk_fees_split_shape` enforces that `single` rows have `payer2 IS NULL` AND `second_amount IS NULL`.
 
 **Pass/Fail:**
 
 **Evidence:**
 
-**Notes:** Indexer PR #22 introduced the `fee_type` Postgres enum (`'contest_creation' | 'speculation_creation' | 'leaderboard_creation'`). `total_amount` is a STORED generated column. Idempotent re-insert (Postgres 23505) is silently ignored — replay-safe.
+**Notes:** Indexer PR #22 introduced the `fee_type` Postgres enum with three values (`'contest_creation' | 'speculation_creation' | 'leaderboard_creation'`) — these match the `FeeType` enum in `TreasuryModule.sol`. The `fee_event_type` column is a separate `text` discriminator with values `'single'` or `'split'`. `total_amount` is a STORED generated column = `amount + COALESCE(second_amount, 0)`. Idempotent re-insert via PK `(network, tx_hash, log_index)` (Postgres 23505) is silently ignored — replay-safe.
 
 ---
 
 #### A-27: SPLIT_FEE_PROCESSED projection → `fees` table
 
-**Description:** Verify split-shape fee events project to the same `fees` table. Speculation creation fee splits 0.25 USDC maker share + 0.25 USDC taker share → 1 row in `fees`.
+**Description:** Verify split-shape fee events project to the same `fees` table. The speculation-creation fee (0.50 USDC) is processed via `TreasuryModule.processSplitFee(payer1, payer2, FeeType.SpeculationCreation)` which transfers 0.25 USDC from each of MAKER and TAKER → 1 row in `fees` with both halves.
 
-**Prerequisites:** A-06 already executed (R4 Session 1 produced ≥4 first-fills across Tracks 1/3/4 — see session log).
+**Prerequisites:** A-06 already executed (R4 Session 1 produced 7 first-fill txs — see session log; 7 SPLIT_FEE_PROCESSED rows expected).
 
 **Action:** No new on-chain action required for replay validation.
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="SPLIT_FEE_PROCESSED"
-- `fees` row (split shape): `fee_type='speculation_creation'`, `amount=250000`, `second_amount=250000`, `total_amount=500000` (generated), both recipient fields set
-- Asymmetric halves (if any production case ever splits non-50/50) are preserved as-is — the row stores `amount` and `second_amount` independently.
+- `chain_events` row: `event_name="SPLIT_FEE_PROCESSED"` — one per first-fill (7 in R4 Session 1).
+- `fees` rows (split shape — per migration `032_partials_projection.sql:41-61`):
+  - `fee_event_type='split'`, `fee_type='speculation_creation'`, `payer1=<MAKER>`, `payer2=<TAKER>`, `amount=250000`, `second_amount=250000`, `total_amount=500000` (generated).
+  - Asymmetric halves (if any production case ever splits non-50/50 — current contract always halves evenly via `totalAmount/2` + remainder) are preserved as-is — the row stores `amount` and `second_amount` independently.
+- The CHECK `chk_fees_split_shape` enforces that `split` rows have `payer2 IS NOT NULL` AND `second_amount IS NOT NULL`.
 
 **Pass/Fail:**
 
 **Evidence:**
 
-**Notes:** Pre-PR #17, this event was silently dropped (`decodeLog()` returned null for unknown topic[1]). All R4 Session 1 first-fills initially recorded 3 `chain_events` rows; after PR #17 deploy + replay/backfill, all should show 4. Verify via the per-tx event count check (D-02).
+**Notes:** Pre-PR #17, this event was silently dropped (`decodeLog()` returned null for unknown topic[1]). All 7 R4 Session 1 first-fills initially recorded 3 `chain_events` rows; after PR #17 deploy + replay/backfill, all 7 should show 4. Verify via the per-tx event count check (D-02).
 
 ---
 
@@ -1153,7 +1160,7 @@ cast send $TREASURY_MODULE "fundLeaderboard(uint256,uint256)" \
 (LB id=1, funding 5 USDC.)
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="LEADERBOARD_FUNDED"
+- `chain_events` row: event_name="LEADERBOARD_FUNDED"
 - `leaderboard_fundings` row: `leaderboard_id=1`, `funder=$DEPLOYER`, `amount=5000000`, `tx_hash`, `block_number`, `source_block` set
 - `leaderboards.prize_pool` incremented by 5000000 (atomic with the insert — verify via `rpc_leaderboard_funded`)
 
@@ -1176,15 +1183,17 @@ cast send $TREASURY_MODULE "fundLeaderboard(uint256,uint256)" \
 - Caller must be the leaderboard creator (`msg.sender != lb.creator → revert RulesModule__NotCreator`).
 - **R4 Session 1 LB 1 startTime has already elapsed → CANNOT be used for A-29.** A-29/A-30 require a fresh leaderboard with a future startTime (e.g., create a new test LB with `startTime = now + 30 minutes`, then run rule setters before that elapses).
 
-**Action:** R4 Session 1 did NOT include any `RULE_SET` event. The contract has no generic `setRule(uint256,string,uint256)` function; rules are set via per-rule functions that all emit `RuleSet(leaderboardId, ruleType, value)`. Available setters (per `src/modules/RulesModule.sol`):
+**Action:** R4 Session 1 did NOT include any `RULE_SET` event. The contract has no generic `setRule(uint256,string,uint256)` function; rules are set via per-rule functions that all emit `RuleSet(leaderboardId, ruleType, value)`. Signatures verified against `src/modules/RulesModule.sol:164-334`:
 - `setMinBankroll(uint256 leaderboardId, uint256 value)` → emits `RuleSet(_, "minBankroll", value)`
 - `setMaxBankroll(uint256 leaderboardId, uint256 value)` → emits `RuleSet(_, "maxBankroll", value)`
-- `setMinBetPercentage(uint256 leaderboardId, uint256 value)` (bps; ≤10000) → `"minBetPercentage"`
-- `setMaxBetPercentage(uint256 leaderboardId, uint256 value)` (bps; ≤10000) → `"maxBetPercentage"`
-- `setMinBets(uint256 leaderboardId, uint256 value)` (value > 0) → `"minBets"`
-- `setOddsEnforcementBps(uint256 leaderboardId, uint256 value)` (bps; ≤10000) → `"oddsEnforcementBps"`
+- `setMinBetPercentage(uint256 leaderboardId, uint16 value)` (bps; ≤10000 via `valueNotExceedingMaxBps`) → `"minBetPercentage"`
+- `setMaxBetPercentage(uint256 leaderboardId, uint16 value)` (bps; ≤10000) → `"maxBetPercentage"`
+- `setMinBets(uint256 leaderboardId, uint16 value)` (value > 0) → `"minBets"`
+- `setOddsEnforcementBps(uint256 leaderboardId, uint16 value)` (bps; ≤10000) → `"oddsEnforcementBps"`
 - `setAllowLiveBetting(uint256 leaderboardId, bool value)` → `"allowLiveBetting"` (1 or 0)
 - `setAllowMoneylineSpreadPairing(uint256 leaderboardId, bool value)` → `"allowMoneylineSpreadPairing"` (1 or 0)
+
+Note: the `value` arg is `uint16` (not `uint256`) on the four percentage/bps/min-bets setters — a `cast send` call with `uint256` will revert at the ABI decode. Use the literal Solidity types when crafting the `cast` call.
 
 Example (after creating new pre-start LB N from the LB creator wallet):
 ```bash
@@ -1195,7 +1204,7 @@ cast send $RULES_MODULE "setMinBankroll(uint256,uint256)" \
 ```
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="RULE_SET"
+- `chain_events` row: event_name="RULE_SET"
 - `leaderboard_rules` row: `leaderboard_id=N`, `rule_type='minBankroll'` (verbatim from contract — string), `value=50000000`, source_block set
 
 **Re-fire same key:** Second `RULE_SET` event with the same `(leaderboard_id, rule_type)` UPSERTs — does NOT duplicate. Verify via tests/partials.test.ts coverage.
@@ -1235,7 +1244,7 @@ cast send $RULES_MODULE \
 (LB N, leagueId=4=NBA per LeagueId enum, scorer=Moneyline, positionType=0=Upper, maxDeviation=200bps.)
 
 **Expected Supabase outcome:**
-- `chain_events` row: event_type="DEVIATION_RULE_SET"
+- `chain_events` row: event_name="DEVIATION_RULE_SET"
 - `leaderboard_deviation_rules` row: `leaderboard_id=N`, `league_id='nba'` (slug), `scorer`, `position_type='upper'` (slug), `max_deviation=200`, source_block set
 
 **Pass/Fail:**
@@ -1613,10 +1622,12 @@ Row-count equality gets noisy after secondary transfers (one POSITION_SOLD can c
 **Check 1 — Per-tx event count:**
 ```sql
 -- For each test tx, verify exact event count
-SELECT event_type, COUNT(*)
+-- NOTE: the chain_events column is `event_name`, not `event_type`. (pending_events
+-- has its own `event_type` column — different table, different column.)
+SELECT event_name, COUNT(*)
 FROM chain_events
 WHERE network = 'amoy' AND tx_hash = '<TX_HASH>'
-GROUP BY event_type;
+GROUP BY event_name;
 ```
 Compare against the expected events for that test (e.g., **A-06 expects exactly 4: SPECULATION_CREATED, COMMITMENT_MATCHED, POSITION_MATCHED_PAIR, SPLIT_FEE_PROCESSED** — the speculation-creation fee split fires in the same tx; A-07 accumulation expects exactly 2: COMMITMENT_MATCHED, POSITION_MATCHED_PAIR).
 
@@ -1705,7 +1716,7 @@ Reconcile against:
 
 > ⚠️ **"All 35 events" caveat:** Replay can only validate events that already fired on-chain. Of the 35 recognized event types: `PRIZE_POOL_CLAIMED` cannot be validated until a leaderboard prize is claimed (Session 4+); `LEADERBOARD_FUNDED`, `RULE_SET`, `DEVIATION_RULE_SET` did not fire in R4 Session 1 and require the §4 / Phase E-04 targeted triggers. **Use the §1 checklist below as the authoritative list of events expected from R4 history.**
 
-**Prerequisites:** Indexer deployed at PR #22 or later. Alchemy RPC with chunking respected (`BLOCK_RANGE_CHUNK`). `EMITTER_ALLOWLIST` includes R4 OspexCore + 3 scorer modules.
+**Prerequisites:** Indexer deployed at PR #22 or later. Alchemy RPC with chunking respected (`BLOCK_RANGE_CHUNK`). `EMITTER_ALLOWLIST` set to **R4 OspexCore only** — that's the only contract that emits `CoreEventEmitted` (every other module emits via `i_ospexCore.emitCoreEvent(...)`). The three scorer addresses live in separate env vars `SCORER_MONEYLINE` / `SCORER_SPREAD` / `SCORER_TOTAL` (see `ospex-indexer/src/config.ts:52,116-122`); these are used to map scorer addresses to market types in handlers, NOT to filter ingested logs.
 
 **Action:**
 ```bash
@@ -1747,10 +1758,11 @@ ALCHEMY_RPC_URL=... SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... CHAIN_ID=8000
 
 ```sql
 -- B1. fees: every FEE_PROCESSED + SPLIT_FEE_PROCESSED chain_event must have a fees row.
-SELECT ce.tx_hash, ce.log_index, ce.event_type
+-- NOTE: chain_events column is `event_name` (NOT `event_type`).
+SELECT ce.tx_hash, ce.log_index, ce.event_name
 FROM chain_events ce
 WHERE ce.network = 'amoy'
-  AND ce.event_type IN ('FEE_PROCESSED','SPLIT_FEE_PROCESSED')
+  AND ce.event_name IN ('FEE_PROCESSED','SPLIT_FEE_PROCESSED')
   AND NOT EXISTS (
     SELECT 1 FROM fees f
     WHERE f.network = ce.network
@@ -1772,7 +1784,7 @@ GROUP BY fee_type;
 --     atomic prize_pool increment must equal the sum of fundings for that LB.
 SELECT ce.tx_hash, ce.log_index
 FROM chain_events ce
-WHERE ce.network='amoy' AND ce.event_type='LEADERBOARD_FUNDED'
+WHERE ce.network='amoy' AND ce.event_name='LEADERBOARD_FUNDED'
   AND NOT EXISTS (
     SELECT 1 FROM leaderboard_fundings lf
     WHERE lf.network=ce.network AND lf.tx_hash=ce.tx_hash AND lf.log_index=ce.log_index
@@ -1826,9 +1838,11 @@ SELECT 'leaderboard_deviation_rules', COUNT(*) FROM leaderboard_deviation_rules 
 **Description:** Same as D-02 + D-03 — run per-tx event count assertions and USDC balance reconciliation. R4 first-fill txs now expect **4 events** (PR #17/#22), not 3.
 
 **Action:** Run D-02 and D-03 (see Phase D). Recompute the per-tx expected-event map for R4 Session 1's tx hashes using the corrected expectations:
-- A-06 first-fills (3 occurrences in Session 1): expect 4 events each.
-- A-07 accumulations: expect 2 events each (unchanged).
+- **All 7 first-fill txs** (Specs 1–7 — every speculation creation in R4 Session 1: A-06 ×3 across Tracks 1/3/4, A-24 spread, A-25 total, helper match Spec 6, helper match Spec 7): expect **4 events** each — SPECULATION_CREATED + COMMITMENT_MATCHED + POSITION_MATCHED_PAIR + SPLIT_FEE_PROCESSED.
+- A-07 accumulations and D-01 rapid-fire: expect 2 events each (COMMITMENT_MATCHED + POSITION_MATCHED_PAIR; no new SPECULATION_CREATED, no SPLIT_FEE_PROCESSED).
 - A-01 contest creations: expect CONTEST_CREATED + 3× SCRIPT_APPROVAL_VERIFIED + FEE_PROCESSED + (eventually) ORACLE_RESPONSE/CONTEST_VERIFIED on callback.
+- A-11 leaderboard creation: expect LEADERBOARD_CREATED + FEE_PROCESSED (single, fee_type='leaderboard_creation').
+- A-13 user registration: expect USER_REGISTERED + LEADERBOARD_ENTRY_FEE_PROCESSED.
 
 **USDC reconciliation (corrected — see D-03):**
 - `PositionModule.balanceOf(USDC)` = unclaimed positions (winners: risk+profit, pushes: risk) − claimed.

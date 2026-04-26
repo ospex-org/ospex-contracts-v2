@@ -63,7 +63,7 @@ All three games have both `rundown_id` and `sportspage_id` populated (dual oracl
 | 2 | Verified balances: Deployer 25.7 POL / ~1B USDC / 5.27 LINK; MAKER 4.87 POL / 999.8K USDC; TAKER 4.67 POL / 999.8K USDC | sufficient |
 | 3 | Verified deployer R4 approvals: USDC→Treasury 99 USDC, LINK→Oracle 0.996 LINK | sufficient for session |
 | 4 | Set MAX USDC approvals: MAKER→PositionR4, MAKER→TreasuryR4, TAKER→PositionR4, TAKER→TreasuryR4, TAKER→SecondaryR4 | done |
-| 5 | Confirmed indexer R4 config (OspexCore + 3 scorers in EMITTER_ALLOWLIST) | done |
+| 5 | Confirmed indexer R4 config (OspexCore in `EMITTER_ALLOWLIST`; 3 scorers in `SCORER_MONEYLINE`/`SCORER_SPREAD`/`SCORER_TOTAL` separately — they are NOT in the allowlist) | done |
 
 #### T-00 canary
 
@@ -222,7 +222,7 @@ All three games have both `rundown_id` and `sportspage_id` populated (dual oracl
 #### §1 — Replay/Backfill from R4 deployment block (Phase E-01)
 
 - [ ] Confirm indexer is running ospex-indexer PR #22 (or later) in production.
-- [ ] Confirm `POLL_INTERVAL_MS=15000` (Heroku config) and `EMITTER_ALLOWLIST` includes R4 OspexCore + 3 scorer modules.
+- [ ] Confirm `POLL_INTERVAL_MS=15000` (Heroku config), `EMITTER_ALLOWLIST` set to **R4 OspexCore only** (the only contract that emits `CoreEventEmitted`), and `SCORER_MONEYLINE` / `SCORER_SPREAD` / `SCORER_TOTAL` env vars set to the R4 scorer addresses.
 - [ ] Snapshot current `amoy*` Supabase state (row counts per projection table) before replay.
 - [ ] Run `yarn backfill --from 37285105 --to <head>` against R4 history.
 - [ ] Verify the event types that **fired during R4 Session 1** all appear in `chain_events` post-replay (replay can only validate events that happened on-chain — see Phase E-01 caveat for the events that didn't fire and need §4 / Sessions 2-4):
