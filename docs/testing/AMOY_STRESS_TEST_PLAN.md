@@ -1,6 +1,6 @@
-# Amoy Stress Test Plan v3 — ospex-indexer (post PRs 8-15)
+# Amoy Stress Test Plan v4 — R4 contracts (post-redeploy 2026-04-25)
 
-Status: **SUPABASE WIPED — READY FOR RE-TEST.** Prior Session 1 results are stale. Awaiting indexer redeploy + catchup before clean Session 1 execution.
+Status: **R4 CONTRACTS DEPLOYED — TEST CYCLE STARTING.** R4 contracts deployed 2026-04-25 at block 37285105. Supabase amoy data wiped, indexer config updated to R4 addresses, indexer caught up to chain head. Awaiting Phase 1 game selection approval.
 
 ---
 
@@ -167,26 +167,30 @@ The tests are split into 4 independent tracks with different timing requirements
 
 MAKER and TAKER wallets: generate via `cast wallet new`, fund with POL from deployer, mint USDC via `MockERC20.mint(address,uint256)`.
 
-### Contract Addresses (Amoy, deployed 2026-04-19)
+### Contract Addresses (Amoy, R4 deployed 2026-04-25, first block 37285105)
 
-| Contract | Address |
-|----------|---------|
-| OspexCore | `0x44fEDE66279D0609d43061Ac40D43704dDb392D7` |
-| ContestModule | `0x0b4B56fD4cb7848f804204B052A3e72d90213B52` |
-| SpeculationModule | `0x6f32665DD97482e6C89D8B9bf025d483184F5553` |
-| PositionModule | `0xf769BEC6960Ed367320549FdD5A30f7C687DB2ee` |
-| MatchingModule | `0x15a3Cac2fBb1e0Ed376a26e4F15385162cC9d8b9` |
-| OracleModule | `0x08d1F10572071271983CE800ad63663f71A71512` |
-| TreasuryModule | `0xC30C74edeEB3cbF2460D8a4a6BaddEBEe9D3ab1e` |
-| LeaderboardModule | `0xbcCe7e2E61bC614d6e58C3327e893d177545Ef37` |
-| RulesModule | `0x657804cEcBC4c16c0eC4A8Bc384dd515EA2D462C` |
-| SecondaryMarketModule | `0x0e7b7C218db7f0e34521833e98f0Af261D204aED` |
-| MoneylineScorerModule | `0x4CDf8cc2b0DcAe9bFFF34846E2bCB3A88675EdEC` |
-| SpreadScorerModule | `0x36F3f4A6757cB2E822A1AfCea0b3092fFcaE6c30` |
-| TotalScorerModule | `0xB814f3779A79c6470a904f8A12670D1B13874fDE` |
-| Mock USDC | `0xB1D1c0A8Cc8BB165b34735972E798f64A785eaF8` |
-| LINK Token | `0x0Fd9e8d3aF1aaee056EB9e802c3A762a667b1904` |
-| Chainlink Functions Router | `0xC22a79eBA640940ABB6dF0f7982cc119578E11De` |
+| Contract | R4 Address | Prior R3 |
+|----------|------------|----------|
+| OspexCore | `0xD47456F17b8f1D232799aE8670330b76A924422e` | `0x44fEDE66279D0609d43061Ac40D43704dDb392D7` |
+| ContestModule | `0xB6dbd31fc14841777CF3c5e06b31685630D08b69` | `0x0b4B56fD4cb7848f804204B052A3e72d90213B52` |
+| SpeculationModule | `0x8a757a818b765A8fCB483042Af2F514aeB647580` | `0x6f32665DD97482e6C89D8B9bf025d483184F5553` |
+| PositionModule | `0xb7E1c99BB4490Be17c9bf4003C0ADa6b3b3C6480` | `0xf769BEC6960Ed367320549FdD5A30f7C687DB2ee` |
+| MatchingModule | `0x36BC5693ee30cD65f8DCE51bd48BC03815091A26` | `0x15a3Cac2fBb1e0Ed376a26e4F15385162cC9d8b9` |
+| OracleModule | `0x0508D9147D1f4C34866550A6f5877Bb3aA57A33e` | `0x08d1F10572071271983CE800ad63663f71A71512` |
+| TreasuryModule | `0x85478F81d395EaF8819119491B1257E6DbF1f662` | `0xC30C74edeEB3cbF2460D8a4a6BaddEBEe9D3ab1e` |
+| LeaderboardModule | `0x274Fc351AA6960A5742bD997B75490A9aC324e23` | `0xbcCe7e2E61bC614d6e58C3327e893d177545Ef37` |
+| RulesModule | `0x2bCD9098ADd5E3AecEa27d2E4d72F9Fb18738634` | `0x657804cEcBC4c16c0eC4A8Bc384dd515EA2D462C` |
+| SecondaryMarketModule | `0x988707212e45d26E8635356ec6650150Fc9466Ae` | `0x0e7b7C218db7f0e34521833e98f0Af261D204aED` |
+| MoneylineScorerModule | `0x2E6Fd04Bf32E2fFd46AAd9549D86Ab619938167b` | `0x4CDf8cc2b0DcAe9bFFF34846E2bCB3A88675EdEC` |
+| SpreadScorerModule | `0x0dE8B42Fe14Bf008ef26A510E45f663f083eBd77` | `0x36F3f4A6757cB2E822A1AfCea0b3092fFcaE6c30` |
+| TotalScorerModule | `0xAc2Ec406C3F1aDe03f5e25233B7379FAA0FAE85b` | `0xB814f3779A79c6470a904f8A12670D1B13874fDE` |
+| Mock USDC | `0xB1D1c0A8Cc8BB165b34735972E798f64A785eaF8` | (unchanged) |
+| LINK Token | `0x0Fd9e8d3aF1aaee056EB9e802c3A762a667b1904` | (unchanged) |
+| Chainlink Functions Router | `0xC22a79eBA640940ABB6dF0f7982cc119578E11De` | (unchanged) |
+
+**R4 deployment context:** see `deployments/amoy-R4-20260425.md`. New OracleModule registered as Chainlink consumer (sub 416, tx `0x9766afe...`, block 37285185). Old R3 consumers not pruned — left dormant.
+
+**Pre-flight: stress-test scripts pinning R3 addresses must be updated to R4 before Phase 2 execution.** Files known to need update: `scripts/stress-test/match-commitment.js`, `scripts/stress-test/market-update.js`, `scripts/stress-test/score-contest.js`. (`create-contest.js` already R4.)
 
 ### Protocol Parameters
 
@@ -202,7 +206,11 @@ MAKER and TAKER wallets: generate via `cast wallet new`, fund with POL from depl
 | ODDS_SCALE | 100 |
 | EIP-712 Domain (MatchingModule) | name="Ospex", version="1", chainId=80002 |
 
-### Script Approvals (Pre-signed, expire 2026-07-19)
+### Script Approvals
+
+The R3 script approval signatures (in git history) bind the script hash + signer; they survive contract redeploys as long as (a) the JS source is unchanged and (b) the approved signer is unchanged. Approved signer for R4 is `0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3` (same as R3). **Verify R3 signatures are still valid against R4 OracleModule before Phase 2 execution** — re-run `scripts/sign-script-approval.js` if the JS sources changed since R3.
+
+R3 reference (from prior plan; expire 2026-07-19, may need re-signing):
 
 | Purpose | Script Hash | Signature |
 |---------|-------------|-----------|

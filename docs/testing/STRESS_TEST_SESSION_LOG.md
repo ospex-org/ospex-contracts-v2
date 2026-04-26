@@ -4,9 +4,203 @@ Tracks progress across sessions. Updated after each test execution.
 
 ## Current Status
 
-**Plan version:** v3.0 (post-indexer PRs 8-15)
-**Phase:** Session 1 COMPLETE. 21/25 event types tested, all passing. 51 chain events indexed, 0 pending, 0 errors.
-**Next action:** Session 2 (Score/Settle/Claim on Contest A) after Knicks @ Hawks game ends (~7:30 PM CDT April 25). Session 3 (Void Contest C) after void cooldown expires (~12 PM CDT April 26).
+**Plan version:** v4.0 (R4 contracts)
+**Phase:** R4 Session 1 — PHASE 2 in progress. Day 1 lifecycle nearly complete; awaiting LB startTime for A-14, then game-end gates for Session 2/3/4.
+**Branch:** `feature/r4-stress-test-session-1` (foundry repo)
+**Next action:** A-14 leaderboard position registration once startTime elapses (~6:23 AM CDT). Then wait for game ends: Session 2 (Cavs game, ~3 PM CDT) for score/settle/claim. Session 3 (Mon ~12:35 PM CDT) for void cooldown.
+
+R3 results below (Sessions 1–4) preserved for reference. R4 is a separate test cycle against re-deployed contracts.
+
+---
+
+## R4 Cycle (2026-04-26)
+
+**Trigger:** R4 contracts deployed 2026-04-25 (commit `655f20a8`, first block 37285105). See `deployments/amoy-R4-20260425.md`.
+
+### Pre-Session 1 state (verified 2026-04-26 ~12:35 AM CDT)
+
+| Check | State |
+|-------|-------|
+| Indexer worker | Running (heroku ps: up since 2026-04-25 19:55 CDT). Cursor at ~37304100, advancing normally, 0 events per chunk (no on-chain activity since R4 deploy). |
+| Indexer config | EMITTER_ALLOWLIST + scorer addresses match R4 deploy. |
+| Supabase amoy data | Wiped per request. (Re-verify with cleanup SQL if any drift suspected.) |
+| `contest_reference` | 23 ready (non-final) Sunday Apr 26 amoy rows: 15 MLB, 4 NBA, 4 NHL. |
+| Test wallets | MAKER `0x7CA624C92b8Aed9ee83Ed621A898f7524FAfBa24`, TAKER `0x8D92451e7457b0076349eBA44d60b36a1038bF31` (re-use from R3). Funding/approval status TBD before Phase 2. |
+| Stress-test scripts | `create-contest.js` already R4. `match-commitment.js`, `market-update.js`, `score-contest.js` still pin R3 addresses — must update before Phase 2. |
+| Script approvals (oracle) | R3 signatures may still be valid (signer unchanged). Verify against R4 OracleModule before first oracle call. |
+
+### Phase 1 — Sunday Apr 26 candidate games
+
+User constraint: Sunday Apr 26 only, prefer noon–4pm CDT kickoff, multi-sport coverage required (MLB/NBA/NHL all available).
+
+**Recommended slate (pending user approval):**
+
+| Track | Contest | Sport | Game | Kickoff CDT | Kickoff UTC | Expected end CDT | jsonodds_id | Markets |
+|-------|---------|-------|------|-------------|-------------|------------------|-------------|---------|
+| 1 + 2 | A | NBA | Cleveland Cavaliers @ Toronto Raptors | Sun 12:00 PM | 17:00 | ~2:30 PM | `4012589b-be8b-4912-874e-6812f1aab06a` | ML/SPREAD/TOTAL |
+| 3 | B | NHL | Buffalo Sabres @ Boston Bruins | Sun 1:00 PM | 18:00 | ~3:30 PM (won't score) | `8d95ca3b-be51-4fb3-82be-39375740d0e5` | ML/SPREAD/TOTAL |
+| 4 | C | MLB | Boston Red Sox @ Baltimore Orioles | Sun 12:35 PM | 17:35 | ~3:30 PM (won't score; void cooldown elapses Mon 12:35 PM CDT) | `6c48d71f-155e-40a0-9c01-c4ab4ef2792b` | ML/SPREAD/TOTAL |
+
+All three games have both `rundown_id` and `sportspage_id` populated (dual oracle source coverage).
+
+**Pending alternates** (if user wants different MLB/NHL options):
+- MLB 12:35 PM alternates: Phillies @ Braves, (12:40) Rockies @ Mets / Tigers @ Reds / Twins @ Rays
+- MLB 1:10 PM: Yankees @ Astros, Pirates @ Brewers, Nationals @ White Sox
+- NHL 3:30 PM: Avalanche @ Kings (later than recommended)
+- NBA 2:30 PM: Spurs @ Trail Blazers (could swap into Track 1 if user prefers later start)
+
+**Discovery script:** `ospex-agent-server/scripts/r4-find-sunday-games.ts` (run with `NETWORK=amoy`).
+
+### Phase 2 — execution log (Session 1 Day 1)
+
+**User approved slate at 2026-04-26 ~12:45 AM CDT.** Pre-flight + execution began.
+
+#### Pre-flight actions
+
+| Step | Action | Result |
+|------|--------|--------|
+| 1 | Updated R3→R4 addresses in `match-commitment.js`, `market-update.js`, `score-contest.js` | done — `create-contest.js` already R4 |
+| 2 | Verified balances: Deployer 25.7 POL / ~1B USDC / 5.27 LINK; MAKER 4.87 POL / 999.8K USDC; TAKER 4.67 POL / 999.8K USDC | sufficient |
+| 3 | Verified deployer R4 approvals: USDC→Treasury 99 USDC, LINK→Oracle 0.996 LINK | sufficient for session |
+| 4 | Set MAX USDC approvals: MAKER→PositionR4, MAKER→TreasuryR4, TAKER→PositionR4, TAKER→TreasuryR4, TAKER→SecondaryR4 | done |
+| 5 | Confirmed indexer R4 config (OspexCore + 3 scorers in EMITTER_ALLOWLIST) | done |
+
+#### T-00 canary
+
+| Field | Value |
+|-------|-------|
+| Tx | `0x6d64e3e6787d58a9db2063415995782ba37ad6ce534a11e0588f2e35a526275b` |
+| Block | 37304588 |
+| Action | `raiseMinNonce(999, MoneylineScorer, 0, 1)` from MAKER |
+| Result | PASS — chain_events row, maker_nonce_floors row (min_nonce=1, source_block=37304588), 0 pending_events, cursor advanced past tx |
+
+#### Phase A — Track 1 / Contest A (NBA Cavaliers @ Raptors)
+
+| Test | Tx | Block | Result |
+|------|----|-------|--------|
+| A-01 (initial create, **callback timed out**) | `0xacd809d59288270a7e4a4669f7311a7436c005eec4fd1be2f586c0749e69e54c` | 37304742 | Contest 2 created on-chain, 5 CoreEvents (CONTEST_CREATED + 3× SCRIPT_APPROVAL_VERIFIED + FEE_PROCESSED), but **Chainlink verify callback never fired** within ~10 min. ORACLE_REQUEST_FAILED indexed. Contest 2 abandoned. |
+| A-01 (retry) | (script output truncated; retry block 37305257) | 37305257 | Contest 5 created, callback completed within ~3 min. **league_id="nba" set on creation (PR #8 confirmed for R4)**. |
+| A-02 | (Chainlink callback) | ~37305380 | Contest 5 verified, start_time set to 2026-04-26T22:00:00Z. |
+| A-03 | `0x4f06f3f9a60ea133136bac88c2492b1c75df1aac730a3d24d0a88efa068e1738` | 37305372 | Markets update sent. CoreEvents fire on callback (verified later). |
+| A-06 (ML first match, MAKER Upper @ 1.91x, 10 USDC) | (script output truncated) | ~37305383 | 4 CoreEvents (SPECULATION_CREATED + COMMITMENT_MATCHED + POSITION_MATCHED_PAIR + SPLIT_FEE_PROCESSED). Spec 3 created. |
+| A-07 (ML accumulation, nonce=2, 10 USDC) | `0xa509c1075ee4bf3b256dac17044ab6ccebb79741feab5040022baf86271fdd61` | ~37305395 | 2 CoreEvents (no SPECULATION_CREATED). MAKER position on Spec 3 = 20 USDC risk. |
+| A-24 (spread Upper @ -3.0, 10 USDC) | (script output truncated) | ~37305411 | Spec 4 created (market_type=spread, line_ticks=-30). |
+| A-25 (total Upper @ 220.0, 10 USDC) | (script output truncated) | ~37305423 | Spec 5 created (market_type=total, line_ticks=2200). |
+
+#### Phase A — Track 3 / Contest B (NHL Sabres @ Bruins)
+
+| Test | Tx | Block | Result |
+|------|----|-------|--------|
+| A-01 | `0xdf225a94dc71d106e4b1a0c24ff7624ddd6056769aec8b5140f2a531407c5bb6` | 37304764 | Contest 3 created. **league_id="nhl" set on creation.** |
+| A-02 | (Chainlink callback) | ~37304900 | Contest 3 verified. start_time=2026-04-26T18:00:00Z. |
+| A-03 | `0x41c6fa6edc3073480b4f5a5a7ee59d7c7fbea249f4d845e3338b62f70f943ede` | 37304992 | Markets update sent (callback verified). |
+| A-06 (ML first match, MAKER Upper @ 2.00x, 10 USDC) | `0x9c05ed017967d5cb16adba8e53984f0cd3d6fd31c53947dbe68c5adf7924946e` | ~37305058 | 4 CoreEvents. Spec 1 created. |
+| A-17 list (MAKER Upper @ 12 USDC) | `0xe49d874a6a01ae55c52689760861c5c2ed761b6474ea067a1da01ad0b5ce7f21` | 37305212 | POSITION_LISTED. |
+| A-18 update (MAKER price → 11 USDC) | `0x042a7ba763a56129e10c997c6b56d302d7bf798929e72bc718ecd2ec3ebd39f4` | 37305224 | LISTING_UPDATED. New listing hash `0x24e702c2...`. |
+| A-19 buy (TAKER full 10 USDC risk) | `0x0c2edb6bda1002caf8916963a88e129f0b6c1e5bc50bfd7a9147858b82f8dfbd` | 37305240 | POSITION_SOLD + POSITION_TRANSFERRED. **TAKER's position has acquired_via_secondary_market=true (PR #9 confirmed for R4).** MAKER's listing has sold_price=11M, sold_risk_amount=10M (PR #14 confirmed). |
+| A-20a list (TAKER Upper @ 13 USDC, just-acquired position) | `0x61baac772104482b638a848bd8906be71d4d318c65d002fb8b6deef2eb35ddfa` | 37305340 | TAKER's POSITION_LISTED. |
+| A-20b cancel (TAKER cancels) | `0x397d0d5f0482d0c969bbc753c57c4b70f51c9422b84ecdc0be93d3e9b299d8b3` | 37305354 | LISTING_CANCELLED. |
+| A-21 claim proceeds (MAKER claims 11 USDC) | `0x6d4ae569b742cc5cd86943a34cb41e2c8d538543d847ec1f6911e6765e82c375` | 37305355 | SALE_PROCEEDS_CLAIMED. 11 USDC transferred Secondary→MAKER. |
+| **A-20b relist (PR #14 sold_* clear)** | DEFERRED | — | Requires MAKER to re-acquire position; not run this session. |
+| **B-02 acquired_via flag** | PASS | 37305240 | Verified via Supabase query (above). |
+| **B-03 secondary market lb rejection** | DEFERRED | — | Same as R3 — needs post-startTime secondary market position. Skipped. |
+
+#### Phase A — Track 4 / Contest C (MLB Red Sox @ Orioles)
+
+| Test | Tx | Block | Result |
+|------|----|-------|--------|
+| A-01 | `0xcd17148ef4df9e47267fd3b51b3b314ffdb6bc66a2e4027f79d88c2862686be5` | 37304777 | Contest 4 created. **league_id="mlb" set on creation.** |
+| A-02 | (Chainlink callback) | ~37304900 | Contest 4 verified. start_time=2026-04-26T17:35:00Z. |
+| A-03 | `0x73a07baacb5409f47036fb331bf068c1bf30f0f594690e6a572d97638282a7d7` | 37305004 | Markets callback returned: ml_up=221, ml_lo=171, sp_line=15 (line +1.5), tot_line=80 (line 8.0). |
+| A-06 (ML first match, MAKER Upper @ 1.91x, 10 USDC) | `0x589a124f4ac02c1fc6dd5c11e847ac675db1070aa72b3b237dc3b5ad07fb4fe9` | ~37305079 | 4 CoreEvents. Spec 2 created. **DO NOT SCORE — void cooldown elapses Mon ~12:35 PM CDT for Session 3.** |
+
+#### Phase A — Track 2 / Leaderboard
+
+| Test | Tx | Block | Result |
+|------|----|-------|--------|
+| A-11 create (entry 5 USDC, start +600s, end +4d, safety+roi 24h each) | `0xc39051aaeebd979cce173281919b6682b260da692ffaf12fbfb4b960c3303b3b` | 37305470 | Leaderboard 1 created. startTime=1777184590 (chain time + 600). |
+| A-12a (add Spec 4) | `0x58a82d5822ab94f5b798d7b4d79022b62bc59593375955544096a741f265391a` | 37305494 | LEADERBOARD_SPECULATION_ADDED. |
+| A-12b (add Spec 5) | `0x9cea8bdab5445bddbf9ba5851eb31c0cdd3a21f13dbda328b3cd6e37eb776c96` | 37305495 | LEADERBOARD_SPECULATION_ADDED. |
+| A-12c (add Spec 6 — created post-LB so MAKER position is eligible) | `0xfa85bbdb18ad609c8fa1f77a65d9e03fe8694ccd8136e9881566c0a01f89775f` | 37305776 | LEADERBOARD_SPECULATION_ADDED. |
+| A-13a (MAKER register) | `0xb823400a8715a068fb204a1aa76cb95964bb472d5b4d2c84386658febe47c051` | 37305508 | USER_REGISTERED, 5 USDC entry fee charged. |
+| A-13b (TAKER register) | `0x76a7049ce4979e6a432bd5145271d2312914f7758fa251b2f463a9ff7219ead5` | 37305509 | USER_REGISTERED, 5 USDC entry fee. |
+| (helper) Match Spec 6 (spread -50 Upper, 10 USDC) | block 37305763 timestamp 1777184432 | 37305763 | **Created BEFORE LB startTime (1777184590) — would be ineligible.** |
+| A-14 (first attempt on Spec 6) | `0xdcd7dd73ff726ddfc334d1f75d8322be3a635988c2672176e529a48122c1d797` | 37305914 | **REVERTED** with `LeaderboardModule__PositionPredatesLeaderboard` (selector `0xf45bb97a`). Confirms R4 contract checks `firstFillTimestamp < lb.startTime`, NOT < lb.creationBlock — clarifying R3 finding wording. |
+| (helper) Match Spec 7 (total 2300 Upper, 10 USDC) post-startTime | (script output truncated) | ~37305980 | Spec 7 created after LB startTime. |
+| A-12d (add Spec 7 to LB 1) | `0x131e2e7e4597e1448b48a046e521385eea6e077306cb86db6b42fada4ba57ac4` | 37305994 | LEADERBOARD_SPECULATION_ADDED. |
+| A-14 register position (retry on Spec 7) | `0x8fc3a0af4da6c82b13d44f6cfe3a41da2a4c7b86434e2613e2dd1cce50992ef2` | 37305995 | **PASS.** gasUsed=379300 (R3 500k recommendation confirmed for R4 — default 300k would OOG). LEADERBOARD_POSITION_ADDED event fired. |
+
+#### Independent — A-22, A-23
+
+| Test | Tx | Block | Result |
+|------|----|-------|--------|
+| A-22 cancel commitment (MAKER cancels never-matched commitment, contest=5/ML/0/Upper/200/10USDC/nonce=99) | `0x118876b5020c774afade4f60a078cce9c93d7732064b7a432addeb1babb28af3` | 37305539 | COMMITMENT_CANCELLED. **R4 finding (below): indexer handler doesn't capture new R4 fields.** Row created with hash=`0x5790469bd7...`, status=cancelled, source=indexer, **but contest_id=null, scorer=null, etc.** |
+| A-23 raise min nonce (MAKER, contest=3/ML/0 → 100) | `0x51169816d454327a6bb1f2524030c6b849cd4f26a11ec41f025d92908fb0e678` | 37305554 | MIN_NONCE_UPDATED. maker_nonce_floors row at speculation_key `0x1687c295fb...` with min_nonce=100, source_block=37305554. |
+
+#### Phase D — D-01 rapid-fire
+
+| Test | Tx | Block | Result |
+|------|----|-------|--------|
+| D-01a (Spec 4 spread nonce=2, 5 USDC) | `0x4159b7841ad1a0cf8f36100370a33c227e0332b57bd561f4714aaecc5b43a118` | 37305575 | 2 events (accumulation). |
+| D-01b (Spec 4 spread nonce=3, 5 USDC) | `0xe4b81e7be0284e3503f21a0ab539556e649e5e5742a5c0d79d13e86a0c9dc62f` | 37305577 | 2 events. |
+| D-01c (Spec 4 spread nonce=4, 5 USDC) | `0x6ebf6943305a928aa358248ffa959721fa452ab9ba2d3ded8ce7e04765b95cd9` | 37305581 | 2 events. After A-24 + 3× D-01: MAKER Spec 4 Upper risk=25M, profit=22.75M (correct accumulation: 10+5+5+5 risk; 9.1+4.55+4.55+4.55=22.75 profit). |
+
+#### Phase C — passed checks
+
+| Test | Result |
+|------|--------|
+| C-02 source_block | PASS — 0 NULL across 12 projection tables (contests/speculations/positions/leaderboards/leaderboard_speculations/leaderboard_registrations/leaderboard_positions/leaderboard_winners/secondary_market_listings/maker_nonce_floors/commitments/position_fills) |
+| C-05 cursor | PASS — cursor at 37305700+ during checks, advancing normally, lag = 128 confirmation depth |
+| C-06 dedup | PASS — 86 chain_events, no duplicates (UNIQUE constraint enforces) |
+| C-01 pending events | NOT TRIGGERED — contest_reference rows existed for all selected games. Same as R3 — could test manually later. |
+| C-03 reconcile | DEFERRED — Session 2 |
+| C-04 backfill | DEFERRED — Session 2 |
+
+#### Indexer state at end of Day 1 (after A-14)
+
+- 86+ chain_events rows across 24+ distinct event types (including LEADERBOARD_POSITION_ADDED added at end)
+- 5 contests on-chain (id 1 from deploy, 2 unverified dead retry, 3/4/5 verified)
+- 7 speculations: 1=ML B/NHL, 2=ML C/MLB, 3=ML A/NBA, 4=spread A/-3.0, 5=total A/220.0, 6=spread A/-5.0 (pre-startTime), 7=total A/230.0 (post-startTime)
+- 14 positions across 7 specs
+- 2 secondary_market_listings (1 sold, 1 cancelled)
+- 1 leaderboard with prize_pool=10 USDC, 2 registrations, 4 eligible specs, 1 registered position
+- 11 commitments (10 partially_filled + 1 cancelled), all source='indexer'
+- 2 maker_nonce_floors (T-00 + A-23)
+- 0 pending_events
+- 0 indexer errors visible
+
+#### R4-specific findings (preliminary)
+
+1. **Chainlink Functions verify callback can fail silently.** Contest 2 (Cavs @ Raptors initial create) emitted CONTEST_CREATED + ORACLE_REQUEST_FAILED but no CONTEST_VERIFIED ever fired. Re-creating the same game (jsonoddsId) as Contest 5 succeeded on first try. **There is no on-chain retry function** — failed contests are dead. v1 finding ("Rundown API transient failure") still applies for R4. Recommend either: (a) add retry mechanism in OracleModule, or (b) document re-create as the standard recovery path.
+
+2. **PR #8 league_id derivation works in R4.** All three new contests (Cavs/NBA, Sabres/NHL, Red Sox/MLB) had `league_id` set to "nba"/"nhl"/"mlb" at CONTEST_CREATED time, before verification callback. Confirms R3 fix carried into R4.
+
+3. **PR #9 acquired_via_secondary_market works in R4.** TAKER's Upper position on Spec 1 has the flag set after the buyPosition call.
+
+4. **PR #14 sold_* snapshot works in R4.** MAKER's listing on Spec 1 captured sold_price=11000000, sold_risk_amount=10000000 after the sale.
+
+5. **PRs #11/12/13 commitment indexer-population works in R4.** All 9 matched commitments have a row with `source='indexer'`, contest_id, odds_tick, filled_risk_amount populated. Cancelled commitment also has a row.
+
+6. **R4 ABI gap — COMMITMENT_CANCELLED handler doesn't extract new fields.** R4 emit added contestId, scorer, lineTicks, positionType, oddsTick, riskAmount, nonce, expiry to CommitmentCancelled (per `docs/testing/POST_DEPLOY_SMOKE_TEST.md`), but the indexer handler at `src/handlers/commitments.ts:13-31` only reads `commitmentHash` and `maker`. When the cancelled commitment has no pre-existing row (cancel-only path), the resulting row stores nulls for the new fields. **Non-blocking** — status='cancelled' tracking still works. **Recommend ospex-indexer PR** to extract and store the new fields on cancel-only inserts.
+
+7. **R4 ABI gap — nonce always 0 on indexer-created commitment rows.** Per R3 finding A-23: same issue carries to R4. The new R4 CommitmentMatched event includes `nonce`, but the indexer's match handler still records nonce=0. This blocks MIN_NONCE_UPDATED's nonce_invalidated logic from working on indexer-created rows. **Recommend ospex-indexer PR** to extract and store nonce on COMMITMENT_MATCHED.
+
+8. **4 CoreEvents per first-fill match (not 3) carries from R3.** SPECULATION_CREATED + COMMITMENT_MATCHED + POSITION_MATCHED_PAIR + SPLIT_FEE_PROCESSED. Plan documentation should be updated to expect 4.
+
+#### Test wallets (current Session 1 state)
+
+| Role | Address |
+|------|---------|
+| Deployer | `0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3` |
+| MAKER | `0x7CA624C92b8Aed9ee83Ed621A898f7524FAfBa24` |
+| TAKER | `0x8D92451e7457b0076349eBA44d60b36a1038bF31` |
+
+#### Next session gates
+
+- **Session 2 (Day 2 — after Cavs game ends, ~3 PM CDT 2026-04-26):** A-04 score Contest 5 → A-08 settle Specs 3/4/5 → A-09 claim winning positions. Then C-03 reconcile, C-04 backfill, D-02 per-tx reconciliation, D-03 USDC value reconciliation.
+- **Session 3 (Day 2 — after Mon ~12:35 PM CDT 2026-04-27, Contest 4 cooldown elapses):** A-05 void Contest C via settleSpeculation(2) → B-01 post-cooldown match rejection.
+- **Session 4 (Day 5+ — after LB endTime + 24h safety + 24h ROI):** A-15 submit ROI → A-16 claim leaderboard prize.
+- **Pending verification later this session:** A-14 (LB position registration with 500k gas).
 
 ---
 
