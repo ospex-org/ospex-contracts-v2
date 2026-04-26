@@ -64,14 +64,15 @@ The indexer is a **pull-based polling worker** (ospex-indexer on Heroku) that re
 
 ### Events Explicitly NOT Handled by Indexer
 
-The contracts emit 27 distinct CoreEventEmitted event types. The indexer handles 25. Two are intentionally excluded:
+The contracts emit 27 distinct CoreEventEmitted event types. The indexer handles 26. One is intentionally excluded:
 
 | Event | Emitted By | Reason Not Handled |
 |-------|-----------|-------------------|
-| `LEADERBOARD_FUNDED` | TreasuryModule | Internal accounting event. Prize pool state is already captured via `rpc_user_registered` (which increments prize_pool on USER_REGISTERED). No additional projected row needed. |
 | `LEADERBOARD_ENTRY_FEE_PROCESSED` | TreasuryModule | Fee-processing detail event. Entry fee amount is already stored in `leaderboards.entry_fee` and reflected in prize_pool updates. No consumer needs this event separately. |
 
-These events DO land in chain_events if the indexer encounters them (the main loop inserts all CoreEventEmitted logs), but no handler dispatches — the indexer logs a `No handler registered` warning. This is expected. Phase A does NOT test these two events.
+`LEADERBOARD_FUNDED` IS handled — it dispatches `rpc_leaderboard_funded` which atomically increments `leaderboards.prize_pool` for external sponsorships routed through `TreasuryModule.fundLeaderboard()`.
+
+This event DOES land in chain_events if the indexer encounters it (the main loop inserts all CoreEventEmitted logs), but no handler dispatches — the indexer logs a `No handler registered` warning. This is expected. Phase A does NOT test this event.
 
 ---
 
@@ -294,7 +295,7 @@ Record the tx hash and block number.
 
 ## PHASE A: HANDLER COVERAGE
 
-**Goal:** Fire each of the 25 handled CoreEventEmitted events at least once and verify the indexer writes correct Supabase state. (2 additional events — LEADERBOARD_FUNDED, LEADERBOARD_ENTRY_FEE_PROCESSED — are intentionally unhandled; see Architecture Context.)
+**Goal:** Fire each of the 26 handled CoreEventEmitted events at least once and verify the indexer writes correct Supabase state. (1 additional event — LEADERBOARD_ENTRY_FEE_PROCESSED — is intentionally unhandled; see Architecture Context.)
 
 ### Priority 1 — Contest Lifecycle (Track 1 + Track 4)
 
@@ -459,9 +460,9 @@ cast send $SPECULATION_MODULE "settleSpeculation(uint256)" SPEC_ID \
 
 ---
 
-#### A-06: SPECULATION_CREATED + COMMITMENT_MATCHED + POSITION_MATCHED_PAIR
+#### A-06: SPLIT_FEE_PROCESSED + SPECULATION_CREATED + POSITION_MATCHED_PAIR + COMMITMENT_MATCHED
 
-**Description:** Match a commitment (first fill for a new contestId/scorer/lineTicks combination). Single transaction fires 3 events.
+**Description:** Match a commitment (first fill for a new contestId/scorer/lineTicks combination). Single transaction fires 4 CoreEvents — the speculation-creation fee split (`SPLIT_FEE_PROCESSED`) is emitted alongside the three lifecycle events.
 
 **Prerequisites:**
 - A-02 completed (verified contest exists)
@@ -508,7 +509,7 @@ cast send $SPECULATION_MODULE "settleSpeculation(uint256)" SPEC_ID \
 
 **Evidence:**
 
-**Notes:** This is the most complex single-transaction test — 3 events, 5+ table writes. Verify all three chain_events rows have correct log_index ordering.
+**Notes:** This is the most complex single-transaction test — 4 events (including `SPLIT_FEE_PROCESSED` from the speculation-creation fee split), 5+ table writes. Verify all four chain_events rows have correct log_index ordering.
 
 ---
 
