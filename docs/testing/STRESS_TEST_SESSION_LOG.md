@@ -296,6 +296,46 @@ These five events did not fire in R4 Session 1 and so cannot be validated by rep
 - Run the explicit SQL queries from §2 Part B for the 4 PR #22 tables (reconcile CLI does NOT cover them yet).
 - Only after the Cavs game is FINAL via the scoring API, continue Session 2 scoring/settlement/claim.
 
+#### R4.1 retest results — 2026-04-26 ~13:30 CDT
+
+Baseline (before replay): 25 distinct chain_event types present, 7 SPECULATION_CREATED + 7 SPLIT_FEE_PROCESSED rows (4-event first-fill confirmed for live-indexed history); the four PR #22 typed tables (`fees`, `leaderboard_fundings`, `leaderboard_rules`, `leaderboard_deviation_rules`) all empty even though FEE_PROCESSED + SPLIT_FEE_PROCESSED chain_events existed → confirms R4 Session 1 happened before PR #22 was deployed. Commitment rows lacked PR #21 fields (nonce / expiry / risk_amount / speculation_key on indexer-created rows).
+
+§1 — Replay / projection repair:
+
+- `yarn backfill --from 37285105 --to 37306000` failed at the atomic `rpc_backfill_range` step with `update or delete on table "speculations" violates foreign key constraint "fk_position_speculation"` (FK ordering issue in the RPC). **New finding (#11) — file ospex-indexer follow-up**.
+- Fell back to a targeted projection-replay script (`ospex-indexer/scripts/replay-pr22-projections.ts`) that reads existing chain_events.payload and dispatches through PR #21 / PR #22 handlers without touching chain_events. Idempotent (PK on tx_hash/log_index for fees/fundings; UPSERT keys for rules; UPDATE-by-hash for commitments). Re-running produced all-duplicates ✓.
+
+§1 outcome:
+
+- `fees`: 0 → **13 rows** (5 contest_creation + 1 leaderboard_creation + 7 speculation_creation/split). FEE_PROCESSED chain_events count = 6 (4 contests verified + Contest 2 abandoned-but-fee-paid + 1 LB creation) → matches single-shape count 6. SPLIT_FEE_PROCESSED chain_events count = 7 (one per spec creation) → matches split-shape count 7.
+- `leaderboard_fundings`, `leaderboard_rules`, `leaderboard_deviation_rules`: still 0 (require §4 triggers).
+- 11 indexer-created COMMITMENT_MATCHED commitment rows + 1 COMMITMENT_CANCELLED row repaired with full R4 fields: `nonce`, `expiry` (timestamptz from unix seconds), `risk_amount`, `speculation_key` derived as `keccak256(encodeAbiParameters(uint256, address, int32, [contestId, scorer, lineTicks]))`, `market_type` derived from scorer address.
+
+§2 — Reconcile + explicit SQL (`scripts/pr22-sql-checks.ts`):
+
+- B1 every FEE_PROCESSED + SPLIT_FEE_PROCESSED chain_event has a fees row → PASS (13/13).
+- B2 fees shape correctness (single → payer2 NULL + second_amount NULL; split → both NOT NULL) → PASS (zero violations).
+- B3 LEADERBOARD_FUNDED → leaderboard_fundings + prize_pool consistency → PASS (vacuously, 0 events).
+- B4 leaderboard_rules PK uniqueness → PASS (0 rows, 0 dups).
+- B5 leaderboard_deviation_rules PK uniqueness → PASS (0 rows, 0 dups).
+- B6 source_block populated on inserts for all 4 new tables → PASS (zero NULL).
+
+§3 — Per-tx event count + commitment field repair:
+
+- X1 per-tx event count for the 7 R4 first-fill txs: each has exactly **4 chain_events** (SPECULATION_CREATED + COMMITMENT_MATCHED + POSITION_MATCHED_PAIR + SPLIT_FEE_PROCESSED) → PASS (7/7).
+- X2 PR #21 commitment field repair: 12/12 indexer-created commitments now have non-null `nonce`, `expiry`, `risk_amount`, `speculation_key` → PASS (zero missing).
+
+USDC value reconciliation (D-03): not run yet — test wallets sent 5 USDC entry fees (×2) + 0.50 USDC LB creation + 4× 1 USDC contest creation + 7× 0.50 USDC speculation creation ≈ 17.50 USDC fees (1 LB creation went to TreasuryModule.s_leaderboardPrizePools[1]; the rest to protocolReceiver). Defer until USDC balances are read.
+
+#### Open finding from §1
+
+11. **Atomic backfill RPC `rpc_backfill_range` has FK ordering issue.** When backfilling a range that contains both speculations and their child positions, the RPC's delete step hits `fk_position_speculation` violation. Migration `026_backfill_atomic_rpc.sql:109-167` lists DELETEs in roughly child-first order, but apparently positions still reference speculations the RPC tries to delete before all positions are removed. Targeted projection replay was used as a workaround for R4.1; the atomic RPC needs a fix before it can be relied on for cross-entity backfills. **File ospex-indexer issue.**
+
+#### R4.1 §4 / §6 still pending (not done in this run)
+
+- §4 fresh on-chain triggers: A-28 LEADERBOARD_FUNDED, A-29 RULE_SET (requires new pre-start LB), A-30 DEVIATION_RULE_SET (same LB), C-01 pending events flow, C-01b retry cap. Awaiting user approval before triggering.
+- §6 settlement gate: Cavs game `start_time = 1777240800` (2026-04-26T22:00:00Z = 5 PM CDT). Earliest defensible scoring at ~7:30 PM CDT today; user reports game not yet final (~90 min remaining as of this entry).
+
 ---
 
 ## Testing Reset (2026-04-22)
