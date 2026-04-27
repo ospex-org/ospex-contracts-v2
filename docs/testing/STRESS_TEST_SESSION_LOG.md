@@ -4,10 +4,10 @@ Tracks progress across sessions. Updated after each test execution.
 
 ## Current Status
 
-**Plan version:** v4.0 (R4 contracts)
-**Phase:** R4 Session 1 — PHASE 2 in progress. Day 1 lifecycle nearly complete; awaiting LB startTime for A-14, then game-end gates for Session 2/3/4.
-**Branch:** `feature/r4-stress-test-session-1` (foundry repo)
-**Next action:** A-14 leaderboard position registration once startTime elapses (~6:23 AM CDT). Then wait for game ends: Session 2 (Cavs game, ~3 PM CDT) for score/settle/claim. Session 3 (Mon ~12:35 PM CDT) for void cooldown.
+**Plan version:** v4.2 (R4 contracts + R4.1 retest + Session 2/4 done)
+**Phase:** **R4 testing essentially complete.** Through 2026-04-26 evening into 2026-04-27 ~00:05 CDT: R4 Session 1 Day 1, R4.1 retest §1-§3 (8/8 SQL checks PASS), §4 fresh on-chain triggers (A-28/A-29/A-30/C-01/C-01b), Contest 5 (Cavs) Session 2 score/settle/claim, Contest 3 (Sabres) score/settle/claim, LB 3 / Contest 8 (Sixers @ Celtics) **compressed Session 4** (A-15+A-16+B-03+A-20b). **Only Session 3 remains** — A-05 void Contest 4 + B-01 post-cooldown reject, calendar-gated to **Mon 2026-04-27 ~12:35 PM CDT**. Indexer PRs #16-23 all merged; PR #23's atomic-backfill FK fix verified live.
+**Branch:** `docs/r4.1-indexer-replay-retest` (foundry repo) — PR #10 with all v4.1 + v4.2 doc updates and the evening-session results.
+**Next action:** Mon 2026-04-27 ~12:35 PM CDT — `settleSpeculation(2)` to void Contest 4, then attempt match against it to verify B-01 post-cooldown rejection. Optional: LB 1 production-realistic Apr 30+ ROI/claim as a duplicate of LB 3's compressed-window run.
 
 R3 results below (Sessions 1–4) preserved for reference. R4 is a separate test cycle against re-deployed contracts.
 
@@ -63,7 +63,7 @@ All three games have both `rundown_id` and `sportspage_id` populated (dual oracl
 | 2 | Verified balances: Deployer 25.7 POL / ~1B USDC / 5.27 LINK; MAKER 4.87 POL / 999.8K USDC; TAKER 4.67 POL / 999.8K USDC | sufficient |
 | 3 | Verified deployer R4 approvals: USDC→Treasury 99 USDC, LINK→Oracle 0.996 LINK | sufficient for session |
 | 4 | Set MAX USDC approvals: MAKER→PositionR4, MAKER→TreasuryR4, TAKER→PositionR4, TAKER→TreasuryR4, TAKER→SecondaryR4 | done |
-| 5 | Confirmed indexer R4 config (OspexCore + 3 scorers in EMITTER_ALLOWLIST) | done |
+| 5 | Confirmed indexer R4 config (OspexCore in `EMITTER_ALLOWLIST`; 3 scorers in `SCORER_MONEYLINE`/`SCORER_SPREAD`/`SCORER_TOTAL` separately — they are NOT in the allowlist) | done |
 
 #### T-00 canary
 
@@ -181,11 +181,15 @@ All three games have both `rundown_id` and `sportspage_id` populated (dual oracl
 
 5. **PRs #11/12/13 commitment indexer-population works in R4.** All 9 matched commitments have a row with `source='indexer'`, contest_id, odds_tick, filled_risk_amount populated. Cancelled commitment also has a row.
 
-6. **R4 ABI gap — COMMITMENT_CANCELLED handler doesn't extract new fields.** R4 emit added contestId, scorer, lineTicks, positionType, oddsTick, riskAmount, nonce, expiry to CommitmentCancelled (per `docs/testing/POST_DEPLOY_SMOKE_TEST.md`), but the indexer handler at `src/handlers/commitments.ts:13-31` only reads `commitmentHash` and `maker`. When the cancelled commitment has no pre-existing row (cancel-only path), the resulting row stores nulls for the new fields. **Non-blocking** — status='cancelled' tracking still works. **Recommend ospex-indexer PR** to extract and store the new fields on cancel-only inserts.
+6. **R4 ABI gap — COMMITMENT_CANCELLED handler doesn't extract new fields.** R4 emit added contestId, scorer, lineTicks, positionType, oddsTick, riskAmount, nonce, expiry to CommitmentCancelled (per `docs/testing/POST_DEPLOY_SMOKE_TEST.md`), but the indexer handler at `src/handlers/commitments.ts:13-31` only reads `commitmentHash` and `maker`. When the cancelled commitment has no pre-existing row (cancel-only path), the resulting row stores nulls for the new fields. **Non-blocking** — status='cancelled' tracking still works. **Recommend ospex-indexer PR** to extract and store the new fields on cancel-only inserts. **→ RESOLVED by ospex-indexer PR #21 (merged 2026-04-26):** handler now persists full R4 field set including derived `speculation_key`. `recovery.ts` produces same shape on backfill. R4.1 retest must verify the existing R4 Session 1 cancelled row (hash `0x5790469bd7...`, block 37305539) is repaired to full population on replay.
 
-7. **R4 ABI gap — nonce always 0 on indexer-created commitment rows.** Per R3 finding A-23: same issue carries to R4. The new R4 CommitmentMatched event includes `nonce`, but the indexer's match handler still records nonce=0. This blocks MIN_NONCE_UPDATED's nonce_invalidated logic from working on indexer-created rows. **Recommend ospex-indexer PR** to extract and store nonce on COMMITMENT_MATCHED.
+7. **R4 ABI gap — nonce always 0 on indexer-created commitment rows.** Per R3 finding A-23: same issue carries to R4. The new R4 CommitmentMatched event includes `nonce`, but the indexer's match handler still records nonce=0. This blocks MIN_NONCE_UPDATED's nonce_invalidated logic from working on indexer-created rows. **Recommend ospex-indexer PR** to extract and store nonce on COMMITMENT_MATCHED. **→ RESOLVED by ospex-indexer PR #21:** `rpc_commitment_matched` now accepts `p_commitment_risk_amount`, `p_nonce`, `p_expiry`, `p_speculation_key`. R4.1 retest must verify the 9 indexer-created COMMITMENT_MATCHED rows from Session 1 have real nonces post-replay, then assert MIN_NONCE_UPDATED at block 37305554 (A-23 raised Contest 3 / Moneyline / lineTicks=0 to nonce 100 on speculation_key `0x1687c295fb...`) marks every commitment with `(maker, speculation_key)` matching and `nonce < 100` as `nonce_invalidated=true`. Spec 1 first-fill at nonce 1 is the primary affected row.
 
-8. **4 CoreEvents per first-fill match (not 3) carries from R3.** SPECULATION_CREATED + COMMITMENT_MATCHED + POSITION_MATCHED_PAIR + SPLIT_FEE_PROCESSED. Plan documentation should be updated to expect 4.
+8. **4 CoreEvents per first-fill match (not 3) carries from R3.** SPECULATION_CREATED + COMMITMENT_MATCHED + POSITION_MATCHED_PAIR + SPLIT_FEE_PROCESSED. Plan documentation should be updated to expect 4. **→ RESOLVED by ospex-indexer PR #17 (recognition) + plan doc v4.1 (expectation update).** Pre-PR #17 indexer was silently dropping `SPLIT_FEE_PROCESSED` because `decodeLog()` returned null for unknown topic[1] hashes; all 7 R4 first-fill txs initially recorded 3/4 events. R4.1 retest must verify all 7 first-fill txs now have 4 chain_events rows after replay.
+
+9. **C-01 was not triggered organically in R4 Session 1.** Every selected jsonodds_id had a `contest_reference` row. **R4.1 retest must include manual C-01 trigger** (bogus jsonodds_id → CONTEST_CREATED → pending_events → reference inserted → row resolves) and **C-01b retry-cap variant** (PR #20 — verify pending row deletion at PENDING_MAX_ATTEMPTS).
+
+10. **5 partial events have no projection in indexer pre-PR #22.** R4 Session 1 emitted FEE_PROCESSED (contest creation), SPLIT_FEE_PROCESSED (every first-fill), LEADERBOARD_ENTRY_FEE_PROCESSED (every USER_REGISTERED), but pre-PR #22 these only landed in chain_events (or were dropped pre-PR #17). **→ RESOLVED by ospex-indexer PR #22:** FEE/SPLIT_FEE → `fees`, LEADERBOARD_FUNDED → `leaderboard_fundings` + atomic prize_pool, RULE_SET → `leaderboard_rules`, DEVIATION_RULE_SET → `leaderboard_deviation_rules`. LEADERBOARD_ENTRY_FEE_PROCESSED + PRIZE_POOL_CLAIMED + ORACLE_RESPONSE/ORACLE_REQUEST_FAILED + SCRIPT_APPROVAL_VERIFIED stay audit-only (handlers are noops). R4.1 retest must verify replay populates the 4 new typed tables for events that fired in R4 Session 1.
 
 #### Test wallets (current Session 1 state)
 
@@ -197,10 +201,281 @@ All three games have both `rundown_id` and `sportspage_id` populated (dual oracl
 
 #### Next session gates
 
-- **Session 2 (Day 2 — after Cavs game ends, ~3 PM CDT 2026-04-26):** A-04 score Contest 5 → A-08 settle Specs 3/4/5 → A-09 claim winning positions. Then C-03 reconcile, C-04 backfill, D-02 per-tx reconciliation, D-03 USDC value reconciliation.
+- **Session 2 (after Cavs game is FINAL):** A-04 score Contest 5 → A-08 settle Specs 3/4/5 → A-09 claim winning positions. Then C-03 reconcile, C-04 backfill, D-02 per-tx reconciliation, D-03 USDC value reconciliation. **Pre-flight:** the on-chain `start_time` for Contest 5 is `2026-04-26T22:00:00Z` (= 5:00 PM CDT, **not** 3 PM CDT — earlier session-log entries had the wrong CDT). Earliest defensible scoring window: `start_time + ~2.5h NBA duration` ≈ 2026-04-27T00:30Z (~7:30 PM CDT 2026-04-26). **Mandatory pre-flight gate (see plan A-04 Notes):** confirm via `getContest()` AND the scoring API that the game is FINAL before calling `scoreContestFromOracle`. Do not assume "3 hours after the planned tip-off" is enough; the on-chain start_time is canonical.
 - **Session 3 (Day 2 — after Mon ~12:35 PM CDT 2026-04-27, Contest 4 cooldown elapses):** A-05 void Contest C via settleSpeculation(2) → B-01 post-cooldown match rejection.
 - **Session 4 (Day 5+ — after LB endTime + 24h safety + 24h ROI):** A-15 submit ROI → A-16 claim leaderboard prize.
 - **Pending verification later this session:** A-14 (LB position registration with 500k gas).
+
+---
+
+### R4.1 Retest Checklist (2026-04-26 — indexer replay/projection validation pass)
+
+**Trigger:** Indexer PRs #16–#22 merged 2026-04-24..26 close R4 Session 1 findings #6/#7/#8/#10. Findings #1 (Chainlink callback retry) and #4 (`PositionPredatesLeaderboard` on `firstFillTimestamp < startTime`) remain on the open list — neither is an indexer issue.
+
+**Decision tree:**
+
+1. Run §1 + §2 + §3 below.
+2. If all pass → **continue Round 4** (Sessions 2/3/4 proceed unchanged).
+3. If §1 reproduces state but §2 reconcile shows drift → file a targeted indexer fix; do NOT wipe data.
+4. If §1 cannot repair state → **wipe `amoy*` Supabase data** and reindex from block 37285105. Only then consider starting a new on-chain round.
+
+#### §1 — Replay/Backfill from R4 deployment block (Phase E-01)
+
+- [ ] Confirm indexer is running ospex-indexer PR #22 (or later) in production.
+- [ ] Confirm `POLL_INTERVAL_MS=15000` (Heroku config), `EMITTER_ALLOWLIST` set to **R4 OspexCore only** (the only contract that emits `CoreEventEmitted`), and `SCORER_MONEYLINE` / `SCORER_SPREAD` / `SCORER_TOTAL` env vars set to the R4 scorer addresses.
+- [ ] Snapshot current `amoy*` Supabase state (row counts per projection table) before replay.
+- [ ] Run `yarn backfill --from 37285105 --to <head>` against R4 history.
+- [ ] Verify the event types that **fired during R4 Session 1** all appear in `chain_events` post-replay (replay can only validate events that happened on-chain — see Phase E-01 caveat for the events that didn't fire and need §4 / Sessions 2-4):
+  - [ ] All 7 R4 first-fill txs from Session 1 show **4 chain_events rows** (not 3) — the previously-dropped `SPLIT_FEE_PROCESSED` is now present.
+  - [ ] `SCRIPT_APPROVAL_VERIFIED` rows present for every Chainlink-script call (A-01 / A-03 / A-04).
+  - [ ] `FEE_PROCESSED` rows present for every contest creation (Contests 2/3/4/5).
+  - [ ] `LEADERBOARD_ENTRY_FEE_PROCESSED` rows present for both A-13 registrations.
+  - [ ] `ORACLE_RESPONSE` rows present for every successful Chainlink callback; `ORACLE_REQUEST_FAILED` present for Contest 2's failed verify.
+- [ ] Verify the 4 new typed tables populated from R4 history:
+  - [ ] `fees` rows for all FEE_PROCESSED + SPLIT_FEE_PROCESSED events (single-shape vs split-shape distinction correct).
+  - [ ] `leaderboard_fundings` empty (R4 Session 1 didn't fund) — but no errors.
+  - [ ] `leaderboard_rules` empty (R4 Session 1 didn't set rules) — but no errors.
+  - [ ] `leaderboard_deviation_rules` empty — but no errors.
+- [ ] Verify R4 Session 1 commitment field repair (PR #21):
+  - [ ] All 9 indexer-created COMMITMENT_MATCHED rows (Tracks 1/3/4 first-fills + accumulations + D-01 rapid-fire) have `nonce`, `expiry`, `risk_amount`, `speculation_key` populated post-replay (not 0/null).
+  - [ ] R4 Session 1 A-22 cancelled commitment row (hash `0x5790469bd7...`, block 37305539) has full R4 fields populated (was hash/maker only before PR #21).
+  - [ ] All commitment rows have `source='indexer'`, `source_block` set.
+- [ ] Verify `source_block` repair on pre-existing rows (PR #22 recovery.ts fix): zero NULL `source_block` across all 16+ projection tables (12 from R4 Session 1 + 4 new).
+
+#### §2 — Reconcile (Phase E-02 = C-03 + explicit SQL for new tables)
+
+- [ ] `yarn reconcile` exit 0, zero drift across the 13 tables it covers (`contests`, `speculations`, `positions`, `position_fills`, `commitments`, `maker_nonce_floors`, `leaderboards`, `leaderboard_registrations`, `leaderboard_speculations`, `leaderboard_winners`, `leaderboard_positions`, `secondary_market_listings`, `chain_events`).
+- [ ] **`yarn reconcile` does NOT cover the 4 PR #22 tables.** Run the explicit SQL queries from Phase E-02 Part B in the test plan against `fees`, `leaderboard_fundings`, `leaderboard_rules`, `leaderboard_deviation_rules`. Expect zero unmatched chain_events, zero key-duplicates, zero NULL `source_block`.
+- [ ] File ospex-indexer follow-up to add the 4 new tables to `reconcile.ts:TABLES`.
+- [ ] Cursor at chain head, no stuck `pending_events`.
+
+#### §3 — Per-tx + USDC value reconciliation (Phase E-03 = D-02 + D-03)
+
+- [ ] Per-tx event counts match the **corrected** A-06 = 4 / A-07 = 2 expectation.
+- [ ] No duplicate `chain_events` rows.
+- [ ] **USDC reconciliation (per-balance, see D-03 / E-03 for formulas):**
+  - [ ] `PositionModule.balanceOf(USDC)` = sum of unclaimed positions (winners: risk + profit; push: risk only).
+  - [ ] `TreasuryModule.balanceOf(USDC)` = `SUM(leaderboards.prize_pool)` (= entry fees + LEADERBOARD_FUNDED amounts − claimed prizes). **Fees DO NOT live here — they go straight to `i_protocolReceiver`.**
+  - [ ] `protocolReceiver.balanceOf(USDC)` delta since R4 deploy block = `SUM(fees.total_amount)`.
+  - [ ] `SecondaryMarketModule.balanceOf(USDC)` = sum of unclaimed sale proceeds.
+
+#### §4 — Targeted re-tests for events not yet on R4 chain (Phase E-04)
+
+These five events did not fire in R4 Session 1 and so cannot be validated by replay alone. **Each is a free-running on-chain operation against the existing R4 deployment — no game-timing dependency.** A-29/A-30 require a **new pre-start leaderboard** (LB 1 has already started; rule setters revert with `RulesModule__LeaderboardStarted` once `block.timestamp >= lb.startTime`, so they cannot run on LB 1).
+
+- [ ] **A-28 LEADERBOARD_FUNDED:** `TreasuryModule.fundLeaderboard(1, 5_000_000)` from any funder (LB 1 is fine — `fundLeaderboard()` is permissionless and has no pre-start gate). Verify `leaderboard_fundings` row + atomic `leaderboards.prize_pool += 5_000_000`. Cost: 5 USDC into LB 1's prize pool — funder does NOT directly recover it; it's distributed to the leaderboard winner on prize claim.
+- [ ] **(Setup for A-29/A-30) Create new pre-start LB N:** `LeaderboardModule.createLeaderboard(...)` with `startTime = now + 1800` (30 min from creation), 4-day endTime, 24h+ safety + 24h+ ROI windows. Cost: 0.50 USDC creation fee. From a wallet that will be `lb.creator` for the rule setters.
+- [ ] **A-29 RULE_SET:** call any `RulesModule.set*` from the LB N creator wallet **before its startTime**. The contract has no `setRule(uint256,string,uint256)` — use the actual setters: `setMinBankroll(N, 50_000_000)` is the simplest. Verify `leaderboard_rules` row, `rule_type='minBankroll'` stored verbatim. Re-fire same key → UPSERT (no duplicate).
+- [ ] **A-30 DEVIATION_RULE_SET:** `RulesModule.setDeviationRule(N, NBA(=4), MoneylineScorer, Upper(=0), 200)` from LB N creator wallet **before LB N startTime**. Verify `leaderboard_deviation_rules` row keyed on `(network, lb, league, scorer, position_type)` with slug-mapped fields and `max_deviation=200`.
+- [ ] **C-01 pending_events flow:** trigger CONTEST_CREATED with bogus `jsonodds_id` (no contest_reference row); confirm `pending_events` row appears with `reason='missing_contest_reference'`; insert reference; confirm row clears within ~10s. Cost: 1 USDC + 0.004 LINK.
+- [ ] **C-01b retry-cap (PR #20):** repeat C-01 but do NOT insert the reference; lower `PENDING_MAX_ATTEMPTS` to 5 on Heroku temporarily; confirm pending row deleted (default action) at attempts ≥ 5; restore default after.
+
+#### §5 — Open R4 findings (not closed by R4.1)
+
+- [ ] Finding #1 — **Chainlink Functions verify callback can fail silently with no on-chain retry path.** Contest 2 emitted ORACLE_REQUEST_FAILED and was abandoned. Decide: (a) add a retry function in `OracleModule`, or (b) document re-create as standard recovery and add a monitor alert when `ORACLE_REQUEST_FAILED` lands. **Owner: Vince + smart-contract review.**
+- [ ] Finding #4 — `PositionPredatesLeaderboard` checks `firstFillTimestamp < lb.startTime`, not `lb.creationBlock`. Doc-only clarification — already noted in plan v4.1.
+- [ ] Deferred from R4 Session 1: **A-20b relist-after-sale** (requires MAKER to re-acquire position), **B-03 secondary-market leaderboard rejection** (requires post-startTime secondary market position). Both can run in any post-R4.1 session that produces the right setup.
+
+#### §6 — On exit
+
+- [ ] If §1–§4 all pass, mark R4.1 complete in this log and proceed to R4 Session 2 (score Cavs game, settle, claim, reconcile) **only after the Cavs game is FINAL**.
+- [ ] **Settlement gate (mandatory for Session 2):** before calling `scoreContestFromOracle(5)`:
+  - [ ] Read on-chain `start_time` via `cast call $CONTEST_MODULE "getContest(uint256)" 5` — for R4 Contest 5 this is `1777240800` (`2026-04-26T22:00:00Z` = 5:00 PM CDT, earliest defensible scoring at ~2026-04-27T00:30Z = ~7:30 PM CDT).
+  - [ ] `block.timestamp >= start_time + 9000` (≥ 2.5 hours after start, NBA typical).
+  - [ ] Game status from a scoring API (Rundown / Sportspage / JSONOdds) explicitly reports the game as FINAL.
+  - [ ] If any of the above fails, **do not score**. Document the wait-gate in the session log and check again later.
+- [ ] If any §1–§3 step fails, file ospex-indexer issue with reproducer + Supabase row dump; do not proceed to §4.
+- [ ] If §4 events trigger but the typed-table projections don't land, file ospex-indexer issue; do not assume the handler is correct.
+
+#### Testing-agent guidance (post-doc-fix)
+
+- Do NOT restart R4. R4.1 is replay/projection validation against existing R4 history.
+- Do NOT run A-04 / A-08 / A-09 (settlement / claim) until §6 settlement gate confirms the Cavs game is FINAL.
+- First: run §1 replay/backfill from block 37285105 with the indexer at PR #22 or later.
+- Verify: fired R4 events, commitment-row repair (full R4 fields including `speculation_key`), `fees` rows for FEE_PROCESSED + SPLIT_FEE_PROCESSED, no duplicate or missing first-fill SPLIT_FEE_PROCESSED.
+- Run the explicit SQL queries from §2 Part B for the 4 PR #22 tables (reconcile CLI does NOT cover them yet).
+- Only after the Cavs game is FINAL via the scoring API, continue Session 2 scoring/settlement/claim.
+
+#### R4.1 retest results — 2026-04-26 ~13:30 CDT
+
+Baseline (before replay): 25 distinct chain_event types present, 7 SPECULATION_CREATED + 7 SPLIT_FEE_PROCESSED rows (4-event first-fill confirmed for live-indexed history); the four PR #22 typed tables (`fees`, `leaderboard_fundings`, `leaderboard_rules`, `leaderboard_deviation_rules`) all empty even though FEE_PROCESSED + SPLIT_FEE_PROCESSED chain_events existed → confirms R4 Session 1 happened before PR #22 was deployed. Commitment rows lacked PR #21 fields (nonce / expiry / risk_amount / speculation_key on indexer-created rows).
+
+§1 — Replay / projection repair:
+
+- `yarn backfill --from 37285105 --to 37306000` failed at the atomic `rpc_backfill_range` step with `update or delete on table "speculations" violates foreign key constraint "fk_position_speculation"` (FK ordering issue in the RPC). **New finding (#11) — file ospex-indexer follow-up**.
+- Fell back to a targeted projection-replay script (`ospex-indexer/scripts/replay-pr22-projections.ts`) that reads existing chain_events.payload and dispatches through PR #21 / PR #22 handlers without touching chain_events. Idempotent (PK on tx_hash/log_index for fees/fundings; UPSERT keys for rules; UPDATE-by-hash for commitments). Re-running produced all-duplicates ✓.
+
+§1 outcome:
+
+- `fees`: 0 → **13 rows** (5 contest_creation + 1 leaderboard_creation + 7 speculation_creation/split). FEE_PROCESSED chain_events count = 6 (4 contests verified + Contest 2 abandoned-but-fee-paid + 1 LB creation) → matches single-shape count 6. SPLIT_FEE_PROCESSED chain_events count = 7 (one per spec creation) → matches split-shape count 7.
+- `leaderboard_fundings`, `leaderboard_rules`, `leaderboard_deviation_rules`: still 0 (require §4 triggers).
+- 11 indexer-created COMMITMENT_MATCHED commitment rows + 1 COMMITMENT_CANCELLED row repaired with full R4 fields: `nonce`, `expiry` (timestamptz from unix seconds), `risk_amount`, `speculation_key` derived as `keccak256(encodeAbiParameters(uint256, address, int32, [contestId, scorer, lineTicks]))`, `market_type` derived from scorer address.
+
+§2 — Reconcile + explicit SQL (`scripts/pr22-sql-checks.ts`):
+
+- B1 every FEE_PROCESSED + SPLIT_FEE_PROCESSED chain_event has a fees row → PASS (13/13).
+- B2 fees shape correctness (single → payer2 NULL + second_amount NULL; split → both NOT NULL) → PASS (zero violations).
+- B3 LEADERBOARD_FUNDED → leaderboard_fundings + prize_pool consistency → PASS (vacuously, 0 events).
+- B4 leaderboard_rules PK uniqueness → PASS (0 rows, 0 dups).
+- B5 leaderboard_deviation_rules PK uniqueness → PASS (0 rows, 0 dups).
+- B6 source_block populated on inserts for all 4 new tables → PASS (zero NULL).
+
+§3 — Per-tx event count + commitment field repair:
+
+- X1 per-tx event count for the 7 R4 first-fill txs: each has exactly **4 chain_events** (SPECULATION_CREATED + COMMITMENT_MATCHED + POSITION_MATCHED_PAIR + SPLIT_FEE_PROCESSED) → PASS (7/7).
+- X2 PR #21 commitment field repair: 12/12 indexer-created commitments now have non-null `nonce`, `expiry`, `risk_amount`, `speculation_key` → PASS (zero missing).
+
+USDC value reconciliation (D-03): not run yet — test wallets sent 5 USDC entry fees (×2) + 0.50 USDC LB creation + 4× 1 USDC contest creation + 7× 0.50 USDC speculation creation ≈ 17.50 USDC fees (1 LB creation went to TreasuryModule.s_leaderboardPrizePools[1]; the rest to protocolReceiver). Defer until USDC balances are read.
+
+#### Open finding from §1
+
+11. **Atomic backfill RPC `rpc_backfill_range` has FK ordering issue.** When backfilling a range that contains both speculations and their child positions, the RPC's delete step hits `fk_position_speculation` violation. Migration `026_backfill_atomic_rpc.sql:109-167` lists DELETEs in roughly child-first order, but apparently positions still reference speculations the RPC tries to delete before all positions are removed. Targeted projection replay was used as a workaround for R4.1; the atomic RPC needs a fix before it can be relied on for cross-entity backfills. **File ospex-indexer issue.**
+
+#### R4.1 §4 / §6 still pending (not done in this run)
+
+- §4 fresh on-chain triggers: A-28 LEADERBOARD_FUNDED, A-29 RULE_SET (requires new pre-start LB), A-30 DEVIATION_RULE_SET (same LB), C-01 pending events flow, C-01b retry cap. Awaiting user approval before triggering.
+- §6 settlement gate: Cavs game `start_time = 1777240800` (2026-04-26T22:00:00Z = 5 PM CDT). Earliest defensible scoring at ~7:30 PM CDT today; user reports game not yet final (~90 min remaining as of this entry).
+
+---
+
+### Evening session — 2026-04-26 ~13:30 CDT through 2026-04-27 ~00:05 CDT
+
+After the §1-§3 retest passed, the user approved running every remaining R4 test except the time-gated Session 3 (Mon void). What follows is the chronological execution log for §4 fresh triggers, Contest 5 + Contest 3 settlement (Sessions 2 + a same-day NHL settle), LB 3 lifecycle (compressed-window Session 4), and PR #23 verification.
+
+#### §4 fresh triggers — completed (replaces "pending" entry above)
+
+| Test | tx | Result |
+|---|---|---|
+| **A-28** `TreasuryModule.fundLeaderboard(1, 5_000_000)` | `0x1380ef22d5f5be5b56324c5ab4ed6f6081a0df1276a682b3d3f0a235c1143872` | ✅ LEADERBOARD_FUNDED row, LB 1 prize_pool 10→**15** USDC, on-chain `s_leaderboardPrizePools[1]` matches. |
+| (setup) `LeaderboardModule.createLeaderboard(...)` for **LB 2** (entry 1 USDC, startTime ~+30 min, end +4d, safety/roi 24h) | `0xc236776ff2b95eee9d892a80c048554e3f216523926a4dbd4b914ef3a3ae064e` | ✅ leaderboard_id=2 — used solely as host for the rule setters that need `onlyCreatorBeforeStart`. |
+| **A-29** `RulesModule.setMinBankroll(2, 50_000_000)` | `0xc02728a69d540c67641361530e3b676c7c54130cfdf613594e1a75b31cfcc314` | ✅ RULE_SET with `rule_type='minBankroll'`, `value=50000000` projected to `leaderboard_rules`. |
+| **A-30** `RulesModule.setDeviationRule(2, NBA=4, MoneylineScorer, Upper=0, 200)` | `0xee27212fbea4bdf853a706ced26cf936d9a5b266436e937122e2e2ed6d98971c` | ✅ DEVIATION_RULE_SET, `leaderboard_deviation_rules` row keyed `(amoy, 2, nba, scorer, upper)`, `max_deviation=200`. |
+| **C-01** bogus `jsonoddsId` → CONTEST_CREATED → pending → reference inserted → cleared | create tx `0x2f700a9249b4243e0cf22566ff3c9207e3068566ae93e9a1a614225b017460d4`, contest_id=6 | ✅ pendingId=276 with `reason='missing_contest_reference'`, cleared 8s after I inserted contest_reference. **Diagnostic note**: the `pending_events` table puts the tx_hash at `raw_log.info.txHash` (jsonb path), NOT a top-level column — initial polling script missed the row. |
+| **C-01b** retry cap with `PENDING_MAX_ATTEMPTS=5` (Heroku) | create tx `0xa343031b22b254b8e399de69c0e23184d3e95ff4c19402b12e24fc5e44c5a909`, contest_id=7 | ✅ pendingId=304 climbed 0→1→…→5, then **deleted** by the cap. Default 360 restored after; Heroku v27. |
+
+#### Session 2 — Contest 5 (Cavs @ Raptors) score/settle/claim
+
+Cavs vs Raptors NBA game ended ~3 PM CDT 2026-04-26 (FINAL: TOR 93–CLE 89, away win for Cavs but spread/total losses).
+
+| Test | Spec | tx | Result |
+|---|---|---|---|
+| A-04 score request | C5 | `0xef7e0acefb206ebb12046415154a8ecc4ee65cdaa78065f40f6a802d3dcfbd05` | ✅ block 37339278 |
+| Chainlink callback CONTEST_SCORES_SET | C5 | `0x927b719b7bfec65e710b50fd08afc4c13d59abf26b6e8ddc11d0bf167d8cf8ba` | ✅ block 37339298, ORACLE_RESPONSE present |
+| A-08 settle Spec 3 (ML, line 0) | 3 | `0xfee5d9d2e024159a2ccbded1ef370b01f4321b8c26bb2e69081917911482d08d` | ✅ win_side="home" |
+| A-08 settle Spec 4 (spread −3.0) | 4 | `0xf816a2620127e7107381388800704025bd39a4e8ebfec0f39bde1d9c32740dc8` | ✅ win_side="home" |
+| A-08 settle Spec 5 (total 220) | 5 | `0x804fe54bc09889dcad47f78999f32d11a07a19d6422ba25a1d7f492202031d55` | ✅ win_side="under" |
+| A-08 settle Spec 6 (spread −5.0, helper match) | 6 | `0x2936c50ac0ff9cc1a6ff149c2db0e075e4766219bd0cdd91ba301835875fd8ba` | ✅ win_side="home" |
+| A-08 settle Spec 7 (total 230, helper match) | 7 | `0xc5b764fde1b0e79ca290c6c2d3cfc764f5a04007374524a327296fb9dac6cc8c` | ✅ win_side="under" |
+| A-09 claim Lower TAKER (×5: Specs 3/4/5/6/7) | 5 txs | `0x49930f46…`, `0x9aac7bb5…`, `0x9675ddab…`, `0x45046ed7…`, `0xad290916…` | ✅ TAKER got 38.20 + 47.75 + 19.10 + 19.10 + 19.10 = **143.25 USDC** |
+
+#### Same-day Contest 3 settlement (Sabres @ Bruins NHL)
+
+NHL game ended ~3:30 PM CDT 2026-04-26 (FINAL: BUF 6–BOS 1, Sabres won — away).
+
+| Test | tx | Result |
+|---|---|---|
+| Sub 416 LINK top-up by user | (user-side tx) | ✅ Earlier A-04 attempt for Contest 3 reverted with `InsufficientBalance()` (`0xf4d678b8`); user funded sub 416 on Chainlink dashboard before retry. |
+| A-04 score request | `0x6cf02828b177c520784aa66f83193d1bc83f59ce2a7fd35827e24bd458536d32` | ✅ block 37341723 |
+| Chainlink callback CONTEST_SCORES_SET | `0xd2b75273503143e08dca901e2d62b49582be7d7496b685f12b2588e4cf043457` | ✅ block 37341730, BUF 6–BOS 1 |
+| A-08 settle Spec 1 (ML) | `0x73dbaa17fe3797bcb99814fab5f0e326fe4766ec5383100c33daddd7ef86f18f` | ✅ win_side="away" |
+| A-09 claim Upper TAKER | `0xb0a4cbd87b70799beb3e76456130feaeb99c356af77f6bbc62b5a34e1e015074` | ✅ claimed 20.00 USDC. Confirms PR #9 end-to-end: TAKER's Upper position (acquired via A-19 secondary market with `acquired_via_secondary_market=true`) claimed cleanly. |
+
+PR #21 commitment field repair: per the §1 replay earlier in the day, all 12 indexer-created commitments had `nonce`/`expiry`/`risk_amount`/`speculation_key` populated and the MIN_NONCE_UPDATED `nonce_invalidated` logic became operational. Confirmed by re-running per-spec checks post-Session 2.
+
+#### LB 3 / Contest 8 (76ers @ Celtics) — Session 4 lifecycle
+
+User compressed Session 4 windows to fit in one evening (compromise vs the 24h policy):
+
+- **Justification**: scripted one-shot test; user available throughout window to actively check; 2h windows give comfortable buffer for Chainlink callback retries (R4 finding #1 risk).
+- **Endtime tracking error**: my unix-conversion put LB 3 endTime at `1777251600 = 2026-04-27T01:00:00Z = 8 PM CDT` instead of the user's spec of 10 PM CDT. Both A-15 ROI window (10 PM CDT - midnight CDT) and A-16 prize claim (midnight CDT+) shifted earlier by 2 hours. User accepted this and continued.
+
+LB 3 parameters (on-chain):
+- `leaderboard_id=3`
+- entry_fee=5_000_000 (5 USDC)
+- startTime=1777240706 (2026-04-26T21:58:26Z = 4:58 PM CDT)
+- endTime=1777251600 (2026-04-27T01:00:00Z = 8 PM CDT)
+- safetyPeriodDuration=7200 (2h)
+- roiSubmissionWindow=7200 (2h)
+
+| Phase | Action | tx | Result |
+|---|---|---|---|
+| Pre-flight | Confirmed `contest_reference` row for BOS @ PHI 6 PM CDT (jsonodds_id `239b8686-a096-49d0-acfa-34ff92131a21`) | — | ✅ |
+| A-01 | Create Contest 8 (BOS away, PHI home) | `0x527622872cbc4ec31fa838da685351a966dc229895fae80105340048020c7890` | ✅ block 37342478, contest_id=8 |
+| A-02 | Chainlink verify callback | (callback) | ✅ league=nba, start_time=2026-04-26T23:00:00Z |
+| A-03 | `updateContestMarketsFromOracle(8)` (function name caveat: NOT `updateMarketsFromOracle`) | `0xa6e582f31cb7ae51cc44ec654bacb32c9140dab1c3e3d52e350c15ba4abeddf1` | ✅ ml_up=131, ml_lo=360, spread=-85, total=2140 |
+| A-11 | createLeaderboard(LB 3, entry 5 USDC, start +600s, safety+roi 7200s each) | `0x6d5b66505085310c9a809f7b9e1804784136f7466d783c93bcf09bd846ee19dd` | ✅ leaderboard_id=3 |
+| A-06 | matchCommitment Spec 8 (ML, MAKER Upper @ 1.31x, 10 USDC) | `0xfa288939eff879f240bf8d7062dcf729825e8169befe1bd353c3b2ab59baf6ce` | ✅ Spec 8 created |
+| A-24 | matchCommitment Spec 9 (spread −8.5, MAKER Upper @ 1.91x, 10 USDC) | `0x24d1ae4aa6e90d961229da25e8eb5be701ce8f6a18580be84e14c5288235fd00` | ✅ Spec 9 created |
+| A-12 | addLeaderboardSpeculation Spec 8 + Spec 9 | `0x69091a7a…`, `0x27874383…` | ✅ |
+| A-13 | registerUser MAKER + TAKER (declared_bankroll=100 USDC each) | `0xaef83a31…`, `0x53073f8c…` | ✅ entry fees → prize_pool 10M |
+| A-14 | registerPositionForLeaderboard MAKER Spec 8 Upper | `0x0ef1d822ab5c3d778da3b4dbfef5cf61f6b991119e05564a00aa975b151cf361` | ✅ |
+| A-14 | registerPositionForLeaderboard TAKER Spec 8 Lower | `0xb5fad9daefecc6e95718795de7f63d65f3373e7f21bf6e1970b011a428a17fbd` | ✅ |
+| (multi-pos attempt) | registerPositionForLeaderboard TAKER Spec 9 Lower | `0x739e2d9a…` | ❌ REVERTED — surfaced **finding #12** (default `setAllowMoneylineSpreadPairing=false`). Could not enable on LB 3 because LB had already started; aggregation-across-different-market-types deferred. |
+| **B-03** | DEPLOYER buys MAKER's Upper Spec 9 via SM (after MAKER lists @ 12 USDC) → DEPLOYER registerUser → DEPLOYER attempt `registerPositionForLeaderboard(9, Upper, 3)` | buy `0xad87e9284a…`, register-attempt `0x5195f7d7fc…` | ✅ register attempt **REVERTED** with `LeaderboardModule__SecondaryMarketPositionIneligible`. **Caveat**: TAKER could not be the SM buyer because TAKER's existing Spec 8 LB position would have triggered finding #12 first; switched to DEPLOYER as a clean buyer. **Caveat 2**: first buy attempt reverted with `SecondaryMarketModule__AmountAboveMaximum(uint256)` because I passed 12_000_000 as the 4th arg (`riskAmount`, not `maxPriceToPay`); fixed by passing 10_000_000 (= MAKER's full Upper risk). |
+| **A-20b** | DEPLOYER lists @ 14, MAKER buys back, MAKER re-lists @ 11 (same `(amoy, spec 9, MAKER, upper)` key as the prior sold listing) | list/buy/relist 3 txs | ✅ `secondary_market_listings` row for the new active listing has `sold_price`/`sold_risk_amount`/`sold_profit_amount`/`sold_at` ALL NULL — PR #14 verified end-to-end. **Caveat**: MAKER lacked USDC→SecondaryMarketModule approval (only had Position+Treasury); approved mid-flow. |
+| MAKER cancelListing + claimSaleProceeds | cleanup txs | ✅ — proceeds accumulated to MAKER (12 USDC), DEPLOYER (14 USDC). |
+
+Game ran 6:00-8:30 PM CDT. FINAL: BOS 128–PHI 96 (Boston by 32, covering −8.5 spread, total 224 — over 214).
+
+| Phase | Action | tx | Result |
+|---|---|---|---|
+| A-04 score Contest 8 | `0x7df3c329d2be1ae7d1517f7f40afebda1d3716b69dad640938afb0a525096395` | ✅ block 37352257 |
+| Chainlink CONTEST_SCORES_SET | `0x865ad077eb4a4a2f560ba6bd6f2b22ae8bb4f557d61f2082de6d17639808e73b` | ✅ block 37352278, away=128, home=96 |
+| A-08 settle Spec 8 (ML) | `0x5647644eed178f508864835cb2dab5d65a3a4d8da1a5524a6e0dffb0d5a2c1dd` | ✅ win_side="away" |
+| A-08 settle Spec 9 (spread) | `0x27ca69b7d7d56b5a25a0f1d326d78fb2c921baa38d9fbe8d9fbdd754c63dfd3a` | ✅ win_side="away" |
+| A-09 MAKER claim Spec 8 Upper | `0x7f608c286b60c6f91c74afbeec24abb76b3234f83f423b58d1aa986738964f4d` | ✅ claimed 13.10 USDC (10 + 3.1 @ 1.31x) |
+| A-09 MAKER claim Spec 9 Upper | `0x8625d20eba8f9dd3af1362ebd0e8b7365af783ebea43364a34f567a36b7b5b57` | ✅ claimed 19.10 USDC (10 + 9.1 @ 1.91x) |
+| **A-15a** MAKER `submitLeaderboardROI(3)` (winner) | `0xe267e9d38aeef4db6b54452e667cfe669a3b27e1ce311d28ed436eceea11340d` | ✅ **both** LEADERBOARD_NEW_HIGHEST_ROI + LEADERBOARD_ROI_SUBMITTED fired |
+| **A-15b** TAKER `submitLeaderboardROI(3)` (loser) | `0x70d9877b8c115aaab8bde63e50bd294a07458a71d89a8b46e851f86c50c81556` | ✅ **only** LEADERBOARD_ROI_SUBMITTED fired (NEW_HIGHEST_ROI does NOT fire — TAKER's ROI < MAKER's) |
+| **A-15c** DEPLOYER `submitLeaderboardROI(3)` (no LB position) | `0x44a0bd5575e495bf23d9d5c1d6e357be05463857da6cff448a6fb434f5044e48` | ✅ REVERTED |
+| **A-16a** MAKER `claimLeaderboardPrize(3)` (winner) | `0x5fc827eee25755120833e41eb7c6eb7a9736baac7aabce349fa4a6a9a1ad9f13` | ✅ **both** LEADERBOARD_PRIZE_CLAIMED + PRIZE_POOL_CLAIMED fired (PRIZE_POOL_CLAIMED audit-only event captured for the first time tonight). MAKER USDC delta: +15.00 USDC. |
+| **A-16b** TAKER `claimLeaderboardPrize(3)` (non-winner) | `0x180b36de2a8dddae73596fe6a3adbc732854a3af03718731576fb440bcf2ed2e` | ✅ REVERTED |
+
+Final LB 3 state: `prize_pool=15M`, `winner_count=1`, `total_prize_claimed=15M`, `prize_claim_count=1`. `leaderboard_winners` row: `winner=MAKER, roi=31000000000000000` (= 3.1% scaled by 1e18, derived from MAKER's Spec 8 Upper P&L = +3.1M / 100M declared bankroll).
+
+Note: ROI calculation used **only Spec 8** (the LB-registered position). Spec 9 (also won by MAKER) was added to the LB as eligible (via addLeaderboardSpeculation) but MAKER's Upper Spec 9 was NEVER registered for LB 3 because we used MAKER's Upper Spec 9 in the B-03 sale flow (sold to deployer, then deployer's acquired-via-SM register attempt was the B-03 test that reverted). MAKER bought Upper Spec 9 back, but never re-registered it for LB 3 since the test was already complete.
+
+#### PR #23 (atomic backfill RPC FK fix) verification
+
+- **Indexer** PR #23 merged 2026-04-26 with migration `033_backfill_position_delete_fix.sql` redefining `rpc_backfill_range` Item 7 as `DELETE FROM positions` (was UPDATE-reset).
+- **Migration applied** to Supabase by user.
+- **Live verification**: `yarn backfill --from 37339200 --to 37339500` (covering Session 2 Contest 5 settlement range) executed in ~20s, atomic swap committed (8 events deleted + re-inserted, 1 contest, 5 specs, 1 leaderboard, 17 entities rebuilt), post-backfill consistency check passed. Exact same range previously failed with `fk_position_speculation` violation pre-fix. **Finding #11 CLOSED.**
+
+#### Updated open findings
+
+11. ~~Atomic backfill RPC FK ordering~~ — **CLOSED** (ospex-indexer PR #23 merged + migration 033 applied). Verified live by C-04 post-Session 2.
+
+12. **Default `setAllowMoneylineSpreadPairing=false` blocks ML+Spread pairing across users** (LeaderboardModule + RulesModule). Surfaced by TAKER's Spec 9 Lower register attempt reverting on LB 3. To enable cross-market-type aggregation per user, the LB creator must call `RulesModule.setAllowMoneylineSpreadPairing(lbId, true)` BEFORE the LB startTime (`onlyCreatorBeforeStart` modifier). Once startTime has elapsed, the default is locked in — cannot toggle. **Doc-only finding** for the test plan; protocol behavior is intentional.
+
+13. **`s_registeredLeaderboardSpeculation` is keyed on `(lbId, user, contestId, scorer)` — not on (specId) and not on positionType.** This is the contract-level defense against the "register both Over and Under" exploit (zero-P&L, but still satisfying minBets/totalPositions thresholds). Per (contest, scorer) per user per LB, only ONE LB position is allowed. This also blocks ladder-betting (e.g., Total 220 + Total 230 on the same contest — both same scorer). Discovered during exploit-vector discussion; **doc-only finding** documenting an intentional protection. Worth a future test case (B-04 — see plan v4.2).
+
+#### Final cumulative state at end of evening (2026-04-27 ~00:05 CDT)
+
+- **Contests on chain**: 8 (Contest 1 from prior R4 deploy testing pre-Session 1; Contests 2-5 from Session 1 Day 1; Contest 6 from C-01; Contest 7 from C-01b; Contest 8 from LB 3 setup tonight). Contests 5 + 8 fully scored/settled/claimed. Contest 3 fully scored/settled/claimed. Contests 6, 7 unverified-or-incomplete (intentional artifacts of pending-events tests). Contest 4 awaiting Session 3 void.
+- **Speculations on chain**: 9 (Spec 1 NHL via Contest 3 — all settled+claimed; Specs 3-7 via Contest 5 — all settled+claimed; Specs 8-9 via Contest 8 — all settled, MAKER's Upper claimed on both).
+- **Spec 2 (MLB Contest 4)** — unsettled, pending Session 3 void cooldown elapse.
+- **Leaderboards**: LB 1 (Session 1 Day 1) still active for the production-realistic Apr 30+ ROI window; LB 2 (R4.1 §4 host for A-29/A-30 rule setters); LB 3 (this evening — fully complete: A-15 + A-16 + B-03 + A-20b).
+- **PositionModule USDC custody**: only Spec 2 (MLB) remaining = 19.1 USDC. Everything else settled+claimed.
+- **TreasuryModule USDC**: aggregate `s_leaderboardPrizePools` = LB 1's 15 USDC (untouched, awaiting Session 4 ROI/claim Apr 30+) + LB 2's 0 + LB 3's 0 (winner already claimed) = 15 USDC.
+- **No pending_events stuck**, indexer cursor at chain head, indexer healthy.
+
+#### What's left to complete the full R4 cycle
+
+| Item | Calendar gate | Notes |
+|---|---|---|
+| **Session 3** A-05 (void Contest 4 via `settleSpeculation(2)`) + B-01 (post-cooldown match rejection) | Mon **2026-04-27 ~12:35 PM CDT** (= Contest 4 startTime 17:35Z + 24h cooldown) | Contest 4 deliberately not scored; void path is the test. |
+| (Optional) LB 1 Session 4 — `submitLeaderboardROI(1)` + `claimLeaderboardPrize(1)` with the 24h+24h production-realistic windows | Apr 30 endTime + 24h safety + 24h ROI ≈ 2026-05-02 01:13 AM CDT | LB 3 covered the functional path; LB 1 is duplicative, but exercises the policy-compliant timeline. Decision: optional. |
+| (Future round) Multi-position-per-user aggregation across SAME-market-type specs | n/a — blocked by finding #13 keying | Requires ≥2 specs of the same `(contest, scorer)` tuple, which is impossible per uniqueness. Aggregation across DIFFERENT market types requires `setAllowMoneylineSpreadPairing(lb, true)` set before startTime. |
+| (Future round) **B-04** PositionAlreadyExistsForSpeculation revert test | n/a | Match a 2nd same-`(contest, scorer)` position for a registered user, attempt registerPositionForLeaderboard → expect revert with `LeaderboardModule__PositionAlreadyExistsForSpeculation`. Documents the intentional anti-exploit defense (finding #13). |
+
+#### Operational notes & doc improvements for future test cycles
+
+- **Pre-flight checklist additions for future LB tests**:
+  - Confirm USDC→SecondaryMarketModule approval for ANY wallet that will buy a position (not just the original test plan's TAKER). MAKER lacked this approval today, broke the A-20b SM-buyback chain mid-flow.
+  - Confirm sub 416 LINK balance via Chainlink dashboard or `cast call` before scoring/markets calls — sub balance is opaque to the OracleModule's `handleLinkPayment` modifier (LINK is consumed by the Functions Coordinator's `startRequest`, surfaces as `InsufficientBalance() (0xf4d678b8)` revert).
+- **Function-name pitfall**: markets-update entry point is `updateContestMarketsFromOracle(...)`, NOT `updateMarketsFromOracle(...)`. Easy off-by-one if porting a script.
+- **Function-arg pitfall**: `SecondaryMarketModule.buyPosition(specId, seller, positionType, riskAmount, expectedHash)` — the 4th arg is the amount of RISK to buy (allows partial purchases up to `listing.riskAmount`), NOT a maxPriceToPay. The price is set by the listing itself (`listing.price`) and pulled from buyer's USDC allowance. Mis-passing as a price will revert with `SecondaryMarketModule__AmountAboveMaximum(amount)` if amount > listing.riskAmount.
+- **Schema gotcha**: `pending_events.tx_hash` does not exist as a top-level column. The tx_hash lives at `raw_log.info.txHash` (jsonb path). Polling/verification scripts must use `raw_log->'info'->>'txHash'` or filter by id/event_type/block_number.
 
 ---
 
