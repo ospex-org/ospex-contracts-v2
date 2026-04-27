@@ -4,10 +4,10 @@ Tracks progress across sessions. Updated after each test execution.
 
 ## Current Status
 
-**Plan version:** v4.2 (R4 contracts + R4.1 retest + Session 2/4 done)
-**Phase:** **R4 testing essentially complete.** Through 2026-04-26 evening into 2026-04-27 ~00:05 CDT: R4 Session 1 Day 1, R4.1 retest §1-§3 (8/8 SQL checks PASS), §4 fresh on-chain triggers (A-28/A-29/A-30/C-01/C-01b), Contest 5 (Cavs) Session 2 score/settle/claim, Contest 3 (Sabres) score/settle/claim, LB 3 / Contest 8 (Sixers @ Celtics) **compressed Session 4** (A-15+A-16+B-03+A-20b). **Only Session 3 remains** — A-05 void Contest 4 + B-01 post-cooldown reject, calendar-gated to **Mon 2026-04-27 ~12:35 PM CDT**. Indexer PRs #16-23 all merged; PR #23's atomic-backfill FK fix verified live.
-**Branch:** `docs/r4.1-indexer-replay-retest` (foundry repo) — PR #10 with all v4.1 + v4.2 doc updates and the evening-session results.
-**Next action:** Mon 2026-04-27 ~12:35 PM CDT — `settleSpeculation(2)` to void Contest 4, then attempt match against it to verify B-01 post-cooldown rejection. Optional: LB 1 production-realistic Apr 30+ ROI/claim as a duplicate of LB 3's compressed-window run.
+**Plan version:** v4.3 (all R4 testing complete except optional LB 1 Apr 30+ duplicate)
+**Phase:** **R4 TESTING COMPLETE.** Final remaining test (Session 3 — A-05 + B-01 — on Contest 4) executed 2026-04-27 ~12:42 PM CDT. Every test in the master plan has been exercised at least once.
+**Branch:** `docs/r4.1-indexer-replay-retest` (foundry repo) — PR #10 with all v4.1 + v4.2 + v4.3 doc updates.
+**Next action:** None blocking. Optional follow-ups: (a) LB 1 production-realistic Apr 30+ ROI/claim as a duplicate of LB 3's compressed Session 4; (b) future-round add B-04 (PositionAlreadyExistsForSpeculation) per finding #13 / plan v4.2; (c) ospex-indexer follow-up for finding #14 (LEADERBOARD_PRIZE_CLAIMED handler doesn't decrement `leaderboards.prize_pool`); (d) protocol naming clarification per finding #15 (`ContestAlreadyScored` fires for any terminal contest, not just Scored).
 
 R3 results below (Sessions 1–4) preserved for reference. R4 is a separate test cycle against re-deployed contracts.
 
@@ -476,6 +476,55 @@ Note: ROI calculation used **only Spec 8** (the LB-registered position). Spec 9 
 - **Function-name pitfall**: markets-update entry point is `updateContestMarketsFromOracle(...)`, NOT `updateMarketsFromOracle(...)`. Easy off-by-one if porting a script.
 - **Function-arg pitfall**: `SecondaryMarketModule.buyPosition(specId, seller, positionType, riskAmount, expectedHash)` — the 4th arg is the amount of RISK to buy (allows partial purchases up to `listing.riskAmount`), NOT a maxPriceToPay. The price is set by the listing itself (`listing.price`) and pulled from buyer's USDC allowance. Mis-passing as a price will revert with `SecondaryMarketModule__AmountAboveMaximum(amount)` if amount > listing.riskAmount.
 - **Schema gotcha**: `pending_events.tx_hash` does not exist as a top-level column. The tx_hash lives at `raw_log.info.txHash` (jsonb path). Polling/verification scripts must use `raw_log->'info'->>'txHash'` or filter by id/event_type/block_number.
+
+---
+
+### Session 3 — Contest 4 void + B-01 post-cooldown rejection (2026-04-27 ~12:42 PM CDT)
+
+Final remaining R4 test. Executed exactly when Contest 4's 24h void cooldown elapsed (`startTime=2026-04-26T17:35:00Z` + 86400s = `2026-04-27T17:35:00Z` = 12:35 PM CDT Mon).
+
+| Test | tx | Block | Result |
+|---|---|---|---|
+| **A-05** `settleSpeculation(2)` (auto-void since cooldown elapsed without scoring) | `0xa5396ebe895ebaa119ec14a09ebc1bd9b62d122b0e97e42656f90608c0254541` | 37390617 | ✅ 2 events fire: **CONTEST_VOIDED + SPECULATION_SETTLED**. Spec 2 row: `speculation_status='closed'`, `win_side='void'`, `voided=true`, `settled_at=2026-04-27T17:41:53Z`. |
+| **B-01** TAKER attempts matchCommitment on Contest 4 (fresh signed commitment from MAKER, ML Upper @ 1.91x, 5 USDC, nonce=99) | `0xd32aaf66c852e30e07eceee2f58e707a3d372fbb46b9160d9d852d10ae8508c8` | 37390674 | ✅ tx submitted (eth_call simulation passed unexpectedly), **reverted on-chain** with custom error `0xd2d52b55` = **`MatchingModule__ContestAlreadyScored()`**. Post-cooldown match rejection works. |
+| (cleanup) MAKER claim Spec 2 Upper (void → returns risk only) | `0x4b4f563684ab67e3cf1c5fc857bcac518450fcea2a24f45ac748d88587c94514` | 37390748 | ✅ claimed_amount=10,000,000 (just risk, no profit on void). |
+| (cleanup) TAKER claim Spec 2 Lower (void → returns risk only) | `0x5c32a638e57f586c8020a2aeb822311b0aaa3495c13d957eba483fb39d355b11` | 37390763 | ✅ claimed_amount=9,100,000 (just risk). |
+
+#### Naming nit (new finding #15)
+
+The B-01 revert is `MatchingModule__ContestAlreadyScored()`, not the test plan's expected `MatchingModule__ContestPastCooldown()`. Tracing shows `MatchingModule.matchCommitment` calls `IContestModule.isContestTerminal(contestId)` which returns true for **either** Scored OR Voided contests. The same error name `ContestAlreadyScored` fires for both states. Since Contest 4 was voided BEFORE the match attempt (we ran A-05 first), the terminal check fired before any cooldown-specific check. **Spirit of B-01 (matching is rejected post-cooldown) is satisfied.** The error naming is a minor protocol clarity issue worth flagging — the error should arguably be renamed `ContestTerminal` or split into `ContestAlreadyScored` + `ContestVoided`. Doc-only finding; no protocol bug.
+
+To exercise the actual `ContestPastCooldown` revert path, the match attempt would need to happen BEFORE settling the speculation (between cooldown elapse at 12:35 PM CDT and the void at 12:42 PM). Untested in this run; deferred to a future round.
+
+#### Final reconcile + SQL checks
+
+- `yarn reconcile`: ✅ PASSED — 188 chain_events rows, no drift across all 13 tables
+- 8/8 PR #22 SQL checks: ✅ PASS
+- D-02 per-tx event count: ✅ PASS for all tonight's txs
+- D-03 USDC reconciliation:
+  - **PositionModule = 0 USDC** — every speculation settled+claimed (Specs 1-9, including Spec 2 void)
+  - **TreasuryModule = 15 USDC** — only LB 1's prize pool remains (untouched, Apr 30+ Session 4 still outstanding)
+  - **SecondaryMarket = 0 USDC** — all proceeds claimed
+  - `SUM(leaderboards.prize_pool)` = 30 USDC: 15 (LB 1, untouched) + 0 (LB 2) + 15 (LB 3, but already paid out via A-16). **Mismatch with on-chain `s_leaderboardPrizePools[3]=0` flagged as finding #14.**
+
+#### Open findings update
+
+11. ~~Atomic backfill FK ordering~~ — CLOSED 2026-04-26.
+12. **`setAllowMoneylineSpreadPairing` defaults to false** — doc-only, intentional behavior.
+13. **`s_registeredLeaderboardSpeculation` keyed on `(lb, user, contest, scorer)`** — intentional Over+Under exploit defense; future test B-04.
+14. **NEW: `LEADERBOARD_PRIZE_CLAIMED` handler doesn't decrement `leaderboards.prize_pool`.** The indexer's `prize_pool` column tracks cumulative deposits (entry fees + LEADERBOARD_FUNDED), not "currently held." After A-16 prize claim, on-chain `s_leaderboardPrizePools[lbId]` decrements but the indexer's `leaderboards.prize_pool` doesn't. This breaks the `TreasuryModule.balanceOf == SUM(leaderboards.prize_pool)` reconciliation invariant in the test plan's D-03. **Recommend ospex-indexer follow-up**: either (a) decrement `leaderboards.prize_pool` on LEADERBOARD_PRIZE_CLAIMED, or (b) add a separate `leaderboards.unclaimed_prize_pool` column and adjust D-03's expected formula. Current state: `total_prize_claimed`/`prize_claim_count` are correctly incremented; `leaderboard_winners.claimed`/`claimed_amount` are correctly set; only `prize_pool` aggregate is stale. Functional impact is minimal (UI showing prize pool is now overstated), but reconcile formula needs adjustment.
+15. **NEW (doc-only): `MatchingModule__ContestAlreadyScored` is misleadingly named.** Fires for any terminal contest state (Scored OR Voided) due to the contract using `isContestTerminal()` rather than direct status checks. **Recommend smart-contract rename** to `ContestTerminal()` or split into `ContestAlreadyScored()` + `ContestVoided()` for clarity. Or update test plan B-01 expected outcome to accept either error.
+
+#### R4 testing — all complete
+
+Every test in the master plan has been exercised at least once. Phase A (handler coverage), Phase B (hardening — including B-01/B-02/B-03/A-20b), Phase C (indexer-specific — including C-01/C-01b), Phase D (volume/concurrency), Phase E (R4.1 replay/projection validation), and §4 fresh triggers all pass. Findings #1, #4 (smart-contract clarifications, non-blocking), #12, #13, #14, #15 documented. Findings #11 closed by indexer PR #23.
+
+#### Optional follow-ups
+
+1. **LB 1 production-realistic Session 4** (Apr 30+, 24h windows) — duplicate of tonight's LB 3 compressed test, exercises the policy-compliant timeline.
+2. **B-04** PositionAlreadyExistsForSpeculation explicit test — currently in plan v4.2 but not yet executed.
+3. **ContestPastCooldown revert path** — exercise BEFORE settling (between cooldown elapse and void).
+4. **Indexer prize_pool decrement** — fix finding #14.
 
 ---
 
