@@ -1,6 +1,6 @@
-# Amoy Stress Test Plan v4.1 — R4 contracts + R4.1 indexer replay/projection retest
+# Amoy Stress Test Plan v4.2 — R4 contracts + R4.1 retest + Session 2/Session 4 done
 
-Status: **R4 SESSION 1 DAY 1 COMPLETE; R4.1 RETEST PENDING.** R4 contracts deployed 2026-04-25 at block 37285105. R4 Session 1 Day 1 executed 2026-04-26 (see session log). Indexer PRs #16-22 merged 2026-04-24..26 closed the gaps surfaced in R4 Day 1: 35-event recognition, finalized-block safe-head, pending-events retry cap, full COMMITMENT_MATCHED/COMMITMENT_CANCELLED field coverage with `speculation_key`, and projection of FEE/SPLIT_FEE/LEADERBOARD_FUNDED/RULE_SET/DEVIATION_RULE_SET partials into typed tables. **R4.1 retest is an indexer replay/projection validation pass against existing R4 chain data (block 37285105 → head); only restart on-chain testing if replay/reconcile cannot repair state.**
+Status: **R4 TESTING ESSENTIALLY COMPLETE — only Session 3 (Mon void) remains.** Through 2026-04-26 evening: R4 Session 1 Day 1, R4.1 retest §1-§6 (indexer replay/projection validation, all PASS), §4 fresh on-chain triggers (A-28/A-29/A-30/C-01/C-01b), Contest 5 (Cavs) Session 2 score+settle+claim, Contest 3 (Sabres) score+settle+claim, LB 3 / Contest 8 (Sixers @ Celtics) **compressed Session 4** with A-15+A-16+B-03+A-20b. Only Session 3 (A-05 void Contest 4 + B-01 post-cooldown reject) is calendar-gated to **Mon 2026-04-27 ~12:35 PM CDT**. Indexer PRs #16-23 are all merged; PR #23's atomic-backfill FK fix verified live by C-04 backfill against the Session 2 block range.
 
 ---
 
@@ -881,6 +881,13 @@ LISTING_HASH=$(cast call $SECONDARY_MARKET_MODULE \
   "getListingHash(uint256,address,uint8)(bytes32)" \
   SPEC_ID MAKER_ADDR 0 --rpc-url $AMOY_RPC)
 
+# CAVEAT: the 4th arg is `riskAmount` (how much position-risk to buy — allows
+# partial purchases up to listing.riskAmount), NOT `maxPriceToPay`. The price
+# is set by the listing itself (listing.price) and pulled from buyer's USDC
+# allowance. Passing a value > listing.riskAmount reverts with
+# `SecondaryMarketModule__AmountAboveMaximum(uint256)`. To buy the FULL
+# position, pass the seller's full risk (e.g., 10_000_000 = 10 USDC risk for
+# a typical first-fill at 1.91x odds, which is what the example below shows).
 cast send $SECONDARY_MARKET_MODULE \
   "buyPosition(uint256,address,uint8,uint256,bytes32)" \
   SPEC_ID MAKER_ADDR 0 10000000 $LISTING_HASH \
@@ -1215,6 +1222,8 @@ cast send $RULES_MODULE "setMinBankroll(uint256,uint256)" \
 
 **Notes:** PR #22 stores `rule_type` verbatim as `text` (not an enum) so future contract additions don't need a coordinated DB migration. The contract emits string literals (`"minBankroll"`, `"maxBankroll"`, etc.) directly — listing of literals above is exhaustive as of R4 contracts.
 
+**ML+Spread pairing default (added v4.2 — finding #12 from R4.1 evening):** `setAllowMoneylineSpreadPairing(lb, value)` defaults to **false**. While the LB is open for registration, a user with an existing LB position on a Moneyline spec for some contest CANNOT register an additional position on a Spread spec for the same contest (and vice versa) unless the LB creator has explicitly enabled cross-pairing via this setter — and the setter (like all RulesModule setters) is gated by `onlyCreatorBeforeStart`. **If you intend to test multi-market-type aggregation per user (e.g., MAKER takes ML + Spread on the same contest, both registered for one LB), call `setAllowMoneylineSpreadPairing(lb, true)` BEFORE the LB's startTime elapses.** Once the LB has started, the default is locked in and aggregation across market types is impossible for that LB. Same-market-type aggregation (e.g., 2 ML positions on the same contest) is also impossible — see B-04 / finding #13 for the per-scorer uniqueness defense.
+
 ---
 
 #### A-30: DEVIATION_RULE_SET → `leaderboard_deviation_rules` table
@@ -1361,7 +1370,59 @@ cast send $LEADERBOARD_MODULE \
 
 **Evidence:**
 
-**Notes:** The RulesModule.validateLeaderboardPosition check returns non-Valid for secondary-market positions.
+**Notes:** The actual revert error is `LeaderboardModule__SecondaryMarketPositionIneligible()` raised at `LeaderboardModule.sol:437-438` (a direct check inside `registerPositionForLeaderboard`, BEFORE the RulesModule.validateLeaderboardPosition call). Buyer's position must be acquired via secondary market AND must clear the `firstFillTimestamp >= lb.startTime` check (otherwise `PositionPredatesLeaderboard` fires first and we never reach the SM check).
+
+**Buyer-selection caveat (added v4.2):** the buyer must NOT already have an LB position on the same `(contestId, scorer)` for the same LB — otherwise `PositionAlreadyExistsForSpeculation` fires (see B-04 / finding #13) before the SM check. Likewise, if the buyer already has a position on a DIFFERENT scorer for the same contest, `setAllowMoneylineSpreadPairing=false` (default) blocks pairing across market types (finding #12). For a clean B-03 test, use a fresh wallet that isn't otherwise positioned on the same contest's LB-eligible specs. (R4.1 evening session used DEPLOYER as the buyer because TAKER had Spec X1 Lower already registered for LB 3.)
+
+---
+
+#### B-04: PositionAlreadyExistsForSpeculation revert (anti-Over+Under exploit)
+
+**Description:** A user cannot register a SECOND position for the same `(leaderboardId, user, contestId, scorer)` tuple — even at different `lineTicks` and even on the OPPOSITE side. The contract enforces this via `LeaderboardModule.sol:440-446`, blocking:
+
+- The **Over+Under exploit**: take both Upper (Over) and Lower (Under) on the same total spec → zero-P&L registrations that would otherwise satisfy minBets/totalPositions thresholds for free.
+- **Ladder betting** on the same direction (e.g., Total 220 + Total 230 on same contest) — both share `(contest, TotalScorer)` key.
+- The keying is `(lbId, user, contestId, scorer)` — does NOT include `lineTicks` and does NOT include `positionType`. **One LB position per user per (contest, scorer) per LB. Period.**
+
+**Prerequisites:** A user has already registered ONE LB position on `(contestId, scorer)` (e.g., Spec X1 Upper Total 220 for some leaderboard). User must hold a second position on the SAME `(contestId, scorer)` — either the opposite side of the same spec (matched-pair reverse fill) OR a different spec at a different lineTicks but same scorer (ladder).
+
+**Setup options:**
+1. **Same-spec opposite side (true Over+Under exploit attempt):** user is the maker of Spec X1 Upper (already registered) AND is the taker of a separate fill on Spec X1 Lower. They now own both Upper and Lower positions on Spec X1.
+2. **Same-scorer different lineTicks:** user has Spec X1 Upper (Total 220 — already registered) AND Spec X2 Upper (Total 230 — different speculation, same TotalScorer).
+
+**Action (option 2 example):**
+```bash
+# After Spec X1 (Total 220) Upper already registered for LB N…
+# Match a separate Total spec at lineTicks=2300 (creates Spec X2)
+node scripts/stress-test/match-commitment.js CONTEST_ID total 2300 0 191 10000000 NEW_NONCE
+
+# Add Spec X2 to LB N
+cast send $LEADERBOARD_MODULE "addLeaderboardSpeculation(uint256,uint256)" LB_ID X2_SPEC \
+  --private-key $LB_CREATOR_PK --rpc-url $AMOY_RPC
+
+# Attempt to register MAKER's Upper on Spec X2 → expected revert
+cast send $LEADERBOARD_MODULE \
+  "registerPositionForLeaderboard(uint256,uint8,uint256)" \
+  X2_SPEC 0 LB_ID \
+  --private-key $MAKER_PK --rpc-url $AMOY_RPC
+```
+
+**Expected on-chain outcome:**
+- Transaction REVERTS with `LeaderboardModule__PositionAlreadyExistsForSpeculation()` (4-byte selector deterministic from the error name).
+
+**Expected Supabase outcome:**
+- NO new `leaderboard_positions` row for Spec X2 / user.
+- Existing Spec X1 LB position record unchanged.
+
+**Pass/Fail:**
+
+**Evidence:**
+
+**Notes:** This is a layered defense WITH `setAllowMoneylineSpreadPairing` (which gates ML+Spread cross-scorer pairing). Together:
+- Per-scorer uniqueness (this test, B-04): at most 1 LB position per user per `(contest, scorer)` per LB.
+- Cross-scorer pairing gate: ML+Spread allowed only if creator opts in via `setAllowMoneylineSpreadPairing(lb, true)` BEFORE startTime.
+
+Combined: a user can have at most {1 of each market type that's permitted to pair}, with sensible defaults that prevent obvious exploits like zero-P&L registrations.
 
 ---
 
@@ -1960,3 +2021,4 @@ If more than 3 sports are available, create additional contests to cover them (a
 | 2026-04-24 | Leaderboard minimum window policy: safety period and ROI submission window must each be at minimum 24 hours (86400s). Updated A-11 from 60s to 86400s for both windows. Updated all downstream timing references (A-15, A-16, Session 4 header, time dependencies table). Rationale: shorter windows are unusable in production and make testing hostile. |
 | 2026-04-24 | Multi-sport coverage + game selection review gate: (1) Every session must include at least one contest per available sport in contest_reference (currently 0=MLB, 1=NBA, 5=NHL). Halt if any sport is missing. (2) After T-00 canary, present selected games with CST times for user review before contest creation. Rationale: Session 1 v3 only tested 2 of 3 sports; repeated time zone parsing errors have wasted testnet gas. |
 | 2026-04-26 | **v4.1** — R4 Session 1 Day 1 surfaced doc gaps closed by indexer PRs #16–#22. Changes: (1) Event count corrected from 27/26 to **35** with explicit projecting (30) vs audit-only (5) split. (2) Polling interval corrected from 2000ms to **15000ms minimum** — Alchemy free-tier rate-limits enforce this. (3) **A-06 / D-02 first-fill expectation corrected from 3 events to 4** — `SPLIT_FEE_PROCESSED` was silently dropped pre-PR #17. (4) **A-22 expected outcome rewritten** — post-PR #21, COMMITMENT_CANCELLED upserts a fully populated row (contest_id/scorer/lineTicks/positionType/oddsTick/riskAmount/nonce/expiry/speculation_key), not best-effort hash/maker only. (5) **A-23 expected outcome updated** — post-PR #21, indexer-created commitments have real nonces (not 0), so `nonce_invalidated` works on them. (6) **Added A-26..A-31** — explicit tests for FEE_PROCESSED, SPLIT_FEE_PROCESSED, LEADERBOARD_FUNDED (PR #22 → `leaderboard_fundings`), RULE_SET (PR #22 → `leaderboard_rules`), DEVIATION_RULE_SET (PR #22 → `leaderboard_deviation_rules`), and audit-only landing check. (7) **Added Phase E (R4.1 replay/backfill validation)** — primary R4.1 workstream: replay R4 history block 37285105 → head, run reconcile + per-tx + USDC value, then targeted re-tests for events not yet on R4 chain. (8) Updated C-01 with PR #20 retry-cap details and explicit manual-trigger procedure (R4 Session 1 didn't trigger C-01 organically). (9) Safe-head source updated to chain `finalized` block tag per PR #19. |
+| 2026-04-27 | **v4.2** — R4.1 evening session findings rolled into the plan. Changes: (1) Status banner updated — R4 testing essentially complete except Mon void test. (2) **Added B-04** — PositionAlreadyExistsForSpeculation revert test, the contract-level defense against the Over+Under exploit and ladder betting (per-scorer uniqueness on `(lb, user, contest, scorer)`). Documents finding #13. (3) **A-19 caveat** — explicit note that the 4th arg of `buyPosition` is `riskAmount` (how much position-risk to buy, not maxPriceToPay); passing a value > listing.riskAmount reverts with `SecondaryMarketModule__AmountAboveMaximum(uint256)`. Surfaced when DEPLOYER's first B-03 buy attempt reverted in the evening session. (4) **A-29 default-pairing note** — `setAllowMoneylineSpreadPairing` defaults to `false`. Cross-market-type aggregation per user requires the LB creator to enable it BEFORE startTime (`onlyCreatorBeforeStart` modifier). Documents finding #12, surfaced when TAKER's Spec 9 Lower register reverted on LB 3 (where MAKER+TAKER already had ML positions). (5) **B-03 caveats** — added explicit note about choosing the SM buyer carefully (must not have any other LB position on the same contest, or `PositionAlreadyExistsForSpeculation` / pairing-disallowed will fire before the SM check). The R4.1 evening session used DEPLOYER as a clean buyer for this reason. |
