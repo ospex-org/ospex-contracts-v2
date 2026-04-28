@@ -1,0 +1,510 @@
+tee: deployments/polygon-R4-20260428-104952-deploy.log: No such file or directory
+No files changed, compilation skipped
+Traces:
+  [18364436] DeployPolygon::run()
+    ├─ [0] VM::envAddress("DEPLOYER_ADDRESS") [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] console::log("=== Ospex Polygon Mainnet Deployment (Zero-Admin) ===") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("Chain ID:", 137) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("Deployer:", 0xfd6C7Fc1F182de53AA636584f1c6B80d9D885886) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("Approved signer:", 0xfd6C7Fc1F182de53AA636584f1c6B80d9D885886) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("Fee receiver:", 0xdaC630aE52b868FF0A180458eFb9ac88e7425114) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("Balance:", 145719862403263108195 [1.457e20]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] VM::startBroadcast(0xfd6C7Fc1F182de53AA636584f1c6B80d9D885886)
+    │   └─ ← [Return]
+    ├─ [795099] → new OspexCore@0xECD12Af197FBF4C9F706B5Eb11a19c40Cfd643db
+    │   └─ ← [Return] 3971 bytes of code
+    ├─ [0] console::log("OspexCore:", OspexCore: [0xECD12Af197FBF4C9F706B5Eb11a19c40Cfd643db]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [1691618] → new ContestModule@0x1Eb0048650380369C6F4239dE070114463626102
+    │   └─ ← [Return] 8447 bytes of code
+    ├─ [2410814] → new LeaderboardModule@0x63f76D5796296FFB94132C6f70d3ff9c3c5a0DEF
+    │   └─ ← [Return] 11818 bytes of code
+    ├─ [2166173] → new RulesModule@0x05aF3d55F44CfaFA59c3B152A1547b5219d90f93
+    │   └─ ← [Return] 10817 bytes of code
+    ├─ [281180] → new MoneylineScorerModule@0xd846B7FdbD8C9F67d1580B2C6a8Bd7Fdcb15390b
+    │   └─ ← [Return] 1403 bytes of code
+    ├─ [300999] → new SpreadScorerModule@0x99c5fF5131F269cA178e2Ea78f2a2A222a3a7d5e
+    │   └─ ← [Return] 1502 bytes of code
+    ├─ [292393] → new TotalScorerModule@0xC141679f09413EDe38E3Cd36a3e4aDE423827972
+    │   └─ ← [Return] 1459 bytes of code
+    ├─ [1440320] → new MatchingModule@0x1B93579B044f0eE3c4C8a9F479A323DeF7770712
+    │   └─ ← [Return] 7076 bytes of code
+    ├─ [1055016] → new TreasuryModule@0xCB56CD2c509301e888965DD3A2E5C486Fe03a56e
+    │   └─ ← [Return] 4933 bytes of code
+    ├─ [1122988] → new SpeculationModule@0xd757387893E779AC35451CeA639a408A537b9a1B
+    │   └─ ← [Return] 5607 bytes of code
+    ├─ [1501289] → new PositionModule@0x0DCd42f8609cd7884ddBa3481b03a78dfc88366c
+    │   └─ ← [Return] 7385 bytes of code
+    ├─ [1446434] → new SecondaryMarketModule@0xaD2B4437296B46a1b107Bb2dB7AC4082182b6059
+    │   └─ ← [Return] 7111 bytes of code
+    ├─ [2798439] → new OracleModule@0x7e1397eD5b4c9f606DCF2EB0281485B2296E29Bb
+    │   └─ ← [Return] 13859 bytes of code
+    ├─ [0] console::log("All 12 modules deployed.") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [678] OspexCore::CONTEST_MODULE() [staticcall]
+    │   └─ ← [Return] 0xb853e7f1ca7c39b3d60a4a01169293d298c5bac9d91781182e553e486b426238
+    ├─ [546] OspexCore::SPECULATION_MODULE() [staticcall]
+    │   └─ ← [Return] 0xcf4380c3644cbbdee3cb3ab0bc7d20abb63598788869c8d34407ba532c2f95a6
+    ├─ [436] OspexCore::POSITION_MODULE() [staticcall]
+    │   └─ ← [Return] 0x182d49e8f1ba343facbac18b56a4a0f869e2f54f3165879cb5d067f4ff67ee19
+    ├─ [414] OspexCore::MATCHING_MODULE() [staticcall]
+    │   └─ ← [Return] 0xa1326d0c5166785cdcae1676162883d8566a23dc474bf97158b09dc4ed64d7d9
+    ├─ [656] OspexCore::ORACLE_MODULE() [staticcall]
+    │   └─ ← [Return] 0x1b0b024d4729631561dfd4dc02330bfda3b6fc05e9e5c0b1f1401290cabea677
+    ├─ [600] OspexCore::TREASURY_MODULE() [staticcall]
+    │   └─ ← [Return] 0x0c1f3a2fb8d5cb85f06f67a78424b420c7a88acd1df03770d5da98ff6a648202
+    ├─ [326] OspexCore::LEADERBOARD_MODULE() [staticcall]
+    │   └─ ← [Return] 0x135db7d1e2a894eabefefde819385a5f056f9cb71309038a80d5dedc9f34a6c9
+    ├─ [634] OspexCore::RULES_MODULE() [staticcall]
+    │   └─ ← [Return] 0x02e535fc21bfb82c317d4b9b99a239b99fa71e2bea1572ff170afdcd61f78a34
+    ├─ [304] OspexCore::SECONDARY_MARKET_MODULE() [staticcall]
+    │   └─ ← [Return] 0x86b5238312c77f984fd459a72ebd4fbba99f6fdedf2f6a6f8acf9e987b6aca7b
+    ├─ [348] OspexCore::MONEYLINE_SCORER_MODULE() [staticcall]
+    │   └─ ← [Return] 0x8b02a8694c7973cae76e0aaa43157a85760a36598bbbf596247b460b7c9db24e
+    ├─ [717] OspexCore::SPREAD_SCORER_MODULE() [staticcall]
+    │   └─ ← [Return] 0x9958b1c66847463b48b605316a4f9b35bed8bcfef3f9eccb785e95e85e3dc7ca
+    ├─ [392] OspexCore::TOTAL_SCORER_MODULE() [staticcall]
+    │   └─ ← [Return] 0x72d978bbccb9ddac4961558836670726471e174959bebeca601d2f0f5e6a697a
+    ├─ [546507] OspexCore::bootstrapModules([0xb853e7f1ca7c39b3d60a4a01169293d298c5bac9d91781182e553e486b426238, 0xcf4380c3644cbbdee3cb3ab0bc7d20abb63598788869c8d34407ba532c2f95a6, 0x182d49e8f1ba343facbac18b56a4a0f869e2f54f3165879cb5d067f4ff67ee19, 0xa1326d0c5166785cdcae1676162883d8566a23dc474bf97158b09dc4ed64d7d9, 0x1b0b024d4729631561dfd4dc02330bfda3b6fc05e9e5c0b1f1401290cabea677, 0x0c1f3a2fb8d5cb85f06f67a78424b420c7a88acd1df03770d5da98ff6a648202, 0x135db7d1e2a894eabefefde819385a5f056f9cb71309038a80d5dedc9f34a6c9, 0x02e535fc21bfb82c317d4b9b99a239b99fa71e2bea1572ff170afdcd61f78a34, 0x86b5238312c77f984fd459a72ebd4fbba99f6fdedf2f6a6f8acf9e987b6aca7b, 0x8b02a8694c7973cae76e0aaa43157a85760a36598bbbf596247b460b7c9db24e, 0x9958b1c66847463b48b605316a4f9b35bed8bcfef3f9eccb785e95e85e3dc7ca, 0x72d978bbccb9ddac4961558836670726471e174959bebeca601d2f0f5e6a697a], [0x1Eb0048650380369C6F4239dE070114463626102, 0xd757387893E779AC35451CeA639a408A537b9a1B, 0x0DCd42f8609cd7884ddBa3481b03a78dfc88366c, 0x1B93579B044f0eE3c4C8a9F479A323DeF7770712, 0x7e1397eD5b4c9f606DCF2EB0281485B2296E29Bb, 0xCB56CD2c509301e888965DD3A2E5C486Fe03a56e, 0x63f76D5796296FFB94132C6f70d3ff9c3c5a0DEF, 0x05aF3d55F44CfaFA59c3B152A1547b5219d90f93, 0xaD2B4437296B46a1b107Bb2dB7AC4082182b6059, 0xd846B7FdbD8C9F67d1580B2C6a8Bd7Fdcb15390b, 0x99c5fF5131F269cA178e2Ea78f2a2A222a3a7d5e, 0xC141679f09413EDe38E3Cd36a3e4aDE423827972])
+    │   ├─ emit ModulesBootstrapped(moduleCount: 12)
+    │   └─ ← [Stop]
+    ├─ [25226] OspexCore::finalize()
+    │   ├─ emit Finalized()
+    │   └─ ← [Return]
+    ├─ [0] console::log("Protocol FINALIZED.") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [273] OspexCore::s_finalized() [staticcall]
+    │   └─ ← [Return] true
+    ├─ [1039] OspexCore::isApprovedScorer(MoneylineScorerModule: [0xd846B7FdbD8C9F67d1580B2C6a8Bd7Fdcb15390b]) [staticcall]
+    │   └─ ← [Return] true
+    ├─ [1225] OspexCore::isApprovedScorer(SpreadScorerModule: [0x99c5fF5131F269cA178e2Ea78f2a2A222a3a7d5e]) [staticcall]
+    │   └─ ← [Return] true
+    ├─ [1413] OspexCore::isApprovedScorer(TotalScorerModule: [0xC141679f09413EDe38E3Cd36a3e4aDE423827972]) [staticcall]
+    │   └─ ← [Return] true
+    ├─ [899] OspexCore::isSecondaryMarket(SecondaryMarketModule: [0xaD2B4437296B46a1b107Bb2dB7AC4082182b6059]) [staticcall]
+    │   └─ ← [Return] true
+    ├─ [0] console::log("Verification PASSED.") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("\n============================================================") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  POLYGON MAINNET DEPLOYMENT (Zero-Admin, Immutable)") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("============================================================") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("Deployer:", 0xfd6C7Fc1F182de53AA636584f1c6B80d9D885886) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("USDC:", 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("OspexCore:", OspexCore: [0xECD12Af197FBF4C9F706B5Eb11a19c40Cfd643db]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("\nModules (12):") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  ContestModule:", ContestModule: [0x1Eb0048650380369C6F4239dE070114463626102]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  SpeculationModule:", SpeculationModule: [0xd757387893E779AC35451CeA639a408A537b9a1B]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  PositionModule:", PositionModule: [0x0DCd42f8609cd7884ddBa3481b03a78dfc88366c]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  MatchingModule:", MatchingModule: [0x1B93579B044f0eE3c4C8a9F479A323DeF7770712]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  OracleModule:", OracleModule: [0x7e1397eD5b4c9f606DCF2EB0281485B2296E29Bb]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  TreasuryModule:", TreasuryModule: [0xCB56CD2c509301e888965DD3A2E5C486Fe03a56e]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  LeaderboardModule:", LeaderboardModule: [0x63f76D5796296FFB94132C6f70d3ff9c3c5a0DEF]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  RulesModule:", RulesModule: [0x05aF3d55F44CfaFA59c3B152A1547b5219d90f93]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  SecondaryMarketModule:", SecondaryMarketModule: [0xaD2B4437296B46a1b107Bb2dB7AC4082182b6059]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  MoneylineScorerModule:", MoneylineScorerModule: [0xd846B7FdbD8C9F67d1580B2C6a8Bd7Fdcb15390b]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  SpreadScorerModule:", SpreadScorerModule: [0x99c5fF5131F269cA178e2Ea78f2a2A222a3a7d5e]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("  TotalScorerModule:", TotalScorerModule: [0xC141679f09413EDe38E3Cd36a3e4aDE423827972]) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("\n=== NEXT STEPS ===") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("1. Add OracleModule as consumer on Chainlink Functions subscription") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("2. Update all dependent services with new addresses") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] console::log("3. Test with small positions before going live") [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] VM::stopBroadcast()
+    │   └─ ← [Return]
+    └─ ← [Return]
+
+
+Script ran successfully.
+
+== Logs ==
+  === Ospex Polygon Mainnet Deployment (Zero-Admin) ===
+  Chain ID: 137
+  Deployer: 0xfd6C7Fc1F182de53AA636584f1c6B80d9D885886
+  Approved signer: 0xfd6C7Fc1F182de53AA636584f1c6B80d9D885886
+  Fee receiver: 0xdaC630aE52b868FF0A180458eFb9ac88e7425114
+  Balance: 145719862403263108195
+  OspexCore: 0xECD12Af197FBF4C9F706B5Eb11a19c40Cfd643db
+  All 12 modules deployed.
+  Protocol FINALIZED.
+  Verification PASSED.
+  
+============================================================
+    POLYGON MAINNET DEPLOYMENT (Zero-Admin, Immutable)
+  ============================================================
+  Deployer: 0xfd6C7Fc1F182de53AA636584f1c6B80d9D885886
+  USDC: 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359
+  OspexCore: 0xECD12Af197FBF4C9F706B5Eb11a19c40Cfd643db
+  
+Modules (12):
+    ContestModule: 0x1Eb0048650380369C6F4239dE070114463626102
+    SpeculationModule: 0xd757387893E779AC35451CeA639a408A537b9a1B
+    PositionModule: 0x0DCd42f8609cd7884ddBa3481b03a78dfc88366c
+    MatchingModule: 0x1B93579B044f0eE3c4C8a9F479A323DeF7770712
+    OracleModule: 0x7e1397eD5b4c9f606DCF2EB0281485B2296E29Bb
+    TreasuryModule: 0xCB56CD2c509301e888965DD3A2E5C486Fe03a56e
+    LeaderboardModule: 0x63f76D5796296FFB94132C6f70d3ff9c3c5a0DEF
+    RulesModule: 0x05aF3d55F44CfaFA59c3B152A1547b5219d90f93
+    SecondaryMarketModule: 0xaD2B4437296B46a1b107Bb2dB7AC4082182b6059
+    MoneylineScorerModule: 0xd846B7FdbD8C9F67d1580B2C6a8Bd7Fdcb15390b
+    SpreadScorerModule: 0x99c5fF5131F269cA178e2Ea78f2a2A222a3a7d5e
+    TotalScorerModule: 0xC141679f09413EDe38E3Cd36a3e4aDE423827972
+  
+=== NEXT STEPS ===
+  1. Add OracleModule as consumer on Chainlink Functions subscription
+  2. Update all dependent services with new addresses
+  3. Test with small positions before going live
+
+## Setting up 1 EVM.
+==========================
+Simulated On-chain Traces:
+
+  [795099] → new OspexCore@0xECD12Af197FBF4C9F706B5Eb11a19c40Cfd643db
+    └─ ← [Return] 3971 bytes of code
+
+  [1691618] → new ContestModule@0x1Eb0048650380369C6F4239dE070114463626102
+    └─ ← [Return] 8447 bytes of code
+
+  [2410814] → new LeaderboardModule@0x63f76D5796296FFB94132C6f70d3ff9c3c5a0DEF
+    └─ ← [Return] 11818 bytes of code
+
+  [2166173] → new RulesModule@0x05aF3d55F44CfaFA59c3B152A1547b5219d90f93
+    └─ ← [Return] 10817 bytes of code
+
+  [281180] → new MoneylineScorerModule@0xd846B7FdbD8C9F67d1580B2C6a8Bd7Fdcb15390b
+    └─ ← [Return] 1403 bytes of code
+
+  [300999] → new SpreadScorerModule@0x99c5fF5131F269cA178e2Ea78f2a2A222a3a7d5e
+    └─ ← [Return] 1502 bytes of code
+
+  [292393] → new TotalScorerModule@0xC141679f09413EDe38E3Cd36a3e4aDE423827972
+    └─ ← [Return] 1459 bytes of code
+
+  [1440320] → new MatchingModule@0x1B93579B044f0eE3c4C8a9F479A323DeF7770712
+    └─ ← [Return] 7076 bytes of code
+
+  [1055016] → new TreasuryModule@0xCB56CD2c509301e888965DD3A2E5C486Fe03a56e
+    └─ ← [Return] 4933 bytes of code
+
+  [1122988] → new SpeculationModule@0xd757387893E779AC35451CeA639a408A537b9a1B
+    └─ ← [Return] 5607 bytes of code
+
+  [1501289] → new PositionModule@0x0DCd42f8609cd7884ddBa3481b03a78dfc88366c
+    └─ ← [Return] 7385 bytes of code
+
+  [1446434] → new SecondaryMarketModule@0xaD2B4437296B46a1b107Bb2dB7AC4082182b6059
+    └─ ← [Return] 7111 bytes of code
+
+  [2798439] → new OracleModule@0x7e1397eD5b4c9f606DCF2EB0281485B2296E29Bb
+    └─ ← [Return] 13859 bytes of code
+
+  [546507] OspexCore::bootstrapModules([0xb853e7f1ca7c39b3d60a4a01169293d298c5bac9d91781182e553e486b426238, 0xcf4380c3644cbbdee3cb3ab0bc7d20abb63598788869c8d34407ba532c2f95a6, 0x182d49e8f1ba343facbac18b56a4a0f869e2f54f3165879cb5d067f4ff67ee19, 0xa1326d0c5166785cdcae1676162883d8566a23dc474bf97158b09dc4ed64d7d9, 0x1b0b024d4729631561dfd4dc02330bfda3b6fc05e9e5c0b1f1401290cabea677, 0x0c1f3a2fb8d5cb85f06f67a78424b420c7a88acd1df03770d5da98ff6a648202, 0x135db7d1e2a894eabefefde819385a5f056f9cb71309038a80d5dedc9f34a6c9, 0x02e535fc21bfb82c317d4b9b99a239b99fa71e2bea1572ff170afdcd61f78a34, 0x86b5238312c77f984fd459a72ebd4fbba99f6fdedf2f6a6f8acf9e987b6aca7b, 0x8b02a8694c7973cae76e0aaa43157a85760a36598bbbf596247b460b7c9db24e, 0x9958b1c66847463b48b605316a4f9b35bed8bcfef3f9eccb785e95e85e3dc7ca, 0x72d978bbccb9ddac4961558836670726471e174959bebeca601d2f0f5e6a697a], [0x1Eb0048650380369C6F4239dE070114463626102, 0xd757387893E779AC35451CeA639a408A537b9a1B, 0x0DCd42f8609cd7884ddBa3481b03a78dfc88366c, 0x1B93579B044f0eE3c4C8a9F479A323DeF7770712, 0x7e1397eD5b4c9f606DCF2EB0281485B2296E29Bb, 0xCB56CD2c509301e888965DD3A2E5C486Fe03a56e, 0x63f76D5796296FFB94132C6f70d3ff9c3c5a0DEF, 0x05aF3d55F44CfaFA59c3B152A1547b5219d90f93, 0xaD2B4437296B46a1b107Bb2dB7AC4082182b6059, 0xd846B7FdbD8C9F67d1580B2C6a8Bd7Fdcb15390b, 0x99c5fF5131F269cA178e2Ea78f2a2A222a3a7d5e, 0xC141679f09413EDe38E3Cd36a3e4aDE423827972])
+    ├─ emit ModulesBootstrapped(moduleCount: 12)
+    └─ ← [Stop]
+
+  [51226] OspexCore::finalize()
+    ├─ emit Finalized()
+    └─ ← [Return]
+
+
+==========================
+
+Chain 137
+
+Estimated gas price: 661.660261122 gwei
+
+Estimated total gas used for script: 26109960
+
+Estimated amount required: 17.27592295148497512 POL
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+##
+Start verification for (13) contracts
+Start verifying contract `0xECD12Af197FBF4C9F706B5Eb11a19c40Cfd643db` deployed on polygon
+EVM version: cancun
+Compiler version: 0.8.24
+Optimizations:    200
+
+Submitting verification for [src/core/OspexCore.sol:OspexCore] 0xECD12Af197FBF4C9F706B5Eb11a19c40Cfd643db.
+Submitted contract for verification:
+	Response: `OK`
+	GUID: `ym57ajixlmjry7c45v3t9evjtxkkfqivpqadtvacbpgxtpktpp`
+	URL: https://polygonscan.com/address/0xecd12af197fbf4c9f706b5eb11a19c40cfd643db
+Contract verification status:
+Response: `NOTOK`
+Details: `Pending in queue`
+Warning: Verification is still pending...; waiting 15 seconds before trying again (7 tries remaining)
+Contract verification status:
+Response: `OK`
+Details: `Pass - Verified`
+Contract successfully verified
+Start verifying contract `0x1Eb0048650380369C6F4239dE070114463626102` deployed on polygon
+EVM version: cancun
+Compiler version: 0.8.24
+Optimizations:    200
+Constructor args: 000000000000000000000000ecd12af197fbf4c9f706b5eb11a19c40cfd643db
+
+Submitting verification for [src/modules/ContestModule.sol:ContestModule] 0x1Eb0048650380369C6F4239dE070114463626102.
+Submitted contract for verification:
+	Response: `OK`
+	GUID: `9kaa1ezjmqmfyt9cz6fg9hdppnjxbnyghqnxcjj9li6g9nfk3c`
+	URL: https://polygonscan.com/address/0x1eb0048650380369c6f4239de070114463626102
+Contract verification status:
+Response: `NOTOK`
+Details: `Pending in queue`
+Warning: Verification is still pending...; waiting 15 seconds before trying again (7 tries remaining)
+Contract verification status:
+Response: `OK`
+Details: `Pass - Verified`
+Contract successfully verified
+Start verifying contract `0x63f76D5796296FFB94132C6f70d3ff9c3c5a0DEF` deployed on polygon
+EVM version: cancun
+Compiler version: 0.8.24
+Optimizations:    200
+Constructor args: 000000000000000000000000ecd12af197fbf4c9f706b5eb11a19c40cfd643db
+
+Submitting verification for [src/modules/LeaderboardModule.sol:LeaderboardModule] 0x63f76D5796296FFB94132C6f70d3ff9c3c5a0DEF.
+Submitted contract for verification:
+	Response: `OK`
+	GUID: `2htbjt8lkck39ysvyhvdapn7wrbxf1zauzmfnx7vprqxnja8qd`
+	URL: https://polygonscan.com/address/0x63f76d5796296ffb94132c6f70d3ff9c3c5a0def
+Contract verification status:
+Response: `NOTOK`
+Details: `Pending in queue`
+Warning: Verification is still pending...; waiting 15 seconds before trying again (7 tries remaining)
+Contract verification status:
+Response: `OK`
+Details: `Pass - Verified`
+Contract successfully verified
+Start verifying contract `0x05aF3d55F44CfaFA59c3B152A1547b5219d90f93` deployed on polygon
+EVM version: cancun
+Compiler version: 0.8.24
+Optimizations:    200
+Constructor args: 000000000000000000000000ecd12af197fbf4c9f706b5eb11a19c40cfd643db
+
+Submitting verification for [src/modules/RulesModule.sol:RulesModule] 0x05aF3d55F44CfaFA59c3B152A1547b5219d90f93.
+Submitted contract for verification:
+	Response: `OK`
+	GUID: `whkkvu9i2czeg4pazhdg25cvvn1fbqcpbgcasfijtia2i4ptek`
+	URL: https://polygonscan.com/address/0x05af3d55f44cfafa59c3b152a1547b5219d90f93
+Contract verification status:
+Response: `NOTOK`
+Details: `Pending in queue`
+Warning: Verification is still pending...; waiting 15 seconds before trying again (7 tries remaining)
+Contract verification status:
+Response: `NOTOK`
+Details: `Pending in queue`
+Warning: Verification is still pending...; waiting 15 seconds before trying again (6 tries remaining)
+Contract verification status:
+Response: `OK`
+Details: `Pass - Verified`
+Contract successfully verified
+Start verifying contract `0xd846B7FdbD8C9F67d1580B2C6a8Bd7Fdcb15390b` deployed on polygon
+EVM version: cancun
+Compiler version: 0.8.24
+Optimizations:    200
+Constructor args: 000000000000000000000000ecd12af197fbf4c9f706b5eb11a19c40cfd643db
+
+Submitting verification for [src/modules/MoneylineScorerModule.sol:MoneylineScorerModule] 0xd846B7FdbD8C9F67d1580B2C6a8Bd7Fdcb15390b.
+Submitted contract for verification:
+	Response: `OK`
+	GUID: `fyer2cvmgtrb6jel9add92bbeiqrilhuy2l1mux9jbqd4dl5t3`
+	URL: https://polygonscan.com/address/0xd846b7fdbd8c9f67d1580b2c6a8bd7fdcb15390b
+Contract verification status:
+Response: `NOTOK`
+Details: `Pending in queue`
+Warning: Verification is still pending...; waiting 15 seconds before trying again (7 tries remaining)
+Contract verification status:
+Response: `OK`
+Details: `Pass - Verified`
+Contract successfully verified
+Start verifying contract `0x99c5fF5131F269cA178e2Ea78f2a2A222a3a7d5e` deployed on polygon
+EVM version: cancun
+Compiler version: 0.8.24
+Optimizations:    200
+Constructor args: 000000000000000000000000ecd12af197fbf4c9f706b5eb11a19c40cfd643db
+
+Submitting verification for [src/modules/SpreadScorerModule.sol:SpreadScorerModule] 0x99c5fF5131F269cA178e2Ea78f2a2A222a3a7d5e.
+Submitted contract for verification:
+	Response: `OK`
+	GUID: `vngdutskedzxhv3n2zxzcavqgjpqr4ctvsvvfawgl7hwdd8mu5`
+	URL: https://polygonscan.com/address/0x99c5ff5131f269ca178e2ea78f2a2a222a3a7d5e
+Contract verification status:
+Response: `NOTOK`
+Details: `Pending in queue`
+Warning: Verification is still pending...; waiting 15 seconds before trying again (7 tries remaining)
+Contract verification status:
+Response: `OK`
+Details: `Pass - Verified`
+Contract successfully verified
+Start verifying contract `0xC141679f09413EDe38E3Cd36a3e4aDE423827972` deployed on polygon
+EVM version: cancun
+Compiler version: 0.8.24
+Optimizations:    200
+Constructor args: 000000000000000000000000ecd12af197fbf4c9f706b5eb11a19c40cfd643db
+
+Submitting verification for [src/modules/TotalScorerModule.sol:TotalScorerModule] 0xC141679f09413EDe38E3Cd36a3e4aDE423827972.
+Submitted contract for verification:
+	Response: `OK`
+	GUID: `mcmqcmsrx9vtwary2fzy9rdrewhyd4c2vmhz66fzeedmaid8vf`
+	URL: https://polygonscan.com/address/0xc141679f09413ede38e3cd36a3e4ade423827972
+Contract verification status:
+Response: `NOTOK`
+Details: `Pending in queue`
+Warning: Verification is still pending...; waiting 15 seconds before trying again (7 tries remaining)
+Contract verification status:
+Response: `OK`
+Details: `Pass - Verified`
+Contract successfully verified
+Start verifying contract `0x1B93579B044f0eE3c4C8a9F479A323DeF7770712` deployed on polygon
+EVM version: cancun
+Compiler version: 0.8.24
+Optimizations:    200
+Constructor args: 000000000000000000000000ecd12af197fbf4c9f706b5eb11a19c40cfd643db
+
+Submitting verification for [src/modules/MatchingModule.sol:MatchingModule] 0x1B93579B044f0eE3c4C8a9F479A323DeF7770712.
+Submitted contract for verification:
+	Response: `OK`
+	GUID: `btmwvwzwbi5tmtxwxhsssw1ruvergws9txsjgzrmsbvxwkskpg`
+	URL: https://polygonscan.com/address/0x1b93579b044f0ee3c4c8a9f479a323def7770712
+Contract verification status:
+Response: `NOTOK`
+Details: `Pending in queue`
+Warning: Verification is still pending...; waiting 15 seconds before trying again (7 tries remaining)
+Contract verification status:
+Response: `OK`
+Details: `Pass - Verified`
+Contract successfully verified
+Start verifying contract `0xCB56CD2c509301e888965DD3A2E5C486Fe03a56e` deployed on polygon
+EVM version: cancun
+Compiler version: 0.8.24
+Optimizations:    200
+Constructor args: 000000000000000000000000ecd12af197fbf4c9f706b5eb11a19c40cfd643db0000000000000000000000003c499c542cef5e3811e1192ce70d8cc03d5c3359000000000000000000000000dac630ae52b868ff0a180458efb9ac88e742511400000000000000000000000000000000000000000000000000000000000f4240000000000000000000000000000000000000000000000000000000000007a120000000000000000000000000000000000000000000000000000000000007a120
+
+Submitting verification for [src/modules/TreasuryModule.sol:TreasuryModule] 0xCB56CD2c509301e888965DD3A2E5C486Fe03a56e.
+Submitted contract for verification:
+	Response: `OK`
+	GUID: `lvf5dfsv31iipfqvrq1epyqxzqsuw9ui21awupjdskxr4imqga`
+	URL: https://polygonscan.com/address/0xcb56cd2c509301e888965dd3a2e5c486fe03a56e
+Contract verification status:
+Response: `NOTOK`
+Details: `Pending in queue`
+Warning: Verification is still pending...; waiting 15 seconds before trying again (7 tries remaining)
+Contract verification status:
+Response: `OK`
+Details: `Pass - Verified`
+Contract successfully verified
+Start verifying contract `0xd757387893E779AC35451CeA639a408A537b9a1B` deployed on polygon
+EVM version: cancun
+Compiler version: 0.8.24
+Optimizations:    200
+Constructor args: 000000000000000000000000ecd12af197fbf4c9f706b5eb11a19c40cfd643db0000000000000000000000000000000000000000000000000000000000093a80
+
+Submitting verification for [src/modules/SpeculationModule.sol:SpeculationModule] 0xd757387893E779AC35451CeA639a408A537b9a1B.
+Submitted contract for verification:
+	Response: `OK`
+	GUID: `azwmwexdbin5wvcpd4zdqfcwiybpy1xkxgchylyx4jiemf7v1f`
+	URL: https://polygonscan.com/address/0xd757387893e779ac35451cea639a408a537b9a1b
+Contract verification status:
+Response: `NOTOK`
+Details: `Pending in queue`
+Warning: Verification is still pending...; waiting 15 seconds before trying again (7 tries remaining)
+Contract verification status:
+Response: `OK`
+Details: `Pass - Verified`
+Contract successfully verified
+Start verifying contract `0x0DCd42f8609cd7884ddBa3481b03a78dfc88366c` deployed on polygon
+EVM version: cancun
+Compiler version: 0.8.24
+Optimizations:    200
+Constructor args: 000000000000000000000000ecd12af197fbf4c9f706b5eb11a19c40cfd643db0000000000000000000000003c499c542cef5e3811e1192ce70d8cc03d5c3359
+
+Submitting verification for [src/modules/PositionModule.sol:PositionModule] 0x0DCd42f8609cd7884ddBa3481b03a78dfc88366c.
+Submitted contract for verification:
+	Response: `OK`
+	GUID: `zq11cxpzptvvdp9n3gwjfgk7j7wy5yznywta6rfarprlgzztsu`
+	URL: https://polygonscan.com/address/0x0dcd42f8609cd7884ddba3481b03a78dfc88366c
+Contract verification status:
+Response: `NOTOK`
+Details: `Pending in queue`
+Warning: Verification is still pending...; waiting 15 seconds before trying again (7 tries remaining)
+Contract verification status:
+Response: `OK`
+Details: `Pass - Verified`
+Contract successfully verified
+Start verifying contract `0xaD2B4437296B46a1b107Bb2dB7AC4082182b6059` deployed on polygon
+EVM version: cancun
+Compiler version: 0.8.24
+Optimizations:    200
+Constructor args: 000000000000000000000000ecd12af197fbf4c9f706b5eb11a19c40cfd643db0000000000000000000000003c499c542cef5e3811e1192ce70d8cc03d5c3359
+
+Submitting verification for [src/modules/SecondaryMarketModule.sol:SecondaryMarketModule] 0xaD2B4437296B46a1b107Bb2dB7AC4082182b6059.
+Submitted contract for verification:
+	Response: `OK`
+	GUID: `1zkmzhxvznd6fnjdcd5gzrfz3rkjaaixfqg4gznxj4rkilww2b`
+	URL: https://polygonscan.com/address/0xad2b4437296b46a1b107bb2db7ac4082182b6059
+Contract verification status:
+Response: `NOTOK`
+Details: `Pending in queue`
+Warning: Verification is still pending...; waiting 15 seconds before trying again (7 tries remaining)
+Contract verification status:
+Response: `OK`
+Details: `Pass - Verified`
+Contract successfully verified
+Start verifying contract `0x7e1397eD5b4c9f606DCF2EB0281485B2296E29Bb` deployed on polygon
+EVM version: cancun
+Compiler version: 0.8.24
+Optimizations:    200
+Constructor args: 000000000000000000000000ecd12af197fbf4c9f706b5eb11a19c40cfd643db000000000000000000000000dc2aaf042aeff2e68b3e8e33f19e4b9fa7c73f10000000000000000000000000b0897686c545045afc77cf20ec7a532e3120e0f166756e2d706f6c79676f6e2d6d61696e6e65742d31000000000000000000000000000000000000000000000000000000000000000000000000000000000000c8000000000000000000000000fd6c7fc1f182de53aa636584f1c6b80d9d885886
+
+Submitting verification for [src/modules/OracleModule.sol:OracleModule] 0x7e1397eD5b4c9f606DCF2EB0281485B2296E29Bb.
+Submitted contract for verification:
+	Response: `OK`
+	GUID: `nu3i3j5ugwtquqk8x9vagc2jthrzqk83yccekfsivc9kitu1s9`
+	URL: https://polygonscan.com/address/0x7e1397ed5b4c9f606dcf2eb0281485b2296e29bb
+Contract verification status:
+Response: `NOTOK`
+Details: `Pending in queue`
+Warning: Verification is still pending...; waiting 15 seconds before trying again (7 tries remaining)
+Contract verification status:
+Response: `OK`
+Details: `Pass - Verified`
+Contract successfully verified
+All (13) contracts were verified!
+
+Transactions saved to: /Users/ospex/ospex-contracts-v2/broadcast/DeployPolygon.s.sol/137/run-latest.json
+
+Sensitive values saved to: /Users/ospex/ospex-contracts-v2/cache/DeployPolygon.s.sol/137/run-latest.json
