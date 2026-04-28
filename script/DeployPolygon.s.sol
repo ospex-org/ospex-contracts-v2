@@ -36,9 +36,12 @@ contract DeployPolygon is Script {
     // CONFIGURABLE: Protocol fee receiver (hardware wallet / multisig for mainnet)
     address constant FEE_RECEIVER = 0xdaC630aE52b868FF0A180458eFb9ac88e7425114;
     bytes32 constant DON_ID = bytes32("fun-polygon-mainnet-1");
-    // CONFIGURABLE: LINK payment per oracle call = 1e18 / LINK_DENOMINATOR (250 = 0.004 LINK)
-    uint256 constant LINK_DENOMINATOR = 250;
-    // CONFIGURABLE: EIP-712 approved signer for oracle script approvals (Safe multisig)
+    // CONFIGURABLE: LINK payment per oracle call = 1e18 / LINK_DENOMINATOR (200 = 0.005 LINK).
+    // Calibrated against R3 sub-191 fulfilled-cost history: median ~0.0036 LINK, high-gas spikes
+    // ~0.0085 LINK, recent average ~0.006 LINK. 0.005 leans slightly user-favorable; subscription
+    // gains on low-gas days, absorbs deltas on spike days. Immutable post-finalize.
+    uint256 constant LINK_DENOMINATOR = 200;
+    // CONFIGURABLE: EIP-712 approved signer for oracle script approvals (deployer EOA)
     address constant APPROVED_SIGNER = 0xfd6C7Fc1F182de53AA636584f1c6B80d9D885886;
 
     struct DeploymentConfig {
@@ -70,8 +73,15 @@ contract DeployPolygon is Script {
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
 
         console.log("=== Ospex Polygon Mainnet Deployment (Zero-Admin) ===");
+        console.log("Chain ID:", block.chainid);
         console.log("Deployer:", deployer);
+        console.log("Approved signer:", APPROVED_SIGNER);
+        console.log("Fee receiver:", FEE_RECEIVER);
         console.log("Balance:", deployer.balance);
+
+        // Hard guards — fail before any broadcast if the environment is wrong.
+        require(block.chainid == 137, "wrong chain");
+        require(deployer == APPROVED_SIGNER, "wrong deployer/signer");
         require(deployer.balance > 0, "Deployer has zero balance");
 
         // CONFIGURABLE: Protocol parameters — see docs/deployment/DEPLOYMENT_PARAMETERS.md
