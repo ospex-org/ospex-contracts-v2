@@ -2,21 +2,23 @@
 
 ## Mainnet Contract Addresses (Polygon, Chain ID 137)
 
+**Current deploy:** Round 4, 2026-04-28 (first tx block 86135682). See [`deployment/POLYGON_MAINNET_R4.md`](deployment/POLYGON_MAINNET_R4.md) for the full deploy summary, broadcast log, and verification output.
+
 | Contract | Address |
 |----------|---------|
-| OspexCore | [`0x8016b2C5f161e84940E25Bb99479aAca19D982aD`](https://polygonscan.com/address/0x8016b2C5f161e84940E25Bb99479aAca19D982aD) |
-| PositionModule | [`0xF717aa8fe4BEDcA345B027D065DA0E1a31465B1A`](https://polygonscan.com/address/0xF717aa8fe4BEDcA345B027D065DA0E1a31465B1A) |
-| SpeculationModule | [`0x599FFd7A5A00525DD54BD247f136f99aF6108513`](https://polygonscan.com/address/0x599FFd7A5A00525DD54BD247f136f99aF6108513) |
-| ContestModule | [`0x9E56311029F8CC5e2708C4951011697b9Bb40A09`](https://polygonscan.com/address/0x9E56311029F8CC5e2708C4951011697b9Bb40A09) |
-| OracleModule | [`0x5105b835365dB92e493B430635e374E16f3C8249`](https://polygonscan.com/address/0x5105b835365dB92e493B430635e374E16f3C8249) |
-| LeaderboardModule | [`0xEA6FF671Bc70e1926af9915aEF9D38AD2548066b`](https://polygonscan.com/address/0xEA6FF671Bc70e1926af9915aEF9D38AD2548066b) |
-| RulesModule | [`0xEfDf69ef9f3657d6571bb9c979D2Ce3D7Afb6891`](https://polygonscan.com/address/0xEfDf69ef9f3657d6571bb9c979D2Ce3D7Afb6891) |
-| TreasuryModule | [`0x48Fe67B7b866Ce87eA4B6f45BF7Bcc3cf868ccD0`](https://polygonscan.com/address/0x48Fe67B7b866Ce87eA4B6f45BF7Bcc3cf868ccD0) |
-| SecondaryMarketModule | [`0x85E25F3BC29fAD936824ED44624f1A6200F3816E`](https://polygonscan.com/address/0x85E25F3BC29fAD936824ED44624f1A6200F3816E) |
-| MoneylineScorerModule | [`0x82c93AAf547fC809646A7bEd5D8A9D4B72Db3045`](https://polygonscan.com/address/0x82c93AAf547fC809646A7bEd5D8A9D4B72Db3045) |
-| SpreadScorerModule | [`0x4377A09760b3587dAf1717F094bf7bd455daD4af`](https://polygonscan.com/address/0x4377A09760b3587dAf1717F094bf7bd455daD4af) |
-| TotalScorerModule | [`0xD7b35DE1bbFD03625a17F38472d3FBa7b77cBeCf`](https://polygonscan.com/address/0xD7b35DE1bbFD03625a17F38472d3FBa7b77cBeCf) |
-| MatchingModule | (update after next mainnet deploy) |
+| OspexCore | [`0xECD12Af197FBF4C9F706B5Eb11a19c40Cfd643db`](https://polygonscan.com/address/0xECD12Af197FBF4C9F706B5Eb11a19c40Cfd643db) |
+| ContestModule | [`0x1Eb0048650380369C6F4239dE070114463626102`](https://polygonscan.com/address/0x1Eb0048650380369C6F4239dE070114463626102) |
+| SpeculationModule | [`0xd757387893E779AC35451CeA639a408A537b9a1B`](https://polygonscan.com/address/0xd757387893E779AC35451CeA639a408A537b9a1B) |
+| PositionModule | [`0x0DCd42f8609cd7884ddBa3481b03a78dfc88366c`](https://polygonscan.com/address/0x0DCd42f8609cd7884ddBa3481b03a78dfc88366c) |
+| MatchingModule | [`0x1B93579B044f0eE3c4C8a9F479A323DeF7770712`](https://polygonscan.com/address/0x1B93579B044f0eE3c4C8a9F479A323DeF7770712) |
+| OracleModule | [`0x7e1397eD5b4c9f606DCF2EB0281485B2296E29Bb`](https://polygonscan.com/address/0x7e1397eD5b4c9f606DCF2EB0281485B2296E29Bb) |
+| TreasuryModule | [`0xCB56CD2c509301e888965DD3A2E5C486Fe03a56e`](https://polygonscan.com/address/0xCB56CD2c509301e888965DD3A2E5C486Fe03a56e) |
+| LeaderboardModule | [`0x63f76D5796296FFB94132C6f70d3ff9c3c5a0DEF`](https://polygonscan.com/address/0x63f76D5796296FFB94132C6f70d3ff9c3c5a0DEF) |
+| RulesModule | [`0x05aF3d55F44CfaFA59c3B152A1547b5219d90f93`](https://polygonscan.com/address/0x05aF3d55F44CfaFA59c3B152A1547b5219d90f93) |
+| SecondaryMarketModule | [`0xaD2B4437296B46a1b107Bb2dB7AC4082182b6059`](https://polygonscan.com/address/0xaD2B4437296B46a1b107Bb2dB7AC4082182b6059) |
+| MoneylineScorerModule | [`0xd846B7FdbD8C9F67d1580B2C6a8Bd7Fdcb15390b`](https://polygonscan.com/address/0xd846B7FdbD8C9F67d1580B2C6a8Bd7Fdcb15390b) |
+| SpreadScorerModule | [`0x99c5fF5131F269cA178e2Ea78f2a2A222a3a7d5e`](https://polygonscan.com/address/0x99c5fF5131F269cA178e2Ea78f2a2A222a3a7d5e) |
+| TotalScorerModule | [`0xC141679f09413EDe38E3Cd36a3e4aDE423827972`](https://polygonscan.com/address/0xC141679f09413EDe38E3Cd36a3e4aDE423827972) |
 
 **Token:** Native USDC ([`0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359`](https://polygonscan.com/address/0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359)), 6 decimals
 

@@ -41,3 +41,9 @@ chainlink-functions/
 
 # deployment files
 deployments/
+
+# verification test
+verify-test/
+
+# in progress
+working/

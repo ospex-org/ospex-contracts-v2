@@ -11,9 +11,9 @@ All values are immutable after `finalize()`. There is no upgrade path — a mist
 | **Contest Creation Fee** | `1_000_000` | `1_000_000` | `1_000_000` | TreasuryModule `contestCreationFeeRate` — 1.00 USDC | Same across all networks |
 | **Speculation Creation Fee** | `500_000` | `500_000` | `500_000` | TreasuryModule `speculationCreationFeeRate` — 0.50 USDC split between maker and taker | Same across all networks |
 | **Leaderboard Creation Fee** | `500_000` | `500_000` | `500_000` | TreasuryModule `leaderboardCreationFeeRate` — 0.50 USDC | Updated from 0.25 USDC per Vince's confirmation |
-| **LINK Denominator** | `10` | `250` | `250` | OracleModule `linkDenominator` — payment per oracle call = 1e18 / value. 10 = 0.1 LINK, 250 = 0.004 LINK | Anvil uses mock LINK so value is irrelevant; Amoy/mainnet = ~$0.06 per call |
+| **LINK Denominator** | `10` | `250` | `200` | OracleModule `linkDenominator` — payment per oracle call = 1e18 / value. 10 = 0.1 LINK, 250 = 0.004 LINK, 200 = 0.005 LINK | Anvil uses mock LINK so value is irrelevant; Amoy = ~$0.06 per call (kept at R3 value, not redeploying); Mainnet = 200 (~$0.075 per call) — calibrated against R3 sub-191 history (median ~0.0036, avg ~0.006, high-gas spikes ~0.0085 LINK) |
 | **DON ID** | `bytes32("test_don_id")` | `bytes32("fun-polygon-amoy-1")` | `bytes32("fun-polygon-mainnet-1")` | OracleModule `donId` — Chainlink Functions DON identifier | Anvil mock router ignores this |
-| **Approved Signer** | `vm.addr(0xA11CE)` | `0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3` | `0xfd6c7fc1f182de53aa636584f1c6b80d9d885886` | OracleModule `approvedSigner` — signs EIP-712 ScriptApproval structs for oracle JS sources | Amoy = deployer EOA; Mainnet = Safe multisig |
+| **Approved Signer** | `vm.addr(0xA11CE)` | `0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3` | `0xfd6c7fc1f182de53aa636584f1c6b80d9d885886` | OracleModule `approvedSigner` — signs EIP-712 ScriptApproval structs for oracle JS sources | Amoy = deployer EOA; Mainnet = deployer EOA (same wallet as the deployer; EIP-712 signing via the EOA's private key) |
 
 ## External Contract Addresses
 
@@ -41,9 +41,9 @@ These are runtime operations done after deployment, not baked into constructors.
 
 | Step | Anvil | Amoy | Mainnet | Notes |
 |------|-------|------|---------|-------|
-| Add OracleModule as Chainlink consumer | N/A (mock) | Subscription 416 | New subscription needed | Done via Chainlink Functions dashboard |
+| Add OracleModule as Chainlink consumer | N/A (mock) | Subscription 416 | Add new OracleModule to subscription 191 (existing R3 sub, reused) | Done via Chainlink Functions dashboard |
 | Fund caller wallet with LINK | Mock mint in script | Faucet or transfer | Purchase and transfer | Caller = whoever calls createContest/scoreContest |
 | Approve OracleModule for LINK spending | Done in script | Manual or script | Manual | `LINK.approve(oracleModule, amount)` from caller wallet |
 | Upload encrypted secrets | N/A (mock) | Chainlink Functions dashboard | Chainlink Functions dashboard | API keys for ESPN/JSONOdds |
-| Sign script approvals | `vm.sign(SIGNER_PK, ...)` | Sign with deployer EOA | Sign with Safe multisig | EIP-712 ScriptApproval for each JS source (verify, market update, score) |
+| Sign script approvals | `vm.sign(SIGNER_PK, ...)` | Sign with deployer EOA | Sign with deployer EOA | EIP-712 ScriptApproval for each JS source (verify, market update, score) |
 | Update downstream services | N/A | ospex-fdb, agent-server, lovable | ospex-fdb, agent-server, lovable | New contract addresses in config |
