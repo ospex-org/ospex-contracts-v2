@@ -30,8 +30,9 @@ src/zzzreference/
 # Reference
 reference/
 
-# Scripts (for creating a new secrets file)
-scripts/
+# Scripts (mostly local utilities/secrets generation — selectively tracked)
+scripts/*
+!scripts/sign-script-approval.js
 
 # ai prompts
 ai/
