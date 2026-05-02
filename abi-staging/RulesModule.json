@@ -1,0 +1,991 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "ospexCore",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [],
+    "name": "RulesModule__InvalidBps",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "RulesModule__InvalidDeviation",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "RulesModule__InvalidLeaderboard",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "RulesModule__InvalidValue",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "RulesModule__LeaderboardStarted",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "moduleType",
+        "type": "bytes32"
+      }
+    ],
+    "name": "RulesModule__ModuleNotSet",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "caller",
+        "type": "address"
+      }
+    ],
+    "name": "RulesModule__NotCreator",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "leaderboardId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "enum LeagueId",
+        "name": "leagueId",
+        "type": "uint8"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "scorer",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum PositionType",
+        "name": "positionType",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "int32",
+        "name": "maxDeviation",
+        "type": "int32"
+      }
+    ],
+    "name": "DeviationRuleSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "leaderboardId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "ruleType",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
+      }
+    ],
+    "name": "RuleSet",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "CONTEST_MODULE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "EVENT_DEVIATION_RULE_SET",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "EVENT_RULE_SET",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "leaderboardId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getAllRules",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "minBankroll",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "maxBankroll",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint16",
+        "name": "minBetPercentage",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "maxBetPercentage",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "minBets",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "oddsEnforcementBps",
+        "type": "uint16"
+      },
+      {
+        "internalType": "bool",
+        "name": "allowLiveBetting",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "allowMoneylineSpreadPairing",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "leaderboardId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "enum LeagueId",
+        "name": "leagueId",
+        "type": "uint8"
+      },
+      {
+        "internalType": "address",
+        "name": "scorer",
+        "type": "address"
+      },
+      {
+        "internalType": "enum PositionType",
+        "name": "positionType",
+        "type": "uint8"
+      }
+    ],
+    "name": "getDeviationRule",
+    "outputs": [
+      {
+        "internalType": "int32",
+        "name": "maxDeviation",
+        "type": "int32"
+      },
+      {
+        "internalType": "bool",
+        "name": "isSet",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "leaderboardId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "bankroll",
+        "type": "uint256"
+      }
+    ],
+    "name": "getMaxBetAmount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "maxBetAmount",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "leaderboardId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "bankroll",
+        "type": "uint256"
+      }
+    ],
+    "name": "getMinBetAmount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "minBetAmount",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getModuleType",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "pure",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "i_ospexCore",
+    "outputs": [
+      {
+        "internalType": "contract OspexCore",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "leaderboardId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "bankroll",
+        "type": "uint256"
+      }
+    ],
+    "name": "isBankrollValid",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "leaderboardId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "userPositions",
+        "type": "uint256"
+      }
+    ],
+    "name": "isMinPositionsMet",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "LEADERBOARD_MODULE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MAX_BPS",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MONEYLINE_SCORER_MODULE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "ODDS_SCALE",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "RULES_MODULE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "s_allowLiveBetting",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "s_allowMoneylineSpreadPairing",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "enum LeagueId",
+        "name": "",
+        "type": "uint8"
+      },
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "enum PositionType",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "name": "s_deviationRules",
+    "outputs": [
+      {
+        "internalType": "int32",
+        "name": "",
+        "type": "int32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "enum LeagueId",
+        "name": "",
+        "type": "uint8"
+      },
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "enum PositionType",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "name": "s_deviationRuleSet",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "s_maxBankroll",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "s_maxBetPercentage",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "s_minBankroll",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "s_minBetPercentage",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "s_minBets",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "s_oddsEnforcementBps",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "leaderboardId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bool",
+        "name": "value",
+        "type": "bool"
+      }
+    ],
+    "name": "setAllowLiveBetting",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "leaderboardId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bool",
+        "name": "value",
+        "type": "bool"
+      }
+    ],
+    "name": "setAllowMoneylineSpreadPairing",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "leaderboardId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "enum LeagueId",
+        "name": "leagueId",
+        "type": "uint8"
+      },
+      {
+        "internalType": "address",
+        "name": "scorer",
+        "type": "address"
+      },
+      {
+        "internalType": "enum PositionType",
+        "name": "positionType",
+        "type": "uint8"
+      },
+      {
+        "internalType": "int32",
+        "name": "maxDeviation",
+        "type": "int32"
+      }
+    ],
+    "name": "setDeviationRule",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "leaderboardId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
+      }
+    ],
+    "name": "setMaxBankroll",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "leaderboardId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint16",
+        "name": "value",
+        "type": "uint16"
+      }
+    ],
+    "name": "setMaxBetPercentage",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "leaderboardId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
+      }
+    ],
+    "name": "setMinBankroll",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "leaderboardId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint16",
+        "name": "value",
+        "type": "uint16"
+      }
+    ],
+    "name": "setMinBetPercentage",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "leaderboardId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint16",
+        "name": "value",
+        "type": "uint16"
+      }
+    ],
+    "name": "setMinBets",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "leaderboardId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint16",
+        "name": "value",
+        "type": "uint16"
+      }
+    ],
+    "name": "setOddsEnforcementBps",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "SPECULATION_MODULE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "SPREAD_SCORER_MODULE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "leaderboardId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "speculationId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "internalType": "int32",
+        "name": "userNumber",
+        "type": "int32"
+      },
+      {
+        "internalType": "enum PositionType",
+        "name": "positionType",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint256",
+        "name": "riskAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "profitAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "validateLeaderboardPosition",
+    "outputs": [
+      {
+        "internalType": "enum LeaderboardPositionValidationResult",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "leaderboardId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "enum LeagueId",
+        "name": "leagueId",
+        "type": "uint8"
+      },
+      {
+        "internalType": "address",
+        "name": "scorer",
+        "type": "address"
+      },
+      {
+        "internalType": "enum PositionType",
+        "name": "positionType",
+        "type": "uint8"
+      },
+      {
+        "internalType": "int32",
+        "name": "userNumber",
+        "type": "int32"
+      },
+      {
+        "internalType": "int32",
+        "name": "marketNumber",
+        "type": "int32"
+      }
+    ],
+    "name": "validateNumber",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "leaderboardId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "riskAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "profitAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint16",
+        "name": "marketOddsTick",
+        "type": "uint16"
+      }
+    ],
+    "name": "validateOdds",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

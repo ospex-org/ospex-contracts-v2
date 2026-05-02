@@ -1,0 +1,811 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "ospexCore_",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      }
+    ],
+    "name": "ContestModule__AlreadyScored",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      }
+    ],
+    "name": "ContestModule__ContestNotVerified",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ContestModule__InvalidCoreAddress",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ContestModule__InvalidMarketData",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      }
+    ],
+    "name": "ContestModule__InvalidStatus",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ContestModule__InvalidValue",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ContestModule__LeagueMismatch",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "moduleType",
+        "type": "bytes32"
+      }
+    ],
+    "name": "ContestModule__ModuleNotSet",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "caller",
+        "type": "address"
+      }
+    ],
+    "name": "ContestModule__NotOracleModule",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "caller",
+        "type": "address"
+      }
+    ],
+    "name": "ContestModule__NotSpeculationModule",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "rundownId",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "sportspageId",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "jsonoddsId",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "verifySourceHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "marketUpdateSourceHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "scoreContestSourceHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum LeagueId",
+        "name": "approvedLeagueId",
+        "type": "uint8"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "contestCreator",
+        "type": "address"
+      }
+    ],
+    "name": "ContestCreated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint32",
+        "name": "lastUpdated",
+        "type": "uint32"
+      },
+      {
+        "indexed": false,
+        "internalType": "int32",
+        "name": "spreadLineTicks",
+        "type": "int32"
+      },
+      {
+        "indexed": false,
+        "internalType": "int32",
+        "name": "totalLineTicks",
+        "type": "int32"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "moneylineAwayOdds",
+        "type": "uint16"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "moneylineHomeOdds",
+        "type": "uint16"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "spreadAwayOdds",
+        "type": "uint16"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "spreadHomeOdds",
+        "type": "uint16"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "overOdds",
+        "type": "uint16"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "underOdds",
+        "type": "uint16"
+      }
+    ],
+    "name": "ContestMarketsUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint32",
+        "name": "awayScore",
+        "type": "uint32"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint32",
+        "name": "homeScore",
+        "type": "uint32"
+      }
+    ],
+    "name": "ContestScoresSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum LeagueId",
+        "name": "leagueId",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "startTime",
+        "type": "uint256"
+      }
+    ],
+    "name": "ContestVerified",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      }
+    ],
+    "name": "ContestVoided",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "CONTEST_MODULE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "rundownId",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "sportspageId",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "jsonoddsId",
+        "type": "string"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "verifySourceHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "marketUpdateSourceHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "scoreContestSourceHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "enum LeagueId",
+        "name": "approvedLeagueId",
+        "type": "uint8"
+      },
+      {
+        "internalType": "address",
+        "name": "contestCreator",
+        "type": "address"
+      }
+    ],
+    "name": "createContest",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "EVENT_CONTEST_CREATED",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "EVENT_CONTEST_MARKETS_UPDATED",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "EVENT_CONTEST_SCORES_SET",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "EVENT_CONTEST_VERIFIED",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "EVENT_CONTEST_VOIDED",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getContest",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint32",
+            "name": "awayScore",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint32",
+            "name": "homeScore",
+            "type": "uint32"
+          },
+          {
+            "internalType": "enum LeagueId",
+            "name": "leagueId",
+            "type": "uint8"
+          },
+          {
+            "internalType": "enum ContestStatus",
+            "name": "contestStatus",
+            "type": "uint8"
+          },
+          {
+            "internalType": "address",
+            "name": "contestCreator",
+            "type": "address"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "verifySourceHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "marketUpdateSourceHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "scoreContestSourceHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "string",
+            "name": "rundownId",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "sportspageId",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "jsonoddsId",
+            "type": "string"
+          }
+        ],
+        "internalType": "struct Contest",
+        "name": "contest",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "scorer",
+        "type": "address"
+      }
+    ],
+    "name": "getContestMarket",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "int32",
+            "name": "lineTicks",
+            "type": "int32"
+          },
+          {
+            "internalType": "uint16",
+            "name": "upperOdds",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "lowerOdds",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint32",
+            "name": "lastUpdated",
+            "type": "uint32"
+          }
+        ],
+        "internalType": "struct ContestMarket",
+        "name": "contestMarket",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getModuleType",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "pure",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "i_ospexCore",
+    "outputs": [
+      {
+        "internalType": "contract OspexCore",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      }
+    ],
+    "name": "isContestTerminal",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MONEYLINE_SCORER_MODULE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "ORACLE_MODULE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "s_contestIdCounter",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "s_contestStartTimes",
+    "outputs": [
+      {
+        "internalType": "uint32",
+        "name": "",
+        "type": "uint32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "enum LeagueId",
+        "name": "leagueId",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint32",
+        "name": "startTime",
+        "type": "uint32"
+      }
+    ],
+    "name": "setContestLeagueIdAndStartTime",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint32",
+        "name": "awayScore",
+        "type": "uint32"
+      },
+      {
+        "internalType": "uint32",
+        "name": "homeScore",
+        "type": "uint32"
+      }
+    ],
+    "name": "setScores",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "SPECULATION_MODULE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "SPREAD_SCORER_MODULE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "TOTAL_SCORER_MODULE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "TREASURY_MODULE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint16",
+        "name": "moneylineAwayOdds",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "moneylineHomeOdds",
+        "type": "uint16"
+      },
+      {
+        "internalType": "int32",
+        "name": "spreadLineTicks",
+        "type": "int32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "spreadAwayOdds",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "spreadHomeOdds",
+        "type": "uint16"
+      },
+      {
+        "internalType": "int32",
+        "name": "totalLineTicks",
+        "type": "int32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "overOdds",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "underOdds",
+        "type": "uint16"
+      }
+    ],
+    "name": "updateContestMarkets",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      }
+    ],
+    "name": "voidContest",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]

@@ -1,0 +1,526 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "ospexCore",
+        "type": "address"
+      },
+      {
+        "internalType": "uint32",
+        "name": "voidCooldown",
+        "type": "uint32"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [],
+    "name": "SpeculationModule__AlreadySettled",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      }
+    ],
+    "name": "SpeculationModule__ContestNotFinalized",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "SpeculationModule__InvalidAddress",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "SpeculationModule__InvalidContestStatus",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "SpeculationModule__InvalidLineTicks",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "SpeculationModule__InvalidSpeculationId",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "SpeculationModule__InvalidStartTime",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "moduleType",
+        "type": "bytes32"
+      }
+    ],
+    "name": "SpeculationModule__ModuleNotSet",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "caller",
+        "type": "address"
+      }
+    ],
+    "name": "SpeculationModule__NotAuthorized",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "SpeculationModule__ScorerNotApproved",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "SpeculationModule__SpeculationExists",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "speculationId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "scorer",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "int32",
+        "name": "lineTicks",
+        "type": "int32"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "maker",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "taker",
+        "type": "address"
+      }
+    ],
+    "name": "SpeculationCreated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "speculationId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum WinSide",
+        "name": "winner",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "scorer",
+        "type": "address"
+      }
+    ],
+    "name": "SpeculationSettled",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "CONTEST_MODULE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "scorer",
+        "type": "address"
+      },
+      {
+        "internalType": "int32",
+        "name": "lineTicks",
+        "type": "int32"
+      },
+      {
+        "internalType": "address",
+        "name": "maker",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "taker",
+        "type": "address"
+      }
+    ],
+    "name": "createSpeculation",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "EVENT_SPECULATION_CREATED",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "EVENT_SPECULATION_SETTLED",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getModuleType",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "pure",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "speculationId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getSpeculation",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "contestId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "speculationScorer",
+            "type": "address"
+          },
+          {
+            "internalType": "int32",
+            "name": "lineTicks",
+            "type": "int32"
+          },
+          {
+            "internalType": "address",
+            "name": "speculationTaker",
+            "type": "address"
+          },
+          {
+            "internalType": "enum SpeculationStatus",
+            "name": "speculationStatus",
+            "type": "uint8"
+          },
+          {
+            "internalType": "enum WinSide",
+            "name": "winSide",
+            "type": "uint8"
+          }
+        ],
+        "internalType": "struct Speculation",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "scorer",
+        "type": "address"
+      },
+      {
+        "internalType": "int32",
+        "name": "lineTicks",
+        "type": "int32"
+      }
+    ],
+    "name": "getSpeculationId",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "i_ospexCore",
+    "outputs": [
+      {
+        "internalType": "contract OspexCore",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "i_voidCooldown",
+    "outputs": [
+      {
+        "internalType": "uint32",
+        "name": "",
+        "type": "uint32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      }
+    ],
+    "name": "isContestPastCooldown",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MONEYLINE_SCORER_MODULE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "POSITION_MODULE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "s_speculationIdCounter",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "int32",
+        "name": "",
+        "type": "int32"
+      }
+    ],
+    "name": "s_speculationLookup",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "s_speculations",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "speculationScorer",
+        "type": "address"
+      },
+      {
+        "internalType": "int32",
+        "name": "lineTicks",
+        "type": "int32"
+      },
+      {
+        "internalType": "address",
+        "name": "speculationTaker",
+        "type": "address"
+      },
+      {
+        "internalType": "enum SpeculationStatus",
+        "name": "speculationStatus",
+        "type": "uint8"
+      },
+      {
+        "internalType": "enum WinSide",
+        "name": "winSide",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "speculationId",
+        "type": "uint256"
+      }
+    ],
+    "name": "settleSpeculation",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "SPECULATION_MODULE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "TOTAL_SCORER_MODULE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

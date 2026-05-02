@@ -1,0 +1,753 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "ospexCore_",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "router",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "linkAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "donId",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "linkDenominator",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "approvedSigner",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [],
+    "name": "EmptyArgs",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "EmptySecrets",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "EmptySource",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NoInlineSecrets",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "OnlyRouterCanFulfill",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "OracleModule__ConflictingApprovalLeagues",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      }
+    ],
+    "name": "OracleModule__ContestNotStarted",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "OracleModule__ContestNotVerified",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "OracleModule__IncorrectScoreSourceHash",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "OracleModule__IncorrectUpdateSourceHash",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "inputLength",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "expectedLength",
+        "type": "uint256"
+      }
+    ],
+    "name": "OracleModule__InputTooShort",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "OracleModule__InvalidAddress",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "enum OracleRequestType",
+        "name": "requestType",
+        "type": "uint8"
+      }
+    ],
+    "name": "OracleModule__InvalidRequestType",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "OracleModule__InvalidScriptApproval",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "OracleModule__InvalidValue",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "moduleType",
+        "type": "bytes32"
+      }
+    ],
+    "name": "OracleModule__ModuleNotSet",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "OracleModule__ScriptApprovalExpired",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "OracleModule__ScriptHashMismatch",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "payment",
+        "type": "uint256"
+      }
+    ],
+    "name": "OracleModule__SubscriptionPaymentFailed",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "requestId",
+        "type": "bytes32"
+      }
+    ],
+    "name": "OracleModule__UnexpectedRequestId",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "OracleModule__WrongApprovalPurpose",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ReentrancyGuardReentrantCall",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      }
+    ],
+    "name": "SafeERC20FailedOperation",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "requestId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum OracleRequestType",
+        "name": "requestType",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes",
+        "name": "err",
+        "type": "bytes"
+      }
+    ],
+    "name": "OracleRequestFailed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "id",
+        "type": "bytes32"
+      }
+    ],
+    "name": "RequestFulfilled",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "id",
+        "type": "bytes32"
+      }
+    ],
+    "name": "RequestSent",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "requestId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes",
+        "name": "response",
+        "type": "bytes"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes",
+        "name": "err",
+        "type": "bytes"
+      }
+    ],
+    "name": "Response",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "scriptHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum ScriptPurpose",
+        "name": "purpose",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum LeagueId",
+        "name": "leagueId",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "version",
+        "type": "uint16"
+      }
+    ],
+    "name": "ScriptApprovalVerified",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "CONTEST_MODULE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "string",
+            "name": "rundownId",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "sportspageId",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "jsonoddsId",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "createContestSourceJS",
+            "type": "string"
+          },
+          {
+            "internalType": "bytes",
+            "name": "encryptedSecretsUrls",
+            "type": "bytes"
+          },
+          {
+            "internalType": "uint64",
+            "name": "subscriptionId",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint32",
+            "name": "gasLimit",
+            "type": "uint32"
+          }
+        ],
+        "internalType": "struct OracleModule.CreateContestParams",
+        "name": "params",
+        "type": "tuple"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "marketUpdateSourceHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "scoreContestSourceHash",
+        "type": "bytes32"
+      },
+      {
+        "components": [
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "scriptHash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "enum ScriptPurpose",
+                "name": "purpose",
+                "type": "uint8"
+              },
+              {
+                "internalType": "enum LeagueId",
+                "name": "leagueId",
+                "type": "uint8"
+              },
+              {
+                "internalType": "uint16",
+                "name": "version",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint64",
+                "name": "validUntil",
+                "type": "uint64"
+              }
+            ],
+            "internalType": "struct ScriptApproval",
+            "name": "verifyApproval",
+            "type": "tuple"
+          },
+          {
+            "internalType": "bytes",
+            "name": "verifyApprovalSig",
+            "type": "bytes"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "scriptHash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "enum ScriptPurpose",
+                "name": "purpose",
+                "type": "uint8"
+              },
+              {
+                "internalType": "enum LeagueId",
+                "name": "leagueId",
+                "type": "uint8"
+              },
+              {
+                "internalType": "uint16",
+                "name": "version",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint64",
+                "name": "validUntil",
+                "type": "uint64"
+              }
+            ],
+            "internalType": "struct ScriptApproval",
+            "name": "marketUpdateApproval",
+            "type": "tuple"
+          },
+          {
+            "internalType": "bytes",
+            "name": "marketUpdateApprovalSig",
+            "type": "bytes"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "scriptHash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "enum ScriptPurpose",
+                "name": "purpose",
+                "type": "uint8"
+              },
+              {
+                "internalType": "enum LeagueId",
+                "name": "leagueId",
+                "type": "uint8"
+              },
+              {
+                "internalType": "uint16",
+                "name": "version",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint64",
+                "name": "validUntil",
+                "type": "uint64"
+              }
+            ],
+            "internalType": "struct ScriptApproval",
+            "name": "scoreApproval",
+            "type": "tuple"
+          },
+          {
+            "internalType": "bytes",
+            "name": "scoreApprovalSig",
+            "type": "bytes"
+          }
+        ],
+        "internalType": "struct OracleModule.ScriptApprovals",
+        "name": "approvals",
+        "type": "tuple"
+      }
+    ],
+    "name": "createContestFromOracle",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "DOMAIN_SEPARATOR",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "EVENT_ORACLE_REQUEST_FAILED",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "EVENT_ORACLE_RESPONSE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "EVENT_SCRIPT_APPROVAL_VERIFIED",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "requestId",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes",
+        "name": "response",
+        "type": "bytes"
+      },
+      {
+        "internalType": "bytes",
+        "name": "err",
+        "type": "bytes"
+      }
+    ],
+    "name": "handleOracleFulfillment",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "i_approvedSigner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "i_donId",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "i_linkDenominator",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "i_ospexCore",
+    "outputs": [
+      {
+        "internalType": "contract OspexCore",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "ODDS_SCALE",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "name": "s_requestContext",
+    "outputs": [
+      {
+        "internalType": "enum OracleRequestType",
+        "name": "requestType",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "string",
+        "name": "scoreContestSourceJS",
+        "type": "string"
+      },
+      {
+        "internalType": "bytes",
+        "name": "encryptedSecretsUrls",
+        "type": "bytes"
+      },
+      {
+        "internalType": "uint64",
+        "name": "subscriptionId",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint32",
+        "name": "gasLimit",
+        "type": "uint32"
+      }
+    ],
+    "name": "scoreContestFromOracle",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "SCRIPT_APPROVAL_TYPEHASH",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "contestId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "string",
+        "name": "contestMarketsUpdateSourceJS",
+        "type": "string"
+      },
+      {
+        "internalType": "bytes",
+        "name": "encryptedSecretsUrls",
+        "type": "bytes"
+      },
+      {
+        "internalType": "uint64",
+        "name": "subscriptionId",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint32",
+        "name": "gasLimit",
+        "type": "uint32"
+      }
+    ],
+    "name": "updateContestMarketsFromOracle",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]
