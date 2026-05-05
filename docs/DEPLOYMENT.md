@@ -118,10 +118,8 @@ DEPLOYER_ADDRESS=0xYourWallet forge script script/DeployAmoy.s.sol:DeployAmoy \
 - [ ] Add OracleModule address as consumer on [Chainlink subscription 416](https://functions.chain.link/polygon-amoy/416)
 - [ ] Fund OracleModule with LINK tokens for Chainlink Functions requests
 - [ ] Upload offchain-secrets for Amoy (see `scripts/` directory)
-- [ ] Update ospex-fdb Firebase functions with new contract addresses
-- [ ] Update ospex-agent-server `.env` with new contract addresses
-- [ ] Update ospex-lovable frontend config with new contract addresses
-- [ ] Test end-to-end: contest creation -> speculation -> position -> scoring
+- [ ] Update downstream services (indexer, read API, market data writer, market maker, frontend) with the new contract addresses
+- [ ] Run the post-deploy event smoke test from [`testing/POST_DEPLOY_SMOKE_TEST.md`](testing/POST_DEPLOY_SMOKE_TEST.md) — confirms downstream consumers decode every event payload correctly
 
 ---
 
@@ -143,15 +141,9 @@ DEPLOYER_ADDRESS=0xYourMainnetWallet forge script script/DeployPolygon.s.sol:Dep
 
 > **Do NOT use `https://polygon-rpc.com`** — it returns 401 as of March 2026. Use your Alchemy RPC URL from `.env`.
 
-### Mainnet Readiness — Config Swap
+### Mainnet vs. Amoy Configuration
 
-The Amoy deploy script (`DeployAmoy.s.sol`) is annotated with `// MAINNET:` comments on every chain-specific value. To find all values that need changing:
-
-```bash
-grep -n "MAINNET:" script/DeployAmoy.s.sol
-```
-
-Key swaps:
+`DeployPolygon.s.sol` carries the canonical mainnet constants. The full per-network parameter list (with rationale) is in [`deployment/DEPLOYMENT_PARAMETERS.md`](deployment/DEPLOYMENT_PARAMETERS.md). Before any future redeploy, diff the script's constants against that reference. Headline values:
 
 | Value | Amoy | Mainnet |
 |-------|------|---------|
@@ -161,7 +153,8 @@ Key swaps:
 | DON ID | `fun-polygon-amoy-1` | `fun-polygon-mainnet-1` |
 | Subscription | 416 | 191 |
 | Fee Receiver | deployer | `0xdaC630...5114` |
-| Source Hashes | Amoy hashes | Regenerate from mainnet JS source |
+| Void cooldown | 1 day | 7 days |
+| Source Hashes | Amoy-signed approvals | Regenerate and re-sign from mainnet JS source |
 
 ### Post-Deploy Checklist (Mainnet)
 
@@ -172,7 +165,8 @@ Key swaps:
 - [ ] Add OracleModule as consumer on [Chainlink subscription 191](https://functions.chain.link/polygon/191)
 - [ ] Fund OracleModule with LINK
 - [ ] Upload mainnet offchain-secrets
-- [ ] Update all downstream services (ospex-fdb, ospex-agent-server, ospex-lovable)
+- [ ] Update all downstream services (indexer, read API, market data writer, market maker, frontend) with the new contract addresses
+- [ ] Run the post-deploy event smoke test from [`testing/POST_DEPLOY_SMOKE_TEST.md`](testing/POST_DEPLOY_SMOKE_TEST.md)
 - [ ] Test with small positions before announcing
 
 ---
@@ -212,7 +206,7 @@ See [TRUST_MODEL.md](TRUST_MODEL.md) for the full trust model.
 Amoy is a checkpoint, not a destination. These are known issues — **do not rabbit-hole on them**:
 
 - **Gas estimation oddities**: Amoy gas estimates can be wildly inaccurate. If a transaction fails with "out of gas" but works on the Anvil fork, try bumping the gas limit manually with `--gas-limit`.
-- **Event indexing delays / out-of-order events**: Amoy's block production is irregular. Events may appear out of order or with significant delays. The ospex-fdb listener may see events late — this is Amoy, not a bug.
+- **Event indexing delays / out-of-order events**: Amoy's block production is irregular. Events may appear out of order or with significant delays. Downstream indexers may see events late on Amoy — this is the network, not a bug.
 - **RPC flakiness**: `rpc-amoy.polygon.technology` drops connections periodically. If `forge script` fails mid-broadcast, check the broadcast log (`broadcast/`) for which transactions landed and resume manually.
 - **Contract verification failures**: Polygonscan Amoy verification can time out or return spurious errors. Retry, or verify manually via the Polygonscan UI.
 - **Chainlink Functions latency**: Functions callbacks on Amoy can take 2-5 minutes (vs ~30s on mainnet). Don't assume scoring is broken if it's slow.
