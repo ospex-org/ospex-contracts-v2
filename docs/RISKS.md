@@ -138,7 +138,7 @@ The protocol's off-chain infrastructure has no redundancy.
 - Supabase (Postgres + Realtime) stores off-chain contest, commitment, and position metadata projected from on-chain events. A Supabase outage would degrade the frontend, market maker, and read API but would not affect on-chain funds or contract logic — settled positions can still be claimed directly from PositionModule.
 
 **Monitoring:**
-- Production logs are available via Papertrail (SolarWinds Observability). There are no automated alerts for critical failures (e.g., scorer downtime, market maker crashes).
+- There is no centralized log aggregation or automated alerting for critical failures (e.g., scorer downtime, market maker crashes). Service-level logs are accessed per-app via the Heroku CLI.
 
 **Key Management:**
 - The approved signer key (used for script approvals) is a trust dependency. Compromise would allow an attacker to approve malicious scripts for new contests. The signer address is immutable — it cannot be rotated.
