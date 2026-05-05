@@ -1,5 +1,7 @@
 # Ospex Protocol Architecture
 
+> **As of commit**: `d34f0d0`
+
 Ospex is a decentralized peer-to-peer sports speculation protocol on Polygon. Zero vigorish — users set their own odds.
 
 ## Design Pattern

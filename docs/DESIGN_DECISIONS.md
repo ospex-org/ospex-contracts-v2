@@ -1,5 +1,7 @@
 # Ospex Protocol — Design Decisions
 
+> **As of commit**: `d34f0d0`
+>
 > Intentional behaviors from the hardening cycle. Each section documents a decision that looks unusual on first read but is correct by design. This is a reference doc for reviewers, auditors, and agents.
 
 ---

@@ -1,6 +1,7 @@
 # Ospex Protocol — Trust Model
 
-> **Applies to**: v2.3 (zero-admin, post-hardening)
+> **As of commit**: `d34f0d0`
+> **Applies to**: R4 (zero-admin, post-hardening)
 > **Pattern**: Bootstrap-then-finalize — no admin key after deployment
 
 ---
@@ -83,7 +84,7 @@ Contest scores are determined by Chainlink Functions executing JavaScript source
 
 ### Off-Chain Infrastructure
 
-The scorer service, agent server, and frontend are centralized services operated by the protocol developer. If they go down:
+The off-chain market data writer, market maker, indexer, read API, and frontend are centralized services operated by the protocol developer. If they go down:
 - No new contests are created (requires oracle request)
 - No new market data updates are published
 - Existing positions remain safe on-chain — users can still claim after settlement

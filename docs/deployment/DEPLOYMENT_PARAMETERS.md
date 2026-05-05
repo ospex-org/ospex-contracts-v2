@@ -1,4 +1,4 @@
-# Deployment Parameters — Ospex v2.3 (Zero-Admin)
+# Deployment Parameters — Ospex R4 (Zero-Admin)
 
 All values are immutable after `finalize()`. There is no upgrade path — a mistake means redeploying the entire protocol.
 
@@ -10,7 +10,7 @@ All values are immutable after `finalize()`. There is no upgrade path — a mist
 | **Void Cooldown** | `3 days` (259200) | `1 days` (86400) | `7 days` (604800) | SpeculationModule `voidCooldown` — time after which an unmatched speculation can be voided | Confirmed — differentiated per network for fast Amoy testing and conservative mainnet window |
 | **Contest Creation Fee** | `1_000_000` | `1_000_000` | `1_000_000` | TreasuryModule `contestCreationFeeRate` — 1.00 USDC | Same across all networks |
 | **Speculation Creation Fee** | `500_000` | `500_000` | `500_000` | TreasuryModule `speculationCreationFeeRate` — 0.50 USDC split between maker and taker | Same across all networks |
-| **Leaderboard Creation Fee** | `500_000` | `500_000` | `500_000` | TreasuryModule `leaderboardCreationFeeRate` — 0.50 USDC | Updated from 0.25 USDC per Vince's confirmation |
+| **Leaderboard Creation Fee** | `500_000` | `500_000` | `500_000` | TreasuryModule `leaderboardCreationFeeRate` — 0.50 USDC | Same across all networks |
 | **LINK Denominator** | `10` | `250` | `200` | OracleModule `linkDenominator` — payment per oracle call = 1e18 / value. 10 = 0.1 LINK, 250 = 0.004 LINK, 200 = 0.005 LINK | Anvil uses mock LINK so value is irrelevant; Amoy = ~$0.06 per call (kept at R3 value, not redeploying); Mainnet = 200 (~$0.075 per call) — calibrated against R3 sub-191 history (median ~0.0036, avg ~0.006, high-gas spikes ~0.0085 LINK) |
 | **DON ID** | `bytes32("test_don_id")` | `bytes32("fun-polygon-amoy-1")` | `bytes32("fun-polygon-mainnet-1")` | OracleModule `donId` — Chainlink Functions DON identifier | Anvil mock router ignores this |
 | **Approved Signer** | `vm.addr(0xA11CE)` | `0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3` | `0xfd6c7fc1f182de53aa636584f1c6b80d9d885886` | OracleModule `approvedSigner` — signs EIP-712 ScriptApproval structs for oracle JS sources | Amoy = deployer EOA; Mainnet = deployer EOA (same wallet as the deployer; EIP-712 signing via the EOA's private key) |
@@ -46,4 +46,4 @@ These are runtime operations done after deployment, not baked into constructors.
 | Approve OracleModule for LINK spending | Done in script | Manual or script | Manual | `LINK.approve(oracleModule, amount)` from caller wallet |
 | Upload encrypted secrets | N/A (mock) | Chainlink Functions dashboard | Chainlink Functions dashboard | API keys for ESPN/JSONOdds |
 | Sign script approvals | `vm.sign(SIGNER_PK, ...)` | Sign with deployer EOA | Sign with deployer EOA | EIP-712 ScriptApproval for each JS source (verify, market update, score) |
-| Update downstream services | N/A | ospex-fdb, agent-server, lovable | ospex-fdb, agent-server, lovable | New contract addresses in config |
+| Update downstream services | N/A | indexer, read API, market data writer, market maker, frontend | indexer, read API, market data writer, market maker, frontend | New contract addresses in each service's config |

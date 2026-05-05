@@ -36,7 +36,7 @@
 | Router | `0xdc2AAF042Aeff2E68B3e8E33F19e4B9fA7C73F10` |
 | DON | `fun-polygon-mainnet-1` |
 | LINK token | `0xb0897686c545045aFc77CF20eC7A532E3120E0F1` |
-| OracleModule consumer | Pending — added post-deploy |
+| OracleModule consumer | Added 2026-04-29 |
 
 ## Protocol parameters
 

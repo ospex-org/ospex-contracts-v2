@@ -1,6 +1,7 @@
 # Ospex Protocol — Risk Assessment
 
-> **Last updated**: 2026-04-19
+> **As of commit**: `d34f0d0`
+> **Last updated**: 2026-05-05
 > **Chain**: Polygon mainnet (chain ID 137) / Polygon Amoy testnet (chain ID 80002)
 > **Trust model**: Zero-admin (bootstrap-then-finalize)
 
@@ -21,7 +22,7 @@
 
 ## 1. No Professional Audit — CRITICAL
 
-The smart contracts have not been professionally audited. All 13 deployed contracts (OspexCore + 12 modules) were developed by a solo founder with peer review from an experienced developer and an extensive hardening cycle (562 tests passing, zero HIGH findings in self-review).
+The smart contracts have not been professionally audited. All 13 deployed contracts (OspexCore + 12 modules) were developed by a solo founder with peer review from an experienced developer and an extensive hardening cycle (563 tests passing, zero HIGH findings in self-review).
 
 **What this means:**
 - There may be undiscovered vulnerabilities — reentrancy paths, integer edge cases, incorrect access control, or economic exploits that a professional audit would catch.
@@ -111,7 +112,7 @@ Ospex is a peer-to-peer protocol. Positions require a counterparty.
 
 **Thin Order Book:**
 - The protocol currently has limited organic liquidity. Most markets have few or no resting commitments from human participants.
-- A single automated market maker (agent "Michelle") provides the majority of liquidity. If this agent goes offline, most markets would have no counterparty available.
+- A single automated market maker provides the majority of resting commitments. If it goes offline, most markets would have no counterparty available.
 - Makers who set long expiry timestamps or unfavorable odds may find no taker.
 
 **Commitment Expiry Risk:**
@@ -119,7 +120,7 @@ Ospex is a peer-to-peer protocol. Positions require a counterparty.
 - Once a commitment is matched and a position is filled, it is locked until the speculation is settled or the position is sold on the secondary market.
 
 **Single Market Maker Dependency:**
-- The automated market maker is operated by the protocol developer. Its pricing, risk limits, and availability are controlled by a single party.
+- The primary market maker is operated by the protocol developer. Its pricing, risk limits, and availability are controlled by a single party.
 - If the market maker's strategy has a flaw, it could create systematically mispriced markets.
 
 ---
@@ -129,15 +130,15 @@ Ospex is a peer-to-peer protocol. Positions require a counterparty.
 The protocol's off-chain infrastructure has no redundancy.
 
 **Single Developer:**
-- All smart contracts, the scorer service, the agent server, the API server, and the frontend are built and maintained by one person.
+- All smart contracts, the off-chain market data writer, the indexer, the read API, the market maker, and the frontend are built and maintained by one person.
 
 **Hosting:**
-- The agent server, API server, and scorer run on Heroku. A Heroku outage would take down automated market making and contest scoring simultaneously.
+- All off-chain services (writer, indexer, read API, market maker) run on Heroku. A Heroku outage would take down automated market making and contest scoring simultaneously.
 - No failover deployment exists on a second provider.
-- Firebase (Google Cloud) stores off-chain contest and position metadata. A Firebase outage would degrade the frontend but would not affect on-chain funds or contract logic.
+- Supabase (Postgres + Realtime) stores off-chain contest, commitment, and position metadata projected from on-chain events. A Supabase outage would degrade the frontend, market maker, and read API but would not affect on-chain funds or contract logic — settled positions can still be claimed directly from PositionModule.
 
 **Monitoring:**
-- Production logs are available via Papertrail (SolarWinds) with ~2-day retention. There are no automated alerts for critical failures (e.g., scorer downtime, agent crashes).
+- There is no centralized log aggregation or automated alerting for critical failures (e.g., scorer downtime, market maker crashes). Service-level logs are accessed per-app via the Heroku CLI.
 
 **Key Management:**
 - The approved signer key (used for script approvals) is a trust dependency. Compromise would allow an attacker to approve malicious scripts for new contests. The signer address is immutable — it cannot be rotated.
