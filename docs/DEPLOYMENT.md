@@ -43,7 +43,7 @@
 Before deploying to live Amoy, validate the full deployment sequence on a local fork:
 
 ```bash
-cd ospex-foundry-matched-pairs
+cd ospex-contracts-v2
 ./script/deploy-anvil-test.sh
 ```
 
