@@ -1,7 +1,7 @@
 # Ospex Protocol — Trust Model
 
 > **As of commit**: `d34f0d0`
-> **Applies to**: v2.3 (zero-admin, post-hardening)
+> **Applies to**: R4 (zero-admin, post-hardening)
 > **Pattern**: Bootstrap-then-finalize — no admin key after deployment
 
 ---

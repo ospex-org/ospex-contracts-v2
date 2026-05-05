@@ -1,4 +1,4 @@
-# Deployment Parameters — Ospex v2.3 (Zero-Admin)
+# Deployment Parameters — Ospex R4 (Zero-Admin)
 
 All values are immutable after `finalize()`. There is no upgrade path — a mistake means redeploying the entire protocol.
 
