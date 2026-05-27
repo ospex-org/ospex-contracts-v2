@@ -1,0 +1,31 @@
+{
+  "types": {
+    "EIP712Domain": [
+      { "name": "name", "type": "string" },
+      { "name": "version", "type": "string" },
+      { "name": "chainId", "type": "uint256" },
+      { "name": "verifyingContract", "type": "address" }
+    ],
+    "ScriptApproval": [
+      { "name": "scriptHash", "type": "bytes32" },
+      { "name": "purpose", "type": "uint8" },
+      { "name": "leagueId", "type": "uint8" },
+      { "name": "version", "type": "uint16" },
+      { "name": "validUntil", "type": "uint64" }
+    ]
+  },
+  "primaryType": "ScriptApproval",
+  "domain": {
+    "name": "OspexOracle",
+    "version": "1",
+    "chainId": 137,
+    "verifyingContract": "0x7e1397eD5b4c9f606DCF2EB0281485B2296E29Bb"
+  },
+  "message": {
+    "scriptHash": "0xec6a7e9cdffa09fdcaa611220e2c99ba0ec58cc082812a01b5d321ccc1e5ebcf",
+    "purpose": 0,
+    "leagueId": 0,
+    "version": 1,
+    "validUntil": 1795737600
+  }
+}
