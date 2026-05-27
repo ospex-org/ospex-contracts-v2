@@ -2,12 +2,12 @@
 
 EIP-712 signed `ScriptApproval` structs for the three Chainlink Functions JS sources consumed by `OracleModule.createContestFromOracle(...)`. Each entry below is the exact data that must be passed in the `ScriptApprovals` calldata struct when creating a contest.
 
-**Signed:** 2026-04-29
+**Signed:** 2026-04-29 (market-update, score) · 2026-05-27 (verify — re-signed for the Athletics MLB fix)
 **Signer:** `0xfd6C7Fc1F182de53AA636584f1c6B80d9D885886` (mainnet `APPROVED_SIGNER`)
 **OracleModule:** `0x7e1397eD5b4c9f606DCF2EB0281485B2296E29Bb`
 **Chain ID:** 137 (Polygon mainnet)
 **EIP-712 domain:** `OspexOracle` v1
-**Tooling:** [`scripts/sign-script-approval.js`](../../scripts/sign-script-approval.js)
+**Tooling:** [`script-approvals/`](../../script-approvals/) (Foundry-keystore flow via `cast wallet sign`, used for the 2026-05-27 verify re-sign) · legacy [`scripts/sign-script-approval.js`](../../scripts/sign-script-approval.js) (ethers, raw-key prompt)
 **JS source repo:** [`ospex-org/ospex-source-files-and-other`](https://github.com/ospex-org/ospex-source-files-and-other)
 
 All three signatures verified locally (recovered signer matches `APPROVED_SIGNER`).
@@ -19,14 +19,18 @@ All three signatures verified locally (recovered signer matches `APPROVED_SIGNER
 | Field | Value |
 |-------|-------|
 | Source | https://raw.githubusercontent.com/ospex-org/ospex-source-files-and-other/master/src/contestCreation.js |
-| `scriptHash` | `0x01c48e15068b68b7d5986d5013edd83a243ac31a761567e9db0e57b513c26c01` |
+| `scriptHash` | `0xec6a7e9cdffa09fdcaa611220e2c99ba0ec58cc082812a01b5d321ccc1e5ebcf` |
 | `purpose` | `0` (VERIFY) |
 | `leagueId` | `0` (Unknown — wildcard, all leagues) |
 | `version` | `1` |
-| `validUntil` | `1793030835` (2026-10-26T16:07:15Z, **180 days**) |
-| `signature` | `0xe34d613dd3901b6cf6f72dd5d7fac7dbae044e204d0b8853ecc91359292d2511757bf50d94d7513214c34aef5591b3ad5fb54efd17293c7e7b931d1b68ab51661b` |
+| `validUntil` | `1795737600` (2026-11-27T00:00:00Z, **~6 months**) |
+| `signature` | `0x0ab097985df80cc08e75e88af7b337b2e645a62c9a53eea96a38faf1fe4911d15dc731abbe099e7256d9f005860a6f48f22267f22286d032fbf6152fa9c6625e1b` |
 
-**Re-sign reminder:** before 2026-10-26. After expiry, `createContestFromOracle` reverts; existing contests are unaffected.
+**Re-signed 2026-05-27** to add the Athletics MLB `teamLegend` entry (`{ leagueId: 3, sportspageTeamName: 'Athletics', jsonoddsTeamName: 'Athletics', id: 58 }`) so MLB contests involving the A's can be created. Signed via the `ospex-mainnet-signer` Foundry keystore — see [`script-approvals/`](../../script-approvals/).
+
+**Supersedes** the 2026-04-29 verify approval (`scriptHash 0x01c48e15…c26c01`, `validUntil 1793030835`, pre-Athletics source). That signature stays cryptographically valid until 2026-10-26 but must not be used — its source throws on A's games.
+
+**Re-sign reminder:** before 2026-11-27. After expiry, `createContestFromOracle` reverts; existing contests are unaffected.
 
 ---
 
@@ -60,7 +64,7 @@ All three signatures verified locally (recovered signer matches `APPROVED_SIGNER
 
 ## Notes
 
-- **Hash continuity with Amoy R4:** all three `scriptHash` values are identical to the Amoy R4 signed approvals — confirms the JS sources at the GitHub URLs are unchanged across the testnet → mainnet boundary. Only the signatures differ (different EIP-712 domain: chainId + verifyingContract).
+- **Hash continuity with Amoy R4:** the market-update and score `scriptHash` values are identical to the Amoy R4 signed approvals (those JS sources are unchanged; only their signatures differ, by the EIP-712 domain — chainId + verifyingContract). The **verify** `scriptHash` diverged on 2026-05-27 when `contestCreation.js` gained the Athletics MLB `teamLegend` entry (`0x01c48e15…` → `0xec6a7e9c…`).
 - **Approvals are consumed at contest creation.** Once `OracleModule.createContestFromOracle(...)` accepts these, the three script hashes are baked into the contest. Subsequent operations (oracle callbacks for verify, market-update, score) validate by hash only — no further signature checks. Per-contest, the approval gate is a one-time thing.
 - **Expiry impact (verify only):** if `validUntil` for verify passes without re-signing, no new contests can be created. Existing contests continue functioning. Re-signing is a single command on the deployer machine.
 - **Permanent approvals (market-update + score):** these scripts have been stable for years. Permanent expiry preserves a rollback path — if a future market-update or score script revision has a bug, the previous approval can still be used to create contests against the previous hash.

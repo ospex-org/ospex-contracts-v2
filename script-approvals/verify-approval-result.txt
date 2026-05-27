@@ -1,0 +1,11 @@
+# Ospex mainnet VERIFY ScriptApproval — signed result
+# PUBLIC data (signature/hash/struct fields) — safe to commit to this public repo.
+# Athletics MLB fix. Produced by script-approvals/sign-verify-approval.sh
+scriptHash=0xec6a7e9cdffa09fdcaa611220e2c99ba0ec58cc082812a01b5d321ccc1e5ebcf
+purpose=0
+leagueId=0
+version=1
+validUntil=1795737600
+signer=0xfd6C7Fc1F182de53AA636584f1c6B80d9D885886
+signature=0x0ab097985df80cc08e75e88af7b337b2e645a62c9a53eea96a38faf1fe4911d15dc731abbe099e7256d9f005860a6f48f22267f22286d032fbf6152fa9c6625e1b
+sourceHashRecheck=OK
