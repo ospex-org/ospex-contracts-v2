@@ -32,7 +32,10 @@ import {CreWorkflowOwner} from "../src/governance/CreWorkflowOwner.sol";
  *      Env inputs:
  *        DEPLOYER_ADDRESS    — the funded EOA that broadcasts (gas payer).
  *        WORKFLOW_REGISTRY   — the CRE WorkflowRegistry (default: Ethereum-mainnet 2.0.0 address).
- *        TIMELOCK_MIN_DELAY  — timelock delay in SECONDS (e.g. 3600 = 1h for a fast test, 172800 = 2d prod).
+ *        TIMELOCK_MIN_DELAY  — timelock delay in SECONDS (default 7 days). 604800 = 7d (recommended:
+ *                              aligns with the void cooldown, reads as security-grade), 1209600 = 14d
+ *                              (more conservative — covers the longest contest in-flight window). The
+ *                              timelock controls ONLY workflow update/delete, never the protocol/funds.
  *        TIMELOCK_PROPOSER   — address allowed to schedule (the governance wallet). MUST be set.
  *        TIMELOCK_EXECUTOR   — address allowed to execute (default = proposer).
  *        WORKFLOW_NAME       — the workflow's registry name (default "osverify"); pinned in the adapter.
@@ -52,7 +55,7 @@ contract DeployCreGovernance is Script {
         // guards against accidentally running against a chain that has no registry deployed.
         require(registry.code.length > 0, "WORKFLOW_REGISTRY has no code on this chain");
 
-        uint256 minDelay = vm.envOr("TIMELOCK_MIN_DELAY", uint256(2 days));
+        uint256 minDelay = vm.envOr("TIMELOCK_MIN_DELAY", uint256(7 days)); // recommended; set explicitly at deploy
         address proposer = vm.envOr("TIMELOCK_PROPOSER", address(0));
         require(proposer != address(0), "set TIMELOCK_PROPOSER");
         address executor = vm.envOr("TIMELOCK_EXECUTOR", proposer);
