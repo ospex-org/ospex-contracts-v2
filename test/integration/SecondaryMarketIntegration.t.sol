@@ -75,10 +75,7 @@ contract SecondaryMarketIntegrationTest is Test {
         token = new MockERC20();
         speculationModule = new SpeculationModule(address(core), 3 days);
         positionModule = new PositionModule(address(core), address(token));
-        treasuryModule = new TreasuryModule(
-            address(core), address(token), address(0xFEED),
-            1_000_000, 500_000, 500_000
-        );
+        treasuryModule = new TreasuryModule(address(core), address(token), address(0xFEED), 1_000_000, 500_000, 500_000);
 
         mockContestModule = new MockContestModule();
         MockLeaderboardModuleInteg mockLeaderboard = new MockLeaderboardModuleInteg();
@@ -93,25 +90,42 @@ contract SecondaryMarketIntegrationTest is Test {
 
         bytes32[] memory types = new bytes32[](12);
         address[] memory addrs = new address[](12);
-        types[0]  = core.CONTEST_MODULE();         addrs[0]  = address(mockContestModule);
-        types[1]  = core.SPECULATION_MODULE();      addrs[1]  = address(speculationModule);
-        types[2]  = core.POSITION_MODULE();         addrs[2]  = address(positionModule);
-        types[3]  = core.MATCHING_MODULE();         addrs[3]  = address(this);
-        types[4]  = core.CRE_ORACLE_RECEIVER();           addrs[4]  = address(oracleModule);
-        types[5]  = core.TREASURY_MODULE();         addrs[5]  = address(treasuryModule);
-        types[6]  = core.LEADERBOARD_MODULE();      addrs[6]  = address(mockLeaderboard);
-        types[7]  = core.RULES_MODULE();            addrs[7]  = address(0xD007);
-        types[8]  = core.SECONDARY_MARKET_MODULE(); addrs[8]  = address(market);
-        types[9]  = core.MONEYLINE_SCORER_MODULE(); addrs[9]  = moneylineScorerAddr;
-        types[10] = core.SPREAD_SCORER_MODULE();    addrs[10] = spreadScorerAddr;
-        types[11] = core.TOTAL_SCORER_MODULE();     addrs[11] = totalScorerAddr;
+        types[0] = core.CONTEST_MODULE();
+        addrs[0] = address(mockContestModule);
+        types[1] = core.SPECULATION_MODULE();
+        addrs[1] = address(speculationModule);
+        types[2] = core.POSITION_MODULE();
+        addrs[2] = address(positionModule);
+        types[3] = core.MATCHING_MODULE();
+        addrs[3] = address(this);
+        types[4] = core.CRE_ORACLE_RECEIVER();
+        addrs[4] = address(oracleModule);
+        types[5] = core.TREASURY_MODULE();
+        addrs[5] = address(treasuryModule);
+        types[6] = core.LEADERBOARD_MODULE();
+        addrs[6] = address(mockLeaderboard);
+        types[7] = core.RULES_MODULE();
+        addrs[7] = address(0xD007);
+        types[8] = core.SECONDARY_MARKET_MODULE();
+        addrs[8] = address(market);
+        types[9] = core.MONEYLINE_SCORER_MODULE();
+        addrs[9] = moneylineScorerAddr;
+        types[10] = core.SPREAD_SCORER_MODULE();
+        addrs[10] = spreadScorerAddr;
+        types[11] = core.TOTAL_SCORER_MODULE();
+        addrs[11] = totalScorerAddr;
         core.bootstrapModules(types, addrs);
         core.finalize();
 
         Contest memory contest = Contest({
-            awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Verified, contestCreator: address(this),
-            rundownId: "", sportspageId: "", jsonoddsId: ""
+            awayScore: 0,
+            homeScore: 0,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Verified,
+            contestCreator: address(this),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
         });
         mockContestModule.setContest(1, contest);
         mockContestModule.setContestStartTime(1, uint32(block.timestamp));
@@ -133,10 +147,8 @@ contract SecondaryMarketIntegrationTest is Test {
         token.approve(address(treasuryModule), type(uint256).max);
 
         // Matched pair: seller=maker(Upper, risk=10e6), buyer=taker(Lower, risk=1e6)
-        speculationId = positionModule.recordFill(
-            1, moneylineScorerAddr, 0, PositionType.Upper,
-            seller, 10e6, buyer, 1e6
-        );
+        speculationId =
+            positionModule.recordFill(1, moneylineScorerAddr, 0, PositionType.Upper, seller, 10e6, buyer, 1e6);
     }
 
     // =========================================================================
@@ -164,9 +176,14 @@ contract SecondaryMarketIntegrationTest is Test {
         } else {
             vm.warp(block.timestamp + 1 hours);
             Contest memory scored = Contest({
-                awayScore: 1, homeScore: 0, leagueId: LeagueId.NBA,
-                contestStatus: ContestStatus.Scored, contestCreator: address(this),
-                rundownId: "", sportspageId: "", jsonoddsId: ""
+                awayScore: 1,
+                homeScore: 0,
+                leagueId: LeagueId.NBA,
+                contestStatus: ContestStatus.Scored,
+                contestCreator: address(this),
+                rundownId: "",
+                sportspageId: "",
+                jsonoddsId: ""
             });
             mockContestModule.setContest(1, scored);
             mockMoneyline.setWinSide(1, 0, outcome);
@@ -318,16 +335,11 @@ contract SecondaryMarketIntegrationTest is Test {
 
         // Fill 1: bob=maker(Lower,10e6), alice=taker(Upper,2e6)
         // Creates new speculation (contestId=1, spreadScorer, lineTicks=42)
-        uint256 specId = positionModule.recordFill(
-            1, spreadScorerAddr, 42, PositionType.Lower,
-            bob, 10e6, alice, 2e6
-        );
+        uint256 specId = positionModule.recordFill(1, spreadScorerAddr, 42, PositionType.Lower, bob, 10e6, alice, 2e6);
 
         // Fill 2 on same speculation: alice=maker(Lower,5e6), charlie=taker(Upper,1e6)
-        uint256 specId2 = positionModule.recordFill(
-            1, spreadScorerAddr, 42, PositionType.Lower,
-            alice, 5e6, charlie, 1e6
-        );
+        uint256 specId2 =
+            positionModule.recordFill(1, spreadScorerAddr, 42, PositionType.Lower, alice, 5e6, charlie, 1e6);
         assertEq(specId, specId2, "Both fills on same speculation");
 
         // Verify alice has both sides
@@ -341,9 +353,14 @@ contract SecondaryMarketIntegrationTest is Test {
         // Settle with Push
         vm.warp(block.timestamp + 1 hours);
         Contest memory scored = Contest({
-            awayScore: 1, homeScore: 0, leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            rundownId: "", sportspageId: "", jsonoddsId: ""
+            awayScore: 1,
+            homeScore: 0,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored,
+            contestCreator: address(this),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
         });
         mockContestModule.setContest(1, scored);
         mockSpread.setWinSide(1, 42, WinSide.Push);
@@ -367,14 +384,8 @@ contract SecondaryMarketIntegrationTest is Test {
         assertEq(upperPayout + lowerPayout, 2e6 + 5e6, "Net payout equals total risk");
 
         // Both positions marked claimed
-        assertTrue(
-            positionModule.getPosition(specId, alice, PositionType.Upper).claimed,
-            "Alice Upper claimed"
-        );
-        assertTrue(
-            positionModule.getPosition(specId, alice, PositionType.Lower).claimed,
-            "Alice Lower claimed"
-        );
+        assertTrue(positionModule.getPosition(specId, alice, PositionType.Upper).claimed, "Alice Upper claimed");
+        assertTrue(positionModule.getPosition(specId, alice, PositionType.Lower).claimed, "Alice Lower claimed");
     }
 
     // =========================================================================
@@ -394,10 +405,8 @@ contract SecondaryMarketIntegrationTest is Test {
      */
     function testE2E_PartialFill_CancelResidual_SellerClaims() public {
         // Create a larger position on a separate speculation
-        uint256 specId = positionModule.recordFill(
-            1, spreadScorerAddr, 99, PositionType.Upper,
-            seller, 100e6, buyer, 10e6
-        );
+        uint256 specId =
+            positionModule.recordFill(1, spreadScorerAddr, 99, PositionType.Upper, seller, 100e6, buyer, 10e6);
 
         // Seller lists full position: price=50e6, risk=100e6, profit=10e6
         vm.prank(seller);
@@ -433,9 +442,14 @@ contract SecondaryMarketIntegrationTest is Test {
         // Settle with Upper wins
         vm.warp(block.timestamp + 1 hours);
         Contest memory scored = Contest({
-            awayScore: 3, homeScore: 1, leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            rundownId: "", sportspageId: "", jsonoddsId: ""
+            awayScore: 3,
+            homeScore: 1,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored,
+            contestCreator: address(this),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
         });
         mockContestModule.setContest(1, scored);
         mockSpread.setWinSide(1, 99, WinSide.Away);
@@ -447,9 +461,6 @@ contract SecondaryMarketIntegrationTest is Test {
         positionModule.claimPosition(specId, PositionType.Upper);
         assertEq(token.balanceOf(seller) - sellerBalBefore, 44e6, "Seller remaining payout");
 
-        assertTrue(
-            positionModule.getPosition(specId, seller, PositionType.Upper).claimed,
-            "Seller position claimed"
-        );
+        assertTrue(positionModule.getPosition(specId, seller, PositionType.Upper).claimed, "Seller position claimed");
     }
 }

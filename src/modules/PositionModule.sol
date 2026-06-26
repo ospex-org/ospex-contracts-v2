@@ -2,24 +2,14 @@
 pragma solidity ^0.8.26;
 
 import {OspexCore} from "../core/OspexCore.sol";
-import {
-    Position,
-    PositionType,
-    Speculation,
-    SpeculationStatus,
-    WinSide
-} from "../core/OspexTypes.sol";
+import {Position, PositionType, Speculation, SpeculationStatus, WinSide} from "../core/OspexTypes.sol";
 import {IContestModule} from "../interfaces/IContestModule.sol";
 import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IPositionModule} from "../interfaces/IPositionModule.sol";
 import {ILeaderboardModule} from "../interfaces/ILeaderboardModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {
-    SafeERC20
-} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {
-    ReentrancyGuard
-} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title PositionModule
@@ -36,17 +26,12 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
     bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
     bytes32 public constant POSITION_MODULE = keccak256("POSITION_MODULE");
     bytes32 public constant MATCHING_MODULE = keccak256("MATCHING_MODULE");
-    bytes32 public constant SPECULATION_MODULE =
-        keccak256("SPECULATION_MODULE");
-    bytes32 public constant LEADERBOARD_MODULE =
-        keccak256("LEADERBOARD_MODULE");
+    bytes32 public constant SPECULATION_MODULE = keccak256("SPECULATION_MODULE");
+    bytes32 public constant LEADERBOARD_MODULE = keccak256("LEADERBOARD_MODULE");
 
-    bytes32 public constant EVENT_POSITION_MATCHED_PAIR =
-        keccak256("POSITION_MATCHED_PAIR");
-    bytes32 public constant EVENT_POSITION_TRANSFERRED =
-        keccak256("POSITION_TRANSFERRED");
-    bytes32 public constant EVENT_POSITION_CLAIMED =
-        keccak256("POSITION_CLAIMED");
+    bytes32 public constant EVENT_POSITION_MATCHED_PAIR = keccak256("POSITION_MATCHED_PAIR");
+    bytes32 public constant EVENT_POSITION_TRANSFERRED = keccak256("POSITION_TRANSFERRED");
+    bytes32 public constant EVENT_POSITION_CLAIMED = keccak256("POSITION_CLAIMED");
 
     // ──────────────────────────── Errors ───────────────────────────────
 
@@ -110,19 +95,14 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
 
     /// @notice Emitted when a position is claimed
     event PositionClaimed(
-        uint256 indexed speculationId,
-        address indexed user,
-        PositionType positionType,
-        uint256 payout
+        uint256 indexed speculationId, address indexed user, PositionType positionType, uint256 payout
     );
 
     // ──────────────────────────── Modifiers ────────────────────────────
 
     /// @dev Ensures the speculation is in Open status
     modifier speculationOpen(uint256 speculationId) {
-        Speculation memory spec = ISpeculationModule(
-            _getModule(SPECULATION_MODULE)
-        ).getSpeculation(speculationId);
+        Speculation memory spec = ISpeculationModule(_getModule(SPECULATION_MODULE)).getSpeculation(speculationId);
         if (spec.speculationStatus != SpeculationStatus.Open) {
             revert PositionModule__SpeculationNotOpen();
         }
@@ -137,8 +117,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
     IERC20 public immutable i_token;
 
     /// @notice Speculation ID → user → position type → Position
-    mapping(uint256 => mapping(address => mapping(PositionType => Position)))
-        public s_positions;
+    mapping(uint256 => mapping(address => mapping(PositionType => Position))) public s_positions;
 
     // ──────────────────────────── Constructor ──────────────────────────
 
@@ -187,40 +166,23 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         address taker,
         uint256 takerRisk
     ) external override nonReentrant returns (uint256) {
-        if (msg.sender != i_ospexCore.getModule(MATCHING_MODULE))
+        if (msg.sender != i_ospexCore.getModule(MATCHING_MODULE)) {
             revert PositionModule__NotMatchingModule();
-
-        if (makerRisk == 0 || takerRisk == 0)
-            revert PositionModule__InvalidAmount();
-
-        ISpeculationModule specModule = ISpeculationModule(
-            _getModule(SPECULATION_MODULE)
-        );
-
-        uint256 speculationId = specModule.getSpeculationId(
-            contestId,
-            scorer,
-            lineTicks
-        );
-
-        if (speculationId == 0) {
-            speculationId = specModule.createSpeculation(
-                contestId,
-                scorer,
-                lineTicks,
-                maker,
-                taker
-            );
         }
 
-        _recordFill(
-            speculationId,
-            makerPositionType,
-            maker,
-            makerRisk,
-            taker,
-            takerRisk
-        );
+        if (makerRisk == 0 || takerRisk == 0) {
+            revert PositionModule__InvalidAmount();
+        }
+
+        ISpeculationModule specModule = ISpeculationModule(_getModule(SPECULATION_MODULE));
+
+        uint256 speculationId = specModule.getSpeculationId(contestId, scorer, lineTicks);
+
+        if (speculationId == 0) {
+            speculationId = specModule.createSpeculation(contestId, scorer, lineTicks, maker, taker);
+        }
+
+        _recordFill(speculationId, makerPositionType, maker, makerRisk, taker, takerRisk);
 
         return speculationId;
     }
@@ -259,48 +221,23 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
             revert PositionModule__InvalidAddress();
         }
 
-        Speculation memory spec = ISpeculationModule(
-            _getModule(SPECULATION_MODULE)
-        ).getSpeculation(speculationId);
-        if (
-            IContestModule(_getModule(CONTEST_MODULE)).isContestTerminal(
-                spec.contestId
-            )
-        ) {
+        Speculation memory spec = ISpeculationModule(_getModule(SPECULATION_MODULE)).getSpeculation(speculationId);
+        if (IContestModule(_getModule(CONTEST_MODULE)).isContestTerminal(spec.contestId)) {
             revert PositionModule__ContestAlreadyScored();
         }
 
-        Position storage fromPos = _getPosition(
-            speculationId,
-            from,
-            positionType
-        );
+        Position storage fromPos = _getPosition(speculationId, from, positionType);
 
-        if (
-            riskAmount > fromPos.riskAmount ||
-            profitAmount > fromPos.profitAmount
-        ) {
+        if (riskAmount > fromPos.riskAmount || profitAmount > fromPos.profitAmount) {
             revert PositionModule__InvalidAmount();
         }
 
-        ILeaderboardModule lbModule = ILeaderboardModule(
-            _getModule(LEADERBOARD_MODULE)
-        );
-        uint256 lockedRisk = lbModule.s_lockedRisk(
-            speculationId,
-            from,
-            positionType
-        );
-        uint256 lockedProfit = lbModule.s_lockedProfit(
-            speculationId,
-            from,
-            positionType
-        );
+        ILeaderboardModule lbModule = ILeaderboardModule(_getModule(LEADERBOARD_MODULE));
+        uint256 lockedRisk = lbModule.s_lockedRisk(speculationId, from, positionType);
+        uint256 lockedProfit = lbModule.s_lockedProfit(speculationId, from, positionType);
 
         if (lockedRisk > 0 || lockedProfit > 0) {
-            Position memory pos = s_positions[speculationId][from][
-                positionType
-            ];
+            Position memory pos = s_positions[speculationId][from][positionType];
             uint256 remainingRisk = pos.riskAmount - riskAmount;
             uint256 remainingProfit = pos.profitAmount - profitAmount;
             if (remainingRisk < lockedRisk || remainingProfit < lockedProfit) {
@@ -323,46 +260,23 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         toPos.profitAmount += profitAmount;
         toPos.acquiredViaSecondaryMarket = true;
 
-        emit PositionTransferred(
-            speculationId,
-            from,
-            positionType,
-            to,
-            riskAmount,
-            profitAmount
-        );
+        emit PositionTransferred(speculationId, from, positionType, to, riskAmount, profitAmount);
         i_ospexCore.emitCoreEvent(
-            EVENT_POSITION_TRANSFERRED,
-            abi.encode(
-                speculationId,
-                from,
-                positionType,
-                to,
-                riskAmount,
-                profitAmount
-            )
+            EVENT_POSITION_TRANSFERRED, abi.encode(speculationId, from, positionType, to, riskAmount, profitAmount)
         );
     }
 
     // ──────────────────────────── Claiming ────────────────────────────
 
     /// @inheritdoc IPositionModule
-    function claimPosition(
-        uint256 speculationId,
-        PositionType positionType
-    ) external override nonReentrant {
-        Speculation memory speculation = ISpeculationModule(
-            _getModule(SPECULATION_MODULE)
-        ).getSpeculation(speculationId);
+    function claimPosition(uint256 speculationId, PositionType positionType) external override nonReentrant {
+        Speculation memory speculation =
+            ISpeculationModule(_getModule(SPECULATION_MODULE)).getSpeculation(speculationId);
         if (speculation.speculationStatus != SpeculationStatus.Closed) {
             revert PositionModule__NotSettled();
         }
 
-        Position storage pos = _getPosition(
-            speculationId,
-            msg.sender,
-            positionType
-        );
+        Position storage pos = _getPosition(speculationId, msg.sender, positionType);
 
         uint256 payout = _calculatePayout(speculation, pos);
 
@@ -377,20 +291,18 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         i_token.safeTransfer(msg.sender, payout);
 
         emit PositionClaimed(speculationId, msg.sender, positionType, payout);
-        i_ospexCore.emitCoreEvent(
-            EVENT_POSITION_CLAIMED,
-            abi.encode(speculationId, msg.sender, positionType, payout)
-        );
+        i_ospexCore.emitCoreEvent(EVENT_POSITION_CLAIMED, abi.encode(speculationId, msg.sender, positionType, payout));
     }
 
     // ──────────────────────────── View Functions ──────────────────────
 
     /// @inheritdoc IPositionModule
-    function getPosition(
-        uint256 speculationId,
-        address user,
-        PositionType positionType
-    ) external view override returns (Position memory position) {
+    function getPosition(uint256 speculationId, address user, PositionType positionType)
+        external
+        view
+        override
+        returns (Position memory position)
+    {
         position = s_positions[speculationId][user][positionType];
     }
 
@@ -415,13 +327,10 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         address taker,
         uint256 takerRisk
     ) internal speculationOpen(speculationId) {
-        PositionType takerPositionType = makerPositionType == PositionType.Upper
-            ? PositionType.Lower
-            : PositionType.Upper;
+        PositionType takerPositionType =
+            makerPositionType == PositionType.Upper ? PositionType.Lower : PositionType.Upper;
 
-        Position storage makerPos = s_positions[speculationId][maker][
-            makerPositionType
-        ];
+        Position storage makerPos = s_positions[speculationId][maker][makerPositionType];
         if (makerPos.riskAmount == 0) {
             makerPos.positionType = makerPositionType;
             makerPos.claimed = false;
@@ -430,9 +339,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         makerPos.riskAmount += makerRisk;
         makerPos.profitAmount += takerRisk;
 
-        Position storage takerPos = s_positions[speculationId][taker][
-            takerPositionType
-        ];
+        Position storage takerPos = s_positions[speculationId][taker][takerPositionType];
         if (takerPos.riskAmount == 0) {
             takerPos.positionType = takerPositionType;
             takerPos.claimed = false;
@@ -444,26 +351,10 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
         i_token.safeTransferFrom(maker, address(this), makerRisk);
         i_token.safeTransferFrom(taker, address(this), takerRisk);
 
-        emit PositionFilled(
-            speculationId,
-            maker,
-            taker,
-            makerPositionType,
-            takerPositionType,
-            makerRisk,
-            takerRisk
-        );
+        emit PositionFilled(speculationId, maker, taker, makerPositionType, takerPositionType, makerRisk, takerRisk);
         i_ospexCore.emitCoreEvent(
             EVENT_POSITION_MATCHED_PAIR,
-            abi.encode(
-                speculationId,
-                maker,
-                taker,
-                makerPositionType,
-                takerPositionType,
-                makerRisk,
-                takerRisk
-            )
+            abi.encode(speculationId, maker, taker, makerPositionType, takerPositionType, makerRisk, takerRisk)
         );
     }
 
@@ -474,11 +365,11 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
      * @param positionType The position type
      * @return position The position storage reference
      */
-    function _getPosition(
-        uint256 speculationId,
-        address user,
-        PositionType positionType
-    ) internal view returns (Position storage position) {
+    function _getPosition(uint256 speculationId, address user, PositionType positionType)
+        internal
+        view
+        returns (Position storage position)
+    {
         position = s_positions[speculationId][user][positionType];
         if (position.claimed) {
             revert PositionModule__AlreadyClaimed();
@@ -492,23 +383,20 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
      * @param position The position to calculate payout for
      * @return The payout amount (risk + profit for winners, risk for push/void, 0 for losers)
      */
-    function _calculatePayout(
-        Speculation memory speculation,
-        Position memory position
-    ) internal pure returns (uint256) {
-        if (
-            speculation.winSide == WinSide.Push ||
-            speculation.winSide == WinSide.Void
-        ) {
+    function _calculatePayout(Speculation memory speculation, Position memory position)
+        internal
+        pure
+        returns (uint256)
+    {
+        if (speculation.winSide == WinSide.Push || speculation.winSide == WinSide.Void) {
             return position.riskAmount;
         }
 
-        bool isWinner = ((position.positionType == PositionType.Upper &&
-            (speculation.winSide == WinSide.Away ||
-                speculation.winSide == WinSide.Over)) ||
-            (position.positionType == PositionType.Lower &&
-                (speculation.winSide == WinSide.Home ||
-                    speculation.winSide == WinSide.Under)));
+        bool isWinner =
+            ((position.positionType == PositionType.Upper
+                    && (speculation.winSide == WinSide.Away || speculation.winSide == WinSide.Over))
+                || (position.positionType == PositionType.Lower
+                    && (speculation.winSide == WinSide.Home || speculation.winSide == WinSide.Under)));
 
         if (isWinner) {
             return position.riskAmount + position.profitAmount;
@@ -523,9 +411,7 @@ contract PositionModule is IPositionModule, ReentrancyGuard {
      * @param moduleType The module type identifier
      * @return module The module contract address
      */
-    function _getModule(
-        bytes32 moduleType
-    ) internal view returns (address module) {
+    function _getModule(bytes32 moduleType) internal view returns (address module) {
         module = i_ospexCore.getModule(moduleType);
         if (module == address(0)) {
             revert PositionModule__ModuleNotSet(moduleType);

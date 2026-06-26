@@ -15,8 +15,7 @@ import {OspexCore} from "../core/OspexCore.sol";
 contract SpreadScorerModule is IScorerModule {
     // ──────────────────────────── Constants ────────────────────────────
 
-    bytes32 public constant SPECULATION_MODULE =
-        keccak256("SPECULATION_MODULE");
+    bytes32 public constant SPECULATION_MODULE = keccak256("SPECULATION_MODULE");
     bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
 
     // ──────────────────────────── Errors ───────────────────────────────
@@ -48,20 +47,23 @@ contract SpreadScorerModule is IScorerModule {
     /// @notice Deploys the SpreadScorerModule
     /// @param ospexCore_ The OspexCore contract address
     constructor(address ospexCore_) {
-        if (ospexCore_ == address(0))
+        if (ospexCore_ == address(0)) {
             revert SpreadScorerModule__InvalidOspexCore();
+        }
         i_ospexCore = OspexCore(ospexCore_);
     }
 
     // ──────────────────────────── Scoring ──────────────────────────────
 
     /// @inheritdoc IScorerModule
-    function determineWinSide(
-        uint256 contestId,
-        int32 lineTicks
-    ) external view override onlySpeculationModule returns (WinSide) {
-        Contest memory contest = IContestModule(_getModule(CONTEST_MODULE))
-            .getContest(contestId);
+    function determineWinSide(uint256 contestId, int32 lineTicks)
+        external
+        view
+        override
+        onlySpeculationModule
+        returns (WinSide)
+    {
+        Contest memory contest = IContestModule(_getModule(CONTEST_MODULE)).getContest(contestId);
 
         return _scoreSpread(contest.awayScore, contest.homeScore, lineTicks);
     }
@@ -76,11 +78,7 @@ contract SpreadScorerModule is IScorerModule {
      * @param lineTicks Point spread (10x format, e.g. -35 = -3.5)
      * @return The winning side (Away, Home, or Push)
      */
-    function _scoreSpread(
-        uint32 awayScore,
-        uint32 homeScore,
-        int32 lineTicks
-    ) private pure returns (WinSide) {
+    function _scoreSpread(uint32 awayScore, uint32 homeScore, int32 lineTicks) private pure returns (WinSide) {
         // Safe cast: sports scores * 10 never exceed int32 max
         // forge-lint: disable-next-line(unsafe-typecast)
         int32 scaledAway = int32(awayScore) * 10;
@@ -105,9 +103,7 @@ contract SpreadScorerModule is IScorerModule {
      * @param moduleType The module type identifier
      * @return module The module contract address
      */
-    function _getModule(
-        bytes32 moduleType
-    ) internal view returns (address module) {
+    function _getModule(bytes32 moduleType) internal view returns (address module) {
         module = i_ospexCore.getModule(moduleType);
         if (module == address(0)) {
             revert SpreadScorerModule__ModuleNotSet(moduleType);

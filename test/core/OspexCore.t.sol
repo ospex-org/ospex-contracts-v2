@@ -64,9 +64,7 @@ contract OspexCoreTest is Test {
     function testBootstrapModules_RevertsIfNotDeployer() public {
         (bytes32[] memory types, address[] memory addrs) = _fullModuleArrays();
         vm.prank(address(0xBAD));
-        vm.expectRevert(
-            abi.encodeWithSelector(OspexCore.OspexCore__NotDeployer.selector, address(0xBAD))
-        );
+        vm.expectRevert(abi.encodeWithSelector(OspexCore.OspexCore__NotDeployer.selector, address(0xBAD)));
         core.bootstrapModules(types, addrs);
     }
 
@@ -89,9 +87,7 @@ contract OspexCoreTest is Test {
         addrs[0] = address(0);
 
         vm.prank(deployer);
-        vm.expectRevert(
-            abi.encodeWithSelector(OspexCore.OspexCore__InvalidModuleAddress.selector, address(0))
-        );
+        vm.expectRevert(abi.encodeWithSelector(OspexCore.OspexCore__InvalidModuleAddress.selector, address(0)));
         core.bootstrapModules(types, addrs);
     }
 
@@ -111,9 +107,7 @@ contract OspexCoreTest is Test {
         types2[0] = contestKey; // duplicate
         addrs2[0] = address(0x9999);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(OspexCore.OspexCore__DuplicateModuleType.selector, contestKey)
-        );
+        vm.expectRevert(abi.encodeWithSelector(OspexCore.OspexCore__DuplicateModuleType.selector, contestKey));
         vm.prank(deployer);
         core.bootstrapModules(types2, addrs2);
     }
@@ -131,12 +125,18 @@ contract OspexCoreTest is Test {
         // Register first 6 modules
         bytes32[] memory types1 = new bytes32[](6);
         address[] memory addrs1 = new address[](6);
-        types1[0] = core.CONTEST_MODULE();       addrs1[0] = contestModule;
-        types1[1] = core.SPECULATION_MODULE();    addrs1[1] = speculationModule;
-        types1[2] = core.POSITION_MODULE();       addrs1[2] = positionModule;
-        types1[3] = core.MATCHING_MODULE();       addrs1[3] = matchingModule;
-        types1[4] = core.CRE_ORACLE_RECEIVER();         addrs1[4] = oracleModule;
-        types1[5] = core.TREASURY_MODULE();       addrs1[5] = treasuryModule;
+        types1[0] = core.CONTEST_MODULE();
+        addrs1[0] = contestModule;
+        types1[1] = core.SPECULATION_MODULE();
+        addrs1[1] = speculationModule;
+        types1[2] = core.POSITION_MODULE();
+        addrs1[2] = positionModule;
+        types1[3] = core.MATCHING_MODULE();
+        addrs1[3] = matchingModule;
+        types1[4] = core.CRE_ORACLE_RECEIVER();
+        addrs1[4] = oracleModule;
+        types1[5] = core.TREASURY_MODULE();
+        addrs1[5] = treasuryModule;
 
         vm.prank(deployer);
         core.bootstrapModules(types1, addrs1);
@@ -144,12 +144,18 @@ contract OspexCoreTest is Test {
         // Register remaining 6 modules
         bytes32[] memory types2 = new bytes32[](6);
         address[] memory addrs2 = new address[](6);
-        types2[0] = core.LEADERBOARD_MODULE();         addrs2[0] = leaderboardModule;
-        types2[1] = core.RULES_MODULE();                addrs2[1] = rulesModule;
-        types2[2] = core.SECONDARY_MARKET_MODULE();     addrs2[2] = secondaryMarketModule;
-        types2[3] = core.MONEYLINE_SCORER_MODULE();     addrs2[3] = moneylineScorerModule;
-        types2[4] = core.SPREAD_SCORER_MODULE();        addrs2[4] = spreadScorerModule;
-        types2[5] = core.TOTAL_SCORER_MODULE();         addrs2[5] = totalScorerModule;
+        types2[0] = core.LEADERBOARD_MODULE();
+        addrs2[0] = leaderboardModule;
+        types2[1] = core.RULES_MODULE();
+        addrs2[1] = rulesModule;
+        types2[2] = core.SECONDARY_MARKET_MODULE();
+        addrs2[2] = secondaryMarketModule;
+        types2[3] = core.MONEYLINE_SCORER_MODULE();
+        addrs2[3] = moneylineScorerModule;
+        types2[4] = core.SPREAD_SCORER_MODULE();
+        addrs2[4] = spreadScorerModule;
+        types2[5] = core.TOTAL_SCORER_MODULE();
+        addrs2[5] = totalScorerModule;
 
         vm.prank(deployer);
         core.bootstrapModules(types2, addrs2);
@@ -182,9 +188,7 @@ contract OspexCoreTest is Test {
         core.bootstrapModules(types, addrs);
 
         vm.prank(address(0xBAD));
-        vm.expectRevert(
-            abi.encodeWithSelector(OspexCore.OspexCore__NotDeployer.selector, address(0xBAD))
-        );
+        vm.expectRevert(abi.encodeWithSelector(OspexCore.OspexCore__NotDeployer.selector, address(0xBAD)));
         core.finalize();
     }
 
@@ -200,17 +204,28 @@ contract OspexCoreTest is Test {
         // Register only 11 of 12 modules (skip TOTAL_SCORER_MODULE)
         bytes32[] memory types = new bytes32[](11);
         address[] memory addrs = new address[](11);
-        types[0] = core.CONTEST_MODULE();              addrs[0] = contestModule;
-        types[1] = core.SPECULATION_MODULE();           addrs[1] = speculationModule;
-        types[2] = core.POSITION_MODULE();              addrs[2] = positionModule;
-        types[3] = core.MATCHING_MODULE();              addrs[3] = matchingModule;
-        types[4] = core.CRE_ORACLE_RECEIVER();                addrs[4] = oracleModule;
-        types[5] = core.TREASURY_MODULE();              addrs[5] = treasuryModule;
-        types[6] = core.LEADERBOARD_MODULE();           addrs[6] = leaderboardModule;
-        types[7] = core.RULES_MODULE();                 addrs[7] = rulesModule;
-        types[8] = core.SECONDARY_MARKET_MODULE();      addrs[8] = secondaryMarketModule;
-        types[9] = core.MONEYLINE_SCORER_MODULE();      addrs[9] = moneylineScorerModule;
-        types[10] = core.SPREAD_SCORER_MODULE();        addrs[10] = spreadScorerModule;
+        types[0] = core.CONTEST_MODULE();
+        addrs[0] = contestModule;
+        types[1] = core.SPECULATION_MODULE();
+        addrs[1] = speculationModule;
+        types[2] = core.POSITION_MODULE();
+        addrs[2] = positionModule;
+        types[3] = core.MATCHING_MODULE();
+        addrs[3] = matchingModule;
+        types[4] = core.CRE_ORACLE_RECEIVER();
+        addrs[4] = oracleModule;
+        types[5] = core.TREASURY_MODULE();
+        addrs[5] = treasuryModule;
+        types[6] = core.LEADERBOARD_MODULE();
+        addrs[6] = leaderboardModule;
+        types[7] = core.RULES_MODULE();
+        addrs[7] = rulesModule;
+        types[8] = core.SECONDARY_MARKET_MODULE();
+        addrs[8] = secondaryMarketModule;
+        types[9] = core.MONEYLINE_SCORER_MODULE();
+        addrs[9] = moneylineScorerModule;
+        types[10] = core.SPREAD_SCORER_MODULE();
+        addrs[10] = spreadScorerModule;
 
         vm.startPrank(deployer);
         core.bootstrapModules(types, addrs);
@@ -268,9 +283,7 @@ contract OspexCoreTest is Test {
         _bootstrapAndFinalize();
 
         vm.prank(address(0xDEAD));
-        vm.expectRevert(
-            abi.encodeWithSelector(OspexCore.OspexCore__NotRegisteredModule.selector, address(0xDEAD))
-        );
+        vm.expectRevert(abi.encodeWithSelector(OspexCore.OspexCore__NotRegisteredModule.selector, address(0xDEAD)));
         core.emitCoreEvent(keccak256("TEST"), "");
     }
 
@@ -280,9 +293,7 @@ contract OspexCoreTest is Test {
         _bootstrapAndFinalize();
 
         vm.prank(address(0xDEAD));
-        vm.expectRevert(
-            abi.encodeWithSelector(OspexCore.OspexCore__NotRegisteredModule.selector, address(0xDEAD))
-        );
+        vm.expectRevert(abi.encodeWithSelector(OspexCore.OspexCore__NotRegisteredModule.selector, address(0xDEAD)));
         core.processFee(address(0xBEEF), FeeType.ContestCreation);
     }
 
@@ -290,9 +301,7 @@ contract OspexCoreTest is Test {
         _bootstrapAndFinalize();
 
         vm.prank(address(0xDEAD));
-        vm.expectRevert(
-            abi.encodeWithSelector(OspexCore.OspexCore__NotRegisteredModule.selector, address(0xDEAD))
-        );
+        vm.expectRevert(abi.encodeWithSelector(OspexCore.OspexCore__NotRegisteredModule.selector, address(0xDEAD)));
         core.processSplitFee(address(0xBEEF), address(0xCAFE), FeeType.SpeculationCreation);
     }
 
@@ -300,9 +309,7 @@ contract OspexCoreTest is Test {
         _bootstrapAndFinalize();
 
         vm.prank(address(0xDEAD));
-        vm.expectRevert(
-            abi.encodeWithSelector(OspexCore.OspexCore__NotRegisteredModule.selector, address(0xDEAD))
-        );
+        vm.expectRevert(abi.encodeWithSelector(OspexCore.OspexCore__NotRegisteredModule.selector, address(0xDEAD)));
         core.processLeaderboardEntryFee(address(0xBEEF), 100, 1);
     }
 
@@ -328,18 +335,30 @@ contract OspexCoreTest is Test {
     function _fullModuleArrays() internal view returns (bytes32[] memory types, address[] memory addrs) {
         types = new bytes32[](12);
         addrs = new address[](12);
-        types[0] = core.CONTEST_MODULE();              addrs[0] = contestModule;
-        types[1] = core.SPECULATION_MODULE();           addrs[1] = speculationModule;
-        types[2] = core.POSITION_MODULE();              addrs[2] = positionModule;
-        types[3] = core.MATCHING_MODULE();              addrs[3] = matchingModule;
-        types[4] = core.CRE_ORACLE_RECEIVER();                addrs[4] = oracleModule;
-        types[5] = core.TREASURY_MODULE();              addrs[5] = treasuryModule;
-        types[6] = core.LEADERBOARD_MODULE();           addrs[6] = leaderboardModule;
-        types[7] = core.RULES_MODULE();                 addrs[7] = rulesModule;
-        types[8] = core.SECONDARY_MARKET_MODULE();      addrs[8] = secondaryMarketModule;
-        types[9] = core.MONEYLINE_SCORER_MODULE();      addrs[9] = moneylineScorerModule;
-        types[10] = core.SPREAD_SCORER_MODULE();        addrs[10] = spreadScorerModule;
-        types[11] = core.TOTAL_SCORER_MODULE();         addrs[11] = totalScorerModule;
+        types[0] = core.CONTEST_MODULE();
+        addrs[0] = contestModule;
+        types[1] = core.SPECULATION_MODULE();
+        addrs[1] = speculationModule;
+        types[2] = core.POSITION_MODULE();
+        addrs[2] = positionModule;
+        types[3] = core.MATCHING_MODULE();
+        addrs[3] = matchingModule;
+        types[4] = core.CRE_ORACLE_RECEIVER();
+        addrs[4] = oracleModule;
+        types[5] = core.TREASURY_MODULE();
+        addrs[5] = treasuryModule;
+        types[6] = core.LEADERBOARD_MODULE();
+        addrs[6] = leaderboardModule;
+        types[7] = core.RULES_MODULE();
+        addrs[7] = rulesModule;
+        types[8] = core.SECONDARY_MARKET_MODULE();
+        addrs[8] = secondaryMarketModule;
+        types[9] = core.MONEYLINE_SCORER_MODULE();
+        addrs[9] = moneylineScorerModule;
+        types[10] = core.SPREAD_SCORER_MODULE();
+        addrs[10] = spreadScorerModule;
+        types[11] = core.TOTAL_SCORER_MODULE();
+        addrs[11] = totalScorerModule;
     }
 
     function _bootstrapAndFinalize() internal {

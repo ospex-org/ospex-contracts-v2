@@ -4,9 +4,7 @@ pragma solidity ^0.8.26;
 import {OspexCore} from "../core/OspexCore.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {
-    ReentrancyGuard
-} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IContestModule} from "../interfaces/IContestModule.sol";
 import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IPositionModule} from "../interfaces/IPositionModule.sol";
@@ -28,32 +26,18 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
 
     bytes32 public constant MATCHING_MODULE = keccak256("MATCHING_MODULE");
     bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
-    bytes32 public constant SPECULATION_MODULE =
-        keccak256("SPECULATION_MODULE");
+    bytes32 public constant SPECULATION_MODULE = keccak256("SPECULATION_MODULE");
     bytes32 public constant POSITION_MODULE = keccak256("POSITION_MODULE");
 
-    bytes32 public constant EVENT_COMMITMENT_MATCHED =
-        keccak256("COMMITMENT_MATCHED");
-    bytes32 public constant EVENT_COMMITMENT_CANCELLED =
-        keccak256("COMMITMENT_CANCELLED");
-    bytes32 public constant EVENT_MIN_NONCE_UPDATED =
-        keccak256("MIN_NONCE_UPDATED");
+    bytes32 public constant EVENT_COMMITMENT_MATCHED = keccak256("COMMITMENT_MATCHED");
+    bytes32 public constant EVENT_COMMITMENT_CANCELLED = keccak256("COMMITMENT_CANCELLED");
+    bytes32 public constant EVENT_MIN_NONCE_UPDATED = keccak256("MIN_NONCE_UPDATED");
 
     /// @notice EIP-712 typehash for the OspexCommitment struct
-    bytes32 public constant COMMITMENT_TYPEHASH =
-        keccak256(
-            "OspexCommitment("
-            "address maker,"
-            "uint256 contestId,"
-            "address scorer,"
-            "int32 lineTicks,"
-            "uint8 positionType,"
-            "uint16 oddsTick,"
-            "uint256 riskAmount,"
-            "uint256 nonce,"
-            "uint256 expiry"
-            ")"
-        );
+    bytes32 public constant COMMITMENT_TYPEHASH = keccak256(
+        "OspexCommitment(" "address maker," "uint256 contestId," "address scorer," "int32 lineTicks,"
+        "uint8 positionType," "uint16 oddsTick," "uint256 riskAmount," "uint256 nonce," "uint256 expiry" ")"
+    );
 
     /// @notice Odds scale factor (1.91 odds = 191 ticks)
     uint16 public constant ODDS_SCALE = 100;
@@ -229,45 +213,33 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
      * @param takerDesiredRisk The amount of risk the taker wants to fill (USDC, 6 decimals).
      *                         Actual fill may be slightly less due to lot-size rounding on the maker side.
      */
-    function matchCommitment(
-        OspexCommitment calldata commitment,
-        bytes calldata signature,
-        uint256 takerDesiredRisk
-    ) external nonReentrant oddsInRange(commitment.oddsTick) {
+    function matchCommitment(OspexCommitment calldata commitment, bytes calldata signature, uint256 takerDesiredRisk)
+        external
+        nonReentrant
+        oddsInRange(commitment.oddsTick)
+    {
         if (takerDesiredRisk == 0) {
             revert MatchingModule__InvalidTakerDesiredRisk();
         }
 
-        if (
-            IContestModule(_getModule(CONTEST_MODULE)).isContestTerminal(
-                commitment.contestId
-            )
-        ) {
+        if (IContestModule(_getModule(CONTEST_MODULE)).isContestTerminal(commitment.contestId)) {
             revert MatchingModule__ContestAlreadyScored();
         }
 
-        if (
-            ISpeculationModule(_getModule(SPECULATION_MODULE))
-                .isContestPastCooldown(commitment.contestId)
-        ) {
+        if (ISpeculationModule(_getModule(SPECULATION_MODULE)).isContestPastCooldown(commitment.contestId)) {
             revert MatchingModule__ContestPastCooldown();
         }
 
         bytes32 commitmentHash = _validateCommitment(commitment, signature);
 
-        uint256 makerRiskRemaining = commitment.riskAmount -
-            s_filledRisk[commitmentHash];
+        uint256 makerRiskRemaining = commitment.riskAmount - s_filledRisk[commitmentHash];
         if (makerRiskRemaining == 0) {
             revert MatchingModule__CommitmentFullyFilled();
         }
 
         uint256 profitTicks = uint256(commitment.oddsTick - ODDS_SCALE);
-        uint256 rawFillMakerRisk = (takerDesiredRisk *
-            uint256(ODDS_SCALE) +
-            profitTicks -
-            1) / profitTicks;
-        uint256 fillMakerRisk = rawFillMakerRisk -
-            (rawFillMakerRisk % ODDS_SCALE);
+        uint256 rawFillMakerRisk = (takerDesiredRisk * uint256(ODDS_SCALE) + profitTicks - 1) / profitTicks;
+        uint256 fillMakerRisk = rawFillMakerRisk - (rawFillMakerRisk % ODDS_SCALE);
 
         if (fillMakerRisk == 0 || fillMakerRisk > makerRiskRemaining) {
             revert MatchingModule__InvalidFillMakerRisk();
@@ -391,40 +363,15 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
      * @param lineTicks The line number (10x format)
      * @param newMinNonce The new minimum valid nonce (must be higher than current)
      */
-    function raiseMinNonce(
-        uint256 contestId,
-        address scorer,
-        int32 lineTicks,
-        uint256 newMinNonce
-    ) external {
-        bytes32 speculationKey = keccak256(
-            abi.encode(contestId, scorer, lineTicks)
-        );
-        if (
-            newMinNonce == type(uint256).max ||
-            newMinNonce <= s_minNonces[msg.sender][speculationKey]
-        ) {
+    function raiseMinNonce(uint256 contestId, address scorer, int32 lineTicks, uint256 newMinNonce) external {
+        bytes32 speculationKey = keccak256(abi.encode(contestId, scorer, lineTicks));
+        if (newMinNonce == type(uint256).max || newMinNonce <= s_minNonces[msg.sender][speculationKey]) {
             revert MatchingModule__NonceMustIncrease();
         }
         s_minNonces[msg.sender][speculationKey] = newMinNonce;
-        emit MinNonceUpdated(
-            msg.sender,
-            contestId,
-            scorer,
-            lineTicks,
-            newMinNonce,
-            speculationKey
-        );
+        emit MinNonceUpdated(msg.sender, contestId, scorer, lineTicks, newMinNonce, speculationKey);
         i_ospexCore.emitCoreEvent(
-            EVENT_MIN_NONCE_UPDATED,
-            abi.encode(
-                msg.sender,
-                contestId,
-                scorer,
-                lineTicks,
-                newMinNonce,
-                speculationKey
-            )
+            EVENT_MIN_NONCE_UPDATED, abi.encode(msg.sender, contestId, scorer, lineTicks, newMinNonce, speculationKey)
         );
     }
 
@@ -439,9 +386,7 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
     /// @notice Computes the commitment hash for a given commitment (for off-chain use)
     /// @param commitment The commitment to hash
     /// @return The EIP-712 typed data hash
-    function getCommitmentHash(
-        OspexCommitment calldata commitment
-    ) external view returns (bytes32) {
+    function getCommitmentHash(OspexCommitment calldata commitment) external view returns (bytes32) {
         return _hashCommitment(commitment);
     }
 
@@ -462,18 +407,16 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
      * @param signature The EIP-712 signature
      * @return commitmentHash The EIP-712 hash of the commitment
      */
-    function _validateCommitment(
-        OspexCommitment calldata commitment,
-        bytes calldata signature
-    ) internal view returns (bytes32 commitmentHash) {
+    function _validateCommitment(OspexCommitment calldata commitment, bytes calldata signature)
+        internal
+        view
+        returns (bytes32 commitmentHash)
+    {
         if (commitment.maker == address(0)) {
             revert MatchingModule__InvalidMakerAddress();
         }
 
-        if (
-            commitment.lineTicks > MAX_LINE_TICKS ||
-            commitment.lineTicks < -MAX_LINE_TICKS
-        ) {
+        if (commitment.lineTicks > MAX_LINE_TICKS || commitment.lineTicks < -MAX_LINE_TICKS) {
             revert MatchingModule__LineTicksOutOfRange(commitment.lineTicks);
         }
 
@@ -485,13 +428,7 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
             revert MatchingModule__InvalidLotSize();
         }
 
-        bytes32 speculationKey = keccak256(
-            abi.encode(
-                commitment.contestId,
-                commitment.scorer,
-                commitment.lineTicks
-            )
-        );
+        bytes32 speculationKey = keccak256(abi.encode(commitment.contestId, commitment.scorer, commitment.lineTicks));
         if (commitment.nonce < s_minNonces[commitment.maker][speculationKey]) {
             revert MatchingModule__NonceTooLow();
         }
@@ -513,26 +450,23 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
      * @param commitment The commitment to hash
      * @return The fully encoded EIP-712 hash (domain separator + struct hash)
      */
-    function _hashCommitment(
-        OspexCommitment calldata commitment
-    ) internal view returns (bytes32) {
-        return
-            _hashTypedDataV4(
-                keccak256(
-                    abi.encode(
-                        COMMITMENT_TYPEHASH,
-                        commitment.maker,
-                        commitment.contestId,
-                        commitment.scorer,
-                        commitment.lineTicks,
-                        uint8(commitment.positionType),
-                        commitment.oddsTick,
-                        commitment.riskAmount,
-                        commitment.nonce,
-                        commitment.expiry
-                    )
+    function _hashCommitment(OspexCommitment calldata commitment) internal view returns (bytes32) {
+        return _hashTypedDataV4(
+            keccak256(
+                abi.encode(
+                    COMMITMENT_TYPEHASH,
+                    commitment.maker,
+                    commitment.contestId,
+                    commitment.scorer,
+                    commitment.lineTicks,
+                    uint8(commitment.positionType),
+                    commitment.oddsTick,
+                    commitment.riskAmount,
+                    commitment.nonce,
+                    commitment.expiry
                 )
-            );
+            )
+        );
     }
 
     // ──────────────────────────── Module Lookup ───────────────────────
@@ -542,9 +476,7 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
      * @param moduleType The module type identifier
      * @return module The module contract address
      */
-    function _getModule(
-        bytes32 moduleType
-    ) internal view returns (address module) {
+    function _getModule(bytes32 moduleType) internal view returns (address module) {
         module = i_ospexCore.getModule(moduleType);
         if (module == address(0)) {
             revert MatchingModule__ModuleNotSet(moduleType);

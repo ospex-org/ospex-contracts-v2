@@ -6,18 +6,13 @@ import {SpeculationModule} from "../src/modules/SpeculationModule.sol";
 import {Speculation, SpeculationStatus, WinSide} from "../src/core/OspexTypes.sol";
 
 contract DecodeSpeculation is Script {
-    address constant SPECULATION_MODULE =
-        0xAC3af7f720EAa73611A932574a7A57cc32CEd24d;
+    address constant SPECULATION_MODULE = 0xAC3af7f720EAa73611A932574a7A57cc32CEd24d;
 
     function run() external view {
         uint256 speculationId = vm.envOr("SPECULATION_ID", uint256(136));
 
-        SpeculationModule speculationModule = SpeculationModule(
-            SPECULATION_MODULE
-        );
-        Speculation memory speculation = speculationModule.getSpeculation(
-            speculationId
-        );
+        SpeculationModule speculationModule = SpeculationModule(SPECULATION_MODULE);
+        Speculation memory speculation = speculationModule.getSpeculation(speculationId);
 
         // Display speculation information in a readable format
         console.log("\n==== Speculation Information ====");
@@ -26,11 +21,13 @@ contract DecodeSpeculation is Script {
 
         // Status (convert enum to string)
         string memory statusStr;
-        if (speculation.speculationStatus == SpeculationStatus.Open)
+        if (speculation.speculationStatus == SpeculationStatus.Open) {
             statusStr = "Open";
-        else if (speculation.speculationStatus == SpeculationStatus.Closed)
+        } else if (speculation.speculationStatus == SpeculationStatus.Closed) {
             statusStr = "Closed";
-        else statusStr = "Unknown";
+        } else {
+            statusStr = "Unknown";
+        }
 
         // Win side (convert enum to string)
         string memory winSideStr;
@@ -49,9 +46,6 @@ contract DecodeSpeculation is Script {
         console.log("Scorer:", speculation.speculationScorer);
 
         console.log("\n-- Timestamps & Numbers --");
-        console.log(
-            "The Number (Line/Spread/Total):",
-            int256(speculation.lineTicks)
-        );
+        console.log("The Number (Line/Spread/Total):", int256(speculation.lineTicks));
     }
 }

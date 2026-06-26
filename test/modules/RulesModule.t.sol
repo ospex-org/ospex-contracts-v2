@@ -78,10 +78,12 @@ contract RulesModuleTest is Test {
         rulesModule = new RulesModule(address(core));
         leaderboardModule = new LeaderboardModule(address(core));
         treasuryModule = new TreasuryModule(
-            address(core), address(token), protocolReceiver,
+            address(core),
+            address(token),
+            protocolReceiver,
             1_000_000, // contestCreationFeeRate
-            500_000,   // speculationCreationFeeRate
-            500_000    // leaderboardCreationFeeRate
+            500_000, // speculationCreationFeeRate
+            500_000 // leaderboardCreationFeeRate
         );
         positionModule = new PositionModule(address(core), address(token));
 
@@ -93,18 +95,30 @@ contract RulesModuleTest is Test {
         // Bootstrap all 12 modules
         bytes32[] memory types = new bytes32[](12);
         address[] memory addrs = new address[](12);
-        types[0] = core.CONTEST_MODULE();           addrs[0] = address(mockContestModule);
-        types[1] = core.SPECULATION_MODULE();        addrs[1] = address(mockSpeculationModule);
-        types[2] = core.POSITION_MODULE();           addrs[2] = address(positionModule);
-        types[3] = core.MATCHING_MODULE();           addrs[3] = address(0xD004);
-        types[4] = core.CRE_ORACLE_RECEIVER();             addrs[4] = address(this);
-        types[5] = core.TREASURY_MODULE();           addrs[5] = address(treasuryModule);
-        types[6] = core.LEADERBOARD_MODULE();        addrs[6] = address(leaderboardModule);
-        types[7] = core.RULES_MODULE();              addrs[7] = address(rulesModule);
-        types[8] = core.SECONDARY_MARKET_MODULE();   addrs[8] = address(0xD008);
-        types[9] = core.MONEYLINE_SCORER_MODULE();   addrs[9] = mockMoneylineScorer;
-        types[10] = core.SPREAD_SCORER_MODULE();     addrs[10] = mockSpreadScorer;
-        types[11] = core.TOTAL_SCORER_MODULE();      addrs[11] = address(0xD00B);
+        types[0] = core.CONTEST_MODULE();
+        addrs[0] = address(mockContestModule);
+        types[1] = core.SPECULATION_MODULE();
+        addrs[1] = address(mockSpeculationModule);
+        types[2] = core.POSITION_MODULE();
+        addrs[2] = address(positionModule);
+        types[3] = core.MATCHING_MODULE();
+        addrs[3] = address(0xD004);
+        types[4] = core.CRE_ORACLE_RECEIVER();
+        addrs[4] = address(this);
+        types[5] = core.TREASURY_MODULE();
+        addrs[5] = address(treasuryModule);
+        types[6] = core.LEADERBOARD_MODULE();
+        addrs[6] = address(leaderboardModule);
+        types[7] = core.RULES_MODULE();
+        addrs[7] = address(rulesModule);
+        types[8] = core.SECONDARY_MARKET_MODULE();
+        addrs[8] = address(0xD008);
+        types[9] = core.MONEYLINE_SCORER_MODULE();
+        addrs[9] = mockMoneylineScorer;
+        types[10] = core.SPREAD_SCORER_MODULE();
+        addrs[10] = mockSpreadScorer;
+        types[11] = core.TOTAL_SCORER_MODULE();
+        addrs[11] = address(0xD00B);
         core.bootstrapModules(types, addrs);
         core.finalize();
 
@@ -128,9 +142,9 @@ contract RulesModuleTest is Test {
 
         // Set up contest market data for validation tests (uint16 ticks, 10x lineTicks)
         ContestMarket memory market = ContestMarket({
-            lineTicks: 15,         // 1.5 spread (10x format)
-            upperOdds: 180,        // 1.80 odds
-            lowerOdds: 120,        // 1.20 odds
+            lineTicks: 15, // 1.5 spread (10x format)
+            upperOdds: 180, // 1.80 odds
+            lowerOdds: 120, // 1.20 odds
             lastUpdated: uint32(block.timestamp)
         });
         mockContestModule.setContestMarket(contestId, mockScorer, market);
@@ -272,29 +286,14 @@ contract RulesModuleTest is Test {
     function testSetDeviationRule_Success() public {
         vm.prank(creator);
         vm.expectEmit(true, true, true, true);
-        emit RulesModule.DeviationRuleSet(
-            leaderboardId,
-            LeagueId.NBA,
-            mockScorer,
-            PositionType.Upper,
-            MAX_DEVIATION
-        );
+        emit RulesModule.DeviationRuleSet(leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper, MAX_DEVIATION);
 
-        rulesModule.setDeviationRule(
-            leaderboardId,
-            LeagueId.NBA,
-            mockScorer,
-            PositionType.Upper,
-            MAX_DEVIATION
-        );
+        rulesModule.setDeviationRule(leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper, MAX_DEVIATION);
 
         assertEq(
-            rulesModule.s_deviationRules(leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper),
-            MAX_DEVIATION
+            rulesModule.s_deviationRules(leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper), MAX_DEVIATION
         );
-        assertTrue(
-            rulesModule.s_deviationRuleSet(leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper)
-        );
+        assertTrue(rulesModule.s_deviationRuleSet(leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper));
     }
 
     function testSetAllowLiveBetting_Success() public {
@@ -361,7 +360,6 @@ contract RulesModuleTest is Test {
         assertTrue(rulesModule.isBankrollValid(leaderboardId, type(uint256).max));
     }
 
-
     function testIsMinPositionsMet_EnoughPositions() public {
         vm.prank(creator);
         rulesModule.setMinBets(leaderboardId, MIN_BETS);
@@ -380,7 +378,7 @@ contract RulesModuleTest is Test {
     function testIsMinPositionsMet_NoMinimumSet() public view {
         // No minimum explicitly set - defaults to 1 position required
         assertFalse(rulesModule.isMinPositionsMet(leaderboardId, 0)); // 0 < 1 default
-        assertTrue(rulesModule.isMinPositionsMet(leaderboardId, 1));  // 1 >= 1 default
+        assertTrue(rulesModule.isMinPositionsMet(leaderboardId, 1)); // 1 >= 1 default
     }
 
     function testSetMinBets_RevertsIfZero() public {
@@ -477,14 +475,16 @@ contract RulesModuleTest is Test {
 
     function testIsNumberValid_NoRuleSet() public view {
         // No deviation rule set - should allow all numbers
-        assertTrue(rulesModule.validateNumber(
-            leaderboardId,
-            LeagueId.NBA,
-            mockScorer,
-            PositionType.Upper,
-            50, // user number (5.0 in 10x)
-            15  // market number (1.5 in 10x)
-        ));
+        assertTrue(
+            rulesModule.validateNumber(
+                leaderboardId,
+                LeagueId.NBA,
+                mockScorer,
+                PositionType.Upper,
+                50, // user number (5.0 in 10x)
+                15 // market number (1.5 in 10x)
+            )
+        );
     }
 
     function testIsNumberValid_WithinDeviation() public {
@@ -500,20 +500,38 @@ contract RulesModuleTest is Test {
         int32 marketNumber = 15; // +1.5 (10x)
 
         // Within deviation
-        assertTrue(rulesModule.validateNumber(
-            leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper,
-            30, marketNumber // 30 - 15 = 15 (exactly at limit)
-        ));
+        assertTrue(
+            rulesModule.validateNumber(
+                leaderboardId,
+                LeagueId.NBA,
+                mockScorer,
+                PositionType.Upper,
+                30,
+                marketNumber // 30 - 15 = 15 (exactly at limit)
+            )
+        );
 
-        assertTrue(rulesModule.validateNumber(
-            leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper,
-            0, marketNumber // 15 - 0 = 15 (exactly at limit)
-        ));
+        assertTrue(
+            rulesModule.validateNumber(
+                leaderboardId,
+                LeagueId.NBA,
+                mockScorer,
+                PositionType.Upper,
+                0,
+                marketNumber // 15 - 0 = 15 (exactly at limit)
+            )
+        );
 
-        assertTrue(rulesModule.validateNumber(
-            leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper,
-            20, marketNumber // 20 - 15 = 5 (within limit)
-        ));
+        assertTrue(
+            rulesModule.validateNumber(
+                leaderboardId,
+                LeagueId.NBA,
+                mockScorer,
+                PositionType.Upper,
+                20,
+                marketNumber // 20 - 15 = 5 (within limit)
+            )
+        );
     }
 
     function testIsNumberValid_ExceedsDeviation() public {
@@ -529,15 +547,27 @@ contract RulesModuleTest is Test {
         int32 marketNumber = 15; // +1.5 (10x)
 
         // Exceeds deviation
-        assertFalse(rulesModule.validateNumber(
-            leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper,
-            31, marketNumber // 31 - 15 = 16 > 15 max deviation
-        ));
+        assertFalse(
+            rulesModule.validateNumber(
+                leaderboardId,
+                LeagueId.NBA,
+                mockScorer,
+                PositionType.Upper,
+                31,
+                marketNumber // 31 - 15 = 16 > 15 max deviation
+            )
+        );
 
-        assertFalse(rulesModule.validateNumber(
-            leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper,
-            -1, marketNumber // 15 - (-1) = 16 > 15 max deviation
-        ));
+        assertFalse(
+            rulesModule.validateNumber(
+                leaderboardId,
+                LeagueId.NBA,
+                mockScorer,
+                PositionType.Upper,
+                -1,
+                marketNumber // 15 - (-1) = 16 > 15 max deviation
+            )
+        );
     }
 
     function testIsNumberValid_ExactMatchRequired() public {
@@ -553,20 +583,17 @@ contract RulesModuleTest is Test {
         int32 marketNumber = 15; // 1.5 (10x)
 
         // Only exact match allowed
-        assertTrue(rulesModule.validateNumber(
-            leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper,
-            15, marketNumber
-        ));
+        assertTrue(
+            rulesModule.validateNumber(leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper, 15, marketNumber)
+        );
 
-        assertFalse(rulesModule.validateNumber(
-            leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper,
-            16, marketNumber
-        ));
+        assertFalse(
+            rulesModule.validateNumber(leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper, 16, marketNumber)
+        );
 
-        assertFalse(rulesModule.validateNumber(
-            leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper,
-            14, marketNumber
-        ));
+        assertFalse(
+            rulesModule.validateNumber(leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper, 14, marketNumber)
+        );
     }
 
     // --- Comprehensive Validation Tests ---
@@ -584,7 +611,7 @@ contract RulesModuleTest is Test {
             15, // exact market number (10x)
             PositionType.Upper,
             100, // riskAmount
-            80   // profitAmount
+            80 // profitAmount
         );
         assertEq(uint256(result), uint256(LeaderboardPositionValidationResult.Valid));
     }
@@ -607,26 +634,14 @@ contract RulesModuleTest is Test {
 
         // Before leaderboard starts
         LeaderboardPositionValidationResult result1 = rulesModule.validateLeaderboardPosition(
-            leaderboardId,
-            speculationId,
-            user1,
-            15,
-            PositionType.Upper,
-            100,
-            80
+            leaderboardId, speculationId, user1, 15, PositionType.Upper, 100, 80
         );
         assertEq(uint256(result1), uint256(LeaderboardPositionValidationResult.LeaderboardHasNotStarted));
 
         // After leaderboard ends
         vm.warp(block.timestamp + 9 days);
         LeaderboardPositionValidationResult result2 = rulesModule.validateLeaderboardPosition(
-            leaderboardId,
-            speculationId,
-            user1,
-            15,
-            PositionType.Upper,
-            100,
-            80
+            leaderboardId, speculationId, user1, 15, PositionType.Upper, 100, 80
         );
         assertEq(uint256(result2), uint256(LeaderboardPositionValidationResult.LeaderboardHasEnded));
     }
@@ -678,8 +693,8 @@ contract RulesModuleTest is Test {
             user1,
             15, // exact market number
             PositionType.Upper,
-            100,  // riskAmount
-            200   // profitAmount => effective 3.00 (too good)
+            100, // riskAmount
+            200 // profitAmount => effective 3.00 (too good)
         );
         assertEq(uint256(result), uint256(LeaderboardPositionValidationResult.OddsTooFavorable));
     }
@@ -696,13 +711,7 @@ contract RulesModuleTest is Test {
 
         // Live betting is disabled by default, so this should fail
         LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
-            leaderboardId,
-            speculationId,
-            user1,
-            15,
-            PositionType.Upper,
-            100,
-            80
+            leaderboardId, speculationId, user1, 15, PositionType.Upper, 100, 80
         );
         assertEq(uint256(result), uint256(LeaderboardPositionValidationResult.LiveBettingNotAllowed));
     }
@@ -723,13 +732,7 @@ contract RulesModuleTest is Test {
 
         // Live betting is enabled, so this should succeed
         LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
-            leaderboardId,
-            speculationId,
-            user1,
-            15,
-            PositionType.Upper,
-            100,
-            80
+            leaderboardId, speculationId, user1, 15, PositionType.Upper, 100, 80
         );
         assertEq(uint256(result), uint256(LeaderboardPositionValidationResult.Valid));
     }
@@ -746,13 +749,7 @@ contract RulesModuleTest is Test {
 
         // Should succeed regardless of live betting setting since contest hasn't started
         LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
-            leaderboardId,
-            speculationId,
-            user1,
-            15,
-            PositionType.Upper,
-            100,
-            80
+            leaderboardId, speculationId, user1, 15, PositionType.Upper, 100, 80
         );
         assertEq(uint256(result), uint256(LeaderboardPositionValidationResult.Valid));
     }
@@ -788,32 +785,18 @@ contract RulesModuleTest is Test {
     // --- Getter Function Tests ---
     function testGetDeviationRule_Set() public {
         vm.prank(creator);
-        rulesModule.setDeviationRule(
-            leaderboardId,
-            LeagueId.NBA,
-            mockScorer,
-            PositionType.Upper,
-            MAX_DEVIATION
-        );
+        rulesModule.setDeviationRule(leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper, MAX_DEVIATION);
 
-        (int32 maxDeviation, bool isSet) = rulesModule.getDeviationRule(
-            leaderboardId,
-            LeagueId.NBA,
-            mockScorer,
-            PositionType.Upper
-        );
+        (int32 maxDeviation, bool isSet) =
+            rulesModule.getDeviationRule(leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper);
 
         assertEq(maxDeviation, MAX_DEVIATION);
         assertTrue(isSet);
     }
 
     function testGetDeviationRule_NotSet() public view {
-        (int32 maxDeviation, bool isSet) = rulesModule.getDeviationRule(
-            leaderboardId,
-            LeagueId.NBA,
-            mockScorer,
-            PositionType.Upper
-        );
+        (int32 maxDeviation, bool isSet) =
+            rulesModule.getDeviationRule(leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper);
 
         assertEq(maxDeviation, 0); // default value
         assertFalse(isSet);
@@ -904,20 +887,9 @@ contract RulesModuleTest is Test {
         RulesModule newRulesModule = new RulesModule(address(newCore));
 
         vm.expectRevert(
-            abi.encodeWithSelector(
-                RulesModule.RulesModule__ModuleNotSet.selector,
-                keccak256("LEADERBOARD_MODULE")
-            )
+            abi.encodeWithSelector(RulesModule.RulesModule__ModuleNotSet.selector, keccak256("LEADERBOARD_MODULE"))
         );
-        newRulesModule.validateLeaderboardPosition(
-            leaderboardId,
-            speculationId,
-            user1,
-            15,
-            PositionType.Upper,
-            100,
-            80
-        );
+        newRulesModule.validateLeaderboardPosition(leaderboardId, speculationId, user1, 15, PositionType.Upper, 100, 80);
     }
 
     // --- Helper Functions ---
@@ -929,13 +901,7 @@ contract RulesModuleTest is Test {
         rulesModule.setMaxBetPercentage(leaderboardId, MAX_BET_PERCENTAGE);
         rulesModule.setMinBets(leaderboardId, MIN_BETS);
         rulesModule.setOddsEnforcementBps(leaderboardId, ODDS_ENFORCEMENT_BPS);
-        rulesModule.setDeviationRule(
-            leaderboardId,
-            LeagueId.NBA,
-            mockScorer,
-            PositionType.Upper,
-            MAX_DEVIATION
-        );
+        rulesModule.setDeviationRule(leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper, MAX_DEVIATION);
         vm.stopPrank();
 
         // Set contest start time to future by default (contest hasn't started)
@@ -950,36 +916,38 @@ contract RulesModuleTest is Test {
         // Set up speculations in mock BEFORE adding to leaderboard (needed for contestId lookup)
         uint256 moneylineSpeculationId = 10;
         uint256 spreadSpeculationId = 11;
-        mockSpeculationModule.setTestSpeculation(moneylineSpeculationId, Speculation({
-            contestId: contestId,
-            speculationScorer: mockMoneylineScorer,
-            lineTicks: 15,
-            speculationTaker: address(0),
-            speculationStatus: SpeculationStatus.Open,
-            winSide: WinSide.TBD
-        }));
-        mockSpeculationModule.setTestSpeculation(spreadSpeculationId, Speculation({
-            contestId: contestId,
-            speculationScorer: mockSpreadScorer,
-            lineTicks: 15,
-            speculationTaker: address(0),
-            speculationStatus: SpeculationStatus.Open,
-            winSide: WinSide.TBD
-        }));
+        mockSpeculationModule.setTestSpeculation(
+            moneylineSpeculationId,
+            Speculation({
+                contestId: contestId,
+                speculationScorer: mockMoneylineScorer,
+                lineTicks: 15,
+                speculationTaker: address(0),
+                speculationStatus: SpeculationStatus.Open,
+                winSide: WinSide.TBD
+            })
+        );
+        mockSpeculationModule.setTestSpeculation(
+            spreadSpeculationId,
+            Speculation({
+                contestId: contestId,
+                speculationScorer: mockSpreadScorer,
+                lineTicks: 15,
+                speculationTaker: address(0),
+                speculationStatus: SpeculationStatus.Open,
+                winSide: WinSide.TBD
+            })
+        );
 
         // Set up contest markets for both scorer addresses (uint16 ticks, 10x lineTicks)
-        mockContestModule.setContestMarket(contestId, mockMoneylineScorer, ContestMarket({
-            lineTicks: 15,
-            upperOdds: 180,
-            lowerOdds: 120,
-            lastUpdated: 1
-        }));
-        mockContestModule.setContestMarket(contestId, mockSpreadScorer, ContestMarket({
-            lineTicks: 15,
-            upperOdds: 180,
-            lowerOdds: 120,
-            lastUpdated: 1
-        }));
+        mockContestModule.setContestMarket(
+            contestId,
+            mockMoneylineScorer,
+            ContestMarket({lineTicks: 15, upperOdds: 180, lowerOdds: 120, lastUpdated: 1})
+        );
+        mockContestModule.setContestMarket(
+            contestId, mockSpreadScorer, ContestMarket({lineTicks: 15, upperOdds: 180, lowerOdds: 120, lastUpdated: 1})
+        );
 
         // Add the new speculations to the leaderboard
         vm.startPrank(creator);
@@ -1017,13 +985,7 @@ contract RulesModuleTest is Test {
 
         // Try to register spread position - should fail with MoneylineSpreadPairingNotAllowed
         LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
-            leaderboardId,
-            spreadSpeculationId,
-            user1,
-            15,
-            PositionType.Upper,
-            100,
-            80
+            leaderboardId, spreadSpeculationId, user1, 15, PositionType.Upper, 100, 80
         );
 
         assertEq(uint256(result), uint256(LeaderboardPositionValidationResult.MoneylineSpreadPairingNotAllowed));
@@ -1035,36 +997,38 @@ contract RulesModuleTest is Test {
         // Set up speculations in mock BEFORE adding to leaderboard (needed for contestId lookup)
         uint256 spreadSpeculationId = 12;
         uint256 moneylineSpeculationId = 13;
-        mockSpeculationModule.setTestSpeculation(spreadSpeculationId, Speculation({
-            contestId: contestId,
-            speculationScorer: mockSpreadScorer,
-            lineTicks: 15,
-            speculationTaker: address(0),
-            speculationStatus: SpeculationStatus.Open,
-            winSide: WinSide.TBD
-        }));
-        mockSpeculationModule.setTestSpeculation(moneylineSpeculationId, Speculation({
-            contestId: contestId,
-            speculationScorer: mockMoneylineScorer,
-            lineTicks: 15,
-            speculationTaker: address(0),
-            speculationStatus: SpeculationStatus.Open,
-            winSide: WinSide.TBD
-        }));
+        mockSpeculationModule.setTestSpeculation(
+            spreadSpeculationId,
+            Speculation({
+                contestId: contestId,
+                speculationScorer: mockSpreadScorer,
+                lineTicks: 15,
+                speculationTaker: address(0),
+                speculationStatus: SpeculationStatus.Open,
+                winSide: WinSide.TBD
+            })
+        );
+        mockSpeculationModule.setTestSpeculation(
+            moneylineSpeculationId,
+            Speculation({
+                contestId: contestId,
+                speculationScorer: mockMoneylineScorer,
+                lineTicks: 15,
+                speculationTaker: address(0),
+                speculationStatus: SpeculationStatus.Open,
+                winSide: WinSide.TBD
+            })
+        );
 
         // Set up contest markets for both scorer addresses (uint16 ticks, 10x lineTicks)
-        mockContestModule.setContestMarket(contestId, mockMoneylineScorer, ContestMarket({
-            lineTicks: 15,
-            upperOdds: 180,
-            lowerOdds: 120,
-            lastUpdated: 1
-        }));
-        mockContestModule.setContestMarket(contestId, mockSpreadScorer, ContestMarket({
-            lineTicks: 15,
-            upperOdds: 180,
-            lowerOdds: 120,
-            lastUpdated: 1
-        }));
+        mockContestModule.setContestMarket(
+            contestId,
+            mockMoneylineScorer,
+            ContestMarket({lineTicks: 15, upperOdds: 180, lowerOdds: 120, lastUpdated: 1})
+        );
+        mockContestModule.setContestMarket(
+            contestId, mockSpreadScorer, ContestMarket({lineTicks: 15, upperOdds: 180, lowerOdds: 120, lastUpdated: 1})
+        );
 
         // Add the new speculations to the leaderboard
         vm.startPrank(creator);
@@ -1102,13 +1066,7 @@ contract RulesModuleTest is Test {
 
         // Try to register moneyline position - should fail with MoneylineSpreadPairingNotAllowed
         LeaderboardPositionValidationResult result = rulesModule.validateLeaderboardPosition(
-            leaderboardId,
-            moneylineSpeculationId,
-            user1,
-            15,
-            PositionType.Upper,
-            100,
-            80
+            leaderboardId, moneylineSpeculationId, user1, 15, PositionType.Upper, 100, 80
         );
 
         assertEq(uint256(result), uint256(LeaderboardPositionValidationResult.MoneylineSpreadPairingNotAllowed));
@@ -1177,13 +1135,7 @@ contract RulesModuleTest is Test {
     function testSetDeviationRule_RevertsIfNotCreator() public {
         vm.prank(nonCreator);
         vm.expectRevert(abi.encodeWithSelector(RulesModule.RulesModule__NotCreator.selector, nonCreator));
-        rulesModule.setDeviationRule(
-            leaderboardId,
-            LeagueId.NBA,
-            mockScorer,
-            PositionType.Upper,
-            MAX_DEVIATION
-        );
+        rulesModule.setDeviationRule(leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper, MAX_DEVIATION);
     }
 
     function testSetDeviationRule_RevertsIfLeaderboardStarted() public {
@@ -1191,13 +1143,7 @@ contract RulesModuleTest is Test {
 
         vm.prank(creator);
         vm.expectRevert(RulesModule.RulesModule__LeaderboardStarted.selector);
-        rulesModule.setDeviationRule(
-            leaderboardId,
-            LeagueId.NBA,
-            mockScorer,
-            PositionType.Upper,
-            MAX_DEVIATION
-        );
+        rulesModule.setDeviationRule(leaderboardId, LeagueId.NBA, mockScorer, PositionType.Upper, MAX_DEVIATION);
     }
 
     // setMinBets
@@ -1274,10 +1220,7 @@ contract RulesModuleTest is Test {
         // Create a second leaderboard to test reverse order
         vm.prank(creator);
         uint256 lb2 = leaderboardModule.createLeaderboard(
-            0,
-            uint32(block.timestamp + 1 hours),
-            uint32(block.timestamp + 8 days),
-            SAFETY_PERIOD, ROI_WINDOW
+            0, uint32(block.timestamp + 1 hours), uint32(block.timestamp + 8 days), SAFETY_PERIOD, ROI_WINDOW
         );
 
         // Set max first, then min — should also work
@@ -1303,10 +1246,7 @@ contract RulesModuleTest is Test {
         // Create a second leaderboard to test reverse order
         vm.prank(creator);
         uint256 lb2 = leaderboardModule.createLeaderboard(
-            0,
-            uint32(block.timestamp + 1 hours),
-            uint32(block.timestamp + 8 days),
-            SAFETY_PERIOD, ROI_WINDOW
+            0, uint32(block.timestamp + 1 hours), uint32(block.timestamp + 8 days), SAFETY_PERIOD, ROI_WINDOW
         );
 
         // Set max first, then min

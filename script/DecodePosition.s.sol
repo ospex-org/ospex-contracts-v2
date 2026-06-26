@@ -21,11 +21,7 @@ contract DecodePosition is Script {
         SpeculationModule speculationManager = SpeculationModule(SPECULATION_MODULE);
 
         // Get the position (new interface: no oddsPairId)
-        Position memory position = positionManager.getPosition(
-            speculationId,
-            user,
-            positionType
-        );
+        Position memory position = positionManager.getPosition(speculationId, user, positionType);
 
         if (position.riskAmount == 0) {
             console.log("\n==== Position Not Found ====");
@@ -41,7 +37,8 @@ contract DecodePosition is Script {
         console.log("Speculation ID:", speculationId);
         console.log("User:", user);
 
-        string memory posTypeStr2 = position.positionType == PositionType.Upper ? "Upper (Away/Over)" : "Lower (Home/Under)";
+        string memory posTypeStr2 =
+            position.positionType == PositionType.Upper ? "Upper (Away/Over)" : "Lower (Home/Under)";
         console.log("Position Type:", posTypeStr2);
 
         console.log("\n-- Amounts --");
@@ -76,10 +73,18 @@ contract DecodePosition is Script {
                 console.log("Winning Side:", winSideStr);
 
                 bool positionWon = false;
-                if (speculation.winSide == WinSide.Away && position.positionType == PositionType.Upper) positionWon = true;
-                if (speculation.winSide == WinSide.Home && position.positionType == PositionType.Lower) positionWon = true;
-                if (speculation.winSide == WinSide.Over && position.positionType == PositionType.Upper) positionWon = true;
-                if (speculation.winSide == WinSide.Under && position.positionType == PositionType.Lower) positionWon = true;
+                if (speculation.winSide == WinSide.Away && position.positionType == PositionType.Upper) {
+                    positionWon = true;
+                }
+                if (speculation.winSide == WinSide.Home && position.positionType == PositionType.Lower) {
+                    positionWon = true;
+                }
+                if (speculation.winSide == WinSide.Over && position.positionType == PositionType.Upper) {
+                    positionWon = true;
+                }
+                if (speculation.winSide == WinSide.Under && position.positionType == PositionType.Lower) {
+                    positionWon = true;
+                }
 
                 console.log("This Position Result:", positionWon ? "WON" : "LOST");
             }

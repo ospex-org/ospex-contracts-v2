@@ -15,8 +15,7 @@ import {OspexCore} from "../core/OspexCore.sol";
 contract MoneylineScorerModule is IScorerModule {
     // ──────────────────────────── Constants ────────────────────────────
 
-    bytes32 public constant SPECULATION_MODULE =
-        keccak256("SPECULATION_MODULE");
+    bytes32 public constant SPECULATION_MODULE = keccak256("SPECULATION_MODULE");
     bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
 
     // ──────────────────────────── Errors ───────────────────────────────
@@ -48,8 +47,9 @@ contract MoneylineScorerModule is IScorerModule {
     /// @notice Deploys the MoneylineScorerModule
     /// @param ospexCore_ The OspexCore contract address
     constructor(address ospexCore_) {
-        if (ospexCore_ == address(0))
+        if (ospexCore_ == address(0)) {
             revert MoneylineScorerModule__InvalidOspexCore();
+        }
         i_ospexCore = OspexCore(ospexCore_);
     }
 
@@ -59,9 +59,14 @@ contract MoneylineScorerModule is IScorerModule {
     function determineWinSide(
         uint256 contestId,
         int32 /*lineTicks*/
-    ) external view override onlySpeculationModule returns (WinSide) {
-        Contest memory contest = IContestModule(_getModule(CONTEST_MODULE))
-            .getContest(contestId);
+    )
+        external
+        view
+        override
+        onlySpeculationModule
+        returns (WinSide)
+    {
+        Contest memory contest = IContestModule(_getModule(CONTEST_MODULE)).getContest(contestId);
 
         return _scoreMoneyline(contest.awayScore, contest.homeScore);
     }
@@ -72,10 +77,7 @@ contract MoneylineScorerModule is IScorerModule {
      * @param homeScore Home team score
      * @return The winning side (Away, Home, or Push on tie)
      */
-    function _scoreMoneyline(
-        uint32 awayScore,
-        uint32 homeScore
-    ) private pure returns (WinSide) {
+    function _scoreMoneyline(uint32 awayScore, uint32 homeScore) private pure returns (WinSide) {
         if (awayScore > homeScore) {
             return WinSide.Away;
         } else if (homeScore > awayScore) {
@@ -92,9 +94,7 @@ contract MoneylineScorerModule is IScorerModule {
      * @param moduleType The module type identifier
      * @return module The module contract address
      */
-    function _getModule(
-        bytes32 moduleType
-    ) internal view returns (address module) {
+    function _getModule(bytes32 moduleType) internal view returns (address module) {
         module = i_ospexCore.getModule(moduleType);
         if (module == address(0)) {
             revert MoneylineScorerModule__ModuleNotSet(moduleType);

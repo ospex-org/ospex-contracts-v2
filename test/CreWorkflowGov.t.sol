@@ -110,17 +110,12 @@ contract CreWorkflowGovTest is Test {
     }
 
     function _linkData() internal view returns (bytes memory) {
-        return abi.encodeCall(
-            CreWorkflowOwner.linkSelfAsOwner,
-            (block.timestamp + 1000, bytes32("proof"), bytes(""))
-        );
+        return abi.encodeCall(CreWorkflowOwner.linkSelfAsOwner, (block.timestamp + 1000, bytes32("proof"), bytes("")));
     }
 
     function _updateData(bytes32 wfId) internal pure returns (bytes memory) {
-        return abi.encodeCall(
-            CreWorkflowOwner.updateWorkflow,
-            (wfId, "zone-a", "https://bin", "https://cfg", bytes(""))
-        );
+        return
+            abi.encodeCall(CreWorkflowOwner.updateWorkflow, (wfId, "zone-a", "https://bin", "https://cfg", bytes("")));
     }
 
     function _linkAdapter() internal {
@@ -186,24 +181,18 @@ contract CreWorkflowGovTest is Test {
 
     function test_updateWorkflow_onlyTimelock() public {
         _linkAdapter();
-        vm.expectRevert(
-            abi.encodeWithSelector(CreWorkflowOwner.CreWorkflowOwner__NotTimelock.selector, address(this))
-        );
+        vm.expectRevert(abi.encodeWithSelector(CreWorkflowOwner.CreWorkflowOwner__NotTimelock.selector, address(this)));
         ownerAdapter.updateWorkflow(bytes32(uint256(1)), "zone-a", "b", "c", bytes(""));
     }
 
     function test_deleteWorkflow_onlyTimelock() public {
         _linkAdapter();
-        vm.expectRevert(
-            abi.encodeWithSelector(CreWorkflowOwner.CreWorkflowOwner__NotTimelock.selector, address(this))
-        );
+        vm.expectRevert(abi.encodeWithSelector(CreWorkflowOwner.CreWorkflowOwner__NotTimelock.selector, address(this)));
         ownerAdapter.deleteWorkflow(bytes32(uint256(1)));
     }
 
     function test_linkSelfAsOwner_onlyTimelock() public {
-        vm.expectRevert(
-            abi.encodeWithSelector(CreWorkflowOwner.CreWorkflowOwner__NotTimelock.selector, address(this))
-        );
+        vm.expectRevert(abi.encodeWithSelector(CreWorkflowOwner.CreWorkflowOwner__NotTimelock.selector, address(this)));
         ownerAdapter.linkSelfAsOwner(block.timestamp + 1, bytes32("p"), bytes(""));
     }
 
@@ -244,9 +233,8 @@ contract CreWorkflowGovTest is Test {
     ///      adapter function, but onlyTimelock — see test_deleteWorkflow_onlyTimelock.)
     function test_adapterHasNoPauseSelector() public {
         _linkAdapter();
-        (bool okPause, ) = address(ownerAdapter).call(
-            abi.encodeWithSignature("pauseWorkflow(bytes32)", bytes32(uint256(1)))
-        );
+        (bool okPause,) =
+            address(ownerAdapter).call(abi.encodeWithSignature("pauseWorkflow(bytes32)", bytes32(uint256(1))));
         assertFalse(okPause);
         assertFalse(registry.paused());
     }

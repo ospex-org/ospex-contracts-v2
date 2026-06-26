@@ -74,27 +74,36 @@ contract LeaderboardMinPositionsOutcomeFilterTest is Test {
         speculationModule = new SpeculationModule(address(core), 3 days);
         leaderboardModule = new LeaderboardModule(address(core));
         rulesModule = new RulesModule(address(core));
-        treasuryModule = new TreasuryModule(
-            address(core), address(token), address(0xFEED),
-            1_000_000, 500_000, 500_000
-        );
+        treasuryModule = new TreasuryModule(address(core), address(token), address(0xFEED), 1_000_000, 500_000, 500_000);
         mockContestModule = new MockContestModule();
         mockScorerModule = new MockScorerModule();
 
         bytes32[] memory types = new bytes32[](12);
         address[] memory addrs = new address[](12);
-        types[0]  = core.CONTEST_MODULE();         addrs[0]  = address(mockContestModule);
-        types[1]  = core.SPECULATION_MODULE();      addrs[1]  = address(speculationModule);
-        types[2]  = core.POSITION_MODULE();         addrs[2]  = address(positionModule);
-        types[3]  = core.MATCHING_MODULE();         addrs[3]  = address(this);
-        types[4]  = core.CRE_ORACLE_RECEIVER();           addrs[4]  = address(0xFEED);
-        types[5]  = core.TREASURY_MODULE();         addrs[5]  = address(treasuryModule);
-        types[6]  = core.LEADERBOARD_MODULE();      addrs[6]  = address(leaderboardModule);
-        types[7]  = core.RULES_MODULE();            addrs[7]  = address(rulesModule);
-        types[8]  = core.SECONDARY_MARKET_MODULE(); addrs[8]  = address(0x5EC0);
-        types[9]  = core.MONEYLINE_SCORER_MODULE(); addrs[9]  = address(mockScorerModule);
-        types[10] = core.SPREAD_SCORER_MODULE();    addrs[10] = address(0x5901);
-        types[11] = core.TOTAL_SCORER_MODULE();     addrs[11] = address(0x7701);
+        types[0] = core.CONTEST_MODULE();
+        addrs[0] = address(mockContestModule);
+        types[1] = core.SPECULATION_MODULE();
+        addrs[1] = address(speculationModule);
+        types[2] = core.POSITION_MODULE();
+        addrs[2] = address(positionModule);
+        types[3] = core.MATCHING_MODULE();
+        addrs[3] = address(this);
+        types[4] = core.CRE_ORACLE_RECEIVER();
+        addrs[4] = address(0xFEED);
+        types[5] = core.TREASURY_MODULE();
+        addrs[5] = address(treasuryModule);
+        types[6] = core.LEADERBOARD_MODULE();
+        addrs[6] = address(leaderboardModule);
+        types[7] = core.RULES_MODULE();
+        addrs[7] = address(rulesModule);
+        types[8] = core.SECONDARY_MARKET_MODULE();
+        addrs[8] = address(0x5EC0);
+        types[9] = core.MONEYLINE_SCORER_MODULE();
+        addrs[9] = address(mockScorerModule);
+        types[10] = core.SPREAD_SCORER_MODULE();
+        addrs[10] = address(0x5901);
+        types[11] = core.TOTAL_SCORER_MODULE();
+        addrs[11] = address(0x7701);
         core.bootstrapModules(types, addrs);
         core.finalize();
 
@@ -116,9 +125,7 @@ contract LeaderboardMinPositionsOutcomeFilterTest is Test {
         lbEndTime = uint32(block.timestamp + 8 days);
 
         vm.prank(lbCreator);
-        leaderboardId = leaderboardModule.createLeaderboard(
-            ENTRY_FEE, lbStartTime, lbEndTime, 1 days, 7 days
-        );
+        leaderboardId = leaderboardModule.createLeaderboard(ENTRY_FEE, lbStartTime, lbEndTime, 1 days, 7 days);
 
         // Set minBets = 3
         vm.prank(lbCreator);
@@ -152,9 +159,7 @@ contract LeaderboardMinPositionsOutcomeFilterTest is Test {
 
         // Submit should fail — 3 Void positions don't meet minBets=3
         vm.prank(user1);
-        vm.expectRevert(
-            LeaderboardModule.LeaderboardModule__MinimumPositionsNotMet.selector
-        );
+        vm.expectRevert(LeaderboardModule.LeaderboardModule__MinimumPositionsNotMet.selector);
         leaderboardModule.submitLeaderboardROI(leaderboardId);
     }
 
@@ -173,9 +178,7 @@ contract LeaderboardMinPositionsOutcomeFilterTest is Test {
 
         // Submit should fail — 3 TBD positions don't meet minBets=3
         vm.prank(user1);
-        vm.expectRevert(
-            LeaderboardModule.LeaderboardModule__MinimumPositionsNotMet.selector
-        );
+        vm.expectRevert(LeaderboardModule.LeaderboardModule__MinimumPositionsNotMet.selector);
         leaderboardModule.submitLeaderboardROI(leaderboardId);
     }
 
@@ -247,19 +250,17 @@ contract LeaderboardMinPositionsOutcomeFilterTest is Test {
         }
 
         // Settle: Win, Loss, Void, (TBD), Void
-        _settleAsScored(specIds[0], 1, WinSide.Away);     // Win (Upper)
-        _settleAsScored(specIds[1], 2, WinSide.Home);     // Loss (Upper)
-        _settleAsVoid(specIds[2], 3);                      // Void
+        _settleAsScored(specIds[0], 1, WinSide.Away); // Win (Upper)
+        _settleAsScored(specIds[1], 2, WinSide.Home); // Loss (Upper)
+        _settleAsVoid(specIds[2], 3); // Void
         // specIds[3] left as TBD (never settled)           // TBD
-        _settleAsVoid(specIds[4], 5);                      // Void
+        _settleAsVoid(specIds[4], 5); // Void
 
         // Qualifying count = 2 (Win + Loss). minBets = 3. Should fail.
         _warpToROIWindow();
 
         vm.prank(user1);
-        vm.expectRevert(
-            LeaderboardModule.LeaderboardModule__MinimumPositionsNotMet.selector
-        );
+        vm.expectRevert(LeaderboardModule.LeaderboardModule__MinimumPositionsNotMet.selector);
         leaderboardModule.submitLeaderboardROI(leaderboardId);
     }
 
@@ -271,12 +272,12 @@ contract LeaderboardMinPositionsOutcomeFilterTest is Test {
         }
 
         // Settle: Win, Loss, Void, TBD, Void, Push
-        _settleAsScored(specIds[0], 1, WinSide.Away);     // Win
-        _settleAsScored(specIds[1], 2, WinSide.Home);     // Loss
-        _settleAsVoid(specIds[2], 3);                      // Void
+        _settleAsScored(specIds[0], 1, WinSide.Away); // Win
+        _settleAsScored(specIds[1], 2, WinSide.Home); // Loss
+        _settleAsVoid(specIds[2], 3); // Void
         // specIds[3] left as TBD                           // TBD
-        _settleAsVoid(specIds[4], 5);                      // Void
-        _settleAsScored(specIds[5], 6, WinSide.Push);      // Push
+        _settleAsVoid(specIds[4], 5); // Void
+        _settleAsScored(specIds[5], 6, WinSide.Push); // Push
 
         // Qualifying: Win + Loss + Push = 3. minBets = 3. Should succeed.
         _warpToROIWindow();
@@ -298,16 +299,20 @@ contract LeaderboardMinPositionsOutcomeFilterTest is Test {
     /// @dev Creates a contest, speculation, position, and registers it for the leaderboard
     function _createAndRegisterPosition(uint256 contestId) internal {
         Contest memory contest = Contest({
-            awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Verified, contestCreator: address(this),
-            rundownId: "", sportspageId: "", jsonoddsId: ""
+            awayScore: 0,
+            homeScore: 0,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Verified,
+            contestCreator: address(this),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
         });
         mockContestModule.setContest(contestId, contest);
         mockContestModule.setContestStartTime(contestId, uint32(block.timestamp + 10 hours));
 
         uint256 specId = positionModule.recordFill(
-            contestId, address(mockScorerModule), 0, PositionType.Upper,
-            user1, BET_AMOUNT, counterparty, 40_000_000
+            contestId, address(mockScorerModule), 0, PositionType.Upper, user1, BET_AMOUNT, counterparty, 40_000_000
         );
         specIds.push(specId);
 
@@ -316,9 +321,7 @@ contract LeaderboardMinPositionsOutcomeFilterTest is Test {
         leaderboardModule.addLeaderboardSpeculation(leaderboardId, specId);
 
         vm.prank(user1);
-        leaderboardModule.registerPositionForLeaderboard(
-            specId, PositionType.Upper, leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(specId, PositionType.Upper, leaderboardId);
     }
 
     /// @dev Settles a speculation with a scored contest and specific outcome
@@ -330,9 +333,14 @@ contract LeaderboardMinPositionsOutcomeFilterTest is Test {
         }
 
         Contest memory scored = Contest({
-            awayScore: 1, homeScore: 0, leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            rundownId: "", sportspageId: "", jsonoddsId: ""
+            awayScore: 1,
+            homeScore: 0,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored,
+            contestCreator: address(this),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
         });
         mockContestModule.setContest(contestId, scored);
         mockScorerModule.setWinSide(contestId, 0, side);

@@ -12,22 +12,16 @@ import {SpeculationModule} from "../../src/modules/SpeculationModule.sol";
 import {OspexCore} from "../../src/core/OspexCore.sol";
 import {MockContestModule} from "../mocks/MockContestModule.sol";
 import {MockScorerModule} from "../mocks/MockScorerModule.sol";
-import {
-    PositionType,
-    Contest,
-    ContestStatus,
-    LeagueId,
-    WinSide
-} from "../../src/core/OspexTypes.sol";
+import {PositionType, Contest, ContestStatus, LeagueId, WinSide} from "../../src/core/OspexTypes.sol";
 
 /// @dev Minimal mock that implements recordFill for successful matches
 contract MockPositionModuleForCooldown {
     uint256 public returnSpeculationId = 1;
 
-    function recordFill(
-        uint256, address, int32, PositionType,
-        address, uint256, address, uint256
-    ) external returns (uint256) {
+    function recordFill(uint256, address, int32, PositionType, address, uint256, address, uint256)
+        external
+        returns (uint256)
+    {
         return returnSpeculationId;
     }
 
@@ -81,27 +75,44 @@ contract MatchingPostCooldownRejectionTest is Test {
         // Bootstrap all 12 modules
         bytes32[] memory types = new bytes32[](12);
         address[] memory addrs = new address[](12);
-        types[0]  = core.CONTEST_MODULE();         addrs[0]  = address(mockContestModule);
-        types[1]  = core.SPECULATION_MODULE();      addrs[1]  = address(speculationModule);
-        types[2]  = core.POSITION_MODULE();         addrs[2]  = address(mockPositionModule);
-        types[3]  = core.MATCHING_MODULE();         addrs[3]  = address(matchingModule);
-        types[4]  = core.CRE_ORACLE_RECEIVER();           addrs[4]  = address(0xFEED);
-        types[5]  = core.TREASURY_MODULE();         addrs[5]  = address(0xFE05);
-        types[6]  = core.LEADERBOARD_MODULE();      addrs[6]  = address(0x1B05);
-        types[7]  = core.RULES_MODULE();            addrs[7]  = address(0xD007);
-        types[8]  = core.SECONDARY_MARKET_MODULE(); addrs[8]  = address(0x5EC0);
-        types[9]  = core.MONEYLINE_SCORER_MODULE(); addrs[9]  = address(mockScorerModule);
-        types[10] = core.SPREAD_SCORER_MODULE();    addrs[10] = address(0x5901);
-        types[11] = core.TOTAL_SCORER_MODULE();     addrs[11] = address(0x7701);
+        types[0] = core.CONTEST_MODULE();
+        addrs[0] = address(mockContestModule);
+        types[1] = core.SPECULATION_MODULE();
+        addrs[1] = address(speculationModule);
+        types[2] = core.POSITION_MODULE();
+        addrs[2] = address(mockPositionModule);
+        types[3] = core.MATCHING_MODULE();
+        addrs[3] = address(matchingModule);
+        types[4] = core.CRE_ORACLE_RECEIVER();
+        addrs[4] = address(0xFEED);
+        types[5] = core.TREASURY_MODULE();
+        addrs[5] = address(0xFE05);
+        types[6] = core.LEADERBOARD_MODULE();
+        addrs[6] = address(0x1B05);
+        types[7] = core.RULES_MODULE();
+        addrs[7] = address(0xD007);
+        types[8] = core.SECONDARY_MARKET_MODULE();
+        addrs[8] = address(0x5EC0);
+        types[9] = core.MONEYLINE_SCORER_MODULE();
+        addrs[9] = address(mockScorerModule);
+        types[10] = core.SPREAD_SCORER_MODULE();
+        addrs[10] = address(0x5901);
+        types[11] = core.TOTAL_SCORER_MODULE();
+        addrs[11] = address(0x7701);
         core.bootstrapModules(types, addrs);
         core.finalize();
 
         // Contest: Verified, starts now
         contestStartTime = uint32(block.timestamp);
         Contest memory contest = Contest({
-            awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Verified, contestCreator: address(this),
-            rundownId: "test", sportspageId: "test", jsonoddsId: "test"
+            awayScore: 0,
+            homeScore: 0,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Verified,
+            contestCreator: address(this),
+            rundownId: "test",
+            sportspageId: "test",
+            jsonoddsId: "test"
         });
         mockContestModule.setContest(CONTEST_ID, contest);
         mockContestModule.setContestStartTime(CONTEST_ID, contestStartTime);
@@ -131,16 +142,10 @@ contract MatchingPostCooldownRejectionTest is Test {
         vm.warp(uint256(contestStartTime) + uint256(VOID_COOLDOWN) + 1);
 
         // Verify precondition: contest is NOT terminal
-        assertFalse(
-            mockContestModule.isContestTerminal(CONTEST_ID),
-            "Contest should NOT be terminal yet"
-        );
+        assertFalse(mockContestModule.isContestTerminal(CONTEST_ID), "Contest should NOT be terminal yet");
 
         // Verify precondition: cooldown IS elapsed
-        assertTrue(
-            speculationModule.isContestPastCooldown(CONTEST_ID),
-            "Contest should be past cooldown"
-        );
+        assertTrue(speculationModule.isContestPastCooldown(CONTEST_ID), "Contest should be past cooldown");
 
         (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedCommitment();
 
@@ -156,9 +161,14 @@ contract MatchingPostCooldownRejectionTest is Test {
     function test_MatchAfterVoidSettlementReverts() public {
         // Set contest to Voided directly (simulates post-settlement state)
         Contest memory voided = Contest({
-            awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Voided, contestCreator: address(this),
-            rundownId: "test", sportspageId: "test", jsonoddsId: "test"
+            awayScore: 0,
+            homeScore: 0,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Voided,
+            contestCreator: address(this),
+            rundownId: "test",
+            sportspageId: "test",
+            jsonoddsId: "test"
         });
         mockContestModule.setContest(CONTEST_ID, voided);
 
@@ -201,9 +211,14 @@ contract MatchingPostCooldownRejectionTest is Test {
     function test_MatchScoredContestReverts() public {
         // Score the contest (not void — properly scored)
         Contest memory scored = Contest({
-            awayScore: 110, homeScore: 100, leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            rundownId: "test", sportspageId: "test", jsonoddsId: "test"
+            awayScore: 110,
+            homeScore: 100,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored,
+            contestCreator: address(this),
+            rundownId: "test",
+            sportspageId: "test",
+            jsonoddsId: "test"
         });
         mockContestModule.setContest(CONTEST_ID, scored);
 
@@ -219,11 +234,7 @@ contract MatchingPostCooldownRejectionTest is Test {
     // Helpers
     // =========================================================================
 
-    function _signedCommitment()
-        internal
-        view
-        returns (MatchingModule.OspexCommitment memory c, bytes memory sig)
-    {
+    function _signedCommitment() internal view returns (MatchingModule.OspexCommitment memory c, bytes memory sig) {
         c = MatchingModule.OspexCommitment({
             maker: maker,
             contestId: CONTEST_ID,
