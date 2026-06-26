@@ -56,6 +56,16 @@ contract DeployCreGovernance is Script {
         // on THIS chain. The mainnet WorkflowRegistry only exists on Ethereum mainnet, so this also
         // guards against accidentally running against a chain that has no registry deployed.
         require(registry.code.length > 0, "WORKFLOW_REGISTRY has no code on this chain");
+        // Hard chain guard — the CRE WorkflowRegistry is Ethereum-mainnet-only, and this deploy creates the
+        // real governance ROOT for the oracle. Refuse any non-mainnet chain (consistent with the chainid
+        // guards in DeployPolygonCre/DeployAmoyCre) unless explicitly overridden for a mainnet-fork / local
+        // test via ALLOW_NON_MAINNET_REGISTRY=true.
+        if (block.chainid != 1) {
+            require(
+                vm.envOr("ALLOW_NON_MAINNET_REGISTRY", false),
+                "not Ethereum mainnet (set ALLOW_NON_MAINNET_REGISTRY=true for a fork/test deploy)"
+            );
+        }
 
         uint256 minDelay = vm.envOr("TIMELOCK_MIN_DELAY", uint256(7 days)); // recommended; set explicitly at deploy
         // Fat-finger guards on the most dangerous parameter — the delay IS the protocol's protection window.

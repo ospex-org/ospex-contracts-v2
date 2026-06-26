@@ -36,7 +36,7 @@ import {IModule} from "../interfaces/IModule.sol";
  *            can't overwrite fresh ones AND permissionless request spam can't invalidate an in-flight
  *            legitimate report.
  *
- *      Zero-admin / immutable: forwarder, workflow owner and workflow name are immutable and set at 
+ *      Zero-admin / immutable: forwarder, workflow owner and workflow name are immutable and set at
  *      construction. There is NO Ownable and NO setter. Sibling modules are resolved
  *      live from OspexCore.
  *

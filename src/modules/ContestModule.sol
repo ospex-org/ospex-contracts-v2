@@ -14,7 +14,7 @@ import {IContestModule} from "../interfaces/IContestModule.sol";
 /**
  * @title ContestModule
  * @notice Handles contest creation, scoring, and market data for the Ospex protocol.
- * @dev All mutations are restricted to the OracleModule. Scores are immutable once set —
+ * @dev All mutations are restricted to the CreOracleReceiver (CRE_ORACLE_RECEIVER slot). Scores are immutable once set —
  *      the protocol accepts oracle risk rather than allowing on-chain score overwrites.
  */
 contract ContestModule is IContestModule {
