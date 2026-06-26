@@ -417,6 +417,67 @@ contract ContestModuleTest is Test {
         assertEq(c2.homeScore, 95);
     }
 
+    // --- Score Magnitude Bound (V-2 fund-lock) ---
+
+    /// @notice V-2: an awayScore above MAX_SCORE is rejected with
+    ///         ContestModule__ScoreOutOfRange; the guard fires before the one-way
+    ///         -> Scored write, so the contest stays Verified.
+    function testSetScores_RevertsIfAwayScoreOutOfRange() public {
+        uint256 contestId = _createVerifiedContest();
+
+        vm.prank(oracleModule);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ContestModule.ContestModule__ScoreOutOfRange.selector,
+                uint32(1_000_001),
+                uint32(0)
+            )
+        );
+        contestModule.setScores(contestId, 1_000_001, 0);
+
+        // Rejected score leaves the contest Verified (no -> Scored write).
+        Contest memory c = contestModule.getContest(contestId);
+        assertEq(uint(c.contestStatus), uint(ContestStatus.Verified));
+        assertEq(c.awayScore, 0);
+        assertEq(c.homeScore, 0);
+    }
+
+    /// @notice V-2: a homeScore above MAX_SCORE is rejected with
+    ///         ContestModule__ScoreOutOfRange; contest stays Verified.
+    function testSetScores_RevertsIfHomeScoreOutOfRange() public {
+        uint256 contestId = _createVerifiedContest();
+
+        vm.prank(oracleModule);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ContestModule.ContestModule__ScoreOutOfRange.selector,
+                uint32(0),
+                uint32(1_000_001)
+            )
+        );
+        contestModule.setScores(contestId, 0, 1_000_001);
+
+        Contest memory c = contestModule.getContest(contestId);
+        assertEq(uint(c.contestStatus), uint(ContestStatus.Verified));
+        assertEq(c.awayScore, 0);
+        assertEq(c.homeScore, 0);
+    }
+
+    /// @notice V-2: the bound is inclusive — scores == MAX_SCORE are accepted and
+    ///         the contest becomes Scored.
+    function testSetScores_AcceptsAtScoreBoundary() public {
+        uint256 contestId = _createVerifiedContest();
+        uint32 max = contestModule.MAX_SCORE();
+
+        vm.prank(oracleModule);
+        contestModule.setScores(contestId, max, max);
+
+        Contest memory c = contestModule.getContest(contestId);
+        assertEq(uint(c.contestStatus), uint(ContestStatus.Scored));
+        assertEq(c.awayScore, max);
+        assertEq(c.homeScore, max);
+    }
+
     // --- Validation Tests ---
 
     function testSetContestLeagueIdAndStartTime_RevertsIfUnknownLeague() public {

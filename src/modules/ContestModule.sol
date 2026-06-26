@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 import {
     Contest,
@@ -42,6 +42,11 @@ contract ContestModule is IContestModule {
         keccak256("CONTEST_SCORES_SET");
     bytes32 public constant EVENT_CONTEST_VOIDED = keccak256("CONTEST_VOIDED");
 
+    /// @notice Upper bound on a single team's score. exists to keep
+    ///         int32(score)*10 in the scorers inside int32 and prevent a permanent settlement lock on a bad
+    ///         oracle score.
+    uint32 public constant MAX_SCORE = 1_000_000;
+
     // ──────────────────────────── Errors ───────────────────────────────
 
     /// @notice Thrown when a non-OracleModule address calls an oracle-only function
@@ -64,6 +69,8 @@ contract ContestModule is IContestModule {
     error ContestModule__LeagueMismatch();
     /// @notice Thrown when attempting to void a contest that is not in Verified status
     error ContestModule__ContestNotVerified(uint256 contestId);
+    /// @notice Reverted when an oracle score exceeds MAX_SCORE (would overflow int32 scorer arithmetic).
+    error ContestModule__ScoreOutOfRange(uint32 awayScore, uint32 homeScore);
 
     // ──────────────────────────── Events ───────────────────────────────
 
@@ -384,6 +391,10 @@ contract ContestModule is IContestModule {
         if (s_contests[contestId].contestStatus != ContestStatus.Verified) {
             revert ContestModule__AlreadyScored(contestId);
         }
+        if (awayScore > MAX_SCORE || homeScore > MAX_SCORE) {
+            revert ContestModule__ScoreOutOfRange(awayScore, homeScore);
+        }
+
         s_contests[contestId].awayScore = awayScore;
         s_contests[contestId].homeScore = homeScore;
         s_contests[contestId].contestStatus = ContestStatus.Scored;

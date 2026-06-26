@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IContestModule} from "../interfaces/IContestModule.sol";
@@ -38,6 +38,10 @@ contract SpeculationModule is ISpeculationModule {
     bytes32 public constant EVENT_SPECULATION_SETTLED =
         keccak256("SPECULATION_SETTLED");
 
+    /// @notice Absolute magnitude bound on lineTicks (10x-scaled), enforced for ALL scorers.
+    /// @dev lineTicks is 10x-scaled (e.g. -35 = -3.5 points). 1_000_000 ticks = 100,000.0 points/total
+    int32 public constant MAX_LINE_TICKS = 1_000_000;
+
     // ──────────────────────────── Errors ───────────────────────────────
 
     /// @notice Thrown when a non-PositionModule address calls a position-only function
@@ -62,6 +66,8 @@ contract SpeculationModule is ISpeculationModule {
     error SpeculationModule__InvalidLineTicks();
     /// @notice Thrown when the contest is not yet scored and cooldown has not elapsed
     error SpeculationModule__ContestNotFinalized(uint256 contestId);
+    /// @notice Thrown when |lineTicks| exceeds MAX_LINE_TICKS (overflow / fund-lock guard)
+    error SpeculationModule__LineTicksOutOfRange(int32 lineTicks);
 
     // ──────────────────────────── Events ───────────────────────────────
 
@@ -160,6 +166,9 @@ contract SpeculationModule is ISpeculationModule {
         address maker,
         address taker
     ) internal returns (uint256) {
+        if (lineTicks > MAX_LINE_TICKS || lineTicks < -MAX_LINE_TICKS) {
+            revert SpeculationModule__LineTicksOutOfRange(lineTicks);
+        }
         if (s_speculationLookup[contestId][scorer][lineTicks] != 0) {
             revert SpeculationModule__SpeculationExists();
         }

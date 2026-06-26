@@ -388,6 +388,48 @@ contract SpeculationModuleTest is Test {
         assertEq(s.lineTicks, -35);
     }
 
+    // --- Line Ticks Magnitude Bound (V-1 fund-lock) ---
+
+    /// @notice V-1: the single creation choke point rejects an out-of-range lineTicks
+    ///         (type(int32).max) with SpeculationModule__LineTicksOutOfRange, and no
+    ///         speculation is stored.
+    function testCreateSpeculation_RevertsIfLineTicksOutOfRange() public {
+        int32 badLine = type(int32).max;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SpeculationModule.SpeculationModule__LineTicksOutOfRange.selector,
+                badLine
+            )
+        );
+        speculationModule.createSpeculation(
+            1, spreadScorerAddr, badLine, address(this), speculationCreator
+        );
+
+        // No speculation recorded at the choke point.
+        assertEq(
+            speculationModule.getSpeculationId(1, spreadScorerAddr, badLine),
+            0,
+            "no speculation created"
+        );
+    }
+
+    /// @notice V-1: the bound is inclusive — lineTicks == MAX_LINE_TICKS is accepted
+    ///         (speculation id > 0) on an approved spread scorer.
+    function testCreateSpeculation_SucceedsAtLineTicksBoundary() public {
+        int32 max = speculationModule.MAX_LINE_TICKS();
+        uint256 id = speculationModule.createSpeculation(
+            1, spreadScorerAddr, max, address(this), speculationCreator
+        );
+        assertGt(id, 0, "boundary line accepted");
+        assertEq(
+            speculationModule.getSpeculationId(1, spreadScorerAddr, max),
+            id,
+            "speculation stored at boundary"
+        );
+        Speculation memory s = speculationModule.getSpeculation(id);
+        assertEq(s.lineTicks, max);
+    }
+
     // --- Branch Coverage: Constructor ---
 
     function testConstructor_RevertsOnZeroAddress() public {
