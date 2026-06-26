@@ -1,5 +1,9 @@
 # Mainnet VERIFY ScriptApproval — keystore signing
 
+> **R4-only / historical.** This is Chainlink **Functions** ScriptApproval tooling for the R4 oracle. The R5
+> CRE migration removed script approvals entirely — `CreOracleReceiver` has no approved signer and no on-chain
+> script hashes. Retained as an R4 record; not used for the R5 deploy.
+
 The Chainlink Functions VERIFY source (`contestCreation.js`) gained the Athletics MLB
 `teamLegend` entry, so its keccak256 changed to
 `0xec6a7e9cdffa09fdcaa611220e2c99ba0ec58cc082812a01b5d321ccc1e5ebcf`. The mainnet

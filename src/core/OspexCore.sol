@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 /**
  * @title OspexCore
@@ -22,7 +22,8 @@ contract OspexCore {
         keccak256("SPECULATION_MODULE");
     bytes32 public constant POSITION_MODULE = keccak256("POSITION_MODULE");
     bytes32 public constant MATCHING_MODULE = keccak256("MATCHING_MODULE");
-    bytes32 public constant ORACLE_MODULE = keccak256("ORACLE_MODULE");
+    bytes32 public constant CRE_ORACLE_RECEIVER =
+        keccak256("CRE_ORACLE_RECEIVER");
     bytes32 public constant TREASURY_MODULE = keccak256("TREASURY_MODULE");
     bytes32 public constant LEADERBOARD_MODULE =
         keccak256("LEADERBOARD_MODULE");
@@ -145,7 +146,7 @@ contract OspexCore {
             SPECULATION_MODULE,
             POSITION_MODULE,
             MATCHING_MODULE,
-            ORACLE_MODULE,
+            CRE_ORACLE_RECEIVER,
             TREASURY_MODULE,
             LEADERBOARD_MODULE,
             RULES_MODULE,

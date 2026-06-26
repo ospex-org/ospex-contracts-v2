@@ -49,7 +49,7 @@ contract ContestModuleTest is Test {
         types[1] = core.SPECULATION_MODULE();        addrs[1] = address(0xD001);
         types[2] = core.POSITION_MODULE();           addrs[2] = address(0xD002);
         types[3] = core.MATCHING_MODULE();           addrs[3] = address(0xD003);
-        types[4] = core.ORACLE_MODULE();             addrs[4] = oracleModule;
+        types[4] = core.CRE_ORACLE_RECEIVER();             addrs[4] = oracleModule;
         types[5] = core.TREASURY_MODULE();           addrs[5] = address(treasuryModule);
         types[6] = core.LEADERBOARD_MODULE();        addrs[6] = address(0xD006);
         types[7] = core.RULES_MODULE();              addrs[7] = address(0xD007);
@@ -72,13 +72,10 @@ contract ContestModuleTest is Test {
         assertEq(contestModule.getModuleType(), keccak256("CONTEST_MODULE"));
     }
 
-    function testCreateContest_OnlyOracleModule() public {
+    function testCreateContest_OnlyCreOracleReceiver() public {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0),
-            bytes32("marketHash"),
-            bytes32("scoreHash"),
             LeagueId.Unknown,
             contestCreator
         );
@@ -86,37 +83,29 @@ contract ContestModuleTest is Test {
         assertEq(c.rundownId, "rd");
         assertEq(c.sportspageId, "sp");
         assertEq(c.jsonoddsId, "jo");
-        assertEq(c.scoreContestSourceHash, bytes32("scoreHash"));
-        assertEq(c.marketUpdateSourceHash, bytes32("marketHash"));
         assertEq(c.contestCreator, contestCreator);
         assertEq(uint(c.contestStatus), uint(ContestStatus.Unverified));
     }
 
-    function testCreateContest_RevertsIfNotOracleModule() public {
+    function testCreateContest_RevertsIfNotCreOracleReceiver() public {
         vm.expectRevert(
             abi.encodeWithSelector(
-                ContestModule.ContestModule__NotOracleModule.selector,
+                ContestModule.ContestModule__NotCreOracleReceiver.selector,
                 notOracle
             )
         );
         vm.prank(notOracle);
         contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0),
-            bytes32("marketHash"),
-            bytes32("scoreHash"),
             LeagueId.Unknown,
             contestCreator
         );
     }
 
-    function testSetContestStatus_OnlyOracleModule() public {
+    function testSetContestStatus_OnlyCreOracleReceiver() public {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0),
-            bytes32("marketHash"),
-            bytes32("scoreHash"),
             LeagueId.Unknown,
             contestCreator
         );
@@ -126,19 +115,16 @@ contract ContestModuleTest is Test {
         assertEq(uint(c.contestStatus), uint(ContestStatus.Verified));
     }
 
-    function testSetContestStatus_RevertsIfNotOracleModule() public {
+    function testSetContestStatus_RevertsIfNotCreOracleReceiver() public {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0),
-            bytes32("marketHash"),
-            bytes32("scoreHash"),
             LeagueId.Unknown,
             contestCreator
         );
         vm.expectRevert(
             abi.encodeWithSelector(
-                ContestModule.ContestModule__NotOracleModule.selector,
+                ContestModule.ContestModule__NotCreOracleReceiver.selector,
                 notOracle
             )
         );
@@ -146,13 +132,10 @@ contract ContestModuleTest is Test {
         contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, uint32(block.timestamp));
     }
 
-    function testSetScores_OracleModuleCanSet() public {
+    function testSetScores_CreOracleReceiverCanSet() public {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0),
-            bytes32("marketHash"),
-            bytes32("scoreHash"),
             LeagueId.Unknown,
             contestCreator
         );
@@ -171,15 +154,12 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0),
-            bytes32("marketHash"),
-            bytes32("scoreHash"),
             LeagueId.Unknown,
             contestCreator
         );
         vm.expectRevert(
             abi.encodeWithSelector(
-                ContestModule.ContestModule__NotOracleModule.selector,
+                ContestModule.ContestModule__NotCreOracleReceiver.selector,
                 notOracle
             )
         );
@@ -191,9 +171,6 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0),
-            bytes32("marketHash"),
-            bytes32("scoreHash"),
             LeagueId.Unknown,
             contestCreator
         );
@@ -201,8 +178,6 @@ contract ContestModuleTest is Test {
         assertEq(c.rundownId, "rd");
         assertEq(c.sportspageId, "sp");
         assertEq(c.jsonoddsId, "jo");
-        assertEq(c.scoreContestSourceHash, bytes32("scoreHash"));
-        assertEq(c.marketUpdateSourceHash, bytes32("marketHash"));
         assertEq(c.contestCreator, contestCreator);
         assertEq(uint(c.contestStatus), uint(ContestStatus.Unverified));
     }
@@ -227,7 +202,7 @@ contract ContestModuleTest is Test {
         types[1] = feeCore.SPECULATION_MODULE();        addrs[1] = address(0xF001);
         types[2] = feeCore.POSITION_MODULE();           addrs[2] = address(0xF002);
         types[3] = feeCore.MATCHING_MODULE();           addrs[3] = address(0xF003);
-        types[4] = feeCore.ORACLE_MODULE();             addrs[4] = feeOracle;
+        types[4] = feeCore.CRE_ORACLE_RECEIVER();             addrs[4] = feeOracle;
         types[5] = feeCore.TREASURY_MODULE();           addrs[5] = address(feeTreasury);
         types[6] = feeCore.LEADERBOARD_MODULE();        addrs[6] = address(0xF006);
         types[7] = feeCore.RULES_MODULE();              addrs[7] = address(0xF007);
@@ -247,9 +222,6 @@ contract ContestModuleTest is Test {
         vm.prank(feeOracle);
         feeContestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0),
-            bytes32("marketHash"),
-            bytes32("scoreHash"),
             LeagueId.Unknown,
             contestCreator
         );
@@ -264,7 +236,6 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
             LeagueId.Unknown, contestCreator
         );
         vm.prank(oracleModule);
@@ -328,10 +299,10 @@ contract ContestModuleTest is Test {
         assertEq(totalMarket.lowerOdds, underOdds);
     }
 
-    function testUpdateContestMarkets_RevertsIfNotOracleModule() public {
+    function testUpdateContestMarkets_RevertsIfNotCreOracleReceiver() public {
         vm.expectRevert(
             abi.encodeWithSelector(
-                ContestModule.ContestModule__NotOracleModule.selector,
+                ContestModule.ContestModule__NotCreOracleReceiver.selector,
                 notOracle
             )
         );
@@ -390,7 +361,6 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
             LeagueId.Unknown, contestCreator
         );
         vm.prank(oracleModule);
@@ -417,13 +387,73 @@ contract ContestModuleTest is Test {
         assertEq(c2.homeScore, 95);
     }
 
+    // --- Score Magnitude Bound (V-2 fund-lock) ---
+
+    /// @notice V-2: an awayScore above MAX_SCORE is rejected with
+    ///         ContestModule__ScoreOutOfRange; the guard fires before the one-way
+    ///         -> Scored write, so the contest stays Verified.
+    function testSetScores_RevertsIfAwayScoreOutOfRange() public {
+        uint256 contestId = _createVerifiedContest();
+
+        vm.prank(oracleModule);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ContestModule.ContestModule__ScoreOutOfRange.selector,
+                uint32(1_000_001),
+                uint32(0)
+            )
+        );
+        contestModule.setScores(contestId, 1_000_001, 0);
+
+        // Rejected score leaves the contest Verified (no -> Scored write).
+        Contest memory c = contestModule.getContest(contestId);
+        assertEq(uint(c.contestStatus), uint(ContestStatus.Verified));
+        assertEq(c.awayScore, 0);
+        assertEq(c.homeScore, 0);
+    }
+
+    /// @notice V-2: a homeScore above MAX_SCORE is rejected with
+    ///         ContestModule__ScoreOutOfRange; contest stays Verified.
+    function testSetScores_RevertsIfHomeScoreOutOfRange() public {
+        uint256 contestId = _createVerifiedContest();
+
+        vm.prank(oracleModule);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ContestModule.ContestModule__ScoreOutOfRange.selector,
+                uint32(0),
+                uint32(1_000_001)
+            )
+        );
+        contestModule.setScores(contestId, 0, 1_000_001);
+
+        Contest memory c = contestModule.getContest(contestId);
+        assertEq(uint(c.contestStatus), uint(ContestStatus.Verified));
+        assertEq(c.awayScore, 0);
+        assertEq(c.homeScore, 0);
+    }
+
+    /// @notice V-2: the bound is inclusive — scores == MAX_SCORE are accepted and
+    ///         the contest becomes Scored.
+    function testSetScores_AcceptsAtScoreBoundary() public {
+        uint256 contestId = _createVerifiedContest();
+        uint32 max = contestModule.MAX_SCORE();
+
+        vm.prank(oracleModule);
+        contestModule.setScores(contestId, max, max);
+
+        Contest memory c = contestModule.getContest(contestId);
+        assertEq(uint(c.contestStatus), uint(ContestStatus.Scored));
+        assertEq(c.awayScore, max);
+        assertEq(c.homeScore, max);
+    }
+
     // --- Validation Tests ---
 
     function testSetContestLeagueIdAndStartTime_RevertsIfUnknownLeague() public {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
             LeagueId.Unknown, contestCreator
         );
         vm.prank(oracleModule);
@@ -435,7 +465,6 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
             LeagueId.Unknown, contestCreator
         );
         vm.prank(oracleModule);
@@ -469,7 +498,6 @@ contract ContestModuleTest is Test {
         vm.expectRevert(ContestModule.ContestModule__InvalidValue.selector);
         contestModule.createContest(
             "", "", "",
-            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
             LeagueId.Unknown, contestCreator
         );
     }
@@ -480,7 +508,6 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
             LeagueId.Unknown, contestCreator
         );
         vm.prank(oracleModule);
@@ -498,7 +525,6 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
             LeagueId.Unknown, contestCreator
         );
         vm.prank(oracleModule);
@@ -515,7 +541,6 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
             LeagueId.Unknown, contestCreator
         );
         vm.prank(oracleModule);
@@ -535,7 +560,6 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
             LeagueId.Unknown, contestCreator
         );
 
@@ -554,7 +578,6 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
             LeagueId.Unknown, contestCreator
         );
         vm.prank(oracleModule);
@@ -577,7 +600,6 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
             LeagueId.Unknown, contestCreator
         );
         vm.prank(oracleModule);
@@ -601,7 +623,6 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
             LeagueId.Unknown, contestCreator
         );
         vm.prank(oracleModule);
@@ -626,7 +647,6 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
             LeagueId.Unknown, contestCreator
         );
         assertFalse(contestModule.isContestTerminal(contestId));
@@ -636,7 +656,6 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
             LeagueId.Unknown, contestCreator
         );
         vm.prank(oracleModule);
@@ -648,7 +667,6 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
             LeagueId.Unknown, contestCreator
         );
         vm.prank(oracleModule);
@@ -662,7 +680,6 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
             LeagueId.Unknown, contestCreator
         );
         vm.prank(oracleModule);
@@ -680,7 +697,6 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
             LeagueId.Unknown, contestCreator
         );
         vm.prank(oracleModule);
@@ -699,7 +715,6 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
             LeagueId.Unknown, contestCreator
         );
         vm.prank(oracleModule);
@@ -720,7 +735,6 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
-            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
             LeagueId.Unknown, contestCreator
         );
 
@@ -735,7 +749,6 @@ contract ContestModuleTest is Test {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "", "", "jo",
-            bytes32(0), bytes32("marketHash"), bytes32("scoreHash"),
             LeagueId.Unknown, contestCreator
         );
         Contest memory c = contestModule.getContest(contestId);

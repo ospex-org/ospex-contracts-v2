@@ -97,7 +97,7 @@ contract RulesModuleTest is Test {
         types[1] = core.SPECULATION_MODULE();        addrs[1] = address(mockSpeculationModule);
         types[2] = core.POSITION_MODULE();           addrs[2] = address(positionModule);
         types[3] = core.MATCHING_MODULE();           addrs[3] = address(0xD004);
-        types[4] = core.ORACLE_MODULE();             addrs[4] = address(this);
+        types[4] = core.CRE_ORACLE_RECEIVER();             addrs[4] = address(this);
         types[5] = core.TREASURY_MODULE();           addrs[5] = address(treasuryModule);
         types[6] = core.LEADERBOARD_MODULE();        addrs[6] = address(leaderboardModule);
         types[7] = core.RULES_MODULE();              addrs[7] = address(rulesModule);
@@ -120,9 +120,6 @@ contract RulesModuleTest is Test {
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified,
             contestCreator: creator,
-            verifySourceHash: bytes32(0),
-            marketUpdateSourceHash: bytes32(0),
-            scoreContestSourceHash: bytes32(0),
             rundownId: "test-rundown-id",
             sportspageId: "test-sportspage-id",
             jsonoddsId: "test-jsonodds-id"

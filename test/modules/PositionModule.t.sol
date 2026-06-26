@@ -94,7 +94,7 @@ contract PositionModuleTest is Test {
         types2[1]  = keccak256("SPECULATION_MODULE");        addrs2[1]  = specMod;
         types2[2]  = keccak256("POSITION_MODULE");           addrs2[2]  = posMod;
         types2[3]  = keccak256("MATCHING_MODULE");           addrs2[3]  = address(this);
-        types2[4]  = keccak256("ORACLE_MODULE");             addrs2[4]  = address(0xD001);
+        types2[4]  = keccak256("CRE_ORACLE_RECEIVER");             addrs2[4]  = address(0xD001);
         types2[5]  = keccak256("TREASURY_MODULE");           addrs2[5]  = treasury_;
         types2[6]  = keccak256("LEADERBOARD_MODULE");        addrs2[6]  = address(mockLeaderboardModule);
         types2[7]  = keccak256("RULES_MODULE");              addrs2[7]  = address(0xD002);
@@ -161,9 +161,6 @@ contract PositionModuleTest is Test {
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified,
             contestCreator: address(this),
-            verifySourceHash: bytes32(0),
-            marketUpdateSourceHash: bytes32(0),
-            scoreContestSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""
@@ -248,7 +245,6 @@ contract PositionModuleTest is Test {
         return Contest({
             awayScore: awayScore, homeScore: homeScore, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "", sportspageId: "", jsonoddsId: ""
         });
     }
@@ -258,7 +254,6 @@ contract PositionModuleTest is Test {
         return Contest({
             awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified, contestCreator: address(this),
-            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "", sportspageId: "", jsonoddsId: ""
         });
     }
@@ -908,7 +903,6 @@ contract PositionModuleTest is Test {
         Contest memory voidedContest = Contest({
             awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Voided, contestCreator: address(this),
-            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "", sportspageId: "", jsonoddsId: ""
         });
         mockContestModule.setContest(1, voidedContest);

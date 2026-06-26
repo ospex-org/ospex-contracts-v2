@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 import {
     Contest,
@@ -14,7 +14,7 @@ import {IContestModule} from "../interfaces/IContestModule.sol";
 /**
  * @title ContestModule
  * @notice Handles contest creation, scoring, and market data for the Ospex protocol.
- * @dev All mutations are restricted to the OracleModule. Scores are immutable once set —
+ * @dev All mutations are restricted to the CreOracleReceiver (CRE_ORACLE_RECEIVER slot). Scores are immutable once set —
  *      the protocol accepts oracle risk rather than allowing on-chain score overwrites.
  */
 contract ContestModule is IContestModule {
@@ -23,7 +23,8 @@ contract ContestModule is IContestModule {
     bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
     bytes32 public constant SPECULATION_MODULE =
         keccak256("SPECULATION_MODULE");
-    bytes32 public constant ORACLE_MODULE = keccak256("ORACLE_MODULE");
+    bytes32 public constant CRE_ORACLE_RECEIVER =
+        keccak256("CRE_ORACLE_RECEIVER");
     bytes32 public constant TREASURY_MODULE = keccak256("TREASURY_MODULE");
     bytes32 public constant MONEYLINE_SCORER_MODULE =
         keccak256("MONEYLINE_SCORER_MODULE");
@@ -42,10 +43,15 @@ contract ContestModule is IContestModule {
         keccak256("CONTEST_SCORES_SET");
     bytes32 public constant EVENT_CONTEST_VOIDED = keccak256("CONTEST_VOIDED");
 
+    /// @notice Upper bound on a single team's score. exists to keep
+    ///         int32(score)*10 in the scorers inside int32 and prevent a permanent settlement lock on a bad
+    ///         oracle score.
+    uint32 public constant MAX_SCORE = 1_000_000;
+
     // ──────────────────────────── Errors ───────────────────────────────
 
-    /// @notice Thrown when a non-OracleModule address calls an oracle-only function
-    error ContestModule__NotOracleModule(address caller);
+    /// @notice Thrown when a non-CreOracleReceiver address calls an oracle-only function
+    error ContestModule__NotCreOracleReceiver(address caller);
     /// @notice Thrown when a non-SpeculationModule address calls a speculation-only function
     error ContestModule__NotSpeculationModule(address caller);
     /// @notice Thrown when the OspexCore address is zero
@@ -60,10 +66,12 @@ contract ContestModule is IContestModule {
     error ContestModule__AlreadyScored(uint256 contestId);
     /// @notice Thrown when set contest league id and start time is attempted on a contest that is not unverified
     error ContestModule__InvalidStatus(uint256 contestId);
-    /// @notice Thrown when the oracle callback leagueId conflicts with the league set from script approvals at creation
+    /// @notice Thrown when the oracle callback leagueId conflicts with the approved league pinned at contest creation
     error ContestModule__LeagueMismatch();
     /// @notice Thrown when attempting to void a contest that is not in Verified status
     error ContestModule__ContestNotVerified(uint256 contestId);
+    /// @notice Reverted when an oracle score exceeds MAX_SCORE (would overflow int32 scorer arithmetic).
+    error ContestModule__ScoreOutOfRange(uint32 awayScore, uint32 homeScore);
 
     // ──────────────────────────── Events ───────────────────────────────
 
@@ -72,9 +80,6 @@ contract ContestModule is IContestModule {
     /// @param rundownId External ID from Rundown API
     /// @param sportspageId External ID from Sportspage API
     /// @param jsonoddsId External ID from JSONOdds API
-    /// @param verifySourceHash Hash of the verification source code for this contest
-    /// @param marketUpdateSourceHash Hash of the market update code for this contest
-    /// @param scoreContestSourceHash Hash of the scoring source code for this contest
     /// @param approvedLeagueId The LeagueId for this contest
     /// @param contestCreator The address that created (and paid for) the contest
     event ContestCreated(
@@ -82,9 +87,6 @@ contract ContestModule is IContestModule {
         string rundownId,
         string sportspageId,
         string jsonoddsId,
-        bytes32 verifySourceHash,
-        bytes32 marketUpdateSourceHash,
-        bytes32 scoreContestSourceHash,
         LeagueId approvedLeagueId,
         address indexed contestCreator
     );
@@ -139,10 +141,10 @@ contract ContestModule is IContestModule {
 
     // ──────────────────────────── Modifiers ────────────────────────────
 
-    /// @dev Restricts access to the registered OracleModule
-    modifier onlyOracleModule() {
-        if (msg.sender != _getModule(ORACLE_MODULE)) {
-            revert ContestModule__NotOracleModule(msg.sender);
+    /// @dev Restricts access to the CreOracleReceiver in the CRE_ORACLE_RECEIVER slot
+    modifier onlyCreOracleReceiver() {
+        if (msg.sender != _getModule(CRE_ORACLE_RECEIVER)) {
+            revert ContestModule__NotCreOracleReceiver(msg.sender);
         }
         _;
     }
@@ -198,12 +200,9 @@ contract ContestModule is IContestModule {
         string calldata rundownId,
         string calldata sportspageId,
         string calldata jsonoddsId,
-        bytes32 verifySourceHash,
-        bytes32 marketUpdateSourceHash,
-        bytes32 scoreContestSourceHash,
         LeagueId approvedLeagueId,
         address contestCreator
-    ) external override onlyOracleModule returns (uint256 contestId) {
+    ) external override onlyCreOracleReceiver returns (uint256 contestId) {
         if (
             bytes(rundownId).length == 0 &&
             bytes(sportspageId).length == 0 &&
@@ -220,9 +219,6 @@ contract ContestModule is IContestModule {
         c.rundownId = rundownId;
         c.sportspageId = sportspageId;
         c.jsonoddsId = jsonoddsId;
-        c.verifySourceHash = verifySourceHash;
-        c.marketUpdateSourceHash = marketUpdateSourceHash;
-        c.scoreContestSourceHash = scoreContestSourceHash;
         c.leagueId = approvedLeagueId;
         c.contestCreator = contestCreator;
         c.contestStatus = ContestStatus.Unverified;
@@ -232,9 +228,6 @@ contract ContestModule is IContestModule {
             rundownId,
             sportspageId,
             jsonoddsId,
-            verifySourceHash,
-            marketUpdateSourceHash,
-            scoreContestSourceHash,
             approvedLeagueId,
             contestCreator
         );
@@ -245,9 +238,6 @@ contract ContestModule is IContestModule {
                 rundownId,
                 sportspageId,
                 jsonoddsId,
-                verifySourceHash,
-                marketUpdateSourceHash,
-                scoreContestSourceHash,
                 approvedLeagueId,
                 contestCreator
             )
@@ -267,7 +257,7 @@ contract ContestModule is IContestModule {
         int32 totalLineTicks,
         uint16 overOdds,
         uint16 underOdds
-    ) external override onlyOracleModule {
+    ) external override onlyCreOracleReceiver {
         if (s_contests[contestId].contestStatus != ContestStatus.Verified)
             revert ContestModule__ContestNotVerified(contestId);
         if (
@@ -345,7 +335,7 @@ contract ContestModule is IContestModule {
         uint256 contestId,
         LeagueId leagueId,
         uint32 startTime
-    ) external override onlyOracleModule {
+    ) external override onlyCreOracleReceiver {
         if (leagueId == LeagueId.Unknown || startTime == 0) {
             revert ContestModule__InvalidValue();
         }
@@ -380,10 +370,14 @@ contract ContestModule is IContestModule {
         uint256 contestId,
         uint32 awayScore,
         uint32 homeScore
-    ) external override onlyOracleModule {
+    ) external override onlyCreOracleReceiver {
         if (s_contests[contestId].contestStatus != ContestStatus.Verified) {
             revert ContestModule__AlreadyScored(contestId);
         }
+        if (awayScore > MAX_SCORE || homeScore > MAX_SCORE) {
+            revert ContestModule__ScoreOutOfRange(awayScore, homeScore);
+        }
+
         s_contests[contestId].awayScore = awayScore;
         s_contests[contestId].homeScore = homeScore;
         s_contests[contestId].contestStatus = ContestStatus.Scored;

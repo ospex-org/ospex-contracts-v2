@@ -85,7 +85,7 @@ contract MatchingPostCooldownRejectionTest is Test {
         types[1]  = core.SPECULATION_MODULE();      addrs[1]  = address(speculationModule);
         types[2]  = core.POSITION_MODULE();         addrs[2]  = address(mockPositionModule);
         types[3]  = core.MATCHING_MODULE();         addrs[3]  = address(matchingModule);
-        types[4]  = core.ORACLE_MODULE();           addrs[4]  = address(0xFEED);
+        types[4]  = core.CRE_ORACLE_RECEIVER();           addrs[4]  = address(0xFEED);
         types[5]  = core.TREASURY_MODULE();         addrs[5]  = address(0xFE05);
         types[6]  = core.LEADERBOARD_MODULE();      addrs[6]  = address(0x1B05);
         types[7]  = core.RULES_MODULE();            addrs[7]  = address(0xD007);
@@ -101,8 +101,6 @@ contract MatchingPostCooldownRejectionTest is Test {
         Contest memory contest = Contest({
             awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified, contestCreator: address(this),
-            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
-            scoreContestSourceHash: bytes32(0),
             rundownId: "test", sportspageId: "test", jsonoddsId: "test"
         });
         mockContestModule.setContest(CONTEST_ID, contest);
@@ -160,8 +158,6 @@ contract MatchingPostCooldownRejectionTest is Test {
         Contest memory voided = Contest({
             awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Voided, contestCreator: address(this),
-            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
-            scoreContestSourceHash: bytes32(0),
             rundownId: "test", sportspageId: "test", jsonoddsId: "test"
         });
         mockContestModule.setContest(CONTEST_ID, voided);
@@ -207,8 +203,6 @@ contract MatchingPostCooldownRejectionTest is Test {
         Contest memory scored = Contest({
             awayScore: 110, homeScore: 100, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
-            scoreContestSourceHash: bytes32(0),
             rundownId: "test", sportspageId: "test", jsonoddsId: "test"
         });
         mockContestModule.setContest(CONTEST_ID, scored);

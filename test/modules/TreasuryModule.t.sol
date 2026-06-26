@@ -74,7 +74,7 @@ contract TreasuryModuleTest is Test {
         types[1] = core.SPECULATION_MODULE();        addrs[1] = address(0xD002);
         types[2] = core.POSITION_MODULE();           addrs[2] = address(0xD003);
         types[3] = core.MATCHING_MODULE();           addrs[3] = address(0xD004);
-        types[4] = core.ORACLE_MODULE();             addrs[4] = address(0xD005);
+        types[4] = core.CRE_ORACLE_RECEIVER();             addrs[4] = address(0xD005);
         types[5] = core.TREASURY_MODULE();           addrs[5] = address(treasuryModule);
         types[6] = core.LEADERBOARD_MODULE();        addrs[6] = leaderboardModule;
         types[7] = core.RULES_MODULE();              addrs[7] = address(0xD007);
@@ -141,7 +141,7 @@ contract TreasuryModuleTest is Test {
         types[1] = freshCore.SPECULATION_MODULE();        addrs[1] = address(0xF002);
         types[2] = freshCore.POSITION_MODULE();           addrs[2] = address(0xF003);
         types[3] = freshCore.MATCHING_MODULE();           addrs[3] = address(0xF004);
-        types[4] = freshCore.ORACLE_MODULE();             addrs[4] = address(0xF005);
+        types[4] = freshCore.CRE_ORACLE_RECEIVER();             addrs[4] = address(0xF005);
         types[5] = freshCore.TREASURY_MODULE();           addrs[5] = address(zeroFeeTreasury);
         types[6] = freshCore.LEADERBOARD_MODULE();        addrs[6] = address(0xF006);
         types[7] = freshCore.RULES_MODULE();              addrs[7] = address(0xF007);

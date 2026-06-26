@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 import {IModule} from "./IModule.sol";
 import {Contest, LeagueId, ContestMarket} from "../core/OspexTypes.sol";
@@ -7,7 +7,8 @@ import {Contest, LeagueId, ContestMarket} from "../core/OspexTypes.sol";
 /**
  * @title IContestModule
  * @notice Interface for the Ospex ContestModule. Handles contest creation, market data,
- *         verification, and scoring. All mutations are restricted to the OracleModule.
+ *         verification, and scoring. All mutations are restricted to the CreOracleReceiver
+ *         (the occupant of the CRE_ORACLE_RECEIVER slot).
  */
 interface IContestModule is IModule {
     /// @notice The auto-incrementing contest ID counter
@@ -20,28 +21,22 @@ interface IContestModule is IModule {
         uint256 contestId
     ) external view returns (uint32);
 
-    /// @notice Creates a new contest. Only callable by OracleModule.
+    /// @notice Creates a new contest. Only callable by CreOracleReceiver.
     /// @param rundownId Contest ID from Rundown API
     /// @param sportspageId Contest ID from Sportspage API
     /// @param jsonoddsId Contest ID from JSONOdds API
-    /// @param verifySourceHash Hash of the verification JS used at creation
-    /// @param marketUpdateSourceHash Hash of the market updating source code for this contest
-    /// @param scoreContestSourceHash Hash of the scoring source code for this contest
-    /// @param approvedLeagueId Approved league from script approvals (Unknown = wildcard). Sets contest.leagueId.
+    /// @param approvedLeagueId Approved league (Unknown = wildcard). Sets contest.leagueId.
     /// @param contestCreator Address that initiated (and pays for) the contest
     /// @return contestId The unique contest identifier
     function createContest(
         string calldata rundownId,
         string calldata sportspageId,
         string calldata jsonoddsId,
-        bytes32 verifySourceHash,
-        bytes32 marketUpdateSourceHash,
-        bytes32 scoreContestSourceHash,
         LeagueId approvedLeagueId,
         address contestCreator
     ) external returns (uint256 contestId);
 
-    /// @notice Updates all market data for a contest. Only callable by OracleModule.
+    /// @notice Updates all market data for a contest. Only callable by CreOracleReceiver.
     /// @dev Requires contestStatus == Verified, rejects writes on scored, voided, or unverified contests
     /// @param contestId The contest identifier
     /// @param moneylineAway Odds tick for away team moneyline
@@ -64,7 +59,7 @@ interface IContestModule is IModule {
         uint16 underLine
     ) external;
 
-    /// @notice Sets the league and start time for a contest. Only callable by OracleModule.
+    /// @notice Sets the league and start time for a contest. Only callable by CreOracleReceiver.
     /// @param contestId The contest identifier
     /// @param leagueId The league ID
     /// @param startTime The contest start timestamp
@@ -74,7 +69,7 @@ interface IContestModule is IModule {
         uint32 startTime
     ) external;
 
-    /// @notice Sets the final scores for a contest. Only callable by OracleModule.
+    /// @notice Sets the final scores for a contest. Only callable by CreOracleReceiver.
     /// @param contestId The contest identifier
     /// @param awayScore Final away team score
     /// @param homeScore Final home team score

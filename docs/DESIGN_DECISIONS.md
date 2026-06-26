@@ -12,7 +12,7 @@
 
 **What might look wrong.** A protocol with no upgrade path and no emergency controls looks reckless. Every other trust-model doc in DeFi has a "what the admin can do" section.
 
-**Why it's right.** The previous model retained admin powers as a safety net, but every admin power is also an attack vector. The hardening cycle concluded that the risk of admin key compromise or misuse outweighed the value of hotfix capability. Every parameter (fees, void cooldown, protocol receiver, approved signer) is set in constructors and cannot change. The cost is that bugs require full redeployment.
+**Why it's right.** The previous model retained admin powers as a safety net, but every admin power is also an attack vector. The hardening cycle concluded that the risk of admin key compromise or misuse outweighed the value of hotfix capability. Every parameter (fees, void cooldown, protocol receiver, and the CreOracleReceiver's oracle trust roots — KeystoneForwarder, workflow owner, optional workflow-name pin) is set in constructors and cannot change. The cost is that bugs require full redeployment.
 
 **What an agent/user should know.** There is no admin to contact, no governance to appeal to, no emergency shutdown. The contracts do exactly what the code says, permanently.
 
@@ -58,37 +58,39 @@ The leaderboard abuse surface is real but bounded by the existing rules engine. 
 
 ## Permissionless Scoring — Contest Creator May Abandon
 
-**What it is.** Oracle calls (`createContestFromOracle`, `updateContestMarketsFromOracle`, `scoreContestFromOracle`) are permissionless — anyone can call them by paying LINK. The contest creator has no obligation to score. If nobody scores a contest before the void cooldown elapses, `settleSpeculation()` auto-voids all speculations on that contest.
+**What it is.** The CreOracleReceiver request entrypoints (`createContestAndRequestVerify`, `requestMarketUpdate`, `requestScore`) are permissionless — anyone can call them, with no per-call LINK and no on-chain subscription. The contest creator has no obligation to request scoring. If nobody requests a score (and the CRE workflow therefore never reports one) before the void cooldown elapses, `settleSpeculation()` auto-voids all speculations on that contest.
 
-**What might look wrong.** A contest creator could create a contest, attract positions, and then never score it — locking user funds until the void cooldown expires.
+**What might look wrong.** A contest creator could create a contest, attract positions, and then never request scoring — locking user funds until the void cooldown expires.
 
-**Why it's right.** Making scoring permissionless means no single party can hold scoring hostage. Anyone with the JS source code and LINK can trigger scoring. The void cooldown (7 days on mainnet) provides a deterministic fallback — positions are never permanently locked. The JS source hashes are stored per-contest, so only verified code can be executed.
+**Why it's right.** Making the request permissionless means no single party can hold scoring hostage. Anyone can call `requestScore()`, which emits the on-chain request the off-chain CRE workflow resolves. The void cooldown (7 days on mainnet) provides a deterministic fallback — positions are never permanently locked.
 
-**What an agent/user should know.** If the primary scorer service is down, you can score contests yourself by calling `scoreContestFromOracle()` with the correct JS source and LINK payment. If nobody scores before the void cooldown, call `settleSpeculation()` to void and recover your risk amount.
+**What an agent/user should know.** If the primary requester is down, you can request scoring yourself by calling `requestScore(contestId)`. Actual scoring depends on the CRE workflow still running and being funded; if it is not, the contest auto-voids after the cooldown. If nobody scores before the cooldown, call `settleSpeculation()` to void and recover your risk amount.
 
 ---
 
 ## Triple-Source Oracle Verification
 
-**What it is.** The Chainlink Functions JavaScript source for contest creation and scoring queries three independent sports data APIs (The Rundown, Sportspage Feeds, JSONOdds). The script requires unanimous agreement across all three sources. If any source returns different data — different scores, different teams, different start times — the script throws and no on-chain state is written.
+> **R4 (Chainlink Functions) — SUPERSEDED by the R5 Chainlink CRE oracle migration.** See CreOracleReceiver / the cre-oracle skill. Triple-source verification is **still done** — it is now enforced **off-chain inside the CRE workflow** (across the same three providers), not by on-chain Chainlink Functions JS with on-chain script hashes. The consensus guarantee below still holds; only the execution venue changed.
+
+**What it is.** The off-chain CRE workflow for contest verification and scoring queries three independent sports data APIs (The Rundown, Sportspage Feeds, JSONOdds). The workflow requires unanimous agreement across all three sources. If any source returns different data — different scores, different teams, different start times — no report is produced and no on-chain state is written.
 
 **What might look wrong.** Three API sources seems redundant.
 
 **Why it's right.** Single-source oracles create a single point of failure. If one API has a data error, stale cache, or is temporarily compromised, the protocol would accept incorrect data. Triple-source consensus means a single corrupted feed cannot affect settlement. The cost is higher API latency and occasional legitimate disagreements (different reporting windows, delayed score finalization), but the safety guarantee is substantial: an attacker would need to compromise three independent providers simultaneously.
 
-**What an agent/user should know.** Scoring may occasionally fail due to source disagreement (one API reporting "final" before others). This is expected and safe — the scorer retries until all three agree. Source code is public at [`ospex-org/ospex-source-files-and-other`](https://github.com/ospex-org/ospex-source-files-and-other).
+**What an agent/user should know.** Scoring may occasionally fail due to source disagreement (one API reporting "final" before others). This is expected and safe — the workflow retries until all three agree. The CRE workflow source lives in the `ospex-cre` repo.
 
 ---
 
-## IPFS-Pin Commitment for Script Preimages
+## Oracle Source Auditability
 
-**What it is.** The on-chain contracts store keccak256 hashes of the JavaScript source files used for contest creation, market updates, and scoring. The protocol intends to publish the plaintext source files with their hashes for public consumption, with the details of the distribution mechanism (IPFS pinning or equivalent) to be finalized.
+> **R4 (Chainlink Functions) — FULLY OBSOLETE under the R5 Chainlink CRE oracle migration.** See CreOracleReceiver / the cre-oracle skill. R5 stores **no on-chain script hashes** and has **no approved signer** — the on-chain "hash → preimage" commitment chain this section described is gone. Under R5 the verification/scoring logic lives in the public off-chain CRE workflow (`ospex-cre` repo), and the on-chain `CreOracleReceiver` validates only the report's provenance (KeystoneForwarder, workflow owner/name) and freshness, not the source. The paragraphs below are retained as historical R4 context only.
 
-**What might look wrong.** Storing only hashes on-chain means users must trust that the approved scripts are correct. Without access to the preimages, the hashes are opaque.
+**What it is.** The R4 on-chain contracts stored keccak256 hashes of the JavaScript source files used for contest creation, market updates, and scoring, with the plaintext sources published for public verification.
 
-**Why it's right.** The scripts are already open source on GitHub. The hash commitment ensures that what runs on Chainlink Functions is exactly what was approved — no runtime substitution is possible. Public pinning of the preimages (planned) will allow anyone to independently verify: hash the published source, compare against the on-chain hash, confirm they match. This creates a verifiable chain from approved signer → script hash → published source → actual execution.
+**Why it was right (R4).** The hash commitment ensured that what ran on Chainlink Functions was exactly what was approved — no runtime substitution was possible. Anyone could hash the published source and compare against the on-chain hash.
 
-**What an agent/user should know.** The source files are currently available at [`ospex-org/ospex-source-files-and-other/src/`](https://github.com/ospex-org/ospex-source-files-and-other/tree/master/src). You can verify any contest's script hashes by hashing the source with `keccak256` and comparing against the values stored in the Contest struct on-chain.
+**R5 equivalent.** The CRE workflow source is public in the `ospex-cre` repo, and the workflow is governed by a `CreWorkflowOwner` adapter behind a `TimelockController` — any change to the logic is observable on-chain for the delay window before it can take effect.
 
 ---
 
@@ -166,6 +168,8 @@ The leaderboard abuse surface is real but bounded by the existing rules engine. 
 
 ## Script Approvals Are Permanent (Unless Expiry Set)
 
+> **R4 (Chainlink Functions) — FULLY OBSOLETE under the R5 Chainlink CRE oracle migration.** See CreOracleReceiver / the cre-oracle skill. R5 has **no EIP-712 script approvals, no `i_approvedSigner`, and no on-chain script hashes** — the entire mechanism this section describes is gone. Governance over the oracle is now exercised through the **CRE workflow-governance model**: a `CreWorkflowOwner` adapter behind an OZ `TimelockController` (7-day delay on mainnet), where only timelocked `update`/`delete` of the workflow exist and there is no pause path. The section below is retained as historical R4 context only.
+
 **What it is.** EIP-712 script approvals signed by `i_approvedSigner` include a `validUntil` field. If `validUntil == 0`, the approval is permanent — it never expires. Once a contest is created with approved script hashes, those hashes are stored on-chain and the approval is never re-checked.
 
 **What might look wrong.** Permanent approvals mean a script hash approved today is valid forever, even if the approved signer's key is later compromised.
@@ -182,7 +186,7 @@ The leaderboard abuse surface is real but bounded by the existing rules engine. 
 
 **What might look wrong.** Every other settlement system has an appeals process or correction window. What if the oracle submits wrong scores?
 
-**Why it's right.** Mutable scores create a second-order trust problem: who decides the correction is correct? The protocol accepts oracle risk and mitigates it upstream (triple-source verification, public source code, hash-locked scripts) rather than downstream (on-chain disputes). If the triple-source oracle unanimously agrees on a wrong score, that's an extremely unlikely scenario that the protocol treats as oracle risk rather than building complexity to handle.
+**Why it's right.** Mutable scores create a second-order trust problem: who decides the correction is correct? The protocol accepts oracle risk and mitigates it upstream (triple-source verification, public CRE workflow source, timelock-governed workflow updates) rather than downstream (on-chain disputes). If the triple-source oracle unanimously agrees on a wrong score, that's an extremely unlikely scenario that the protocol treats as oracle risk rather than building complexity to handle.
 
 **What an agent/user should know.** Scores are final. The triple-source verification makes incorrect scores very unlikely, but the protocol provides no on-chain recourse if it happens. If the contest is never scored, the void cooldown provides a deterministic fallback — positions void and risk is returned.
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 import {OspexCore} from "../core/OspexCore.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
@@ -61,6 +61,8 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
     uint16 public constant MIN_ODDS = 101;
     /// @notice Maximum valid odds (101.00)
     uint16 public constant MAX_ODDS = 10100;
+    /// @notice Absolute magnitude bound on commitment lineTicks (10x-scaled)
+    int32 public constant MAX_LINE_TICKS = 1_000_000;
 
     // ──────────────────────────── Errors ───────────────────────────────
 
@@ -96,6 +98,8 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
     error MatchingModule__ContestAlreadyScored();
     /// @notice Thrown when the contest has elapsed its void cooldown and new fills are rejected
     error MatchingModule__ContestPastCooldown();
+    /// @notice Thrown when |lineTicks| exceeds MAX_LINE_TICKS (overflow / fund-lock guard)
+    error MatchingModule__LineTicksOutOfRange(int32 lineTicks);
 
     // ──────────────────────────── Events ───────────────────────────────
 
@@ -464,6 +468,13 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
     ) internal view returns (bytes32 commitmentHash) {
         if (commitment.maker == address(0)) {
             revert MatchingModule__InvalidMakerAddress();
+        }
+
+        if (
+            commitment.lineTicks > MAX_LINE_TICKS ||
+            commitment.lineTicks < -MAX_LINE_TICKS
+        ) {
+            revert MatchingModule__LineTicksOutOfRange(commitment.lineTicks);
         }
 
         if (block.timestamp >= commitment.expiry) {

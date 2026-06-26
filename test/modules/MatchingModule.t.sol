@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 // [NOTE] All test amounts use 6 decimals (USDC-style): 1 USDC = 1_000_000
 // [NOTE] oddsTick uses integer ticks: 1.91 = 191, 1.93 = 193, etc.
@@ -1560,6 +1560,109 @@ contract MatchingModuleTest is Test {
             DEFAULT_TAKER_DESIRED_RISK
         );
     }
+
+    // ===================== LINE TICKS BOUND (V-1 fund-lock) =====================
+
+    /**
+     * @notice V-1: a correctly-signed commitment with lineTicks = type(int32).max is
+     *         rejected at the entry gate (before any escrow / recordFill) with
+     *         MatchingModule__LineTicksOutOfRange. The signature is valid, so the
+     *         lineTicks bound — not a signature revert — is what fires.
+     */
+    function test_LineTicksOutOfRange_Max_Reverts() public {
+        MatchingModule.OspexCommitment memory c = _defaultCommitment();
+        c.lineTicks = type(int32).max;
+        bytes memory sig = _signCommitment(c, MAKER_PK);
+
+        vm.prank(taker);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MatchingModule.MatchingModule__LineTicksOutOfRange.selector,
+                type(int32).max
+            )
+        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
+
+        // No fill recorded (reverted before recordFill).
+        assertEq(mockPosition.recordFillCallCount(), 0);
+    }
+
+    /**
+     * @notice V-1: lineTicks just past the positive and negative bound
+     *         (MAX_LINE_TICKS +/- 1) both revert with the typed error.
+     */
+    function test_LineTicksOutOfRange_BoundPlusOne_Reverts() public {
+        int32 max = matchingModule.MAX_LINE_TICKS();
+
+        // +MAX + 1
+        {
+            MatchingModule.OspexCommitment memory c = _defaultCommitment();
+            c.lineTicks = max + 1;
+            bytes memory sig = _signCommitment(c, MAKER_PK);
+            vm.prank(taker);
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    MatchingModule.MatchingModule__LineTicksOutOfRange.selector,
+                    max + 1
+                )
+            );
+            matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
+        }
+
+        // -(MAX + 1)
+        {
+            MatchingModule.OspexCommitment memory c = _defaultCommitment();
+            c.lineTicks = -(max + 1);
+            c.nonce = 2;
+            bytes memory sig = _signCommitment(c, MAKER_PK);
+            vm.prank(taker);
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    MatchingModule.MatchingModule__LineTicksOutOfRange.selector,
+                    -(max + 1)
+                )
+            );
+            matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
+        }
+
+        assertEq(mockPosition.recordFillCallCount(), 0);
+    }
+
+    /**
+     * @notice V-1: the bound is inclusive — lineTicks == MAX_LINE_TICKS is accepted
+     *         and the match proceeds to recordFill.
+     */
+    function test_LineTicksAtBoundary_Accepted() public {
+        int32 max = matchingModule.MAX_LINE_TICKS();
+
+        MatchingModule.OspexCommitment memory c = _defaultCommitment();
+        c.lineTicks = max;
+        bytes memory sig = _signCommitment(c, MAKER_PK);
+
+        vm.prank(taker);
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
+
+        assertEq(mockPosition.recordFillCallCount(), 1);
+        assertEq(mockPosition.lastLineTicks(), max);
+    }
+
+    /**
+     * @notice V-1: the MatchingModule and SpeculationModule bounds are wired to the
+     *         same MAX_LINE_TICKS value (1_000_000). (The SpreadScorer defensive
+     *         layer was deliberately dropped and is intentionally not referenced.)
+     */
+    function test_MaxLineTicksConstant_MatchesSpeculationModule() public {
+        SpeculationModule speculationModuleForConst = new SpeculationModule(
+            address(mockCore),
+            3 days
+        );
+        assertEq(
+            int256(matchingModule.MAX_LINE_TICKS()),
+            int256(speculationModuleForConst.MAX_LINE_TICKS()),
+            "Matching/Speculation bounds must match"
+        );
+        assertEq(int256(matchingModule.MAX_LINE_TICKS()), int256(1_000_000));
+    }
 }
 
 // =============================================================================
@@ -1629,7 +1732,7 @@ contract MatchingModuleIntegrationTest is Test {
         types[1] = core.SPECULATION_MODULE();        addrs[1] = address(speculationModule);
         types[2] = core.POSITION_MODULE();           addrs[2] = address(positionModule);
         types[3] = core.MATCHING_MODULE();           addrs[3] = address(matchingModule);
-        types[4] = core.ORACLE_MODULE();             addrs[4] = address(this);
+        types[4] = core.CRE_ORACLE_RECEIVER();             addrs[4] = address(this);
         types[5] = core.TREASURY_MODULE();           addrs[5] = address(treasuryModule);
         types[6] = core.LEADERBOARD_MODULE();        addrs[6] = address(mockLB);
         types[7] = core.RULES_MODULE();              addrs[7] = address(0xD007);
@@ -1646,9 +1749,6 @@ contract MatchingModuleIntegrationTest is Test {
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified,
             contestCreator: address(this),
-            verifySourceHash: bytes32(0),
-            marketUpdateSourceHash: bytes32(0),
-            scoreContestSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""

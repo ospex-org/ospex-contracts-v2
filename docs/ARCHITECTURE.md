@@ -17,7 +17,7 @@ OspexCore (Registry, Event Hub, Fee Router)
     +-- PositionModule         - User fund escrow & claims
     +-- SpeculationModule      - Market lifecycle & settlement
     +-- ContestModule          - Sports events & scoring
-    +-- OracleModule           - Chainlink Functions integration
+    +-- CreOracleReceiver      - Chainlink CRE oracle integration
     +-- LeaderboardModule      - Competitions, ROI tracking, prizes
     +-- RulesModule            - Leaderboard eligibility rules
     +-- TreasuryModule         - Fee collection & prize pools
@@ -47,18 +47,18 @@ Immutable core contract. Manages the module registry, cross-module event emissio
 ### OspexTypes.sol
 
 Shared type definitions:
-- `Contest` — Sports event with scores, league, external IDs, source hashes
+- `Contest` — Sports event with away/home scores, league, status, creator, and the three provider external IDs (rundownId, sportspageId, jsonoddsId)
 - `Speculation` — Market on a contest (moneyline, spread, total)
 - `Position` — User stake with risk/profit amounts, fill timestamp, secondary market flag
 - `SaleListing` — Secondary market position listing
 - `Leaderboard` — Competition with entry fees, time windows, prize pools
-- `ScriptApproval` — EIP-712 signed approval for oracle JavaScript sources
 
 **Key Enums:**
 - `SpeculationStatus`: `Open`, `Closed`
 - `WinSide`: `TBD`, `Away`, `Home`, `Over`, `Under`, `Push`, `Void`
 - `PositionType`: `Upper` (away/over), `Lower` (home/under)
 - `FeeType`: `ContestCreation`, `SpeculationCreation`, `LeaderboardCreation`
+- `OracleRequestType`: `ContestCreate`, `ContestMarketsUpdate`, `ContestScore`
 
 ---
 
@@ -107,25 +107,42 @@ Market lifecycle. Speculations are auto-created on first fill (lazy creation) an
 
 Sports events. Contests must be created and verified before speculations can exist.
 
+All contest mutations are gated by the `onlyCreOracleReceiver` modifier — callable only by the module occupying the `CRE_ORACLE_RECEIVER` registry slot (the CreOracleReceiver).
+
 **Key Functions:**
-- `createContest()` — Creates event with external IDs and source hashes. Only callable by OracleModule.
-- `setContestLeagueIdAndStartTime()` — Sets league and start time from oracle callback. Moves status to Verified.
-- `setScores()` — Records final scores. Immutable once set — scores cannot be overwritten.
-- `updateContestMarkets()` — Stores reference odds/lines from oracle. Only callable by OracleModule.
+- `createContest()` — Creates event with the three provider external IDs. Only callable by the CreOracleReceiver.
+- `setContestLeagueIdAndStartTime()` — Sets league and start time from the oracle report. Moves status to Verified. Only callable by the CreOracleReceiver.
+- `setScores()` — Records final scores. Immutable once set — scores cannot be overwritten. Only callable by the CreOracleReceiver.
+- `updateContestMarkets()` — Stores reference odds/lines from the oracle report. Only callable by the CreOracleReceiver.
 - `voidContest()` — Marks contest as Voided. Only callable by SpeculationModule (during auto-void).
 
 **Contest Status Flow:** `Unverified → Verified → Scored` (or `Verified → Voided`)
 
-### OracleModule.sol
+### CreOracleReceiver.sol
 
-Chainlink Functions integration. Permissionless — anyone can trigger oracle requests by paying LINK.
+The Chainlink CRE oracle, occupying the `CRE_ORACLE_RECEIVER` registry slot. It replaces the retired R4 Chainlink Functions `OracleModule`. It has two halves: permissionless **request** entrypoints that emit a `CreOracleRequested` event, and a **receive** callback (`onReport`) the trusted KeystoneForwarder invokes with the off-chain workflow's signed report.
 
-**Key Functions:**
-- `createContestFromOracle()` — Creates contest, verifies three EIP-712 script approvals, sends Chainlink request for verification
-- `updateContestMarketsFromOracle()` — Sends request to update market data (odds, lines). Source hash validated against per-contest stored hash.
-- `scoreContestFromOracle()` — Sends request to score a contest. Source hash validated against per-contest stored hash.
+**Request entrypoints (permissionless):**
+- `createContestAndRequestVerify()` — Creates the contest (Unverified) and emits a verify request. The caller pays the USDC contest-creation fee; the CRE workflow run itself is funded off-chain by the workflow owner.
+- `requestMarketUpdate()` — Emits a market-update request for an existing Verified contest, bumping that contest's market request nonce.
+- `requestScore()` — Emits a score request for an existing Verified contest (after its start time).
 
-**Script Approval System:** Contest creation requires three EIP-712-signed `ScriptApproval` structs (verify, market update, score) from the immutable `i_approvedSigner`. Each approval binds a script hash to a purpose, optional league scope, and optional expiry. Approvals are checked at creation time only — subsequent oracle calls validate by hash match.
+Each emits `CreOracleRequested` (watched off-chain by the CRE workflow via an EVM log trigger) and mirrors the request through the OspexCore hub.
+
+**Receive — `onReport()` trust funnel:** The KeystoneForwarder delivers the DON's signed report; `onReport` enforces, in order:
+1. `msg.sender` is the immutable KeystoneForwarder.
+2. The report metadata's workflow **owner** (and the optional immutable workflow **name**) match the deployed workflow. (The workflow **ID** is intentionally not pinned — CRE rotates it on every update.)
+3. The report's `chainId` and receiver match this chain/contract (domain separation).
+4. Per-report idempotency: `keccak256(report)` applies at most once.
+5. Fail-closed request/report binding: a **verify** or **score** report requires the matching per-contest request flag (set when the request was emitted); a **market** report must carry a nonce that was actually requested and not yet superseded (dual-nonce freshness — stale odds cannot overwrite fresh ones, and permissionless request spam cannot invalidate an in-flight legitimate report).
+
+It then dispatches on the report's `requestType` and applies the verified result via ContestModule.
+
+**Off-chain verification:** The off-chain CRE workflow (the separate `ospex-cre` repo) performs the triple-source verification (The Rundown + Sportspage + JSONOdds, 3-of-3 agreement) and scoring, then reports back through the KeystoneForwarder. There is no on-chain LINK subscription and no per-call LINK payment.
+
+**Immutable constructor parameters:** `ospexCore`, `forwarder` (the trusted KeystoneForwarder), `workflowOwner`, and an optional `workflowName` pin. There is no approved signer, no script-hash storage, and no Ownable/setter.
+
+**Governance (Ethereum mainnet):** The CRE workflow is owned by a `CreWorkflowOwner` adapter behind an OpenZeppelin `TimelockController` (7-day delay on mainnet). PAUSE is structurally impossible — only timelocked `update`/`delete` exist. A compromised timelock proposer could push a malicious workflow update only after the delay, and can never pause the oracle or touch protocol funds.
 
 ### TreasuryModule.sol
 
@@ -218,13 +235,15 @@ Each implements `determineWinSide(contestId, lineTicks)` returning which side wo
 
 ## Security Model
 
-- **ReentrancyGuard** on all fund-transferring functions (PositionModule, TreasuryModule, LeaderboardModule, SecondaryMarketModule, OracleModule, MatchingModule)
+- **ReentrancyGuard** on all fund-transferring functions (PositionModule, TreasuryModule, LeaderboardModule, SecondaryMarketModule, MatchingModule)
 - **SafeERC20** for all token transfers
-- **EIP-712** for commitment signatures (MatchingModule) and script approvals (OracleModule)
+- **EIP-712** for commitment signatures (MatchingModule)
 - **Checks-Effects-Interactions** pattern throughout
 - **Zero admin functions** on PositionModule (user fund escrow)
 - **Bootstrap-then-finalize** — no admin key after deployment
-- **Hash-locked scripts** — oracle JS validated against per-contest stored hashes
+- **CreOracleReceiver passive validation** — the oracle has no admin function; it only accepts a DON report that clears the `onReport` trust funnel (trusted KeystoneForwarder, matching workflow owner/name, domain separation, per-report idempotency, fail-closed request binding). There are no on-chain script approvals.
+- **Timelock-governed CRE workflow** — the off-chain workflow is owned by a `CreWorkflowOwner` adapter behind an OZ `TimelockController` (7-day mainnet delay). No pause path exists.
+- **Operator can halt, not steal** — an operator that stops running/funding the workflow can only stall scoring, which lets affected Verified contests auto-void and refund permissionlessly after the cooldown; settlement is immutable and settle/claim are permissionless.
 
 ---
 

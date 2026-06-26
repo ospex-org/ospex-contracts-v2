@@ -44,12 +44,11 @@ Every value below is set at construction time and is immutable for the life of t
 | Protocol fee receiver | Constructor parameter | TreasuryModule `i_protocolReceiver` |
 | Fee rates (contest, speculation, leaderboard creation) | Constructor parameters | TreasuryModule `s_feeRates` |
 | Void cooldown | Constructor parameter | SpeculationModule `i_voidCooldown` |
-| LINK denominator (payment per oracle call = 1e18 / denominator) | Constructor parameter | OracleModule `i_linkDenominator` |
-| Approved script signer | Constructor parameter | OracleModule `i_approvedSigner` |
+| Chainlink KeystoneForwarder (only valid `onReport` caller) | Constructor parameter | CreOracleReceiver `i_forwarder` |
+| CRE workflow owner (expected report-metadata owner) | Constructor parameter | CreOracleReceiver `i_workflowOwner` |
+| CRE workflow name pin (optional; enforced when non-zero) | Constructor parameter | CreOracleReceiver `i_workflowName` |
 | USDC token address | Constructor parameter | PositionModule, TreasuryModule, SecondaryMarketModule |
-| LINK token address | Constructor parameter | OracleModule |
-| Chainlink DON ID | Constructor parameter | OracleModule `i_donId` |
-| EIP-712 domain separators | Computed at construction | MatchingModule, OracleModule |
+| EIP-712 domain separator | Computed at construction | MatchingModule |
 
 There is no admin function to modify any of these values. A mistake in any parameter requires redeploying the entire protocol.
 
@@ -59,7 +58,7 @@ There is no admin function to modify any of these values. A mistake in any param
 
 These are protocol state changes that occur through normal operation, not admin action:
 
-- **Contests**: Created and scored via OracleModule (permissionless, caller pays LINK)
+- **Contests**: Created and scored via CreOracleReceiver — permissionless request entrypoints emit a request the off-chain CRE workflow resolves; the workflow run is funded off-chain by the workflow owner (no per-call LINK)
 - **Speculations**: Auto-created on first fill, settled permissionlessly after contest scoring
 - **Positions**: Created via MatchingModule fills, claimed by users after settlement
 - **Leaderboards**: Created permissionlessly (anyone, pays creation fee), rules set by creator before start
@@ -74,27 +73,27 @@ All of these are user-initiated and follow the contract logic — no admin overr
 
 The zero-admin model eliminates admin-key risk but does not eliminate all trust dependencies:
 
+> **R4 (Chainlink Functions) — SUPERSEDED by the R5 Chainlink CRE oracle migration.** See CreOracleReceiver / the cre-oracle skill. The "Oracle Correctness" and "Approved Signer Discipline" subsections below describe the retired R4 trust boundary (approved signer, EIP-712 script approvals, per-contest script hashes, signer immutability). **None of that exists under R5** — see the "R5 CRE trust model" stub immediately below.
+
+### R5 CRE trust model
+
+Under R5 the oracle is **Chainlink CRE** (`CreOracleReceiver`). There are **no EIP-712 script approvals, no approved signer, and no on-chain script hashes**. An off-chain CRE workflow verifies and scores contests against the three sports-data sources, and the on-chain receiver **passively validates** each report: a trusted **KeystoneForwarder** delivered it, the report-metadata **workflow owner** matches, the optional immutable **workflow-name** pin matches, plus **per-report idempotency** and **market-nonce freshness**. The workflow is governed by a **`CreWorkflowOwner` adapter behind an OZ `TimelockController`** (7-day delay on mainnet); **PAUSE is structurally impossible** — only timelocked `update`/`delete` exist. The operator can **HALT scoring** (which voids contests), but **cannot steal or trap funds**: settlement is immutable, and an unscored `Verified` contest **auto-voids and refunds principal permissionlessly** after the cooldown (any participant can settle + claim — there is no operator gate).
+
 ### Oracle Correctness
 
-Contest scores are determined by Chainlink Functions executing JavaScript source code against three independent sports data APIs (The Rundown, Sportspage Feeds, JSONOdds). The script requires unanimous agreement across all three sources — if any source disagrees, the oracle request fails and no score is written.
+Contest verification and scoring are performed by the off-chain CRE workflow against three independent sports data APIs (The Rundown, Sportspage Feeds, JSONOdds). The workflow requires unanimous agreement across all three sources — if any source disagrees, no report is produced and no on-chain state changes.
 
-**Trust assumption**: The approved signer (`i_approvedSigner`) has signed the script hashes that are stored per-contest at creation time. The signer vouches that the JS source is correct. Once a contest is created, only JS matching the stored hash can score it — but the signer's initial approval is a trust dependency.
+**Trust assumption**: Users trust that the CRE workflow reports correct results. The on-chain `CreOracleReceiver` does not re-verify scores; it validates only that the report came from the expected workflow (via the KeystoneForwarder, workflow owner, and optional name) and is fresh and non-replayed.
 
-**Mitigation**: Source code is public. Script hashes are verifiable. The approved signer is set immutably at deployment — it cannot be rotated to a compromised key.
+**Mitigation**: The workflow source is public and runs deterministically over the three sources. The workflow is governed by a `CreWorkflowOwner` adapter behind a `TimelockController` (7-day mainnet delay), so any change to the scoring logic is observable on-chain for the delay window before it can take effect. Even an incorrect report cannot move funds outside immutable settlement — and an operator that stalls scoring only triggers the auto-void/refund path.
 
 ### Off-Chain Infrastructure
 
-The off-chain market data writer, market maker, indexer, read API, and frontend are centralized services operated by the protocol developer. If they go down:
-- No new contests are created (requires oracle request)
+The off-chain CRE workflow, market data writer, market maker, indexer, read API, and frontend are centralized services operated by the protocol developer. If they go down:
+- No new contests are created (requires an oracle request the workflow resolves)
 - No new market data updates are published
 - Existing positions remain safe on-chain — users can still claim after settlement
-- Anyone can call `scoreContestFromOracle()` directly if they have the JS source and LINK
-
-### Approved Signer Discipline
-
-Script approvals (EIP-712 signed by `i_approvedSigner`) are verified at contest creation time only. Once a contest exists, its script hashes are stored on-chain and the signer is no longer consulted. The risk is at the approval boundary: if the signer approves a malicious script hash, contests created with that hash would execute the malicious code.
-
-**Mitigation**: Approvals can be scoped to specific leagues and given expiry timestamps. The signer address is immutable — compromise of a different key cannot affect the protocol. Planned: IPFS-pinned script preimages for public auditability.
+- Anyone can call the permissionless `requestScore()` entrypoint; if the workflow is no longer scoring, unscored Verified contests auto-void and refund principal after the cooldown
 
 ---
 

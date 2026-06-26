@@ -22,7 +22,7 @@
 
 ## 1. No Professional Audit — CRITICAL
 
-The smart contracts have not been professionally audited. All 13 deployed contracts (OspexCore + 12 modules) were developed by a solo founder with peer review from an experienced developer and an extensive hardening cycle (563 tests passing, zero HIGH findings in self-review).
+The smart contracts have not been professionally audited. All 13 deployed contracts (OspexCore + 12 modules) were developed by a solo founder with peer review from an experienced developer and an extensive hardening cycle (a comprehensive passing test suite, zero HIGH findings in self-review).
 
 **What this means:**
 - There may be undiscovered vulnerabilities — reentrancy paths, integer edge cases, incorrect access control, or economic exploits that a professional audit would catch.
@@ -66,21 +66,22 @@ The zero-admin model means the protocol has no emergency controls. There is no p
 
 ## 3. Oracle & Settlement — HIGH
 
-Contest outcomes are determined by Chainlink Functions executing JavaScript code that queries three independent sports data APIs. The scorer service that triggers these oracle calls is a centralized service operated by the protocol developer.
+> **R4 (Chainlink Functions) — SUPERSEDED by the R5 Chainlink CRE oracle migration.** See CreOracleReceiver / the cre-oracle skill. The section below describes the retired R4 oracle (Chainlink Functions, approved signer, hash-locked scripts, LINK-per-call). Under R5 the oracle is an off-chain Chainlink CRE workflow reporting into `CreOracleReceiver`; there is no approved signer, no on-chain script hash, and no caller-paid LINK. The triple-source verification still applies, now enforced inside the CRE workflow. See the added **"CRE workflow-owner / proposer compromise"** risk in §6 (Key Management) and the residual operator-liveness note there.
+
+Contest outcomes are determined by an off-chain Chainlink CRE workflow that queries three independent sports data APIs and reports back through a trusted KeystoneForwarder to `CreOracleReceiver`. The CRE workflow is operated and funded off-chain by the protocol developer.
 
 **Risk factors:**
-- The scorer service is a single point of failure. If it goes down, contests are not scored, and speculations cannot be settled. User funds remain locked in PositionModule until scoring or voiding occurs.
-- Chainlink Functions has its own availability and rate-limit constraints. Extended Chainlink downtime would delay scoring.
-- The approved signer (`i_approvedSigner`) must correctly vet scripts before signing approvals. A malicious or buggy approved script could submit incorrect data.
+- The CRE workflow (and the data-provider API access it depends on) is a single point of liveness. If the operator stops running or funding it, contests are not scored, and speculations cannot be settled until scoring or voiding occurs.
+- A compromise of the CRE governance proposer could, after the timelock delay, push a malicious workflow update (see §6, Key Management).
 
 **Mitigation:**
-- **Triple-source verification**: The scoring JS queries three independent APIs (The Rundown, Sportspage Feeds, JSONOdds) and requires unanimous agreement. If any source disagrees, the script throws and no on-chain state is written. An attacker would need to compromise three independent providers simultaneously.
-- **Permissionless oracle calls**: `scoreContestFromOracle()` can be called by anyone (caller pays LINK). If the primary scorer service is down, any party with the JS source and LINK can trigger scoring.
-- **Auto-void fallback**: If a contest is never scored, `settleSpeculation()` auto-voids all speculations after the void cooldown (1 day on Amoy, 7 days on mainnet). Users recover their risk amounts.
-- **Hash-locked scripts**: Scoring JS must match the per-contest stored hash. Runtime substitution is impossible.
-- **Source code is public**: The oracle JS is available at [`ospex-org/ospex-source-files-and-other`](https://github.com/ospex-org/ospex-source-files-and-other). Anyone can verify the scoring logic.
+- **Triple-source verification**: The CRE workflow queries three independent APIs (The Rundown, Sportspage Feeds, JSONOdds) and requires unanimous agreement. If any source disagrees, no report is produced and no on-chain state is written. An attacker would need to compromise three independent providers simultaneously.
+- **Permissionless requests**: `requestScore()` (and the verify/market entrypoints) can be called by anyone — there is no per-call LINK and no on-chain subscription. The CRE workflow run is funded off-chain by the workflow owner.
+- **Auto-void fallback**: If a contest is never scored, `settleSpeculation()` auto-voids all speculations after the void cooldown (1 day on Amoy, 7 days on mainnet). Users recover their risk amounts permissionlessly — there is no operator gate on settle/claim.
+- **Passive on-chain validation**: `CreOracleReceiver` accepts a report only from the immutable KeystoneForwarder, with matching workflow owner/name, correct chain/receiver, per-report idempotency, and fail-closed request binding (a report must correspond to a receiver-emitted request). There are no on-chain script approvals.
+- **Timelock-governed workflow**: The CRE workflow is owned by a `CreWorkflowOwner` adapter behind a `TimelockController` (7-day mainnet delay), so any change to the verification/scoring logic is observable on-chain before it can take effect.
 
-**Residual risk:** Users must trust that the triple-source oracle submits correct scores. While unlikely, a simultaneous data error across all three providers would result in incorrect settlement with no on-chain recourse — scores are final once written.
+**Residual risk:** Users must trust that the triple-source CRE workflow reports correct scores. While unlikely, a simultaneous data error across all three providers would result in incorrect settlement with no on-chain recourse — scores are final once written. The operator can halt scoring (triggering auto-void/refund) but cannot steal or trap funds.
 
 ---
 
@@ -141,7 +142,11 @@ The protocol's off-chain infrastructure has no redundancy.
 - There is no centralized log aggregation or automated alerting for critical failures (e.g., scorer downtime, market maker crashes). Service-level logs are accessed per-app via the Heroku CLI.
 
 **Key Management:**
-- The approved signer key (used for script approvals) is a trust dependency. Compromise would allow an attacker to approve malicious scripts for new contests. The signer address is immutable — it cannot be rotated.
+
+> **R4 (Chainlink Functions) — SUPERSEDED by the R5 Chainlink CRE oracle migration.** See CreOracleReceiver / the cre-oracle skill. The R4 "approved signer key" trust dependency below no longer exists — R5 has no approved signer and no on-chain script approvals. See the **CRE workflow-owner / proposer compromise** risk that replaces it.
+
+- **CRE workflow-owner / proposer compromise** (replaces the R4 approved-signer risk): The CRE workflow is governed by a `CreWorkflowOwner` adapter behind an OZ `TimelockController`. A compromised governance **proposer** could, after the timelock delay (7 days on mainnet), push a malicious workflow update. It **cannot pause the oracle** (no pause path exists) and **cannot touch protocol funds** (settlement is immutable; PositionModule has zero admin functions). *Mitigations:* hardware-wallet / multisig proposer; monitor scheduled timelock operations so a malicious update can be observed and responded to within the delay window.
+- **Residual operator-liveness risk:** The operator can **halt scoring** (e.g. by not running the workflow), which causes affected contests to **auto-void and refund** after the cooldown. Principal is always recoverable permissionlessly — no operator gate on settle/claim.
 - Agent wallet private keys are stored without hardware security module (HSM) or multisig protection.
 
 ---
@@ -174,8 +179,8 @@ External economic factors that could affect the protocol under unusual condition
 **Gas Costs:**
 - While Polygon gas is typically inexpensive, complex operations (matching with speculation auto-creation, scoring contests) consume meaningful gas. A sustained spike in POL price or base fees could make small positions uneconomical.
 
-**Chainlink LINK Costs:**
-- Oracle requests require LINK payment. The protocol's Chainlink subscription must be funded. If LINK price spikes or the subscription runs dry, contest creation and scoring are blocked until refunded.
+**CRE Workflow Funding:**
+- Oracle work runs off-chain in the Chainlink CRE workflow, funded off-chain by the workflow owner. There is no per-call LINK and no on-chain Chainlink subscription. If the workflow owner stops funding the workflow, scoring halts — affected Verified contests then auto-void and refund after the cooldown rather than locking funds.
 
 ---
 
@@ -185,13 +190,14 @@ External economic factors that could affect the protocol under unusual condition
 - **Zero admin.** After `finalize()`, no address has any privileged on-chain capability. There is no admin key to compromise, no governance to capture, no multisig to social-engineer.
 - **No proxy pattern.** Contracts are not upgradeable via proxy. There is no `delegatecall` to an implementation contract that can be silently swapped.
 - **PositionModule has zero admin functions.** The contract that holds all user funds has no privileged functions. USDC leaves only via user claims or secondary market transfers.
-- **ReentrancyGuard on all fund-transferring functions.** PositionModule, TreasuryModule, LeaderboardModule, SecondaryMarketModule, OracleModule, and MatchingModule all use OpenZeppelin's ReentrancyGuard.
+- **ReentrancyGuard on all fund-transferring functions.** PositionModule, TreasuryModule, LeaderboardModule, SecondaryMarketModule, and MatchingModule all use OpenZeppelin's ReentrancyGuard.
 - **SafeERC20 for all token transfers.** No raw `.transfer()` calls.
-- **EIP-712 signatures.** Commitment signatures (MatchingModule) and script approvals (OracleModule) use typed structured data signing.
-- **Triple-source oracle.** Contest creation and scoring require unanimous agreement from three independent sports data APIs.
-- **Permissionless oracle calls.** Anyone can trigger contest creation, market updates, or scoring by calling OracleModule directly and paying LINK.
+- **EIP-712 signatures.** Commitment signatures (MatchingModule) use typed structured data signing.
+- **Triple-source oracle.** Contest verification and scoring require unanimous agreement from three independent sports data APIs, enforced inside the off-chain CRE workflow.
+- **Permissionless oracle requests.** Anyone can trigger contest creation, market updates, or scoring via the CreOracleReceiver request entrypoints — there is no per-call LINK and no on-chain subscription.
+- **Passive on-chain oracle validation.** `CreOracleReceiver` has no admin function; it accepts a report only when it clears the `onReport` trust funnel (trusted KeystoneForwarder, matching workflow owner/name, domain separation, per-report idempotency, fail-closed request binding). There are no on-chain script approvals.
 - **No pause mechanism.** There is no admin kill switch that can freeze the protocol. Users cannot be locked out by admin action.
-- **Hash-locked scripts.** Oracle JS is validated against per-contest stored hashes. Runtime substitution is impossible.
+- **Timelock-governed oracle workflow.** The off-chain CRE workflow is owned by a `CreWorkflowOwner` adapter behind an OZ `TimelockController` (7-day mainnet delay); pause is structurally impossible.
 - **Auto-void fallback.** Unscored contests are automatically voided after the cooldown, returning risk to all participants.
 
 ---
