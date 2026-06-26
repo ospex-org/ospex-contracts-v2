@@ -46,7 +46,7 @@ Odds are expressed as uint16 ticks with `ODDS_SCALE = 100` (1.91 odds = 191 tick
 - No pause mechanism in any contract
 - No proxy/upgrade pattern
 - Module registry permanently locked after `finalize()` — no module swap
-- All fee rates, the protocol fee receiver, the void cooldown, and the approved script signer are immutable constructor parameters
+- All fee rates, the protocol fee receiver, and the void cooldown are immutable constructor parameters. The CreOracleReceiver's oracle trust roots — the Chainlink KeystoneForwarder, the CRE workflow owner, and an optional workflow-name pin — are likewise immutable constructor parameters (there is no approved signer)
 - PositionModule (fund escrow) has zero admin functions — the deployer cannot withdraw, redirect, or freeze user funds
 - After deployment, the deployer wallet has no on-chain privileges
 
@@ -69,7 +69,7 @@ forge build --via-ir --optimize
 forge test --via-ir --optimize -vvv
 ```
 
-563 tests covering all modules, including fuzz tests for solvency invariants.
+A comprehensive Foundry test suite covers all modules, including fuzz tests for solvency invariants. Run `forge test` for the current count.
 
 ## Coverage
 
