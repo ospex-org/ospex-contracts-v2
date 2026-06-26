@@ -732,4 +732,10 @@ contract CreOracleReceiverTest is Test {
         assertTrue(receiver.supportsInterface(type(IERC165).interfaceId));
         assertFalse(receiver.supportsInterface(0xffffffff));
     }
+
+    // ──────────────────────────── Module identity ─────────────────────
+
+    function test_getModuleType_returnsSlot() public view {
+        assertEq(receiver.getModuleType(), keccak256("CRE_ORACLE_RECEIVER"));
+    }
 }
