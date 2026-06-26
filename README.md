@@ -12,7 +12,7 @@ Immutable core registry with modular plug-ins. OspexCore manages module registra
 | PositionModule | User fund escrow and claims (zero admin functions) |
 | SpeculationModule | Market lifecycle and settlement |
 | ContestModule | Sports events and scoring |
-| OracleModule | Chainlink Functions integration |
+| CreOracleReceiver | Chainlink CRE oracle integration |
 | TreasuryModule | Fee collection and prize-pool accounting |
 | LeaderboardModule | ROI-based competitions with prizes |
 | RulesModule | Leaderboard eligibility rules |
@@ -29,8 +29,8 @@ Immutable core registry with modular plug-ins. OspexCore manages module registra
 Contest (event) → Speculation (market) → Position (participant stake)
 ```
 
-1. A contest is created on-chain via OracleModule (permissionless, caller pays LINK).
-2. The Chainlink Functions oracle verifies the contest against three independent sports data APIs and sets its league and start time.
+1. A contest is created on-chain via CreOracleReceiver (permissionless).
+2. The Chainlink CRE oracle verifies the contest against three independent sports data APIs and sets its league and start time.
 3. A maker signs an EIP-712 `OspexCommitment` off-chain specifying contest, scorer, line, position type, odds, risk amount, nonce, and expiry.
 4. A taker calls `MatchingModule.matchCommitment(...)` on-chain. USDC is pulled from both parties via `safeTransferFrom`. The speculation auto-creates on the first fill.
 5. The contest concludes; the oracle records final scores (permissionless, triple-source verified).
@@ -80,7 +80,7 @@ forge coverage --ir-minimum
 ## Dependencies
 
 - [OpenZeppelin Contracts](https://github.com/OpenZeppelin/openzeppelin-contracts) — ReentrancyGuard, SafeERC20, EIP712, ECDSA
-- [Chainlink](https://github.com/smartcontractkit/chainlink) — FunctionsClient for oracle requests
+- [Chainlink](https://github.com/smartcontractkit/chainlink) — CRE integration for oracle requests
 - [Forge Std](https://github.com/foundry-rs/forge-std) — Testing framework
 
 ## Documentation

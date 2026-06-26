@@ -70,6 +70,8 @@ The leaderboard abuse surface is real but bounded by the existing rules engine. 
 
 ## Triple-Source Oracle Verification
 
+> **R4 (Chainlink Functions) — SUPERSEDED by the R5 Chainlink CRE oracle migration.** See CreOracleReceiver / the cre-oracle skill. Triple-source verification is **still done** — it is now enforced **off-chain inside the CRE workflow** (across the same three providers), not by on-chain Chainlink Functions JS with on-chain script hashes. The consensus guarantee below still holds; only the execution venue changed.
+
 **What it is.** The Chainlink Functions JavaScript source for contest creation and scoring queries three independent sports data APIs (The Rundown, Sportspage Feeds, JSONOdds). The script requires unanimous agreement across all three sources. If any source returns different data — different scores, different teams, different start times — the script throws and no on-chain state is written.
 
 **What might look wrong.** Three API sources seems redundant.
@@ -165,6 +167,8 @@ The leaderboard abuse surface is real but bounded by the existing rules engine. 
 ---
 
 ## Script Approvals Are Permanent (Unless Expiry Set)
+
+> **R4 (Chainlink Functions) — FULLY OBSOLETE under the R5 Chainlink CRE oracle migration.** See CreOracleReceiver / the cre-oracle skill. R5 has **no EIP-712 script approvals, no `i_approvedSigner`, and no on-chain script hashes** — the entire mechanism this section describes is gone. Governance over the oracle is now exercised through the **CRE workflow-governance model**: a `CreWorkflowOwner` adapter behind an OZ `TimelockController` (7-day delay on mainnet), where only timelocked `update`/`delete` of the workflow exist and there is no pause path. The section below is retained as historical R4 context only.
 
 **What it is.** EIP-712 script approvals signed by `i_approvedSigner` include a `validUntil` field. If `validUntil == 0`, the approval is permanent — it never expires. Once a contest is created with approved script hashes, those hashes are stored on-chain and the approval is never re-checked.
 

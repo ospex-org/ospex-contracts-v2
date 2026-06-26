@@ -7,7 +7,7 @@ EIP-712 signed `ScriptApproval` structs for the three Chainlink Functions JS sou
 **OracleModule:** `0x7e1397eD5b4c9f606DCF2EB0281485B2296E29Bb`
 **Chain ID:** 137 (Polygon mainnet)
 **EIP-712 domain:** `OspexOracle` v1
-**Tooling:** [`script-approvals/`](../../script-approvals/) (Foundry-keystore flow via `cast wallet sign`, used for the 2026-05-27 verify re-sign) · legacy [`scripts/sign-script-approval.js`](../../scripts/sign-script-approval.js) (ethers, raw-key prompt)
+**Tooling:** [`script-approvals/`](../../script-approvals/) (Foundry-keystore flow via `cast wallet sign`, used for the 2026-05-27 verify re-sign) · legacy `scripts/sign-script-approval.js` (ethers, raw-key prompt — **removed in the R5 CRE migration**; CRE has no script approvals)
 **JS source repo:** [`ospex-org/ospex-source-files-and-other`](https://github.com/ospex-org/ospex-source-files-and-other)
 
 All three signatures verified locally (recovered signer matches `APPROVED_SIGNER`).

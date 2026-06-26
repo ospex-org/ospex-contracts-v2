@@ -72,7 +72,7 @@ contract ContestModuleTest is Test {
         assertEq(contestModule.getModuleType(), keccak256("CONTEST_MODULE"));
     }
 
-    function testCreateContest_OnlyOracleModule() public {
+    function testCreateContest_OnlyCreOracleReceiver() public {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
@@ -102,7 +102,7 @@ contract ContestModuleTest is Test {
         );
     }
 
-    function testSetContestStatus_OnlyOracleModule() public {
+    function testSetContestStatus_OnlyCreOracleReceiver() public {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",
@@ -132,7 +132,7 @@ contract ContestModuleTest is Test {
         contestModule.setContestLeagueIdAndStartTime(contestId, LeagueId.NBA, uint32(block.timestamp));
     }
 
-    function testSetScores_OracleModuleCanSet() public {
+    function testSetScores_CreOracleReceiverCanSet() public {
         vm.prank(oracleModule);
         uint256 contestId = contestModule.createContest(
             "rd", "sp", "jo",

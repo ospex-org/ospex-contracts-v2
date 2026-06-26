@@ -66,6 +66,8 @@ The zero-admin model means the protocol has no emergency controls. There is no p
 
 ## 3. Oracle & Settlement — HIGH
 
+> **R4 (Chainlink Functions) — SUPERSEDED by the R5 Chainlink CRE oracle migration.** See CreOracleReceiver / the cre-oracle skill. The section below describes the retired R4 oracle (Chainlink Functions, approved signer, hash-locked scripts, LINK-per-call). Under R5 the oracle is an off-chain Chainlink CRE workflow reporting into `CreOracleReceiver`; there is no approved signer, no on-chain script hash, and no caller-paid LINK. The triple-source verification still applies, now enforced inside the CRE workflow. See the added **"CRE workflow-owner / proposer compromise"** risk in §6 (Key Management) and the residual operator-liveness note there.
+
 Contest outcomes are determined by Chainlink Functions executing JavaScript code that queries three independent sports data APIs. The scorer service that triggers these oracle calls is a centralized service operated by the protocol developer.
 
 **Risk factors:**
@@ -141,7 +143,11 @@ The protocol's off-chain infrastructure has no redundancy.
 - There is no centralized log aggregation or automated alerting for critical failures (e.g., scorer downtime, market maker crashes). Service-level logs are accessed per-app via the Heroku CLI.
 
 **Key Management:**
-- The approved signer key (used for script approvals) is a trust dependency. Compromise would allow an attacker to approve malicious scripts for new contests. The signer address is immutable — it cannot be rotated.
+
+> **R4 (Chainlink Functions) — SUPERSEDED by the R5 Chainlink CRE oracle migration.** See CreOracleReceiver / the cre-oracle skill. The R4 "approved signer key" trust dependency below no longer exists — R5 has no approved signer and no on-chain script approvals. See the **CRE workflow-owner / proposer compromise** risk that replaces it.
+
+- **CRE workflow-owner / proposer compromise** (replaces the R4 approved-signer risk): The CRE workflow is governed by a `CreWorkflowOwner` adapter behind an OZ `TimelockController`. A compromised governance **proposer** could, after the timelock delay (7 days on mainnet), push a malicious workflow update. It **cannot pause the oracle** (no pause path exists) and **cannot touch protocol funds** (settlement is immutable; PositionModule has zero admin functions). *Mitigations:* hardware-wallet / multisig proposer; monitor scheduled timelock operations so a malicious update can be observed and responded to within the delay window.
+- **Residual operator-liveness risk:** The operator can **halt scoring** (e.g. by not running the workflow), which causes affected contests to **auto-void and refund** after the cooldown. Principal is always recoverable permissionlessly — no operator gate on settle/claim.
 - Agent wallet private keys are stored without hardware security module (HSM) or multisig protection.
 
 ---

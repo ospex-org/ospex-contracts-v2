@@ -74,6 +74,12 @@ All of these are user-initiated and follow the contract logic — no admin overr
 
 The zero-admin model eliminates admin-key risk but does not eliminate all trust dependencies:
 
+> **R4 (Chainlink Functions) — SUPERSEDED by the R5 Chainlink CRE oracle migration.** See CreOracleReceiver / the cre-oracle skill. The "Oracle Correctness" and "Approved Signer Discipline" subsections below describe the retired R4 trust boundary (approved signer, EIP-712 script approvals, per-contest script hashes, signer immutability). **None of that exists under R5** — see the "R5 CRE trust model" stub immediately below.
+
+### R5 CRE trust model
+
+Under R5 the oracle is **Chainlink CRE** (`CreOracleReceiver`). There are **no EIP-712 script approvals, no approved signer, and no on-chain script hashes**. An off-chain CRE workflow verifies and scores contests against the three sports-data sources, and the on-chain receiver **passively validates** each report: a trusted **KeystoneForwarder** delivered it, the report-metadata **workflow owner** matches, the optional immutable **workflow-name** pin matches, plus **per-report idempotency** and **market-nonce freshness**. The workflow is governed by a **`CreWorkflowOwner` adapter behind an OZ `TimelockController`** (7-day delay on mainnet); **PAUSE is structurally impossible** — only timelocked `update`/`delete` exist. The operator can **HALT scoring** (which voids contests), but **cannot steal or trap funds**: settlement is immutable, and an unscored `Verified` contest **auto-voids and refunds principal permissionlessly** after the cooldown (any participant can settle + claim — there is no operator gate).
+
 ### Oracle Correctness
 
 Contest scores are determined by Chainlink Functions executing JavaScript source code against three independent sports data APIs (The Rundown, Sportspage Feeds, JSONOdds). The script requires unanimous agreement across all three sources — if any source disagrees, the oracle request fails and no score is written.

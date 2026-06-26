@@ -17,7 +17,7 @@ OspexCore (Registry, Event Hub, Fee Router)
     +-- PositionModule         - User fund escrow & claims
     +-- SpeculationModule      - Market lifecycle & settlement
     +-- ContestModule          - Sports events & scoring
-    +-- OracleModule           - Chainlink Functions integration
+    +-- CreOracleReceiver      - Chainlink CRE oracle integration
     +-- LeaderboardModule      - Competitions, ROI tracking, prizes
     +-- RulesModule            - Leaderboard eligibility rules
     +-- TreasuryModule         - Fee collection & prize pools
@@ -116,7 +116,9 @@ Sports events. Contests must be created and verified before speculations can exi
 
 **Contest Status Flow:** `Unverified → Verified → Scored` (or `Verified → Voided`)
 
-### OracleModule.sol
+### CreOracleReceiver.sol
+
+> **R4 (Chainlink Functions) — SUPERSEDED by the R5 Chainlink CRE oracle migration.** See CreOracleReceiver / the cre-oracle skill. The section below describes the retired R4 OracleModule (Chainlink Functions, EIP-712 script approvals). Under R5 the oracle is `CreOracleReceiver` in the `CRE_ORACLE_RECEIVER` slot: an off-chain Chainlink CRE workflow verifies/scores contests and reports back through a trusted KeystoneForwarder + workflow owner — there are no on-chain script approvals, no approved signer, and no LINK-per-call.
 
 Chainlink Functions integration. Permissionless — anyone can trigger oracle requests by paying LINK.
 
