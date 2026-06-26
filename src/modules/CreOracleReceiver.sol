@@ -6,6 +6,7 @@ import {IERC165} from "../interfaces/cre/IERC165.sol";
 import {LeagueId, OracleRequestType, Contest, ContestStatus} from "../core/OspexTypes.sol";
 import {OspexCore} from "../core/OspexCore.sol";
 import {IContestModule} from "../interfaces/IContestModule.sol";
+import {IModule} from "../interfaces/IModule.sol";
 
 /**
  * @title CreOracleReceiver
@@ -43,10 +44,12 @@ import {IContestModule} from "../interfaces/IContestModule.sol";
  *      uint64 requestNonce, bytes payload)`; {onReport} validates (a)–(d) then dispatches on
  *      requestType to decode the type-specific `payload`.
  */
-contract CreOracleReceiver is IReceiver {
+contract CreOracleReceiver is IModule, IReceiver {
     // ──────────────────────────── Constants ────────────────────────────
 
     bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
+    bytes32 public constant CRE_ORACLE_RECEIVER =
+        keccak256("CRE_ORACLE_RECEIVER");
 
     /// @notice Core-hub event type for an applied DON report. Mirrors the native
     ///         {CreReportProcessed} through OspexCore so a single core-only subscription sees the
@@ -188,6 +191,13 @@ contract CreOracleReceiver is IReceiver {
         i_forwarder = forwarder_;
         i_workflowOwner = workflowOwner_;
         i_workflowName = workflowName_;
+    }
+
+    // ──────────────────────────── Module Identity ─────────────────────
+
+    /// @notice Returns the module type identifier
+    function getModuleType() external pure override returns (bytes32) {
+        return CRE_ORACLE_RECEIVER;
     }
 
     // ──────────────────────────── Request (verify) ─────────────────────
