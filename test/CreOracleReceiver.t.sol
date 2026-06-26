@@ -62,9 +62,22 @@ contract CreOracleReceiverTest is Test {
     );
     event CreReportProcessed(
         bytes32 indexed reportKey,
-        uint8 requestType,
-        uint256 indexed contestId
+        uint256 indexed contestId,
+        uint8 indexed requestType,
+        uint64 requestNonce,
+        uint16 workflowVersion
     );
+    /// @dev OspexCore hub event, mirrored here so the happy-path tests can assert that a core-only
+    ///      listener sees the report envelope (the design intent: subscribe to core, see everything).
+    event CoreEventEmitted(
+        bytes32 indexed eventType,
+        address indexed emitter,
+        bytes eventData
+    );
+    bytes32 internal constant EVENT_ORACLE_REPORT_PROCESSED =
+        keccak256("ORACLE_REPORT_PROCESSED");
+    bytes32 internal constant EVENT_ORACLE_REQUESTED =
+        keccak256("ORACLE_REQUESTED");
 
     function setUp() public {
         wfOwner = makeAddr("workflowOwner");
@@ -223,6 +236,13 @@ contract CreOracleReceiverTest is Test {
     function test_createContestAndRequestVerify_createsUnverifiedAndEmits() public {
         vm.expectEmit(true, true, false, true, address(receiver));
         emit CreOracleRequested(1, 0, 0, "rundown-abc", "sportspage-def", "jsonodds-ghi");
+        // hub mirror: a core-only listener sees the request via OspexCore
+        vm.expectEmit(true, true, false, true, address(core));
+        emit CoreEventEmitted(
+            EVENT_ORACLE_REQUESTED,
+            address(receiver),
+            abi.encode(uint256(1), uint8(0), uint64(0), "rundown-abc", "sportspage-def", "jsonodds-ghi")
+        );
         uint256 contestId = _create(receiver);
 
         assertEq(contestId, 1);
@@ -243,7 +263,14 @@ contract CreOracleReceiverTest is Test {
         bytes memory report = _verifyReport(address(receiver), contestId, nfl, startTime, 1);
 
         vm.expectEmit(true, true, false, true, address(receiver));
-        emit CreReportProcessed(keccak256(report), 0, contestId);
+        emit CreReportProcessed(keccak256(report), contestId, 0, 0, 1);
+        // hub mirror: a core-only listener sees the report envelope via OspexCore
+        vm.expectEmit(true, true, false, true, address(core));
+        emit CoreEventEmitted(
+            EVENT_ORACLE_REPORT_PROCESSED,
+            address(receiver),
+            abi.encode(keccak256(report), contestId, uint8(0), uint64(0), uint16(1))
+        );
         forwarder.route(address(receiver), metadata, report);
 
         Contest memory c = contestModule.getContest(contestId);
@@ -429,7 +456,13 @@ contract CreOracleReceiverTest is Test {
         );
 
         vm.expectEmit(true, true, false, true, address(receiver));
-        emit CreReportProcessed(keccak256(report), 1, contestId);
+        emit CreReportProcessed(keccak256(report), contestId, 1, nonce, 1);
+        vm.expectEmit(true, true, false, true, address(core));
+        emit CoreEventEmitted(
+            EVENT_ORACLE_REPORT_PROCESSED,
+            address(receiver),
+            abi.encode(keccak256(report), contestId, uint8(1), nonce, uint16(1))
+        );
         forwarder.route(address(receiver), _metadata(WF_ID, WF_NAME, wfOwner), report);
 
         ContestMarket memory ml = contestModule.getContestMarket(contestId, address(0xA9));
@@ -501,7 +534,13 @@ contract CreOracleReceiverTest is Test {
         bytes memory report = _scoreReport(address(receiver), contestId, 5, 3, 1);
 
         vm.expectEmit(true, true, false, true, address(receiver));
-        emit CreReportProcessed(keccak256(report), 2, contestId);
+        emit CreReportProcessed(keccak256(report), contestId, 2, 0, 1);
+        vm.expectEmit(true, true, false, true, address(core));
+        emit CoreEventEmitted(
+            EVENT_ORACLE_REPORT_PROCESSED,
+            address(receiver),
+            abi.encode(keccak256(report), contestId, uint8(2), uint64(0), uint16(1))
+        );
         forwarder.route(address(receiver), _metadata(WF_ID, WF_NAME, wfOwner), report);
 
         Contest memory c = contestModule.getContest(contestId);
@@ -531,6 +570,12 @@ contract CreOracleReceiverTest is Test {
         uint256 contestId = _createAndVerify(receiver, forwarder);
         vm.expectEmit(true, true, false, true, address(receiver));
         emit CreOracleRequested(contestId, 1, 1, "rundown-abc", "sportspage-def", "jsonodds-ghi");
+        vm.expectEmit(true, true, false, true, address(core));
+        emit CoreEventEmitted(
+            EVENT_ORACLE_REQUESTED,
+            address(receiver),
+            abi.encode(contestId, uint8(1), uint64(1), "rundown-abc", "sportspage-def", "jsonodds-ghi")
+        );
         uint64 n = receiver.requestMarketUpdate(contestId);
         assertEq(n, 1);
         assertEq(receiver.s_marketNonce(contestId), 1);
@@ -540,6 +585,12 @@ contract CreOracleReceiverTest is Test {
         uint256 contestId = _createAndVerify(receiver, forwarder); // start time = 1 (already started)
         vm.expectEmit(true, true, false, true, address(receiver));
         emit CreOracleRequested(contestId, 2, 0, "rundown-abc", "sportspage-def", "jsonodds-ghi");
+        vm.expectEmit(true, true, false, true, address(core));
+        emit CoreEventEmitted(
+            EVENT_ORACLE_REQUESTED,
+            address(receiver),
+            abi.encode(contestId, uint8(2), uint64(0), "rundown-abc", "sportspage-def", "jsonodds-ghi")
+        );
         receiver.requestScore(contestId);
     }
 

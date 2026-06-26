@@ -48,6 +48,20 @@ contract CreOracleReceiver is IReceiver {
 
     bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
 
+    /// @notice Core-hub event type for an applied DON report. Mirrors the native
+    ///         {CreReportProcessed} through OspexCore so a single core-only subscription sees the
+    ///         oracle report envelope (reportKey, requestType, applied nonce, workflow version) that
+    ///         the ContestModule state events do not carry.
+    bytes32 public constant EVENT_ORACLE_REPORT_PROCESSED =
+        keccak256("ORACLE_REPORT_PROCESSED");
+
+    /// @notice Core-hub event type for a permissionless oracle request. Mirrors the native
+    ///         {CreOracleRequested} through OspexCore so a core-only subscription sees the request
+    ///         side too — market/score requests have no ContestModule event, and verify's request is
+    ///         otherwise only inferable from CONTEST_CREATED. One uniform request stream, all 3 types.
+    bytes32 public constant EVENT_ORACLE_REQUESTED =
+        keccak256("ORACLE_REQUESTED");
+
     /// @notice Minimum length of the KeystoneForwarder metadata: 32 (workflowId) + 10
     ///         (workflowName) + 20 (workflowOwner). Production delivers 64 (+ bytes2 reportId), which
     ///         passes the `>=` check; trailing bytes are intentionally ignored.
@@ -95,12 +109,18 @@ contract CreOracleReceiver is IReceiver {
 
     /// @notice Emitted when a DON report passes the trust model and is applied
     /// @param reportKey keccak256 of the report bytes (the idempotency key)
-    /// @param requestType The oracle request type carried by the report
     /// @param contestId The contest the report resolved
+    /// @param requestType The oracle request type carried by the report
+    /// @param requestNonce The applied market nonce (0 for verify/score) — the only on-chain bond
+    ///        between a market report and the {CreOracleRequested} that triggered it
+    /// @param workflowVersion The CRE workflow build that produced the report (carried in the report
+    ///        payload; surfaced for provenance / blast-radius-by-version forensics)
     event CreReportProcessed(
         bytes32 indexed reportKey,
-        uint8 requestType,
-        uint256 indexed contestId
+        uint256 indexed contestId,
+        uint8 indexed requestType,
+        uint64 requestNonce,
+        uint16 workflowVersion
     );
 
     // ──────────────────────────── Immutables ───────────────────────────
@@ -204,11 +224,23 @@ contract CreOracleReceiver is IReceiver {
             sportspageId,
             jsonoddsId
         );
+        // Core-hub mirror (uniform request stream for core-only listeners).
+        i_ospexCore.emitCoreEvent(
+            EVENT_ORACLE_REQUESTED,
+            abi.encode(
+                contestId,
+                uint8(OracleRequestType.ContestCreate),
+                uint64(0),
+                rundownId,
+                sportspageId,
+                jsonoddsId
+            )
+        );
     }
 
     /**
      * @notice Permissionless. Emits a market-update request for an existing (Verified) contest. The
-     *         CRE workflow fetches current odds and writes them back via {onReport}. No fee.
+     *         CRE workflow fetches current odds and writes them back via {onReport}.
      * @dev Bumps the contest's market nonce. {onReport} then accepts a market report whose echoed nonce
      *      is a real request (<= the latest) and not yet superseded by an applied report (>
      *      s_lastAppliedMarketNonce) — so stale odds can't overwrite fresh ones, AND this permissionless
@@ -233,12 +265,23 @@ contract CreOracleReceiver is IReceiver {
             c.sportspageId,
             c.jsonoddsId
         );
+        // Core-hub mirror (uniform request stream for core-only listeners).
+        i_ospexCore.emitCoreEvent(
+            EVENT_ORACLE_REQUESTED,
+            abi.encode(
+                contestId,
+                uint8(OracleRequestType.ContestMarketsUpdate),
+                requestNonce,
+                c.rundownId,
+                c.sportspageId,
+                c.jsonoddsId
+            )
+        );
     }
 
     /**
      * @notice Permissionless. Emits a score request for an existing (Verified) contest whose game has
      *         started. The CRE workflow fetches the final scores and writes them back via {onReport}.
-     *         No fee, no LINK.
      * @dev Reverts unless the contest is Verified AND its start time has passed — scoring a game that
      *      has not started is necessarily premature (the workflow would fail anyway, but we avoid
      *      emitting known-premature, workflow-owner-funded requests). Score is one-shot at the
@@ -264,6 +307,18 @@ contract CreOracleReceiver is IReceiver {
             c.rundownId,
             c.sportspageId,
             c.jsonoddsId
+        );
+        // Core-hub mirror (uniform request stream for core-only listeners).
+        i_ospexCore.emitCoreEvent(
+            EVENT_ORACLE_REQUESTED,
+            abi.encode(
+                contestId,
+                uint8(OracleRequestType.ContestScore),
+                uint64(0),
+                c.rundownId,
+                c.sportspageId,
+                c.jsonoddsId
+            )
         );
     }
 
@@ -311,19 +366,29 @@ contract CreOracleReceiver is IReceiver {
             revert CreOracleReceiver__WrongReceiver(reportReceiver, address(this));
         }
 
-        // (e) dispatch on requestType: Verify (ContestCreate) / MarketUpdate / Score.
+        // (e) dispatch on requestType: Verify (ContestCreate) / MarketUpdate / Score. Each handler
+        //     returns the resolved contestId and the report's workflow version.
+        uint256 contestId;
+        uint16 workflowVersion;
         if (requestType == uint8(OracleRequestType.ContestCreate)) {
-            uint256 contestId = _handleVerify(payload);
-            emit CreReportProcessed(reportKey, requestType, contestId);
+            (contestId, workflowVersion) = _handleVerify(payload);
         } else if (requestType == uint8(OracleRequestType.ContestMarketsUpdate)) {
-            uint256 contestId = _handleMarket(payload, requestNonce);
-            emit CreReportProcessed(reportKey, requestType, contestId);
+            (contestId, workflowVersion) = _handleMarket(payload, requestNonce);
         } else if (requestType == uint8(OracleRequestType.ContestScore)) {
-            uint256 contestId = _handleScore(payload);
-            emit CreReportProcessed(reportKey, requestType, contestId);
+            (contestId, workflowVersion) = _handleScore(payload);
         } else {
             revert CreOracleReceiver__InvalidRequestType(requestType);
         }
+
+        // Native receiver event + core-hub mirror. The hub mirror lets a core-only subscription
+        // (the OspexCore design contract: listen to one address, see everything) observe the report
+        // envelope — reportKey, applied nonce, workflow version — that the ContestModule state events
+        // do not carry. requestNonce is the envelope nonce (the applied market nonce; 0 otherwise).
+        emit CreReportProcessed(reportKey, contestId, requestType, requestNonce, workflowVersion);
+        i_ospexCore.emitCoreEvent(
+            EVENT_ORACLE_REPORT_PROCESSED,
+            abi.encode(reportKey, contestId, requestType, requestNonce, workflowVersion)
+        );
     }
 
     // ──────────────────────────── Handlers ────────────────────────────
@@ -335,14 +400,15 @@ contract CreOracleReceiver is IReceiver {
      *         verify is rejected.
      * @param payload abi.encode(uint256 contestId, uint8 leagueId, uint32 startTime, uint16 workflowVersion)
      * @return contestId The resolved contest id
+     * @return workflowVersion The CRE workflow build that produced the report
      */
     function _handleVerify(
         bytes memory payload
-    ) internal returns (uint256 contestId) {
+    ) internal returns (uint256 contestId, uint16 workflowVersion) {
         uint8 leagueId;
         uint32 startTime;
-        // workflowVersion is decoded for forward-compatibility/observability but unused on-chain.
-        (contestId, leagueId, startTime, ) = abi.decode(
+        // workflowVersion is surfaced in {CreReportProcessed} (provenance); not used in on-chain logic.
+        (contestId, leagueId, startTime, workflowVersion) = abi.decode(
             payload,
             (uint256, uint8, uint32, uint16)
         );
@@ -372,11 +438,12 @@ contract CreOracleReceiver is IReceiver {
      *        s_lastAppliedMarketNonce[contestId] < requestNonce <= s_marketNonce[contestId]
      *        (a real, not-yet-superseded request)
      * @return contestId The resolved contest id
+     * @return workflowVersion The CRE workflow build that produced the report
      */
     function _handleMarket(
         bytes memory payload,
         uint64 requestNonce
-    ) internal returns (uint256 contestId) {
+    ) internal returns (uint256 contestId, uint16 workflowVersion) {
         uint16 moneylineAwayOdds;
         uint16 moneylineHomeOdds;
         int32 spreadLineTicks;
@@ -385,7 +452,7 @@ contract CreOracleReceiver is IReceiver {
         int32 totalLineTicks;
         uint16 overOdds;
         uint16 underOdds;
-        // workflowVersion (trailing field) is decoded for observability but unused on-chain.
+        // workflowVersion (trailing field) is surfaced in {CreReportProcessed}; not used on-chain.
         (
             contestId,
             moneylineAwayOdds,
@@ -396,7 +463,7 @@ contract CreOracleReceiver is IReceiver {
             totalLineTicks,
             overOdds,
             underOdds,
-
+            workflowVersion
         ) = abi.decode(
             payload,
             (uint256, uint16, uint16, int32, uint16, uint16, int32, uint16, uint16, uint16)
@@ -438,14 +505,15 @@ contract CreOracleReceiver is IReceiver {
      *         score is rejected.
      * @param payload abi.encode(uint256 contestId, uint32 awayScore, uint32 homeScore, uint16 workflowVersion)
      * @return contestId The resolved contest id
+     * @return workflowVersion The CRE workflow build that produced the report
      */
     function _handleScore(
         bytes memory payload
-    ) internal returns (uint256 contestId) {
+    ) internal returns (uint256 contestId, uint16 workflowVersion) {
         uint32 awayScore;
         uint32 homeScore;
-        // workflowVersion (trailing field) is decoded for observability but unused on-chain.
-        (contestId, awayScore, homeScore, ) = abi.decode(
+        // workflowVersion (trailing field) is surfaced in {CreReportProcessed}; not used on-chain.
+        (contestId, awayScore, homeScore, workflowVersion) = abi.decode(
             payload,
             (uint256, uint32, uint32, uint16)
         );
