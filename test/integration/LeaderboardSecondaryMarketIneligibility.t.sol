@@ -86,7 +86,7 @@ contract LeaderboardSecondaryMarketIneligibilityTest is Test {
         types[1]  = core.SPECULATION_MODULE();      addrs[1]  = address(speculationModule);
         types[2]  = core.POSITION_MODULE();         addrs[2]  = address(positionModule);
         types[3]  = core.MATCHING_MODULE();         addrs[3]  = address(this);
-        types[4]  = core.ORACLE_MODULE();           addrs[4]  = address(0xFEED);
+        types[4]  = core.CRE_ORACLE_RECEIVER();           addrs[4]  = address(0xFEED);
         types[5]  = core.TREASURY_MODULE();         addrs[5]  = address(treasuryModule);
         types[6]  = core.LEADERBOARD_MODULE();      addrs[6]  = address(leaderboardModule);
         types[7]  = core.RULES_MODULE();            addrs[7]  = address(rulesModule);
@@ -117,8 +117,6 @@ contract LeaderboardSecondaryMarketIneligibilityTest is Test {
         Contest memory contest = Contest({
             awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified, contestCreator: address(this),
-            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
-            scoreContestSourceHash: bytes32(0),
             rundownId: "test", sportspageId: "test", jsonoddsId: "test"
         });
         mockContestModule.setContest(contestId, contest);
@@ -240,8 +238,6 @@ contract LeaderboardSecondaryMarketIneligibilityTest is Test {
         Contest memory contest2 = Contest({
             awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified, contestCreator: address(this),
-            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0),
-            scoreContestSourceHash: bytes32(0),
             rundownId: "test2", sportspageId: "test2", jsonoddsId: "test2"
         });
         mockContestModule.setContest(contestId2, contest2);

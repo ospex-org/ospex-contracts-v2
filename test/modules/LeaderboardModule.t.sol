@@ -111,7 +111,7 @@ contract LeaderboardModuleTest is Test {
         types[3] = core.MATCHING_MODULE();
         addrs[3] = address(this); // test contract acts as matching module
 
-        types[4] = core.ORACLE_MODULE();
+        types[4] = core.CRE_ORACLE_RECEIVER();
         addrs[4] = oracleModule;
 
         types[5] = core.TREASURY_MODULE();
@@ -145,9 +145,6 @@ contract LeaderboardModuleTest is Test {
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified,
             contestCreator: admin,
-            verifySourceHash: bytes32(0),
-            marketUpdateSourceHash: bytes32(0),
-            scoreContestSourceHash: bytes32(0),
             rundownId: "test-rundown-id",
             sportspageId: "test-sportspage-id",
             jsonoddsId: "test-jsonodds-id"
@@ -1576,7 +1573,6 @@ contract LeaderboardModuleTest is Test {
         Contest memory contest2 = Contest({
             awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified, contestCreator: admin,
-            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "test2", sportspageId: "test2", jsonoddsId: "test2"
         });
         mockContestModule.setContest(contestId2, contest2);
@@ -1670,7 +1666,6 @@ contract LeaderboardModuleTest is Test {
         Contest memory contest2 = Contest({
             awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified, contestCreator: admin,
-            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "test2", sportspageId: "test2", jsonoddsId: "test2"
         });
         mockContestModule.setContest(contestId2, contest2);

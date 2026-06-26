@@ -135,7 +135,7 @@ contract OspexCoreTest is Test {
         types1[1] = core.SPECULATION_MODULE();    addrs1[1] = speculationModule;
         types1[2] = core.POSITION_MODULE();       addrs1[2] = positionModule;
         types1[3] = core.MATCHING_MODULE();       addrs1[3] = matchingModule;
-        types1[4] = core.ORACLE_MODULE();         addrs1[4] = oracleModule;
+        types1[4] = core.CRE_ORACLE_RECEIVER();         addrs1[4] = oracleModule;
         types1[5] = core.TREASURY_MODULE();       addrs1[5] = treasuryModule;
 
         vm.prank(deployer);
@@ -204,7 +204,7 @@ contract OspexCoreTest is Test {
         types[1] = core.SPECULATION_MODULE();           addrs[1] = speculationModule;
         types[2] = core.POSITION_MODULE();              addrs[2] = positionModule;
         types[3] = core.MATCHING_MODULE();              addrs[3] = matchingModule;
-        types[4] = core.ORACLE_MODULE();                addrs[4] = oracleModule;
+        types[4] = core.CRE_ORACLE_RECEIVER();                addrs[4] = oracleModule;
         types[5] = core.TREASURY_MODULE();              addrs[5] = treasuryModule;
         types[6] = core.LEADERBOARD_MODULE();           addrs[6] = leaderboardModule;
         types[7] = core.RULES_MODULE();                 addrs[7] = rulesModule;
@@ -313,7 +313,7 @@ contract OspexCoreTest is Test {
         assertEq(core.SPECULATION_MODULE(), keccak256("SPECULATION_MODULE"));
         assertEq(core.POSITION_MODULE(), keccak256("POSITION_MODULE"));
         assertEq(core.MATCHING_MODULE(), keccak256("MATCHING_MODULE"));
-        assertEq(core.ORACLE_MODULE(), keccak256("ORACLE_MODULE"));
+        assertEq(core.CRE_ORACLE_RECEIVER(), keccak256("CRE_ORACLE_RECEIVER"));
         assertEq(core.TREASURY_MODULE(), keccak256("TREASURY_MODULE"));
         assertEq(core.LEADERBOARD_MODULE(), keccak256("LEADERBOARD_MODULE"));
         assertEq(core.RULES_MODULE(), keccak256("RULES_MODULE"));
@@ -332,7 +332,7 @@ contract OspexCoreTest is Test {
         types[1] = core.SPECULATION_MODULE();           addrs[1] = speculationModule;
         types[2] = core.POSITION_MODULE();              addrs[2] = positionModule;
         types[3] = core.MATCHING_MODULE();              addrs[3] = matchingModule;
-        types[4] = core.ORACLE_MODULE();                addrs[4] = oracleModule;
+        types[4] = core.CRE_ORACLE_RECEIVER();                addrs[4] = oracleModule;
         types[5] = core.TREASURY_MODULE();              addrs[5] = treasuryModule;
         types[6] = core.LEADERBOARD_MODULE();           addrs[6] = leaderboardModule;
         types[7] = core.RULES_MODULE();                 addrs[7] = rulesModule;

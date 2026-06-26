@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.26;
 
 import "forge-std/Script.sol";
 import "forge-std/console.sol";
@@ -9,7 +9,7 @@ import "../src/core/OspexCore.sol";
 
 // Modules
 import "../src/modules/TreasuryModule.sol";
-import "../src/modules/OracleModule.sol";
+import "../src/modules/CreOracleReceiver.sol";
 import "../src/modules/SpeculationModule.sol";
 import "../src/modules/PositionModule.sol";
 import "../src/modules/SecondaryMarketModule.sol";
@@ -22,27 +22,42 @@ import "../src/modules/TotalScorerModule.sol";
 import "../src/modules/MatchingModule.sol";
 
 /**
- * @title DeployPolygon
- * @notice Deployment script for Ospex protocol on Polygon Mainnet
+ * @title DeployPolygonCre
+ * @notice R5 deployment script for the Ospex protocol on Polygon Mainnet with the Chainlink CRE
+ *         oracle receiver in the CRE_ORACLE_RECEIVER slot (replaces the R4 Functions-based
+ *         OracleModule). This is the proven R4 mainnet deploy with ONLY the oracle wiring swapped.
  * @dev ZERO-ADMIN ONE-SHOT DEPLOYMENT — re-running this deploys a fresh protocol;
  *      there is no upgrade path. Confirm all parameters before running.
  *      Uses bootstrap+finalize pattern — no admin key after deployment.
+ *
+ *      The CRE receiver's constructor takes (ospexCore, forwarder, workflowOwner, workflowName) — no
+ *      router / LINK / DON id / subscription / approved-signer / fee / sunset; the workflow id is
+ *      deliberately NOT pinned (CRE rotates it). There is no oracle-request fee and no on-chain rate
+ *      limiting — griefing of the permissionless requests is bounded off-chain by the CRE platform's
+ *      per-workflow log-trigger rate limit + the workflow owner's funded CRE balance.
+ *
+ *      Env inputs (with defaults where noted):
+ *        DEPLOYER_ADDRESS       — the mainnet-funded EOA that broadcasts (gas payer). MUST equal
+ *                                 APPROVED_DEPLOYER below (hard guard).
+ *        KEYSTONE_FORWARDER     — the Polygon MAINNET production KeystoneForwarder. NO DEFAULT — the
+ *                                 mainnet forwarder address is deliberately NOT hardcoded/guessed here;
+ *                                 it MUST be set to the real value and human-confirmed before deploy.
+ *        WORKFLOW_OWNER         — the CRE workflow owner ADDRESS the report-metadata owner onReport
+ *                                 enforces: the {CreWorkflowOwner} governance adapter for a governed
+ *                                 mainnet deploy (it deploys SEPARATELY on Ethereum mainnet via
+ *                                 DeployCreGovernance, so it does not exist at the time this script is
+ *                                 authored). MUST be set to the real value.
+ *        WORKFLOW_NAME          — the CRE-derived bytes10 the DON stamps into report metadata (a HASH
+ *                                 of the name, NOT plaintext bytes10 — see the note at the env read
+ *                                 below). 0 = not enforced (owner check only).
  */
-contract DeployPolygon is Script {
-    // Polygon mainnet addresses
-    address constant LINK_ADDRESS = 0xb0897686c545045aFc77CF20eC7A532E3120E0F1;
-    address constant FUNCTIONS_ROUTER = 0xdc2AAF042Aeff2E68B3e8E33F19e4B9fA7C73F10;
+contract DeployPolygonCre is Script {
+    // Polygon mainnet token — UNCHANGED from the proven R4 mainnet config.
     address constant USDC_ADDRESS = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
-    // CONFIGURABLE: Protocol fee receiver (hardware wallet / multisig for mainnet)
+    // CONFIGURABLE: Protocol fee receiver (hardware wallet / multisig for mainnet) — UNCHANGED from R4.
     address constant FEE_RECEIVER = 0xdaC630aE52b868FF0A180458eFb9ac88e7425114;
-    bytes32 constant DON_ID = bytes32("fun-polygon-mainnet-1");
-    // CONFIGURABLE: LINK payment per oracle call = 1e18 / LINK_DENOMINATOR (200 = 0.005 LINK).
-    // Calibrated against R3 sub-191 fulfilled-cost history: median ~0.0036 LINK, high-gas spikes
-    // ~0.0085 LINK, recent average ~0.006 LINK. 0.005 leans slightly user-favorable; subscription
-    // gains on low-gas days, absorbs deltas on spike days. Immutable post-finalize.
-    uint256 constant LINK_DENOMINATOR = 200;
-    // CONFIGURABLE: EIP-712 approved signer for oracle script approvals (deployer EOA)
-    address constant APPROVED_SIGNER = 0xfd6C7Fc1F182de53AA636584f1c6B80d9D885886;
+    // CONFIGURABLE: The mainnet deployer EOA (the broadcaster). Hard guard: DEPLOYER_ADDRESS must equal this.
+    address constant APPROVED_DEPLOYER = 0xfd6C7Fc1F182de53AA636584f1c6B80d9D885886;
 
     struct DeploymentConfig {
         uint32 voidCooldown;
@@ -50,13 +65,16 @@ contract DeployPolygon is Script {
         uint256 speculationCreationFee;
         uint256 leaderboardCreationFee;
         address protocolReceiver;
+        address forwarder;
+        address workflowOwner;
+        bytes10 workflowName;
     }
 
     struct DeployedContracts {
         address ospexCore;
         address usdc;
         address treasuryModule;
-        address oracleModule;
+        address oracleModule; // CreOracleReceiver (CRE_ORACLE_RECEIVER slot)
         address speculationModule;
         address positionModule;
         address secondaryMarketModule;
@@ -72,25 +90,44 @@ contract DeployPolygon is Script {
     function run() external {
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
 
-        console.log("=== Ospex Polygon Mainnet Deployment (Zero-Admin) ===");
+        // CRE oracle wiring — parameterized via env exactly like DeployAmoyCre. The mainnet forwarder
+        // has NO default (must never be guessed); the workflow owner has no default (governance adapter
+        // deploys separately); the workflow name defaults to not-enforced.
+        address forwarder = vm.envAddress("KEYSTONE_FORWARDER");
+        require(forwarder != address(0), "set KEYSTONE_FORWARDER (Polygon mainnet)"); // receiver also reverts on zero
+        address workflowOwner = vm.envOr("WORKFLOW_OWNER", address(0));
+        require(workflowOwner != address(0), "set WORKFLOW_OWNER (CRE workflow owner address)");
+        // WORKFLOW_NAME, when enforced, MUST be the bytes10 the CRE engine stamps into report metadata:
+        // SHA256(name) -> first 10 hex chars -> those 10 ASCII chars as bytes. This is a HASH of the name,
+        // NOT bytes10 of the plaintext (e.g. "my_workflow" -> 0x62373666336165316465). The receiver
+        // compares i_workflowName against this metadata value verbatim, so passing plaintext bytes here
+        // would make onReport reject every report. 0 (default) = name not enforced (owner check only).
+        bytes10 workflowName = bytes10(vm.envOr("WORKFLOW_NAME", bytes32(0)));
+
+        console.log("=== Ospex Polygon Mainnet CRE Deployment (Zero-Admin) ===");
         console.log("Chain ID:", block.chainid);
         console.log("Deployer:", deployer);
-        console.log("Approved signer:", APPROVED_SIGNER);
+        console.log("KeystoneForwarder:", forwarder);
+        console.log("Workflow owner:", workflowOwner);
         console.log("Fee receiver:", FEE_RECEIVER);
         console.log("Balance:", deployer.balance);
 
         // Hard guards — fail before any broadcast if the environment is wrong.
         require(block.chainid == 137, "wrong chain");
-        require(deployer == APPROVED_SIGNER, "wrong deployer/signer");
+        require(deployer == APPROVED_DEPLOYER, "wrong deployer");
         require(deployer.balance > 0, "Deployer has zero balance");
 
         // CONFIGURABLE: Protocol parameters — see docs/deployment/DEPLOYMENT_PARAMETERS.md
+        // UNCHANGED from the proven R4 mainnet config.
         DeploymentConfig memory config = DeploymentConfig({
             voidCooldown: 7 days,                // CONFIGURABLE: Mainnet 7 days, Amoy 1 day, Anvil 3 days
             contestCreationFee: 1_000_000,       // CONFIGURABLE: 1.00 USDC
             speculationCreationFee: 500_000,     // CONFIGURABLE: 0.50 USDC (split between maker and taker)
             leaderboardCreationFee: 500_000,     // CONFIGURABLE: 0.50 USDC
-            protocolReceiver: FEE_RECEIVER       // CONFIGURABLE: fee receiver address
+            protocolReceiver: FEE_RECEIVER,      // CONFIGURABLE: fee receiver address
+            forwarder: forwarder,                // CRE: Polygon mainnet KeystoneForwarder (env)
+            workflowOwner: workflowOwner,        // CRE: workflow owner / governance adapter (env)
+            workflowName: workflowName           // CRE: enforced bytes10 workflow name (env, 0 = off)
         });
 
         vm.startBroadcast(deployer);
@@ -128,9 +165,11 @@ contract DeployPolygon is Script {
         ));
         c.positionModule = address(new PositionModule(c.ospexCore, c.usdc));
         c.secondaryMarketModule = address(new SecondaryMarketModule(c.ospexCore, c.usdc));
-        c.oracleModule = address(new OracleModule(
-            c.ospexCore, FUNCTIONS_ROUTER, LINK_ADDRESS, DON_ID, LINK_DENOMINATOR, APPROVED_SIGNER
+        // === CRE oracle receiver (replaces the Functions OracleModule) ===
+        c.oracleModule = address(new CreOracleReceiver(
+            c.ospexCore, config.forwarder, config.workflowOwner, config.workflowName
         ));
+        console.log("CreOracleReceiver (CRE_ORACLE_RECEIVER):", c.oracleModule);
 
         console.log("All 12 modules deployed.");
         return c;
@@ -145,7 +184,7 @@ contract DeployPolygon is Script {
         types[1] = core.SPECULATION_MODULE();        addrs[1] = c.speculationModule;
         types[2] = core.POSITION_MODULE();           addrs[2] = c.positionModule;
         types[3] = core.MATCHING_MODULE();           addrs[3] = c.matchingModule;
-        types[4] = core.ORACLE_MODULE();             addrs[4] = c.oracleModule;
+        types[4] = core.CRE_ORACLE_RECEIVER();       addrs[4] = c.oracleModule;
         types[5] = core.TREASURY_MODULE();           addrs[5] = c.treasuryModule;
         types[6] = core.LEADERBOARD_MODULE();        addrs[6] = c.leaderboardModule;
         types[7] = core.RULES_MODULE();              addrs[7] = c.rulesModule;
@@ -162,6 +201,7 @@ contract DeployPolygon is Script {
     function _verifyDeployment(DeployedContracts memory c) internal view {
         OspexCore core = OspexCore(c.ospexCore);
         require(core.s_finalized(), "Not finalized!");
+        require(core.getModule(core.CRE_ORACLE_RECEIVER()) == c.oracleModule, "CreOracleReceiver mismatch");
         require(core.isApprovedScorer(c.moneylineScorerModule), "MoneylineScorer check failed");
         require(core.isApprovedScorer(c.spreadScorerModule), "SpreadScorer check failed");
         require(core.isApprovedScorer(c.totalScorerModule), "TotalScorer check failed");
@@ -171,7 +211,7 @@ contract DeployPolygon is Script {
 
     function _printSummary(DeployedContracts memory c, address deployer) internal pure {
         console.log("\n============================================================");
-        console.log("  POLYGON MAINNET DEPLOYMENT (Zero-Admin, Immutable)");
+        console.log("  POLYGON MAINNET CRE DEPLOYMENT (Zero-Admin, Immutable)");
         console.log("============================================================");
         console.log("Deployer:", deployer);
         console.log("USDC:", c.usdc);
@@ -181,7 +221,7 @@ contract DeployPolygon is Script {
         console.log("  SpeculationModule:", c.speculationModule);
         console.log("  PositionModule:", c.positionModule);
         console.log("  MatchingModule:", c.matchingModule);
-        console.log("  OracleModule:", c.oracleModule);
+        console.log("  CreOracleReceiver:", c.oracleModule);
         console.log("  TreasuryModule:", c.treasuryModule);
         console.log("  LeaderboardModule:", c.leaderboardModule);
         console.log("  RulesModule:", c.rulesModule);
@@ -189,9 +229,10 @@ contract DeployPolygon is Script {
         console.log("  MoneylineScorerModule:", c.moneylineScorerModule);
         console.log("  SpreadScorerModule:", c.spreadScorerModule);
         console.log("  TotalScorerModule:", c.totalScorerModule);
-        console.log("\n=== NEXT STEPS ===");
-        console.log("1. Add OracleModule as consumer on Chainlink Functions subscription");
-        console.log("2. Update all dependent services with new addresses");
-        console.log("3. Test with small positions before going live");
+        console.log("\n=== NEXT STEPS (CRE) ===");
+        console.log("1. Point the CRE workflow config (receiverAddress + eventAddress) at this CreOracleReceiver.");
+        console.log("2. Ensure the workflow owner matches WORKFLOW_OWNER (governance adapter on Ethereum mainnet).");
+        console.log("3. Update all dependent services with new addresses.");
+        console.log("4. Test with small positions before going live.");
     }
 }

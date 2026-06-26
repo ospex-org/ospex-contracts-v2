@@ -70,7 +70,7 @@ contract SolvencyFuzz is Test {
         types[1]  = core.SPECULATION_MODULE();        addrs[1]  = address(speculationModule);
         types[2]  = core.POSITION_MODULE();           addrs[2]  = address(positionModule);
         types[3]  = core.MATCHING_MODULE();           addrs[3]  = address(this); // test contract acts as MATCHING_MODULE
-        types[4]  = core.ORACLE_MODULE();             addrs[4]  = address(0xD004);
+        types[4]  = core.CRE_ORACLE_RECEIVER();             addrs[4]  = address(0xD004);
         types[5]  = core.TREASURY_MODULE();           addrs[5]  = address(treasuryModule);
         types[6]  = core.LEADERBOARD_MODULE();        addrs[6]  = address(mockLeaderboardModule);
         types[7]  = core.RULES_MODULE();              addrs[7]  = address(0xD007);
@@ -88,9 +88,6 @@ contract SolvencyFuzz is Test {
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified,
             contestCreator: address(this),
-            verifySourceHash: bytes32(0),
-            marketUpdateSourceHash: bytes32(0),
-            scoreContestSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""
@@ -163,9 +160,6 @@ contract SolvencyFuzz is Test {
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored,
             contestCreator: address(this),
-            verifySourceHash: bytes32(0),
-            marketUpdateSourceHash: bytes32(0),
-            scoreContestSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""
@@ -197,9 +191,6 @@ contract SolvencyFuzz is Test {
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified,
             contestCreator: address(this),
-            verifySourceHash: bytes32(0),
-            marketUpdateSourceHash: bytes32(0),
-            scoreContestSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""

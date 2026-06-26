@@ -11,7 +11,7 @@ import {IContestModule} from "../interfaces/IContestModule.sol";
  * @title CreOracleReceiver
  * @author ospex.org
  * @notice Chainlink CRE oracle for the Ospex protocol. Replaces the Chainlink Functions
- *         OracleModule in the ORACLE_MODULE registry slot. It has two responsibilities:
+ *         OracleModule in the CRE_ORACLE_RECEIVER registry slot. It has two responsibilities:
  *           1. REQUEST — permissionless entrypoints that emit a {CreOracleRequested} event a CRE
  *              workflow watches via an EVM log trigger: verify (creates the contest), market-update
  *              and score (for an existing Verified contest).
@@ -190,9 +190,6 @@ contract CreOracleReceiver is IReceiver {
             rundownId,
             sportspageId,
             jsonoddsId,
-            bytes32(0), // verifySourceHash — no caller-supplied JS under CRE
-            bytes32(0), // marketUpdateSourceHash
-            bytes32(0), // scoreContestSourceHash
             LeagueId.Unknown, // resolved by the verify report
             msg.sender
         );
@@ -335,7 +332,7 @@ contract CreOracleReceiver is IReceiver {
      * @notice Applies a verify report: sets league + start time and flips the contest to
      *         Verified. ContestModule enforces the one-shot Unverified→Verified transition,
      *         a non-Unknown league and a non-zero start time, so a malformed or duplicate
-     *         verify is rejected there as defense-in-depth.
+     *         verify is rejected.
      * @param payload abi.encode(uint256 contestId, uint8 leagueId, uint32 startTime, uint16 workflowVersion)
      * @return contestId The resolved contest id
      */
@@ -366,8 +363,7 @@ contract CreOracleReceiver is IReceiver {
      * @notice Applies a market-update report: writes the moneyline/spread/total odds + lines for the
      *         contest. Rejects an unrequested report (nonce 0 or above the latest requested) and a stale
      *         one (nonce already superseded by an applied report). ContestModule enforces Verified status,
-     *         all six odds ticks non-zero and totalLineTicks >= 0, so malformed market data is rejected
-     *         there as defense-in-depth.
+     *         all six odds ticks non-zero and totalLineTicks >= 0, so malformed market data is rejected.
      * @param payload abi.encode(uint256 contestId, uint16 moneylineAwayOdds, uint16 moneylineHomeOdds,
      *        int32 spreadLineTicks, uint16 spreadAwayOdds, uint16 spreadHomeOdds, int32 totalLineTicks,
      *        uint16 overOdds, uint16 underOdds, uint16 workflowVersion). Odds are decimal ticks
@@ -439,7 +435,7 @@ contract CreOracleReceiver is IReceiver {
     /**
      * @notice Applies a score report: sets the final away/home scores and flips Verified -> Scored.
      *         ContestModule enforces the contest is Verified (one-shot), so a malformed or duplicate
-     *         score is rejected there as defense-in-depth.
+     *         score is rejected.
      * @param payload abi.encode(uint256 contestId, uint32 awayScore, uint32 homeScore, uint16 workflowVersion)
      * @return contestId The resolved contest id
      */
@@ -471,7 +467,7 @@ contract CreOracleReceiver is IReceiver {
      *         [bytes32 workflowId][bytes10 workflowName][address workflowOwner]( [bytes2 reportId] ).
      *         The workflowId (first 32 bytes) is intentionally NOT returned/validated — CRE rotates
      *         it on every workflow update.
-     * @dev Uses calldata slicing at static offsets (clean, explicit; no dirty-bytes risk).
+     * @dev Uses calldata slicing at static offsets.
      */
     function _decodeMetadata(
         bytes calldata metadata

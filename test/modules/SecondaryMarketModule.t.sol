@@ -6,14 +6,11 @@ import {SecondaryMarketModule} from "../../src/modules/SecondaryMarketModule.sol
 import {SpeculationModule} from "../../src/modules/SpeculationModule.sol";
 import {PositionModule} from "../../src/modules/PositionModule.sol";
 import {TreasuryModule} from "../../src/modules/TreasuryModule.sol";
-import {OracleModule} from "../../src/modules/OracleModule.sol";
 import {OspexCore} from "../../src/core/OspexCore.sol";
 import {PositionType, SaleListing, Position, Contest, ContestStatus, LeagueId} from "../../src/core/OspexTypes.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockContestModule} from "../mocks/MockContestModule.sol";
 import {MockScorerModule} from "../mocks/MockScorerModule.sol";
-import {MockFunctionsRouter} from "../mocks/MockFunctionsRouter.sol";
-import {MockLinkToken} from "../mocks/MockLinkToken.sol";
 import {Leaderboard} from "../../src/core/OspexTypes.sol";
 
 contract MockLeaderboardModuleSM {
@@ -34,9 +31,9 @@ contract SecondaryMarketModuleTest is Test {
     SecondaryMarketModule public market;
     MockContestModule public mockContestModule;
     TreasuryModule public treasuryModule;
-    OracleModule public oracleModule;
-    MockFunctionsRouter public mockRouter;
-    MockLinkToken public mockLinkToken;
+    // Dummy CRE_ORACLE_RECEIVER slot filler — secondary-market tests never call the oracle,
+    // they only need a registered address occupying the slot.
+    address public oracleModule = address(0xBEEF);
     address public seller = address(0x1);
     address public buyer = address(0x2);
     address public nonAdmin = address(0x3);
@@ -61,21 +58,6 @@ contract SecondaryMarketModuleTest is Test {
         treasuryModule = new TreasuryModule(
             address(core), address(token), address(0xFEED),
             1_000_000, 500_000, 500_000
-        );
-
-        // Create mock Chainlink contracts
-        mockRouter = new MockFunctionsRouter(address(0x456)); // dummy linkToken for router
-        mockLinkToken = new MockLinkToken();
-        bytes32 donId = bytes32(uint256(0x1234));
-
-        // Create OracleModule with proper mocks
-        oracleModule = new OracleModule(
-            address(core),
-            address(mockRouter),
-            address(mockLinkToken),
-            donId,
-            1e18,
-            address(0xA11CE) // approvedSigner (not used in secondary market tests)
         );
 
         // Create and register MockContestModule
@@ -105,7 +87,7 @@ contract SecondaryMarketModuleTest is Test {
         types[1]  = core.SPECULATION_MODULE();        addrs[1]  = address(speculationModule);
         types[2]  = core.POSITION_MODULE();           addrs[2]  = address(positionModule);
         types[3]  = core.MATCHING_MODULE();           addrs[3]  = address(this); // test contract acts as MATCHING_MODULE
-        types[4]  = core.ORACLE_MODULE();             addrs[4]  = address(oracleModule);
+        types[4]  = core.CRE_ORACLE_RECEIVER();             addrs[4]  = address(oracleModule);
         types[5]  = core.TREASURY_MODULE();           addrs[5]  = address(treasuryModule);
         types[6]  = core.LEADERBOARD_MODULE();        addrs[6]  = address(mockLeaderboard);
         types[7]  = core.RULES_MODULE();              addrs[7]  = address(0xD007);
@@ -123,9 +105,6 @@ contract SecondaryMarketModuleTest is Test {
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Verified,
             contestCreator: address(this),
-            verifySourceHash: bytes32(0),
-            marketUpdateSourceHash: bytes32(0),
-            scoreContestSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""
@@ -257,7 +236,6 @@ contract SecondaryMarketModuleTest is Test {
         Contest memory scored = Contest({
             awayScore: 3, homeScore: 1, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "", sportspageId: "", jsonoddsId: ""
         });
         mockContestModule.setContest(1, scored);
@@ -285,7 +263,6 @@ contract SecondaryMarketModuleTest is Test {
         Contest memory scored = Contest({
             awayScore: 3, homeScore: 1, leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            verifySourceHash: bytes32(0), marketUpdateSourceHash: bytes32(0), scoreContestSourceHash: bytes32(0),
             rundownId: "", sportspageId: "", jsonoddsId: ""
         });
         mockContestModule.setContest(1, scored);
@@ -461,9 +438,6 @@ contract SecondaryMarketModuleTest is Test {
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored, // Set to Scored
             contestCreator: address(this),
-            verifySourceHash: bytes32(0),
-            marketUpdateSourceHash: bytes32(0),
-            scoreContestSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""
@@ -749,9 +723,6 @@ contract SecondaryMarketModuleTest is Test {
             leagueId: LeagueId.NBA,
             contestStatus: ContestStatus.Scored,
             contestCreator: address(this),
-            verifySourceHash: bytes32(0),
-            marketUpdateSourceHash: bytes32(0),
-            scoreContestSourceHash: bytes32(0),
             rundownId: "",
             sportspageId: "",
             jsonoddsId: ""

@@ -27,7 +27,7 @@ contract MockKeystoneForwarder {
 /**
  * @title CreOracleReceiverTest
  * @notice Unit + integration tests for the CRE receiver. Each scenario deploys a real OspexCore +
- *         ContestModule + TreasuryModule (zero fees) with CreOracleReceiver in the ORACLE_MODULE
+ *         ContestModule + TreasuryModule (zero fees) with CreOracleReceiver in the CRE_ORACLE_RECEIVER
  *         slot, plus a MockKeystoneForwarder. Exercises the trust model (forwarder / workflow owner /
  *         name; the workflow id is intentionally NOT pinned), domain separation (chain id / receiver),
  *         per-report idempotency, the fail-closed request/report binding (verify/score flags + market
@@ -111,7 +111,7 @@ contract CreOracleReceiverTest is Test {
         addrs[2] = address(0xA2);
         types[3] = core_.MATCHING_MODULE();
         addrs[3] = address(0xA3);
-        types[4] = core_.ORACLE_MODULE();
+        types[4] = core_.CRE_ORACLE_RECEIVER();
         addrs[4] = address(receiver_);
         types[5] = core_.TREASURY_MODULE();
         addrs[5] = address(treasuryModule);

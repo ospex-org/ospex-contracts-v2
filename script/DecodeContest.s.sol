@@ -27,9 +27,7 @@ contract DecodeContest is Script {
         
         console.log("Status:", statusStr);
         console.log("Creator:", contest.contestCreator);
-        console.log("Score Contest Source Hash:");
-        console.logBytes32(contest.scoreContestSourceHash);
-        
+
         console.log("\n-- API IDs --");
         console.log("Rundown ID:", contest.rundownId);
         console.log("Sportspage ID:", contest.sportspageId);

@@ -22,7 +22,7 @@ import "../src/modules/MatchingModule.sol";
 /**
  * @title DeployAmoyCre
  * @notice Full Ospex deployment for Polygon Amoy with the Chainlink CRE oracle receiver in the
- *         ORACLE_MODULE slot (replaces the Functions-based OracleModule). Bootstrap+finalize, so
+ *         CRE_ORACLE_RECEIVER slot (replaces the Functions-based OracleModule). Bootstrap+finalize, so
  *         no admin key remains — the exact zero-admin shape that redeploys to immutable mainnet.
  * @dev The CRE receiver's constructor takes (ospexCore, forwarder, workflowOwner, workflowName) — no
  *      router / LINK / DON id / subscription / approved-signer / fee / sunset; the workflow id is
@@ -78,7 +78,8 @@ contract DeployAmoyCre is Script {
 
     function run() external {
         // Fail before any broadcast if pointed at the wrong network — this is a one-shot zero-admin
-        // deployment that finalizes the protocol (Polygon Amoy = 80002; mainnet uses DeployPolygon @ 137).
+        // deployment that finalizes the protocol (Polygon Amoy = 80002; a mainnet CRE deploy script
+        // for chain 137 is still to be authored).
         require(block.chainid == 80002, "wrong chain");
 
         address deployer = vm.envOr("DEPLOYER_ADDRESS", address(0));
@@ -185,7 +186,7 @@ contract DeployAmoyCre is Script {
                 config.workflowName
             )
         );
-        console.log("CreOracleReceiver (ORACLE_MODULE):", c.oracleModule);
+        console.log("CreOracleReceiver (CRE_ORACLE_RECEIVER):", c.oracleModule);
 
         console.log("\nAll 12 modules deployed.");
         return c;
@@ -201,7 +202,7 @@ contract DeployAmoyCre is Script {
         types[1] = core.SPECULATION_MODULE();      addrs[1] = c.speculationModule;
         types[2] = core.POSITION_MODULE();         addrs[2] = c.positionModule;
         types[3] = core.MATCHING_MODULE();         addrs[3] = c.matchingModule;
-        types[4] = core.ORACLE_MODULE();           addrs[4] = c.oracleModule;
+        types[4] = core.CRE_ORACLE_RECEIVER();     addrs[4] = c.oracleModule;
         types[5] = core.TREASURY_MODULE();         addrs[5] = c.treasuryModule;
         types[6] = core.LEADERBOARD_MODULE();      addrs[6] = c.leaderboardModule;
         types[7] = core.RULES_MODULE();            addrs[7] = c.rulesModule;
@@ -224,7 +225,7 @@ contract DeployAmoyCre is Script {
         require(core.s_finalized(), "Protocol not finalized!");
         require(core.getModule(core.CONTEST_MODULE()) == c.contestModule, "ContestModule mismatch");
         require(core.getModule(core.TREASURY_MODULE()) == c.treasuryModule, "TreasuryModule mismatch");
-        require(core.getModule(core.ORACLE_MODULE()) == c.oracleModule, "OracleModule mismatch");
+        require(core.getModule(core.CRE_ORACLE_RECEIVER()) == c.oracleModule, "CreOracleReceiver mismatch");
         require(core.isRegisteredModule(c.positionModule), "PositionModule not registered");
         require(core.isRegisteredModule(c.matchingModule), "MatchingModule not registered");
         require(core.isApprovedScorer(c.moneylineScorerModule), "MoneylineScorer not approved");
