@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 import {IReceiver} from "../interfaces/cre/IReceiver.sol";
 import {IERC165} from "../interfaces/cre/IERC165.sol";
@@ -14,23 +14,19 @@ import {IContestModule} from "../interfaces/IContestModule.sol";
  *         OracleModule in the ORACLE_MODULE registry slot. It has two responsibilities:
  *           1. REQUEST — permissionless entrypoints that emit a {CreOracleRequested} event a CRE
  *              workflow watches via an EVM log trigger: verify (creates the contest), market-update
- *              and score (for an existing Verified contest). The requests are permissionless and charge
- *              no fee — the CRE workflow run is funded off-chain by the workflow owner, not paid
- *              per-call. Griefing is bounded off-chain: the CRE platform's per-workflow log-trigger
- *              rate limit caps the billed run rate, and the workflow owner controls the funded balance.
+ *              and score (for an existing Verified contest).
  *           2. RECEIVE — {onReport} is the KeystoneForwarder callback that carries the DON's
  *              signed report; it enforces the trust model, guards against replay/staleness, and
  *              applies the verified result to the protocol.
  *
- * @dev Trust model (NON-NEGOTIABLE — this design redeploys to immutable mainnet):
+ * @dev Trust model:
  *        (a) msg.sender MUST be the immutable KeystoneForwarder;
  *        (b) the report's workflow OWNER (and, when configured, NAME) parsed from the metadata MUST
  *            match our deployed workflow. The workflow OWNER is the {CreWorkflowOwner} governance
- *            adapter on a governed mainnet deploy (an EOA only on a trial deploy) — an address
- *            comparison either way. The workflow ID is deliberately NOT pinned: CRE rotates the id
+ *            adapter on a governed mainnet deploy. The workflow ID is NOT pinned: CRE rotates the id
  *            on every workflow update, so pinning it would brick a timelocked update;
  *        (c) the report's chainId + receiver MUST match this chain/contract (domain separation — the
- *            KeystoneForwarder already routes per chain/receiver, so this is defense-in-depth);
+ *            KeystoneForwarder already routes per chain/receiver);
  *        (d) a given report applies at most once (per-report idempotency), AND every state-changing
  *            report MUST correspond to a receiver-emitted request (fail-closed request/report binding):
  *            verify/score require the contest's per-type request flag (set when the request was emitted),
@@ -39,9 +35,8 @@ import {IContestModule} from "../interfaces/IContestModule.sol";
  *            can't overwrite fresh ones AND permissionless request spam can't invalidate an in-flight
  *            legitimate report.
  *
- *      Zero-admin / immutable, matching the Ospex trust model: forwarder, workflow owner and workflow
- *      name are immutable and set at construction. There is deliberately NO Ownable and NO setter —
- *      that would violate the protocol's finalized zero-admin guarantee. Sibling modules are resolved
+ *      Zero-admin / immutable: forwarder, workflow owner and workflow name are immutable and set at 
+ *      construction. There is NO Ownable and NO setter. Sibling modules are resolved
  *      live from OspexCore.
  *
  *      Report envelope: `abi.encode(uint8 requestType, uint256 chainId, address receiver,
@@ -115,8 +110,7 @@ contract CreOracleReceiver is IReceiver {
     /// @notice The trusted Chainlink KeystoneForwarder — the only valid {onReport} caller
     address public immutable i_forwarder;
     /// @notice The expected workflow owner. On a governed mainnet deploy this is the
-    ///         {CreWorkflowOwner} adapter address (NOT the timelock, NOT an EOA); a trial deploy may
-    ///         use an EOA. Always enforced — pure address comparison.
+    ///         {CreWorkflowOwner} adapter address.
     address public immutable i_workflowOwner;
     /// @notice The expected workflow name (bytes10). Enforced when non-zero. The workflow ID is
     ///         deliberately not pinned (CRE rotates it on every update).
@@ -154,7 +148,7 @@ contract CreOracleReceiver is IReceiver {
      * @param ospexCore_ The OspexCore contract address
      * @param forwarder_ The Chainlink KeystoneForwarder for the target chain
      * @param workflowOwner_ The CRE workflow owner address — the {CreWorkflowOwner} adapter on a
-     *        governed mainnet deploy (an EOA only on a trial deploy)
+     *        governed mainnet deploy
      * @param workflowName_ The CRE workflow name as bytes10 (0 to not enforce)
      */
     constructor(
@@ -297,7 +291,7 @@ contract CreOracleReceiver is IReceiver {
             revert CreOracleReceiver__InvalidWorkflowName(workflowName, i_workflowName);
         }
 
-        // (c) idempotency — set BEFORE dispatch (checks-effects-interactions); a revert in the
+        // (c) idempotency — set BEFORE dispatch; a revert in the
         //     handler rolls this back so the forwarder can retry a first delivery.
         bytes32 reportKey = keccak256(report);
         if (s_processedReport[reportKey]) {
@@ -305,9 +299,7 @@ contract CreOracleReceiver is IReceiver {
         }
         s_processedReport[reportKey] = true;
 
-        // (d) decode the envelope + domain separation (chain + receiver). Defense-in-depth: the
-        //     forwarder already routes per chain/receiver, but binding them in the signed report
-        //     makes cross-chain / cross-contract replay impossible regardless of forwarder behavior.
+        // (d) decode the envelope + domain separation (chain + receiver).
         (
             uint8 requestType,
             uint256 chainId,
