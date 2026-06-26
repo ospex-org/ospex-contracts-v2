@@ -11,39 +11,33 @@ contract MockContestModule {
     mapping(uint256 => Contest) public contests;
     mapping(uint256 => uint32) public s_contestStartTimes;
     mapping(uint256 => mapping(address => ContestMarket)) public contestMarkets;
-    
+
     function setContest(uint256 contestId, Contest memory contest) external {
         contests[contestId] = contest;
     }
-    
+
     function setContestStartTime(uint256 contestId, uint32 startTime) external {
         s_contestStartTimes[contestId] = startTime;
     }
-    
+
     function setContestMarket(uint256 contestId, address scorer, ContestMarket memory market) external {
         contestMarkets[contestId][scorer] = market;
     }
-    
+
     function voidContest(uint256 contestId) external {
         contests[contestId].contestStatus = ContestStatus.Voided;
     }
 
-    function getContest(
-        uint256 contestId
-    ) external view returns (Contest memory) {
+    function getContest(uint256 contestId) external view returns (Contest memory) {
         return contests[contestId];
     }
 
     function isContestTerminal(uint256 contestId) external view returns (bool) {
-        return
-            contests[contestId].contestStatus == ContestStatus.Scored ||
-            contests[contestId].contestStatus == ContestStatus.Voided;
+        return contests[contestId].contestStatus == ContestStatus.Scored
+            || contests[contestId].contestStatus == ContestStatus.Voided;
     }
-    
-    function getContestMarket(
-        uint256 contestId,
-        address scorer
-    ) external view returns (ContestMarket memory) {
+
+    function getContestMarket(uint256 contestId, address scorer) external view returns (ContestMarket memory) {
         return contestMarkets[contestId][scorer];
     }
 }

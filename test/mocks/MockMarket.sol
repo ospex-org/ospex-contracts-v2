@@ -19,13 +19,6 @@ contract MockMarket {
         uint256 riskAmount,
         uint256 profitAmount
     ) external {
-        positionModule.transferPosition(
-            speculationId,
-            from,
-            positionType,
-            to,
-            riskAmount,
-            profitAmount
-        );
+        positionModule.transferPosition(speculationId, from, positionType, to, riskAmount, profitAmount);
     }
 }

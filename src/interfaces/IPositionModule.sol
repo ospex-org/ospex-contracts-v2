@@ -54,19 +54,15 @@ interface IPositionModule is IModule {
     /// @notice Claims winnings from a settled position. Permissionless for the position holder.
     /// @param speculationId The speculation ID
     /// @param positionType The position type
-    function claimPosition(
-        uint256 speculationId,
-        PositionType positionType
-    ) external;
+    function claimPosition(uint256 speculationId, PositionType positionType) external;
 
     /// @notice Gets position details
     /// @param speculationId The speculation ID
     /// @param user The address to check
     /// @param positionType The position type
     /// @return position The Position struct
-    function getPosition(
-        uint256 speculationId,
-        address user,
-        PositionType positionType
-    ) external view returns (Position memory position);
+    function getPosition(uint256 speculationId, address user, PositionType positionType)
+        external
+        view
+        returns (Position memory position);
 }

@@ -15,11 +15,7 @@ import {MockERC20} from "./mocks/MockERC20.sol";
 /// @notice Minimal stand-in for the Chainlink KeystoneForwarder: routes a report to a
 ///         receiver so msg.sender on onReport is this contract (as in production).
 contract MockKeystoneForwarder {
-    function route(
-        address receiver,
-        bytes calldata metadata,
-        bytes calldata report
-    ) external {
+    function route(address receiver, bytes calldata metadata, bytes calldata report) external {
         IReceiver(receiver).onReport(metadata, report);
     }
 }
@@ -45,8 +41,7 @@ contract CreOracleReceiverTest is Test {
     bytes10 internal constant WF_NAME = bytes10("osxverify1");
     /// @dev The workflow id is NOT pinned by the receiver (CRE rotates it on update); this value is
     ///      only used to fill the metadata layout, never validated.
-    bytes32 internal constant WF_ID =
-        0x0011223344556677889900aabbccddeeff00112233445566778899aabbccddee;
+    bytes32 internal constant WF_ID = 0x0011223344556677889900aabbccddeeff00112233445566778899aabbccddee;
 
     address internal constant PROTOCOL_RECEIVER = address(0xFEE5);
     address internal user = address(0xCA11);
@@ -69,15 +64,9 @@ contract CreOracleReceiverTest is Test {
     );
     /// @dev OspexCore hub event, mirrored here so the happy-path tests can assert that a core-only
     ///      listener sees the report envelope (the design intent: subscribe to core, see everything).
-    event CoreEventEmitted(
-        bytes32 indexed eventType,
-        address indexed emitter,
-        bytes eventData
-    );
-    bytes32 internal constant EVENT_ORACLE_REPORT_PROCESSED =
-        keccak256("ORACLE_REPORT_PROCESSED");
-    bytes32 internal constant EVENT_ORACLE_REQUESTED =
-        keccak256("ORACLE_REQUESTED");
+    event CoreEventEmitted(bytes32 indexed eventType, address indexed emitter, bytes eventData);
+    bytes32 internal constant EVENT_ORACLE_REPORT_PROCESSED = keccak256("ORACLE_REPORT_PROCESSED");
+    bytes32 internal constant EVENT_ORACLE_REQUESTED = keccak256("ORACLE_REQUESTED");
 
     function setUp() public {
         wfOwner = makeAddr("workflowOwner");
@@ -88,12 +77,7 @@ contract CreOracleReceiverTest is Test {
 
     function _deploy()
         internal
-        returns (
-            OspexCore core_,
-            ContestModule contest_,
-            MockKeystoneForwarder fwd_,
-            CreOracleReceiver receiver_
-        )
+        returns (OspexCore core_, ContestModule contest_, MockKeystoneForwarder fwd_, CreOracleReceiver receiver_)
     {
         core_ = new OspexCore();
         usdc = new MockERC20();
@@ -107,12 +91,7 @@ contract CreOracleReceiverTest is Test {
             0 // leaderboardCreationFee
         );
         fwd_ = new MockKeystoneForwarder();
-        receiver_ = new CreOracleReceiver(
-            address(core_),
-            address(fwd_),
-            wfOwner,
-            WF_NAME
-        );
+        receiver_ = new CreOracleReceiver(address(core_), address(fwd_), wfOwner, WF_NAME);
 
         bytes32[] memory types = new bytes32[](12);
         address[] memory addrs = new address[](12);
@@ -147,23 +126,17 @@ contract CreOracleReceiverTest is Test {
     // ──────────────────────────── Encoding helpers ─────────────────────
 
     /// @dev Mirrors the KeystoneForwarder metadata: packed workflowId|workflowName|owner|reportId.
-    function _metadata(
-        bytes32 id,
-        bytes10 name,
-        address owner
-    ) internal pure returns (bytes memory) {
+    function _metadata(bytes32 id, bytes10 name, address owner) internal pure returns (bytes memory) {
         return abi.encodePacked(id, name, owner, bytes2(0xABCD));
     }
 
     /// @dev Report envelope: abi.encode(uint8 requestType, uint256 chainId, address receiver,
     ///      uint64 requestNonce, bytes payload). Helpers bind block.chainid + the target receiver.
-    function _verifyReport(
-        address rcv,
-        uint256 contestId,
-        uint8 leagueId,
-        uint32 startTime,
-        uint16 version
-    ) internal view returns (bytes memory) {
+    function _verifyReport(address rcv, uint256 contestId, uint8 leagueId, uint32 startTime, uint16 version)
+        internal
+        view
+        returns (bytes memory)
+    {
         bytes memory payload = abi.encode(contestId, leagueId, startTime, version);
         return abi.encode(uint8(0), block.chainid, rcv, uint64(0), payload);
     }
@@ -183,37 +156,23 @@ contract CreOracleReceiverTest is Test {
         uint16 version
     ) internal view returns (bytes memory) {
         bytes memory payload = abi.encode(
-            contestId,
-            mlAway,
-            mlHome,
-            spreadTicks,
-            spreadAway,
-            spreadHome,
-            totalTicks,
-            overOdds,
-            underOdds,
-            version
+            contestId, mlAway, mlHome, spreadTicks, spreadAway, spreadHome, totalTicks, overOdds, underOdds, version
         );
         return abi.encode(uint8(1), block.chainid, rcv, nonce, payload);
     }
 
-    function _scoreReport(
-        address rcv,
-        uint256 contestId,
-        uint32 awayScore,
-        uint32 homeScore,
-        uint16 version
-    ) internal view returns (bytes memory) {
+    function _scoreReport(address rcv, uint256 contestId, uint32 awayScore, uint32 homeScore, uint16 version)
+        internal
+        view
+        returns (bytes memory)
+    {
         bytes memory payload = abi.encode(contestId, awayScore, homeScore, version);
         return abi.encode(uint8(2), block.chainid, rcv, uint64(0), payload);
     }
 
     /// @dev create + verify a contest (start time = 1, i.e. already started) so market/score reports
     ///      and a permissionless score request have a Verified, started target.
-    function _createAndVerify(
-        CreOracleReceiver r,
-        MockKeystoneForwarder fwd
-    ) internal returns (uint256 contestId) {
+    function _createAndVerify(CreOracleReceiver r, MockKeystoneForwarder fwd) internal returns (uint256 contestId) {
         contestId = _create(r);
         fwd.route(
             address(r),
@@ -224,11 +183,7 @@ contract CreOracleReceiverTest is Test {
 
     function _create(CreOracleReceiver r) internal returns (uint256 contestId) {
         vm.prank(user);
-        contestId = r.createContestAndRequestVerify(
-            "rundown-abc",
-            "sportspage-def",
-            "jsonodds-ghi"
-        );
+        contestId = r.createContestAndRequestVerify("rundown-abc", "sportspage-def", "jsonodds-ghi");
     }
 
     // ──────────────────────────── Request path ─────────────────────────
@@ -290,9 +245,7 @@ contract CreOracleReceiverTest is Test {
         // Direct call: msg.sender = address(this), not the forwarder.
         vm.expectRevert(
             abi.encodeWithSelector(
-                CreOracleReceiver.CreOracleReceiver__InvalidSender.selector,
-                address(this),
-                address(forwarder)
+                CreOracleReceiver.CreOracleReceiver__InvalidSender.selector, address(this), address(forwarder)
             )
         );
         receiver.onReport(metadata, report);
@@ -306,9 +259,7 @@ contract CreOracleReceiverTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                CreOracleReceiver.CreOracleReceiver__InvalidWorkflowOwner.selector,
-                badOwner,
-                wfOwner
+                CreOracleReceiver.CreOracleReceiver__InvalidWorkflowOwner.selector, badOwner, wfOwner
             )
         );
         forwarder.route(address(receiver), metadata, report);
@@ -321,11 +272,7 @@ contract CreOracleReceiverTest is Test {
         bytes memory report = _verifyReport(address(receiver), contestId, uint8(LeagueId.NFL), 1893456000, 1);
 
         vm.expectRevert(
-            abi.encodeWithSelector(
-                CreOracleReceiver.CreOracleReceiver__InvalidWorkflowName.selector,
-                badName,
-                WF_NAME
-            )
+            abi.encodeWithSelector(CreOracleReceiver.CreOracleReceiver__InvalidWorkflowName.selector, badName, WF_NAME)
         );
         forwarder.route(address(receiver), metadata, report);
     }
@@ -354,9 +301,7 @@ contract CreOracleReceiverTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                CreOracleReceiver.CreOracleReceiver__WrongChainId.selector,
-                wrongChain,
-                block.chainid
+                CreOracleReceiver.CreOracleReceiver__WrongChainId.selector, wrongChain, block.chainid
             )
         );
         forwarder.route(address(receiver), _metadata(WF_ID, WF_NAME, wfOwner), report);
@@ -370,9 +315,7 @@ contract CreOracleReceiverTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                CreOracleReceiver.CreOracleReceiver__WrongReceiver.selector,
-                wrongRcv,
-                address(receiver)
+                CreOracleReceiver.CreOracleReceiver__WrongReceiver.selector, wrongRcv, address(receiver)
             )
         );
         forwarder.route(address(receiver), _metadata(WF_ID, WF_NAME, wfOwner), report);
@@ -388,8 +331,7 @@ contract CreOracleReceiverTest is Test {
         forwarder.route(address(receiver), metadata, report); // first: ok
         vm.expectRevert(
             abi.encodeWithSelector(
-                CreOracleReceiver.CreOracleReceiver__ReportAlreadyProcessed.selector,
-                keccak256(report)
+                CreOracleReceiver.CreOracleReceiver__ReportAlreadyProcessed.selector, keccak256(report)
             )
         );
         forwarder.route(address(receiver), metadata, report); // replay: revert
@@ -403,10 +345,7 @@ contract CreOracleReceiverTest is Test {
         bytes memory report = abi.encode(uint8(99), block.chainid, address(receiver), uint64(0), payload);
 
         vm.expectRevert(
-            abi.encodeWithSelector(
-                CreOracleReceiver.CreOracleReceiver__InvalidRequestType.selector,
-                uint8(99)
-            )
+            abi.encodeWithSelector(CreOracleReceiver.CreOracleReceiver__InvalidRequestType.selector, uint8(99))
         );
         forwarder.route(address(receiver), metadata, report);
     }
@@ -417,10 +356,7 @@ contract CreOracleReceiverTest is Test {
         bytes memory report = _verifyReport(address(receiver), contestId, uint8(LeagueId.NFL), 1893456000, 1);
 
         vm.expectRevert(
-            abi.encodeWithSelector(
-                CreOracleReceiver.CreOracleReceiver__InvalidMetadata.selector,
-                uint256(40)
-            )
+            abi.encodeWithSelector(CreOracleReceiver.CreOracleReceiver__InvalidMetadata.selector, uint256(40))
         );
         forwarder.route(address(receiver), shortMeta, report);
     }
@@ -431,15 +367,11 @@ contract CreOracleReceiverTest is Test {
         uint256 contestId = _create(receiver);
         bytes memory metadata = _metadata(WF_ID, WF_NAME, wfOwner);
         forwarder.route(
-            address(receiver),
-            metadata,
-            _verifyReport(address(receiver), contestId, uint8(LeagueId.NFL), 1893456000, 1)
+            address(receiver), metadata, _verifyReport(address(receiver), contestId, uint8(LeagueId.NFL), 1893456000, 1)
         );
         vm.expectRevert(); // ContestModule__InvalidStatus
         forwarder.route(
-            address(receiver),
-            metadata,
-            _verifyReport(address(receiver), contestId, uint8(LeagueId.NBA), 1893456000, 2)
+            address(receiver), metadata, _verifyReport(address(receiver), contestId, uint8(LeagueId.NBA), 1893456000, 2)
         );
     }
 
@@ -491,7 +423,8 @@ contract CreOracleReceiverTest is Test {
         assertEq(latest, 2);
 
         // Apply the newer report (nonce 2) first → lastApplied = 2.
-        bytes memory fresh = _marketReport(address(receiver), contestId, latest, 250, 159, -15, 191, 191, 85, 195, 187, 1);
+        bytes memory fresh =
+            _marketReport(address(receiver), contestId, latest, 250, 159, -15, 191, 191, 85, 195, 187, 1);
         forwarder.route(address(receiver), _metadata(WF_ID, WF_NAME, wfOwner), fresh);
         assertEq(contestModule.getContestMarket(contestId, address(0xAA)).lineTicks, int32(-15));
 
@@ -500,10 +433,7 @@ contract CreOracleReceiverTest is Test {
         bytes memory stale = _marketReport(address(receiver), contestId, 1, 100, 100, 20, 100, 100, 90, 100, 100, 1);
         vm.expectRevert(
             abi.encodeWithSelector(
-                CreOracleReceiver.CreOracleReceiver__StaleMarketReport.selector,
-                contestId,
-                uint64(1),
-                uint64(2)
+                CreOracleReceiver.CreOracleReceiver__StaleMarketReport.selector, contestId, uint64(1), uint64(2)
             )
         );
         forwarder.route(address(receiver), _metadata(WF_ID, WF_NAME, wfOwner), stale);
@@ -559,9 +489,13 @@ contract CreOracleReceiverTest is Test {
     function test_onReport_secondScoreReverts() public {
         uint256 contestId = _createAndVerify(receiver, forwarder);
         receiver.requestScore(contestId);
-        forwarder.route(address(receiver), _metadata(WF_ID, WF_NAME, wfOwner), _scoreReport(address(receiver), contestId, 5, 3, 1));
+        forwarder.route(
+            address(receiver), _metadata(WF_ID, WF_NAME, wfOwner), _scoreReport(address(receiver), contestId, 5, 3, 1)
+        );
         vm.expectRevert(); // already Scored
-        forwarder.route(address(receiver), _metadata(WF_ID, WF_NAME, wfOwner), _scoreReport(address(receiver), contestId, 9, 9, 2));
+        forwarder.route(
+            address(receiver), _metadata(WF_ID, WF_NAME, wfOwner), _scoreReport(address(receiver), contestId, 9, 9, 2)
+        );
     }
 
     // ──────────────────────────── Request emitters (market/score) ─────
@@ -597,10 +531,7 @@ contract CreOracleReceiverTest is Test {
     function test_requestMarketUpdate_revertsOnUnverifiedContest() public {
         uint256 contestId = _create(receiver); // Unverified
         vm.expectRevert(
-            abi.encodeWithSelector(
-                CreOracleReceiver.CreOracleReceiver__ContestNotVerified.selector,
-                contestId
-            )
+            abi.encodeWithSelector(CreOracleReceiver.CreOracleReceiver__ContestNotVerified.selector, contestId)
         );
         receiver.requestMarketUpdate(contestId);
     }
@@ -608,10 +539,7 @@ contract CreOracleReceiverTest is Test {
     function test_requestScore_revertsOnUnverifiedContest() public {
         uint256 contestId = _create(receiver); // Unverified
         vm.expectRevert(
-            abi.encodeWithSelector(
-                CreOracleReceiver.CreOracleReceiver__ContestNotVerified.selector,
-                contestId
-            )
+            abi.encodeWithSelector(CreOracleReceiver.CreOracleReceiver__ContestNotVerified.selector, contestId)
         );
         receiver.requestScore(contestId);
     }
@@ -629,10 +557,7 @@ contract CreOracleReceiverTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                CreOracleReceiver.CreOracleReceiver__PrematureScoreRequest.selector,
-                contestId,
-                future,
-                block.timestamp
+                CreOracleReceiver.CreOracleReceiver__PrematureScoreRequest.selector, contestId, future, block.timestamp
             )
         );
         receiver.requestScore(contestId);

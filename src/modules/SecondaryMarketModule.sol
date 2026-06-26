@@ -2,23 +2,13 @@
 pragma solidity ^0.8.26;
 
 import {OspexCore} from "../core/OspexCore.sol";
-import {
-    SaleListing,
-    Position,
-    PositionType,
-    Speculation,
-    SpeculationStatus
-} from "../core/OspexTypes.sol";
+import {SaleListing, Position, PositionType, Speculation, SpeculationStatus} from "../core/OspexTypes.sol";
 import {ISecondaryMarketModule} from "../interfaces/ISecondaryMarketModule.sol";
 import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IPositionModule} from "../interfaces/IPositionModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {
-    SafeERC20
-} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {
-    ReentrancyGuard
-} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title SecondaryMarketModule
@@ -47,21 +37,15 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
 
     // ──────────────────────────── Constants ────────────────────────────
 
-    bytes32 public constant SECONDARY_MARKET_MODULE =
-        keccak256("SECONDARY_MARKET_MODULE");
-    bytes32 public constant SPECULATION_MODULE =
-        keccak256("SPECULATION_MODULE");
+    bytes32 public constant SECONDARY_MARKET_MODULE = keccak256("SECONDARY_MARKET_MODULE");
+    bytes32 public constant SPECULATION_MODULE = keccak256("SPECULATION_MODULE");
     bytes32 public constant POSITION_MODULE = keccak256("POSITION_MODULE");
 
-    bytes32 public constant EVENT_POSITION_LISTED =
-        keccak256("POSITION_LISTED");
-    bytes32 public constant EVENT_LISTING_UPDATED =
-        keccak256("LISTING_UPDATED");
+    bytes32 public constant EVENT_POSITION_LISTED = keccak256("POSITION_LISTED");
+    bytes32 public constant EVENT_LISTING_UPDATED = keccak256("LISTING_UPDATED");
     bytes32 public constant EVENT_POSITION_SOLD = keccak256("POSITION_SOLD");
-    bytes32 public constant EVENT_LISTING_CANCELLED =
-        keccak256("LISTING_CANCELLED");
-    bytes32 public constant EVENT_SALE_PROCEEDS_CLAIMED =
-        keccak256("SALE_PROCEEDS_CLAIMED");
+    bytes32 public constant EVENT_LISTING_CANCELLED = keccak256("LISTING_CANCELLED");
+    bytes32 public constant EVENT_SALE_PROCEEDS_CLAIMED = keccak256("SALE_PROCEEDS_CLAIMED");
 
     // ──────────────────────────── Errors ───────────────────────────────
 
@@ -128,11 +112,7 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
     );
 
     /// @notice Emitted when a listing is cancelled
-    event ListingCancelled(
-        uint256 indexed speculationId,
-        address indexed seller,
-        PositionType positionType
-    );
+    event ListingCancelled(uint256 indexed speculationId, address indexed seller, PositionType positionType);
 
     /// @notice Emitted when sale proceeds are claimed
     event SaleProceedsClaimed(address indexed seller, uint256 amount);
@@ -145,8 +125,7 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
     IERC20 public immutable i_token;
 
     /// @notice Speculation ID → seller → position type → SaleListing
-    mapping(uint256 => mapping(address => mapping(PositionType => SaleListing)))
-        public s_saleListings;
+    mapping(uint256 => mapping(address => mapping(PositionType => SaleListing))) public s_saleListings;
     /// @notice Seller → pending proceeds from sold positions
     mapping(address => uint256) public s_pendingSaleProceeds;
 
@@ -158,8 +137,9 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
      * @param token_ The USDC token address
      */
     constructor(address ospexCore_, address token_) {
-        if (ospexCore_ == address(0) || token_ == address(0))
+        if (ospexCore_ == address(0) || token_ == address(0)) {
             revert SecondaryMarketModule__InvalidAddress();
+        }
         i_ospexCore = OspexCore(ospexCore_);
         i_token = IERC20(token_);
     }
@@ -181,38 +161,34 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
         uint256 riskAmount,
         uint256 profitAmount
     ) external override nonReentrant {
-        if (price == 0 || riskAmount == 0 || profitAmount == 0)
+        if (price == 0 || riskAmount == 0 || profitAmount == 0) {
             revert SecondaryMarketModule__InvalidAmount();
+        }
 
-        Speculation memory spec = ISpeculationModule(
-            _getModule(SPECULATION_MODULE)
-        ).getSpeculation(speculationId);
+        Speculation memory spec = ISpeculationModule(_getModule(SPECULATION_MODULE)).getSpeculation(speculationId);
 
-        if (spec.speculationStatus != SpeculationStatus.Open)
+        if (spec.speculationStatus != SpeculationStatus.Open) {
             revert SecondaryMarketModule__SpeculationNotActive();
+        }
 
-        Position memory position = IPositionModule(_getModule(POSITION_MODULE))
-            .getPosition(speculationId, msg.sender, positionType);
+        Position memory position =
+            IPositionModule(_getModule(POSITION_MODULE)).getPosition(speculationId, msg.sender, positionType);
 
-        if (position.claimed)
+        if (position.claimed) {
             revert SecondaryMarketModule__PositionAlreadyClaimed();
+        }
 
-        if (riskAmount > position.riskAmount)
+        if (riskAmount > position.riskAmount) {
             revert SecondaryMarketModule__AmountAboveMaximum(riskAmount);
-        if (profitAmount > position.profitAmount)
+        }
+        if (profitAmount > position.profitAmount) {
             revert SecondaryMarketModule__AmountAboveMaximum(profitAmount);
+        }
 
-        s_saleListings[speculationId][msg.sender][positionType] = SaleListing({
-            price: price,
-            riskAmount: riskAmount,
-            profitAmount: profitAmount
-        });
+        s_saleListings[speculationId][msg.sender][positionType] =
+            SaleListing({price: price, riskAmount: riskAmount, profitAmount: profitAmount});
 
-        bytes32 listingHash = _listingHash(
-            speculationId,
-            msg.sender,
-            positionType
-        );
+        bytes32 listingHash = _listingHash(speculationId, msg.sender, positionType);
 
         emit PositionListed(
             speculationId,
@@ -266,59 +242,49 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
         uint256 riskAmount,
         bytes32 expectedHash
     ) external override nonReentrant {
-        if (msg.sender == seller)
+        if (msg.sender == seller) {
             revert SecondaryMarketModule__CannotBuyOwnPosition();
+        }
 
         if (riskAmount == 0) revert SecondaryMarketModule__InvalidAmount();
 
-        Speculation memory spec = ISpeculationModule(
-            _getModule(SPECULATION_MODULE)
-        ).getSpeculation(speculationId);
+        Speculation memory spec = ISpeculationModule(_getModule(SPECULATION_MODULE)).getSpeculation(speculationId);
 
-        if (spec.speculationStatus != SpeculationStatus.Open)
+        if (spec.speculationStatus != SpeculationStatus.Open) {
             revert SecondaryMarketModule__SpeculationNotActive();
+        }
 
-        SaleListing storage listing = s_saleListings[speculationId][seller][
-            positionType
-        ];
+        SaleListing storage listing = s_saleListings[speculationId][seller][positionType];
 
-        if (listing.riskAmount == 0)
+        if (listing.riskAmount == 0) {
             revert SecondaryMarketModule__ListingNotActive();
-        if (riskAmount > listing.riskAmount)
+        }
+        if (riskAmount > listing.riskAmount) {
             revert SecondaryMarketModule__AmountAboveMaximum(riskAmount);
+        }
 
         bytes32 currentHash = _listingHash(speculationId, seller, positionType);
-        if (currentHash != expectedHash)
+        if (currentHash != expectedHash) {
             revert SecondaryMarketModule__ListingStateChanged();
+        }
 
         address posModule = _getModule(POSITION_MODULE);
 
-        Position memory pos = IPositionModule(posModule).getPosition(
-            speculationId,
-            seller,
-            positionType
-        );
+        Position memory pos = IPositionModule(posModule).getPosition(speculationId, seller, positionType);
         if (pos.claimed) revert SecondaryMarketModule__PositionAlreadyClaimed();
 
-        uint256 profitAmount = (listing.profitAmount * riskAmount) /
-            listing.riskAmount;
-        uint256 purchasePrice = (listing.price * riskAmount) /
-            listing.riskAmount;
+        uint256 profitAmount = (listing.profitAmount * riskAmount) / listing.riskAmount;
+        uint256 purchasePrice = (listing.price * riskAmount) / listing.riskAmount;
 
-        if (purchasePrice == 0)
+        if (purchasePrice == 0) {
             revert SecondaryMarketModule__PurchasePriceZero();
+        }
 
         i_token.safeTransferFrom(msg.sender, address(this), purchasePrice);
         s_pendingSaleProceeds[seller] += purchasePrice;
 
-        IPositionModule(posModule).transferPosition(
-            speculationId,
-            seller,
-            positionType,
-            msg.sender,
-            riskAmount,
-            profitAmount
-        );
+        IPositionModule(posModule)
+            .transferPosition(speculationId, seller, positionType, msg.sender, riskAmount, profitAmount);
 
         if (riskAmount == listing.riskAmount) {
             delete s_saleListings[speculationId][seller][positionType];
@@ -328,26 +294,10 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
             listing.price -= purchasePrice;
         }
 
-        emit PositionSold(
-            speculationId,
-            seller,
-            positionType,
-            msg.sender,
-            riskAmount,
-            profitAmount,
-            purchasePrice
-        );
+        emit PositionSold(speculationId, seller, positionType, msg.sender, riskAmount, profitAmount, purchasePrice);
         i_ospexCore.emitCoreEvent(
             EVENT_POSITION_SOLD,
-            abi.encode(
-                speculationId,
-                seller,
-                positionType,
-                msg.sender,
-                riskAmount,
-                profitAmount,
-                purchasePrice
-            )
+            abi.encode(speculationId, seller, positionType, msg.sender, riskAmount, profitAmount, purchasePrice)
         );
     }
 
@@ -360,38 +310,29 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
         s_pendingSaleProceeds[msg.sender] = 0;
         i_token.safeTransfer(msg.sender, amount);
         emit SaleProceedsClaimed(msg.sender, amount);
-        i_ospexCore.emitCoreEvent(
-            EVENT_SALE_PROCEEDS_CLAIMED,
-            abi.encode(msg.sender, amount)
-        );
+        i_ospexCore.emitCoreEvent(EVENT_SALE_PROCEEDS_CLAIMED, abi.encode(msg.sender, amount));
     }
 
     // ──────────────────────────── Listing Management ──────────────────
 
     /// @inheritdoc ISecondaryMarketModule
-    function cancelListing(
-        uint256 speculationId,
-        PositionType positionType
-    ) external override nonReentrant {
-        SaleListing storage listing = s_saleListings[speculationId][msg.sender][
-            positionType
-        ];
+    function cancelListing(uint256 speculationId, PositionType positionType) external override nonReentrant {
+        SaleListing storage listing = s_saleListings[speculationId][msg.sender][positionType];
 
-        if (listing.riskAmount == 0)
+        if (listing.riskAmount == 0) {
             revert SecondaryMarketModule__ListingNotActive();
+        }
 
-        Position memory position = IPositionModule(_getModule(POSITION_MODULE))
-            .getPosition(speculationId, msg.sender, positionType);
-        if (position.claimed)
+        Position memory position =
+            IPositionModule(_getModule(POSITION_MODULE)).getPosition(speculationId, msg.sender, positionType);
+        if (position.claimed) {
             revert SecondaryMarketModule__PositionAlreadyClaimed();
+        }
 
         delete s_saleListings[speculationId][msg.sender][positionType];
 
         emit ListingCancelled(speculationId, msg.sender, positionType);
-        i_ospexCore.emitCoreEvent(
-            EVENT_LISTING_CANCELLED,
-            abi.encode(speculationId, msg.sender, positionType)
-        );
+        i_ospexCore.emitCoreEvent(EVENT_LISTING_CANCELLED, abi.encode(speculationId, msg.sender, positionType));
     }
 
     /// @inheritdoc ISecondaryMarketModule
@@ -402,24 +343,23 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
         uint256 newRiskAmount,
         uint256 newProfitAmount
     ) external override nonReentrant {
-        Speculation memory spec = ISpeculationModule(
-            _getModule(SPECULATION_MODULE)
-        ).getSpeculation(speculationId);
+        Speculation memory spec = ISpeculationModule(_getModule(SPECULATION_MODULE)).getSpeculation(speculationId);
 
-        if (spec.speculationStatus != SpeculationStatus.Open)
+        if (spec.speculationStatus != SpeculationStatus.Open) {
             revert SecondaryMarketModule__SpeculationNotActive();
+        }
 
-        SaleListing storage listing = s_saleListings[speculationId][msg.sender][
-            positionType
-        ];
+        SaleListing storage listing = s_saleListings[speculationId][msg.sender][positionType];
 
-        if (listing.riskAmount == 0)
+        if (listing.riskAmount == 0) {
             revert SecondaryMarketModule__ListingNotActive();
+        }
 
-        Position memory position = IPositionModule(_getModule(POSITION_MODULE))
-            .getPosition(speculationId, msg.sender, positionType);
-        if (position.claimed)
+        Position memory position =
+            IPositionModule(_getModule(POSITION_MODULE)).getPosition(speculationId, msg.sender, positionType);
+        if (position.claimed) {
             revert SecondaryMarketModule__PositionAlreadyClaimed();
+        }
 
         uint256 oldPrice = listing.price;
         uint256 oldRiskAmount = listing.riskAmount;
@@ -429,23 +369,19 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
             listing.price = newPrice;
         }
         if (newRiskAmount > 0) {
-            if (newRiskAmount > position.riskAmount)
+            if (newRiskAmount > position.riskAmount) {
                 revert SecondaryMarketModule__AmountAboveMaximum(newRiskAmount);
+            }
             listing.riskAmount = newRiskAmount;
         }
         if (newProfitAmount > 0) {
-            if (newProfitAmount > position.profitAmount)
-                revert SecondaryMarketModule__AmountAboveMaximum(
-                    newProfitAmount
-                );
+            if (newProfitAmount > position.profitAmount) {
+                revert SecondaryMarketModule__AmountAboveMaximum(newProfitAmount);
+            }
             listing.profitAmount = newProfitAmount;
         }
 
-        bytes32 listingHash = _listingHash(
-            speculationId,
-            msg.sender,
-            positionType
-        );
+        bytes32 listingHash = _listingHash(speculationId, msg.sender, positionType);
 
         emit ListingUpdated(
             speculationId,
@@ -479,18 +415,17 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
     // ──────────────────────────── View Functions ──────────────────────
 
     /// @inheritdoc ISecondaryMarketModule
-    function getSaleListing(
-        uint256 speculationId,
-        address seller,
-        PositionType positionType
-    ) external view override returns (SaleListing memory listing) {
+    function getSaleListing(uint256 speculationId, address seller, PositionType positionType)
+        external
+        view
+        override
+        returns (SaleListing memory listing)
+    {
         return s_saleListings[speculationId][seller][positionType];
     }
 
     /// @inheritdoc ISecondaryMarketModule
-    function getPendingSaleProceeds(
-        address seller
-    ) external view override returns (uint256 amount) {
+    function getPendingSaleProceeds(address seller) external view override returns (uint256 amount) {
         return s_pendingSaleProceeds[seller];
     }
 
@@ -504,11 +439,12 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
      * @param positionType The position type
      * @return The keccak256 hash of the listing's current state
      */
-    function getListingHash(
-        uint256 speculationId,
-        address seller,
-        PositionType positionType
-    ) external view override returns (bytes32) {
+    function getListingHash(uint256 speculationId, address seller, PositionType positionType)
+        external
+        view
+        override
+        returns (bytes32)
+    {
         return _listingHash(speculationId, seller, positionType);
     }
 
@@ -525,25 +461,15 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
      * @param positionType The position type
      * @return The keccak256 hash of the listing's complete state
      */
-    function _listingHash(
-        uint256 speculationId,
-        address seller,
-        PositionType positionType
-    ) internal view returns (bytes32) {
-        SaleListing storage listing = s_saleListings[speculationId][seller][
-            positionType
-        ];
-        return
-            keccak256(
-                abi.encode(
-                    speculationId,
-                    seller,
-                    positionType,
-                    listing.price,
-                    listing.riskAmount,
-                    listing.profitAmount
-                )
-            );
+    function _listingHash(uint256 speculationId, address seller, PositionType positionType)
+        internal
+        view
+        returns (bytes32)
+    {
+        SaleListing storage listing = s_saleListings[speculationId][seller][positionType];
+        return keccak256(
+            abi.encode(speculationId, seller, positionType, listing.price, listing.riskAmount, listing.profitAmount)
+        );
     }
 
     // ──────────────────────────── Module Lookup ───────────────────────
@@ -553,9 +479,7 @@ contract SecondaryMarketModule is ISecondaryMarketModule, ReentrancyGuard {
      * @param moduleType The module type identifier
      * @return module The module contract address
      */
-    function _getModule(
-        bytes32 moduleType
-    ) internal view returns (address module) {
+    function _getModule(bytes32 moduleType) internal view returns (address module) {
         module = i_ospexCore.getModule(moduleType);
         if (module == address(0)) {
             revert SecondaryMarketModule__ModuleNotSet(moduleType);

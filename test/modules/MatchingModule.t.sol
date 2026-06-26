@@ -42,9 +42,7 @@ contract MockOspexCoreForMatching {
         return _modules[moduleType];
     }
 
-    function isRegisteredModule(
-        address moduleAddress
-    ) external view returns (bool) {
+    function isRegisteredModule(address moduleAddress) external view returns (bool) {
         return _registeredModules[moduleAddress];
     }
 
@@ -57,15 +55,10 @@ contract MockOspexCoreForMatching {
     }
 
     function isSecondaryMarket(address addr) external view returns (bool) {
-        return
-            addr ==
-            _modules[keccak256("SECONDARY_MARKET_MODULE")];
+        return addr == _modules[keccak256("SECONDARY_MARKET_MODULE")];
     }
 
-    function emitCoreEvent(
-        bytes32 eventType,
-        bytes calldata eventData
-    ) external {
+    function emitCoreEvent(bytes32 eventType, bytes calldata eventData) external {
         emit CoreEventEmitted(eventType, eventData);
     }
 }
@@ -160,34 +153,23 @@ contract ReentrantMockPositionModule {
         shouldReenter = _val;
     }
 
-    function recordFill(
-        uint256,
-        address,
-        int32,
-        PositionType,
-        address,
-        uint256,
-        address,
-        uint256
-    ) external returns (uint256) {
+    function recordFill(uint256, address, int32, PositionType, address, uint256, address, uint256)
+        external
+        returns (uint256)
+    {
         if (shouldReenter) {
-            MatchingModule.OspexCommitment memory c = MatchingModule
-                .OspexCommitment({
-                    maker: address(1),
-                    contestId: 1,
-                    scorer: address(2),
-                    lineTicks: 0,
-                    positionType: PositionType.Upper,
-                    oddsTick: 191,
-                    riskAmount: 1_000_000,
-                    nonce: 1,
-                    expiry: block.timestamp + 1 hours
-                });
-            MatchingModule(matchingModuleAddr).matchCommitment(
-                c,
-                "",
-                1_000_000
-            );
+            MatchingModule.OspexCommitment memory c = MatchingModule.OspexCommitment({
+                maker: address(1),
+                contestId: 1,
+                scorer: address(2),
+                lineTicks: 0,
+                positionType: PositionType.Upper,
+                oddsTick: 191,
+                riskAmount: 1_000_000,
+                nonce: 1,
+                expiry: block.timestamp + 1 hours
+            });
+            MatchingModule(matchingModuleAddr).matchCommitment(c, "", 1_000_000);
         }
         return 0;
     }
@@ -239,77 +221,45 @@ contract MatchingModuleTest is Test {
 
     // ===================== HELPERS =====================
 
-    function _defaultCommitment()
-        internal
-        view
-        returns (MatchingModule.OspexCommitment memory)
-    {
-        return
-            MatchingModule.OspexCommitment({
-                maker: maker,
-                contestId: DEFAULT_CONTEST_ID,
-                scorer: defaultScorer,
-                lineTicks: DEFAULT_LINE_TICKS,
-                positionType: PositionType.Upper,
-                oddsTick: DEFAULT_ODDS_TICK,
-                riskAmount: DEFAULT_RISK_AMOUNT,
-                nonce: 1,
-                expiry: block.timestamp + 1 hours
-            });
+    function _defaultCommitment() internal view returns (MatchingModule.OspexCommitment memory) {
+        return MatchingModule.OspexCommitment({
+            maker: maker,
+            contestId: DEFAULT_CONTEST_ID,
+            scorer: defaultScorer,
+            lineTicks: DEFAULT_LINE_TICKS,
+            positionType: PositionType.Upper,
+            oddsTick: DEFAULT_ODDS_TICK,
+            riskAmount: DEFAULT_RISK_AMOUNT,
+            nonce: 1,
+            expiry: block.timestamp + 1 hours
+        });
     }
 
-    function _signCommitment(
-        MatchingModule.OspexCommitment memory c,
-        uint256 pk
-    ) internal view returns (bytes memory) {
+    function _signCommitment(MatchingModule.OspexCommitment memory c, uint256 pk) internal view returns (bytes memory) {
         bytes32 digest = matchingModule.getCommitmentHash(c);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
     }
 
-    function _signedDefault()
-        internal
-        view
-        returns (MatchingModule.OspexCommitment memory c, bytes memory sig)
-    {
+    function _signedDefault() internal view returns (MatchingModule.OspexCommitment memory c, bytes memory sig) {
         c = _defaultCommitment();
         sig = _signCommitment(c, MAKER_PK);
     }
 
-    function _matchDefault()
-        internal
-        returns (MatchingModule.OspexCommitment memory c, bytes memory sig)
-    {
+    function _matchDefault() internal returns (MatchingModule.OspexCommitment memory c, bytes memory sig) {
         (c, sig) = _signedDefault();
         vm.prank(taker);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
     }
 
-    function _expectSignatureRevert(
-        MatchingModule.OspexCommitment memory tampered,
-        bytes memory validSig
-    ) internal {
+    function _expectSignatureRevert(MatchingModule.OspexCommitment memory tampered, bytes memory validSig) internal {
         vm.prank(taker);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__InvalidSignature.selector
-        );
-        matchingModule.matchCommitment(
-            tampered,
-            validSig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__InvalidSignature.selector);
+        matchingModule.matchCommitment(tampered, validSig, DEFAULT_TAKER_DESIRED_RISK);
     }
 
-    function _remaining(
-        MatchingModule.OspexCommitment memory c
-    ) internal view returns (uint256) {
-        return
-            c.riskAmount -
-            matchingModule.s_filledRisk(matchingModule.getCommitmentHash(c));
+    function _remaining(MatchingModule.OspexCommitment memory c) internal view returns (uint256) {
+        return c.riskAmount - matchingModule.s_filledRisk(matchingModule.getCommitmentHash(c));
     }
 
     // ===================== CONSTRUCTOR TESTS =====================
@@ -326,16 +276,9 @@ contract MatchingModuleTest is Test {
     // ===================== SIGNATURE SECURITY =====================
 
     function test_ValidSignatureAccepted() public {
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
         vm.prank(taker);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
         assertEq(mockPosition.recordFillCallCount(), 1);
     }
 
@@ -346,82 +289,55 @@ contract MatchingModuleTest is Test {
     }
 
     function test_TamperedField_OddsTick() public {
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
         c.oddsTick = 200;
         _expectSignatureRevert(c, sig);
     }
 
     function test_TamperedField_RiskAmount() public {
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
         c.riskAmount = 200_000_000;
         _expectSignatureRevert(c, sig);
     }
 
     function test_TamperedField_ContestId() public {
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
         c.contestId = 999;
         _expectSignatureRevert(c, sig);
     }
 
     function test_TamperedField_Scorer() public {
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
         c.scorer = address(0x9999);
         _expectSignatureRevert(c, sig);
     }
 
     function test_TamperedField_LineTicks() public {
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
         c.lineTicks = 5;
         _expectSignatureRevert(c, sig);
     }
 
     function test_TamperedField_PositionType() public {
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
         c.positionType = PositionType.Lower;
         _expectSignatureRevert(c, sig);
     }
 
     function test_TamperedField_Nonce() public {
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
         c.nonce = 999;
         _expectSignatureRevert(c, sig);
     }
 
     function test_TamperedField_Expiry() public {
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
         c.expiry = block.timestamp + 2 hours;
         _expectSignatureRevert(c, sig);
     }
 
     function test_TamperedField_Maker() public {
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
         c.maker = otherSigner;
         _expectSignatureRevert(c, sig);
     }
@@ -432,20 +348,14 @@ contract MatchingModuleTest is Test {
         bytes memory shortSig = new bytes(64);
         vm.prank(taker);
         vm.expectRevert();
-        matchingModule.matchCommitment(
-            c,
-            shortSig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, shortSig, DEFAULT_TAKER_DESIRED_RISK);
     }
 
     function test_ZeroAddressMakerReverts() public {
         MatchingModule.OspexCommitment memory c = _defaultCommitment();
         c.maker = address(0);
         vm.prank(taker);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__InvalidMakerAddress.selector
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__InvalidMakerAddress.selector);
         matchingModule.matchCommitment(c, "", DEFAULT_TAKER_DESIRED_RISK);
     }
 
@@ -461,39 +371,20 @@ contract MatchingModuleTest is Test {
         bytes memory sig = _signCommitment(c, MAKER_PK);
 
         vm.prank(taker);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
 
         vm.prank(taker);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__CommitmentFullyFilled.selector
-        );
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__CommitmentFullyFilled.selector);
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
     }
 
     function test_ReplayAfterCancellationReverts() public {
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
         vm.prank(maker);
         matchingModule.cancelCommitment(c);
         vm.prank(taker);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__CommitmentCancelled.selector
-        );
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__CommitmentCancelled.selector);
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
     }
 
     // ===================== PARTIAL FILL ACCOUNTING =====================
@@ -505,16 +396,9 @@ contract MatchingModuleTest is Test {
         // fillMakerRisk = 10_989_011 - 11 = 10_989_000
         uint256 fillMakerRisk = 10_989_000;
 
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
         vm.prank(taker);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
 
         bytes32 commitmentHash = matchingModule.getCommitmentHash(c);
         assertEq(matchingModule.s_filledRisk(commitmentHash), fillMakerRisk);
@@ -527,26 +411,15 @@ contract MatchingModuleTest is Test {
         // profitTicks = 91, fillMakerRisk = 10_989_000
         uint256 fillMakerRisk = 10_989_000;
 
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
 
         vm.prank(taker);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
         // remaining = 100_000_000 - 10_989_000 = 89_011_000
         assertEq(_remaining(c), 89_011_000);
 
         vm.prank(taker2);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
         // remaining = 89_011_000 - 10_989_000 = 78_022_000
         assertEq(_remaining(c), 78_022_000);
 
@@ -557,35 +430,20 @@ contract MatchingModuleTest is Test {
         // Independent calc: oddsTick=191, takerDesiredRisk=10_000_000
         // profitTicks = 91, fillMakerRisk = 10_989_000
 
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
 
         vm.prank(taker);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
         // remaining = 100_000_000 - 10_989_000 = 89_011_000
         assertEq(_remaining(c), 89_011_000);
 
         vm.prank(taker2);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
         // remaining = 100_000_000 - 2 * 10_989_000 = 78_022_000
         assertEq(_remaining(c), 78_022_000);
 
         vm.prank(address(0xEEEE));
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
         // remaining = 100_000_000 - 3 * 10_989_000 = 67_033_000
         assertEq(_remaining(c), 67_033_000);
     }
@@ -600,21 +458,11 @@ contract MatchingModuleTest is Test {
         bytes memory sig = _signCommitment(c, MAKER_PK);
 
         vm.prank(taker);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
 
         vm.prank(taker);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__CommitmentFullyFilled.selector
-        );
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__CommitmentFullyFilled.selector);
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
     }
 
     function test_FillRecordsCalculatedMakerRisk() public {
@@ -622,17 +470,10 @@ contract MatchingModuleTest is Test {
         // fillMakerRisk = 10_989_000
         uint256 fillMakerRisk = 10_989_000;
 
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
 
         vm.prank(taker);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
 
         bytes32 commitmentHash = matchingModule.getCommitmentHash(c);
         assertEq(matchingModule.s_filledRisk(commitmentHash), fillMakerRisk);
@@ -640,11 +481,7 @@ contract MatchingModuleTest is Test {
         assertEq(_remaining(c), 89_011_000);
 
         vm.prank(taker2);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
         // 2 * 10_989_000 = 21_978_000
         assertEq(matchingModule.s_filledRisk(commitmentHash), 21_978_000);
     }
@@ -661,24 +498,14 @@ contract MatchingModuleTest is Test {
 
         for (uint256 i = 0; i < 10; i++) {
             vm.prank(address(uint160(0xF000 + i)));
-            matchingModule.matchCommitment(
-                c,
-                sig,
-                DEFAULT_TAKER_DESIRED_RISK
-            );
+            matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
         }
 
         assertEq(_remaining(c), 0);
 
         vm.prank(taker);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__CommitmentFullyFilled.selector
-        );
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__CommitmentFullyFilled.selector);
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
     }
 
     // ===================== LOT SIZE VALIDATION =====================
@@ -690,22 +517,13 @@ contract MatchingModuleTest is Test {
 
         vm.prank(taker);
         vm.expectRevert(MatchingModule.MatchingModule__InvalidLotSize.selector);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
     }
 
     /// @notice Task 4 (#22): Various riskAmounts not divisible by ODDS_SCALE all revert
     function test_InvalidLotSize_VariousAmounts() public {
-        uint256[5] memory badAmounts = [
-            uint256(100_000_001),
-            uint256(100_000_050),
-            uint256(100_000_099),
-            uint256(1),
-            uint256(99)
-        ];
+        uint256[5] memory badAmounts =
+            [uint256(100_000_001), uint256(100_000_050), uint256(100_000_099), uint256(1), uint256(99)];
 
         for (uint256 i = 0; i < badAmounts.length; i++) {
             MatchingModule.OspexCommitment memory c = _defaultCommitment();
@@ -714,14 +532,8 @@ contract MatchingModuleTest is Test {
             bytes memory sig = _signCommitment(c, MAKER_PK);
 
             vm.prank(taker);
-            vm.expectRevert(
-                MatchingModule.MatchingModule__InvalidLotSize.selector
-            );
-            matchingModule.matchCommitment(
-                c,
-                sig,
-                DEFAULT_TAKER_DESIRED_RISK
-            );
+            vm.expectRevert(MatchingModule.MatchingModule__InvalidLotSize.selector);
+            matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
         }
     }
 
@@ -806,34 +618,17 @@ contract MatchingModuleTest is Test {
     // ===================== NONCE / CANCELLATION =====================
 
     function test_RaiseMinNonceInvalidatesLowerNonces() public {
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
         vm.prank(maker);
-        matchingModule.raiseMinNonce(
-            DEFAULT_CONTEST_ID,
-            defaultScorer,
-            DEFAULT_LINE_TICKS,
-            5
-        );
+        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS, 5);
         vm.prank(taker);
         vm.expectRevert(MatchingModule.MatchingModule__NonceTooLow.selector);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
     }
 
     function test_RaiseMinNoncePerMakerPerSpeculation() public {
         vm.prank(maker);
-        matchingModule.raiseMinNonce(
-            DEFAULT_CONTEST_ID,
-            defaultScorer,
-            DEFAULT_LINE_TICKS,
-            5
-        );
+        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS, 5);
 
         MatchingModule.OspexCommitment memory c = _defaultCommitment();
         c.maker = otherSigner;
@@ -841,22 +636,13 @@ contract MatchingModuleTest is Test {
         bytes memory sig = _signCommitment(c, OTHER_PK);
 
         vm.prank(taker);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
         assertEq(mockPosition.recordFillCallCount(), 1);
     }
 
     function test_RaiseMinNoncePerSpeculation() public {
         vm.prank(maker);
-        matchingModule.raiseMinNonce(
-            DEFAULT_CONTEST_ID,
-            defaultScorer,
-            DEFAULT_LINE_TICKS,
-            5
-        );
+        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS, 5);
 
         MatchingModule.OspexCommitment memory c = _defaultCommitment();
         c.lineTicks = 99;
@@ -864,11 +650,7 @@ contract MatchingModuleTest is Test {
         bytes memory sig = _signCommitment(c, MAKER_PK);
 
         vm.prank(taker);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
         assertEq(mockPosition.recordFillCallCount(), 1);
     }
 
@@ -876,9 +658,7 @@ contract MatchingModuleTest is Test {
         MatchingModule.OspexCommitment memory c = _defaultCommitment();
 
         vm.prank(taker);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__NotCommitmentMaker.selector
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__NotCommitmentMaker.selector);
         matchingModule.cancelCommitment(c);
 
         vm.prank(maker);
@@ -889,91 +669,46 @@ contract MatchingModuleTest is Test {
     }
 
     function test_CancelledCommitmentCannotBeMatched() public {
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
 
         vm.prank(maker);
         matchingModule.cancelCommitment(c);
 
         vm.prank(taker);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__CommitmentCancelled.selector
-        );
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__CommitmentCancelled.selector);
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
     }
 
     function test_NonceMustStrictlyIncrease() public {
         vm.prank(maker);
-        matchingModule.raiseMinNonce(
-            DEFAULT_CONTEST_ID,
-            defaultScorer,
-            DEFAULT_LINE_TICKS,
-            5
-        );
+        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS, 5);
 
         vm.prank(maker);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__NonceMustIncrease.selector
-        );
-        matchingModule.raiseMinNonce(
-            DEFAULT_CONTEST_ID,
-            defaultScorer,
-            DEFAULT_LINE_TICKS,
-            5
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__NonceMustIncrease.selector);
+        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS, 5);
 
         vm.prank(maker);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__NonceMustIncrease.selector
-        );
-        matchingModule.raiseMinNonce(
-            DEFAULT_CONTEST_ID,
-            defaultScorer,
-            DEFAULT_LINE_TICKS,
-            4
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__NonceMustIncrease.selector);
+        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS, 4);
 
         vm.prank(maker);
-        matchingModule.raiseMinNonce(
-            DEFAULT_CONTEST_ID,
-            defaultScorer,
-            DEFAULT_LINE_TICKS,
-            6
-        );
-        bytes32 speculationKey = keccak256(
-            abi.encode(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS)
-        );
+        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS, 6);
+        bytes32 speculationKey = keccak256(abi.encode(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS));
         assertEq(matchingModule.s_minNonces(maker, speculationKey), 6);
     }
 
     // ===================== RECORDFILL PATH =====================
 
     function test_MatchCallsRecordFill() public {
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
 
         vm.prank(taker);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
 
         assertEq(mockPosition.recordFillCallCount(), 1);
         assertEq(mockPosition.lastMaker(), maker);
         assertEq(mockPosition.lastTaker(), taker);
-        assertEq(
-            uint(mockPosition.lastMakerPositionType()),
-            uint(PositionType.Upper)
-        );
+        assertEq(uint256(mockPosition.lastMakerPositionType()), uint256(PositionType.Upper));
 
         // Independent calc: oddsTick=191, takerDesiredRisk=10_000_000
         // profitTicks = 91
@@ -991,34 +726,26 @@ contract MatchingModuleTest is Test {
         uint16 oddsTick = 250;
         uint256 riskAmount = 50_000_000;
 
-        MatchingModule.OspexCommitment memory c = MatchingModule
-            .OspexCommitment({
-                maker: maker,
-                contestId: contestId,
-                scorer: scorer,
-                lineTicks: lineTicks,
-                positionType: PositionType.Lower,
-                oddsTick: oddsTick,
-                riskAmount: riskAmount,
-                nonce: 1,
-                expiry: block.timestamp + 1 hours
-            });
+        MatchingModule.OspexCommitment memory c = MatchingModule.OspexCommitment({
+            maker: maker,
+            contestId: contestId,
+            scorer: scorer,
+            lineTicks: lineTicks,
+            positionType: PositionType.Lower,
+            oddsTick: oddsTick,
+            riskAmount: riskAmount,
+            nonce: 1,
+            expiry: block.timestamp + 1 hours
+        });
         bytes memory sig = _signCommitment(c, MAKER_PK);
 
         uint256 takerDesiredRisk = 5_000_000;
 
         vm.prank(taker);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            takerDesiredRisk
-        );
+        matchingModule.matchCommitment(c, sig, takerDesiredRisk);
 
         assertEq(mockPosition.recordFillCallCount(), 1);
-        assertEq(
-            uint(mockPosition.lastMakerPositionType()),
-            uint(PositionType.Lower)
-        );
+        assertEq(uint256(mockPosition.lastMakerPositionType()), uint256(PositionType.Lower));
         assertEq(mockPosition.lastMaker(), maker);
         assertEq(mockPosition.lastTaker(), taker);
         assertEq(mockPosition.lastContestId(), contestId);
@@ -1042,14 +769,8 @@ contract MatchingModuleTest is Test {
         bytes memory sig = _signCommitment(c, MAKER_PK);
         vm.warp(block.timestamp + 1 hours + 1);
         vm.prank(taker);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__CommitmentExpired.selector
-        );
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__CommitmentExpired.selector);
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
     }
 
     function test_ExpiryBoundaryExactReverts() public {
@@ -1058,14 +779,8 @@ contract MatchingModuleTest is Test {
         bytes memory sig = _signCommitment(c, MAKER_PK);
         vm.warp(c.expiry);
         vm.prank(taker);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__CommitmentExpired.selector
-        );
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__CommitmentExpired.selector);
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
     }
 
     function test_ExpiryBoundaryLastSecondAccepted() public {
@@ -1074,31 +789,19 @@ contract MatchingModuleTest is Test {
         bytes memory sig = _signCommitment(c, MAKER_PK);
         vm.warp(c.expiry - 1);
         vm.prank(taker);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
         assertEq(mockPosition.recordFillCallCount(), 1);
     }
 
     function test_TakerDesiredRiskZeroReverts() public {
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
         vm.prank(taker);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__InvalidTakerDesiredRisk.selector
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__InvalidTakerDesiredRisk.selector);
         matchingModule.matchCommitment(c, sig, 0);
     }
 
     function test_CommitmentMatchedEventEmitted() public {
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
         bytes32 expectedHash = matchingModule.getCommitmentHash(c);
 
         // Independent calc: oddsTick=191, takerDesiredRisk=10_000_000
@@ -1125,11 +828,7 @@ contract MatchingModuleTest is Test {
         );
 
         vm.prank(taker);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
     }
 
     function test_CommitmentCancelledEventEmitted() public {
@@ -1155,27 +854,15 @@ contract MatchingModuleTest is Test {
     }
 
     function test_MinNonceUpdatedEventEmitted() public {
-        bytes32 expectedKey = keccak256(
-            abi.encode(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS)
-        );
+        bytes32 expectedKey = keccak256(abi.encode(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS));
 
         vm.expectEmit(true, true, false, true);
         emit MatchingModule.MinNonceUpdated(
-            maker,
-            DEFAULT_CONTEST_ID,
-            defaultScorer,
-            DEFAULT_LINE_TICKS,
-            5,
-            expectedKey
+            maker, DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS, 5, expectedKey
         );
 
         vm.prank(maker);
-        matchingModule.raiseMinNonce(
-            DEFAULT_CONTEST_ID,
-            defaultScorer,
-            DEFAULT_LINE_TICKS,
-            5
-        );
+        matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS, 5);
     }
 
     function test_ReentrancyProtection() public {
@@ -1190,26 +877,23 @@ contract MatchingModuleTest is Test {
         reentrPos.setTarget(address(mmReentrant));
         reentrPos.setShouldReenter(true);
 
-        MatchingModule.OspexCommitment memory c = MatchingModule
-            .OspexCommitment({
-                maker: maker,
-                contestId: DEFAULT_CONTEST_ID,
-                scorer: defaultScorer,
-                lineTicks: DEFAULT_LINE_TICKS,
-                positionType: PositionType.Upper,
-                oddsTick: DEFAULT_ODDS_TICK,
-                riskAmount: DEFAULT_RISK_AMOUNT,
-                nonce: 1,
-                expiry: block.timestamp + 1 hours
-            });
+        MatchingModule.OspexCommitment memory c = MatchingModule.OspexCommitment({
+            maker: maker,
+            contestId: DEFAULT_CONTEST_ID,
+            scorer: defaultScorer,
+            lineTicks: DEFAULT_LINE_TICKS,
+            positionType: PositionType.Upper,
+            oddsTick: DEFAULT_ODDS_TICK,
+            riskAmount: DEFAULT_RISK_AMOUNT,
+            nonce: 1,
+            expiry: block.timestamp + 1 hours
+        });
         bytes32 digest = mmReentrant.getCommitmentHash(c);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(MAKER_PK, digest);
         bytes memory sig = abi.encodePacked(r, s, v);
 
         vm.prank(taker);
-        vm.expectRevert(
-            abi.encodeWithSignature("ReentrancyGuardReentrantCall()")
-        );
+        vm.expectRevert(abi.encodeWithSignature("ReentrancyGuardReentrantCall()"));
         mmReentrant.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
     }
 
@@ -1220,17 +904,8 @@ contract MatchingModuleTest is Test {
         c.oddsTick = 100;
         bytes memory sig = _signCommitment(c, MAKER_PK);
         vm.prank(taker);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                MatchingModule.MatchingModule__OddsOutOfRange.selector,
-                uint16(100)
-            )
-        );
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        vm.expectRevert(abi.encodeWithSelector(MatchingModule.MatchingModule__OddsOutOfRange.selector, uint16(100)));
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
     }
 
     function test_OddsAboveMaxReverts() public {
@@ -1238,17 +913,8 @@ contract MatchingModuleTest is Test {
         c.oddsTick = 10101;
         bytes memory sig = _signCommitment(c, MAKER_PK);
         vm.prank(taker);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                MatchingModule.MatchingModule__OddsOutOfRange.selector,
-                uint16(10101)
-            )
-        );
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        vm.expectRevert(abi.encodeWithSelector(MatchingModule.MatchingModule__OddsOutOfRange.selector, uint16(10101)));
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
     }
 
     // ===================== INVALID FILL MAKER RISK (#16) =====================
@@ -1263,9 +929,7 @@ contract MatchingModuleTest is Test {
         c.oddsTick = 10100;
         bytes memory sig = _signCommitment(c, MAKER_PK);
         vm.prank(taker);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__InvalidFillMakerRisk.selector
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__InvalidFillMakerRisk.selector);
         matchingModule.matchCommitment(c, sig, 1);
     }
 
@@ -1280,9 +944,7 @@ contract MatchingModuleTest is Test {
         c.riskAmount = 1_000;
         bytes memory sig = _signCommitment(c, MAKER_PK);
         vm.prank(taker);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__InvalidFillMakerRisk.selector
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__InvalidFillMakerRisk.selector);
         matchingModule.matchCommitment(c, sig, 1_000_000);
     }
 
@@ -1327,9 +989,7 @@ contract MatchingModuleTest is Test {
         assertEq(_remaining(c), 0, "no dust remaining");
 
         vm.prank(taker);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__CommitmentFullyFilled.selector
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__CommitmentFullyFilled.selector);
         matchingModule.matchCommitment(c, sig, 20_000_000);
     }
 
@@ -1342,27 +1002,15 @@ contract MatchingModuleTest is Test {
         bytes memory sig = _signCommitment(c, MAKER_PK);
 
         vm.prank(taker);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
         assertEq(_remaining(c), 0, "fully filled");
 
         vm.prank(taker2);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__CommitmentFullyFilled.selector
-        );
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__CommitmentFullyFilled.selector);
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
 
         vm.prank(taker);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__CommitmentFullyFilled.selector
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__CommitmentFullyFilled.selector);
         matchingModule.matchCommitment(c, sig, 1_000_000);
     }
 
@@ -1380,32 +1028,17 @@ contract MatchingModuleTest is Test {
         assertEq(hash1, hash2);
     }
 
-    function test_GetCommitmentHash_DifferentFields_DifferentHash()
-        public
-        view
-    {
+    function test_GetCommitmentHash_DifferentFields_DifferentHash() public view {
         MatchingModule.OspexCommitment memory c1 = _defaultCommitment();
         MatchingModule.OspexCommitment memory c2 = _defaultCommitment();
         c2.oddsTick = 200;
-        assertTrue(
-            matchingModule.getCommitmentHash(c1) !=
-                matchingModule.getCommitmentHash(c2)
-        );
+        assertTrue(matchingModule.getCommitmentHash(c1) != matchingModule.getCommitmentHash(c2));
     }
 
     function test_COMMITMENT_TYPEHASH() public view {
         bytes32 expected = keccak256(
-            "OspexCommitment("
-            "address maker,"
-            "uint256 contestId,"
-            "address scorer,"
-            "int32 lineTicks,"
-            "uint8 positionType,"
-            "uint16 oddsTick,"
-            "uint256 riskAmount,"
-            "uint256 nonce,"
-            "uint256 expiry"
-            ")"
+            "OspexCommitment(" "address maker," "uint256 contestId," "address scorer," "int32 lineTicks,"
+            "uint8 positionType," "uint16 oddsTick," "uint256 riskAmount," "uint256 nonce," "uint256 expiry" ")"
         );
         assertEq(matchingModule.COMMITMENT_TYPEHASH(), expected);
     }
@@ -1453,19 +1086,10 @@ contract MatchingModuleTest is Test {
     function test_ContestAlreadyScored_Reverts() public {
         mockContest.setContestTerminal(DEFAULT_CONTEST_ID, true);
 
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
         vm.prank(taker);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__ContestAlreadyScored.selector
-        );
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__ContestAlreadyScored.selector);
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
     }
 
     /**
@@ -1473,16 +1097,9 @@ contract MatchingModuleTest is Test {
      */
     function test_ContestNotScored_Succeeds() public {
         // mockContest defaults to false (not scored)
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
         vm.prank(taker);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
         assertEq(mockPosition.recordFillCallCount(), 1);
     }
 
@@ -1490,18 +1107,11 @@ contract MatchingModuleTest is Test {
      * @notice Scoring a contest after a partial fill blocks further fills
      */
     function test_ContestScoredAfterPartialFill_BlocksFurtherFills() public {
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
 
         // First fill succeeds (contest not scored)
         vm.prank(taker);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
         assertEq(mockPosition.recordFillCallCount(), 1);
 
         // Contest gets scored
@@ -1509,14 +1119,8 @@ contract MatchingModuleTest is Test {
 
         // Second fill on same commitment reverts
         vm.prank(taker);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__ContestAlreadyScored.selector
-        );
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__ContestAlreadyScored.selector);
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
     }
 
     /**
@@ -1527,16 +1131,9 @@ contract MatchingModuleTest is Test {
         mockContest.setContestTerminal(999, true);
 
         // Default contest (ID=1) is still fillable
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
         vm.prank(taker);
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
         assertEq(mockPosition.recordFillCallCount(), 1);
     }
 
@@ -1546,19 +1143,10 @@ contract MatchingModuleTest is Test {
     function test_ContestVoided_Reverts() public {
         mockContest.setContestTerminal(DEFAULT_CONTEST_ID, true);
 
-        (
-            MatchingModule.OspexCommitment memory c,
-            bytes memory sig
-        ) = _signedDefault();
+        (MatchingModule.OspexCommitment memory c, bytes memory sig) = _signedDefault();
         vm.prank(taker);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__ContestAlreadyScored.selector
-        );
-        matchingModule.matchCommitment(
-            c,
-            sig,
-            DEFAULT_TAKER_DESIRED_RISK
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__ContestAlreadyScored.selector);
+        matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
     }
 
     // ===================== LINE TICKS BOUND (V-1 fund-lock) =====================
@@ -1576,10 +1164,7 @@ contract MatchingModuleTest is Test {
 
         vm.prank(taker);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                MatchingModule.MatchingModule__LineTicksOutOfRange.selector,
-                type(int32).max
-            )
+            abi.encodeWithSelector(MatchingModule.MatchingModule__LineTicksOutOfRange.selector, type(int32).max)
         );
         matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
 
@@ -1601,10 +1186,7 @@ contract MatchingModuleTest is Test {
             bytes memory sig = _signCommitment(c, MAKER_PK);
             vm.prank(taker);
             vm.expectRevert(
-                abi.encodeWithSelector(
-                    MatchingModule.MatchingModule__LineTicksOutOfRange.selector,
-                    max + 1
-                )
+                abi.encodeWithSelector(MatchingModule.MatchingModule__LineTicksOutOfRange.selector, max + 1)
             );
             matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
         }
@@ -1617,10 +1199,7 @@ contract MatchingModuleTest is Test {
             bytes memory sig = _signCommitment(c, MAKER_PK);
             vm.prank(taker);
             vm.expectRevert(
-                abi.encodeWithSelector(
-                    MatchingModule.MatchingModule__LineTicksOutOfRange.selector,
-                    -(max + 1)
-                )
+                abi.encodeWithSelector(MatchingModule.MatchingModule__LineTicksOutOfRange.selector, -(max + 1))
             );
             matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
         }
@@ -1652,10 +1231,7 @@ contract MatchingModuleTest is Test {
      *         layer was deliberately dropped and is intentionally not referenced.)
      */
     function test_MaxLineTicksConstant_MatchesSpeculationModule() public {
-        SpeculationModule speculationModuleForConst = new SpeculationModule(
-            address(mockCore),
-            3 days
-        );
+        SpeculationModule speculationModuleForConst = new SpeculationModule(address(mockCore), 3 days);
         assertEq(
             int256(matchingModule.MAX_LINE_TICKS()),
             int256(speculationModuleForConst.MAX_LINE_TICKS()),
@@ -1671,16 +1247,11 @@ contract MatchingModuleTest is Test {
 contract MockLeaderboardModuleForIntegration {
     mapping(uint256 => Leaderboard) private leaderboards;
 
-    function setLeaderboard(
-        uint256 leaderboardId,
-        Leaderboard memory leaderboard
-    ) external {
+    function setLeaderboard(uint256 leaderboardId, Leaderboard memory leaderboard) external {
         leaderboards[leaderboardId] = leaderboard;
     }
 
-    function getLeaderboard(
-        uint256 leaderboardId
-    ) external view returns (Leaderboard memory) {
+    function getLeaderboard(uint256 leaderboardId) external view returns (Leaderboard memory) {
         return leaderboards[leaderboardId];
     }
 }
@@ -1710,16 +1281,9 @@ contract MatchingModuleIntegrationTest is Test {
         core = new OspexCore();
         token = new MockERC20();
 
-        speculationModule = new SpeculationModule(
-            address(core), VOID_COOLDOWN
-        );
+        speculationModule = new SpeculationModule(address(core), VOID_COOLDOWN);
         positionModule = new PositionModule(address(core), address(token));
-        treasuryModule = new TreasuryModule(
-            address(core),
-            address(token),
-            protocolReceiver,
-            0, 0, 0
-        );
+        treasuryModule = new TreasuryModule(address(core), address(token), protocolReceiver, 0, 0, 0);
         matchingModule = new MatchingModule(address(core));
 
         mockContestModule = new MockContestModule();
@@ -1728,18 +1292,30 @@ contract MatchingModuleIntegrationTest is Test {
         // Bootstrap all 12 modules
         bytes32[] memory types = new bytes32[](12);
         address[] memory addrs = new address[](12);
-        types[0] = core.CONTEST_MODULE();           addrs[0] = address(mockContestModule);
-        types[1] = core.SPECULATION_MODULE();        addrs[1] = address(speculationModule);
-        types[2] = core.POSITION_MODULE();           addrs[2] = address(positionModule);
-        types[3] = core.MATCHING_MODULE();           addrs[3] = address(matchingModule);
-        types[4] = core.CRE_ORACLE_RECEIVER();             addrs[4] = address(this);
-        types[5] = core.TREASURY_MODULE();           addrs[5] = address(treasuryModule);
-        types[6] = core.LEADERBOARD_MODULE();        addrs[6] = address(mockLB);
-        types[7] = core.RULES_MODULE();              addrs[7] = address(0xD007);
-        types[8] = core.SECONDARY_MARKET_MODULE();   addrs[8] = address(0xD008);
-        types[9] = core.MONEYLINE_SCORER_MODULE();   addrs[9] = address(0xCC01);
-        types[10] = core.SPREAD_SCORER_MODULE();     addrs[10] = address(0xCC03);
-        types[11] = core.TOTAL_SCORER_MODULE();      addrs[11] = address(0xCC02);
+        types[0] = core.CONTEST_MODULE();
+        addrs[0] = address(mockContestModule);
+        types[1] = core.SPECULATION_MODULE();
+        addrs[1] = address(speculationModule);
+        types[2] = core.POSITION_MODULE();
+        addrs[2] = address(positionModule);
+        types[3] = core.MATCHING_MODULE();
+        addrs[3] = address(matchingModule);
+        types[4] = core.CRE_ORACLE_RECEIVER();
+        addrs[4] = address(this);
+        types[5] = core.TREASURY_MODULE();
+        addrs[5] = address(treasuryModule);
+        types[6] = core.LEADERBOARD_MODULE();
+        addrs[6] = address(mockLB);
+        types[7] = core.RULES_MODULE();
+        addrs[7] = address(0xD007);
+        types[8] = core.SECONDARY_MARKET_MODULE();
+        addrs[8] = address(0xD008);
+        types[9] = core.MONEYLINE_SCORER_MODULE();
+        addrs[9] = address(0xCC01);
+        types[10] = core.SPREAD_SCORER_MODULE();
+        addrs[10] = address(0xCC03);
+        types[11] = core.TOTAL_SCORER_MODULE();
+        addrs[11] = address(0xCC02);
         core.bootstrapModules(types, addrs);
         core.finalize();
 
@@ -1766,40 +1342,32 @@ contract MatchingModuleIntegrationTest is Test {
 
     // ===================== HELPERS =====================
 
-    function _sign(
-        MatchingModule.OspexCommitment memory c,
-        uint256 pk
-    ) internal view returns (bytes memory) {
+    function _sign(MatchingModule.OspexCommitment memory c, uint256 pk) internal view returns (bytes memory) {
         bytes32 digest = matchingModule.getCommitmentHash(c);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
     }
 
-    function _makeCommitment(
-        uint16 oddsTick,
-        int32 lineTicks,
-        uint256 riskAmount
-    ) internal view returns (MatchingModule.OspexCommitment memory) {
-        return
-            MatchingModule.OspexCommitment({
-                maker: maker,
-                contestId: 1,
-                scorer: address(0xCC03),
-                lineTicks: lineTicks,
-                positionType: PositionType.Upper,
-                oddsTick: oddsTick,
-                riskAmount: riskAmount,
-                nonce: 1,
-                expiry: block.timestamp + 1 hours
-            });
+    function _makeCommitment(uint16 oddsTick, int32 lineTicks, uint256 riskAmount)
+        internal
+        view
+        returns (MatchingModule.OspexCommitment memory)
+    {
+        return MatchingModule.OspexCommitment({
+            maker: maker,
+            contestId: 1,
+            scorer: address(0xCC03),
+            lineTicks: lineTicks,
+            positionType: PositionType.Upper,
+            oddsTick: oddsTick,
+            riskAmount: riskAmount,
+            nonce: 1,
+            expiry: block.timestamp + 1 hours
+        });
     }
 
-    function _remaining(
-        MatchingModule.OspexCommitment memory c
-    ) internal view returns (uint256) {
-        return
-            c.riskAmount -
-            matchingModule.s_filledRisk(matchingModule.getCommitmentHash(c));
+    function _remaining(MatchingModule.OspexCommitment memory c) internal view returns (uint256) {
+        return c.riskAmount - matchingModule.s_filledRisk(matchingModule.getCommitmentHash(c));
     }
 
     // ===================== REAL FILL MATH =====================
@@ -1807,11 +1375,7 @@ contract MatchingModuleIntegrationTest is Test {
     function testIntegration_RealFillMath_193() public {
         uint16 oddsTick = 193;
         uint256 riskAmount = 10_000_000;
-        MatchingModule.OspexCommitment memory c = _makeCommitment(
-            oddsTick,
-            0,
-            riskAmount
-        );
+        MatchingModule.OspexCommitment memory c = _makeCommitment(oddsTick, 0, riskAmount);
         bytes memory sig = _sign(c, MAKER_PK);
 
         uint256 takerDesiredRisk = 5_000_000;
@@ -1830,30 +1394,14 @@ contract MatchingModuleIntegrationTest is Test {
         vm.prank(taker);
         matchingModule.matchCommitment(c, sig, takerDesiredRisk);
 
-        assertEq(
-            token.balanceOf(maker),
-            makerBal - fillMakerRisk,
-            "maker balance"
-        );
+        assertEq(token.balanceOf(maker), makerBal - fillMakerRisk, "maker balance");
         assertEq(token.balanceOf(taker), takerBal - takerRisk, "taker balance");
 
-        uint256 specId = speculationModule.getSpeculationId(
-            1,
-            address(0xCC03),
-            0
-        );
+        uint256 specId = speculationModule.getSpeculationId(1, address(0xCC03), 0);
         assertGt(specId, 0, "speculation created");
 
-        Position memory mPos = positionModule.getPosition(
-            specId,
-            maker,
-            PositionType.Upper
-        );
-        Position memory tPos = positionModule.getPosition(
-            specId,
-            taker,
-            PositionType.Lower
-        );
+        Position memory mPos = positionModule.getPosition(specId, maker, PositionType.Upper);
+        Position memory tPos = positionModule.getPosition(specId, taker, PositionType.Lower);
 
         assertEq(mPos.riskAmount, fillMakerRisk, "maker riskAmount");
         assertEq(mPos.profitAmount, takerRisk, "maker profitAmount");
@@ -1865,31 +1413,18 @@ contract MatchingModuleIntegrationTest is Test {
     }
 
     function testIntegration_RealFillMath_AllRoundingOdds() public {
-        uint16[4] memory oddsTickList = [
-            uint16(193),
-            uint16(187),
-            uint16(208),
-            uint16(215)
-        ];
+        uint16[4] memory oddsTickList = [uint16(193), uint16(187), uint16(208), uint16(215)];
         // Independent calcs for takerDesiredRisk=5_000_000:
         // 193: pt=93,  raw=ceil(500M/93)=5_376_345,  fill=5_376_300
         // 187: pt=87,  raw=ceil(500M/87)=5_747_127,  fill=5_747_100
         // 208: pt=108, raw=ceil(500M/108)=4_629_630, fill=4_629_600
         // 215: pt=115, raw=ceil(500M/115)=4_347_827, fill=4_347_800
-        uint256[4] memory expectedFills = [
-            uint256(5_376_300),
-            uint256(5_747_100),
-            uint256(4_629_600),
-            uint256(4_347_800)
-        ];
+        uint256[4] memory expectedFills =
+            [uint256(5_376_300), uint256(5_747_100), uint256(4_629_600), uint256(4_347_800)];
 
         for (uint256 i = 0; i < oddsTickList.length; i++) {
             uint16 oddsTick = oddsTickList[i];
-            MatchingModule.OspexCommitment memory c = _makeCommitment(
-                oddsTick,
-                int32(int256(100 + i)),
-                10_000_000
-            );
+            MatchingModule.OspexCommitment memory c = _makeCommitment(oddsTick, int32(int256(100 + i)), 10_000_000);
             bytes memory sig = _sign(c, MAKER_PK);
 
             uint256 makerBal = token.balanceOf(maker);
@@ -1915,11 +1450,7 @@ contract MatchingModuleIntegrationTest is Test {
         // fillMakerRisk = 10_000_000 = riskAmount exactly
         uint256 takerDesiredRisk = 9_300_000;
 
-        MatchingModule.OspexCommitment memory c = _makeCommitment(
-            oddsTick,
-            40,
-            riskAmount
-        );
+        MatchingModule.OspexCommitment memory c = _makeCommitment(oddsTick, 40, riskAmount);
         bytes memory sig = _sign(c, MAKER_PK);
 
         vm.prank(taker);
@@ -1928,9 +1459,7 @@ contract MatchingModuleIntegrationTest is Test {
         assertEq(_remaining(c), 0, "fully filled");
 
         vm.prank(taker);
-        vm.expectRevert(
-            MatchingModule.MatchingModule__CommitmentFullyFilled.selector
-        );
+        vm.expectRevert(MatchingModule.MatchingModule__CommitmentFullyFilled.selector);
         matchingModule.matchCommitment(c, sig, 1_000_000);
     }
 
@@ -1948,21 +1477,13 @@ contract MatchingModuleIntegrationTest is Test {
         vm.prank(maker);
         token.approve(address(positionModule), fillMakerRisk);
 
-        MatchingModule.OspexCommitment memory c = _makeCommitment(
-            oddsTick,
-            50,
-            fillMakerRisk
-        );
+        MatchingModule.OspexCommitment memory c = _makeCommitment(oddsTick, 50, fillMakerRisk);
         bytes memory sig = _sign(c, MAKER_PK);
 
         vm.prank(taker);
         matchingModule.matchCommitment(c, sig, takerDesiredRisk);
 
-        assertEq(
-            token.allowance(maker, address(positionModule)),
-            0,
-            "allowance fully consumed"
-        );
+        assertEq(token.allowance(maker, address(positionModule)), 0, "allowance fully consumed");
     }
 
     // ===================== PARTIAL FILL THEN REMAINDER =====================
@@ -1970,11 +1491,7 @@ contract MatchingModuleIntegrationTest is Test {
     function testIntegration_PartialFillThenRemainder() public {
         uint16 oddsTick = 193;
         uint256 riskAmount = 10_000_000;
-        MatchingModule.OspexCommitment memory c = _makeCommitment(
-            oddsTick,
-            60,
-            riskAmount
-        );
+        MatchingModule.OspexCommitment memory c = _makeCommitment(oddsTick, 60, riskAmount);
         bytes memory sig = _sign(c, MAKER_PK);
 
         // Independent calc: oddsTick=193, takerDesiredRisk=5_000_000
@@ -2007,35 +1524,26 @@ contract MatchingModuleIntegrationTest is Test {
 
     function testIntegration_ExistingSpeculationPath() public {
         uint16 oddsTick = 193;
-        MatchingModule.OspexCommitment memory c1 = _makeCommitment(
-            oddsTick,
-            70,
-            10_000_000
-        );
+        MatchingModule.OspexCommitment memory c1 = _makeCommitment(oddsTick, 70, 10_000_000);
         bytes memory sig1 = _sign(c1, MAKER_PK);
 
         vm.prank(taker);
         matchingModule.matchCommitment(c1, sig1, 3_000_000);
 
-        uint256 specId = speculationModule.getSpeculationId(
-            1,
-            address(0xCC03),
-            70
-        );
+        uint256 specId = speculationModule.getSpeculationId(1, address(0xCC03), 70);
         assertGt(specId, 0, "speculation exists after first match");
 
-        MatchingModule.OspexCommitment memory c2 = MatchingModule
-            .OspexCommitment({
-                maker: maker,
-                contestId: 1,
-                scorer: address(0xCC03),
-                lineTicks: 70,
-                positionType: PositionType.Upper,
-                oddsTick: oddsTick,
-                riskAmount: 10_000_000,
-                nonce: 2,
-                expiry: block.timestamp + 1 hours
-            });
+        MatchingModule.OspexCommitment memory c2 = MatchingModule.OspexCommitment({
+            maker: maker,
+            contestId: 1,
+            scorer: address(0xCC03),
+            lineTicks: 70,
+            positionType: PositionType.Upper,
+            oddsTick: oddsTick,
+            riskAmount: 10_000_000,
+            nonce: 2,
+            expiry: block.timestamp + 1 hours
+        });
         bytes memory sig2 = _sign(c2, MAKER_PK);
 
         // Independent calc: oddsTick=193, takerDesiredRisk=3_000_000
@@ -2048,17 +1556,9 @@ contract MatchingModuleIntegrationTest is Test {
         vm.prank(taker);
         matchingModule.matchCommitment(c2, sig2, 3_000_000);
 
-        assertEq(
-            token.balanceOf(maker),
-            makerBal - fillMakerRisk,
-            "second match consumed correct amount"
-        );
+        assertEq(token.balanceOf(maker), makerBal - fillMakerRisk, "second match consumed correct amount");
 
-        uint256 specId2 = speculationModule.getSpeculationId(
-            1,
-            address(0xCC03),
-            70
-        );
+        uint256 specId2 = speculationModule.getSpeculationId(1, address(0xCC03), 70);
         assertEq(specId, specId2, "same speculation reused");
     }
 
@@ -2075,37 +1575,28 @@ contract MatchingModuleIntegrationTest is Test {
         token.approve(address(positionModule), type(uint256).max);
 
         // Maker A signs a commitment
-        MatchingModule.OspexCommitment memory cA = _makeCommitment(
-            200,
-            80,
-            10_000_000
-        );
+        MatchingModule.OspexCommitment memory cA = _makeCommitment(200, 80, 10_000_000);
         bytes memory sigA = _sign(cA, MAKER_PK);
 
         // Maker B signs a commitment on the same speculation (same contestId/scorer/lineTicks)
-        MatchingModule.OspexCommitment memory cB = MatchingModule
-            .OspexCommitment({
-                maker: makerB,
-                contestId: 1,
-                scorer: address(0xCC03),
-                lineTicks: 80,
-                positionType: PositionType.Upper,
-                oddsTick: 200,
-                riskAmount: 10_000_000,
-                nonce: 1,
-                expiry: block.timestamp + 1 hours
-            });
+        MatchingModule.OspexCommitment memory cB = MatchingModule.OspexCommitment({
+            maker: makerB,
+            contestId: 1,
+            scorer: address(0xCC03),
+            lineTicks: 80,
+            positionType: PositionType.Upper,
+            oddsTick: 200,
+            riskAmount: 10_000_000,
+            nonce: 1,
+            expiry: block.timestamp + 1 hours
+        });
         bytes memory sigB = _sign(cB, MAKER_B_PK);
 
         // Taker fills maker A's commitment — this creates the speculation
         vm.prank(taker);
         matchingModule.matchCommitment(cA, sigA, 5_000_000);
 
-        uint256 specId = speculationModule.getSpeculationId(
-            1,
-            address(0xCC03),
-            80
-        );
+        uint256 specId = speculationModule.getSpeculationId(1, address(0xCC03), 80);
         assertGt(specId, 0, "speculation created");
 
         // The creator should be the taker, not maker A
@@ -2123,10 +1614,6 @@ contract MatchingModuleIntegrationTest is Test {
 
         // Creator is still the original taker
         Speculation memory spec2 = speculationModule.getSpeculation(specId);
-        assertEq(
-            spec2.speculationTaker,
-            taker,
-            "creator unchanged after second fill"
-        );
+        assertEq(spec2.speculationTaker, taker, "creator unchanged after second fill");
     }
 }

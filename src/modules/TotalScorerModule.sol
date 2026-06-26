@@ -15,8 +15,7 @@ import {OspexCore} from "../core/OspexCore.sol";
 contract TotalScorerModule is IScorerModule {
     // ──────────────────────────── Constants ────────────────────────────
 
-    bytes32 public constant SPECULATION_MODULE =
-        keccak256("SPECULATION_MODULE");
+    bytes32 public constant SPECULATION_MODULE = keccak256("SPECULATION_MODULE");
     bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
 
     // ──────────────────────────── Errors ───────────────────────────────
@@ -48,20 +47,23 @@ contract TotalScorerModule is IScorerModule {
     /// @notice Deploys the TotalScorerModule
     /// @param ospexCore_ The OspexCore contract address
     constructor(address ospexCore_) {
-        if (ospexCore_ == address(0))
+        if (ospexCore_ == address(0)) {
             revert TotalScorerModule__InvalidOspexCore();
+        }
         i_ospexCore = OspexCore(ospexCore_);
     }
 
     // ──────────────────────────── Scoring ──────────────────────────────
 
     /// @inheritdoc IScorerModule
-    function determineWinSide(
-        uint256 contestId,
-        int32 lineTicks
-    ) external view override onlySpeculationModule returns (WinSide) {
-        Contest memory contest = IContestModule(_getModule(CONTEST_MODULE))
-            .getContest(contestId);
+    function determineWinSide(uint256 contestId, int32 lineTicks)
+        external
+        view
+        override
+        onlySpeculationModule
+        returns (WinSide)
+    {
+        Contest memory contest = IContestModule(_getModule(CONTEST_MODULE)).getContest(contestId);
 
         return _scoreTotal(contest.awayScore, contest.homeScore, lineTicks);
     }
@@ -76,11 +78,7 @@ contract TotalScorerModule is IScorerModule {
      * @param lineTicks Total line (10x format, e.g. 2205 = 220.5)
      * @return The winning side (Over, Under, or Push)
      */
-    function _scoreTotal(
-        uint32 awayScore,
-        uint32 homeScore,
-        int32 lineTicks
-    ) private pure returns (WinSide) {
+    function _scoreTotal(uint32 awayScore, uint32 homeScore, int32 lineTicks) private pure returns (WinSide) {
         // Safe cast: combined sports scores * 10 never exceed int32 max
         // forge-lint: disable-next-line(unsafe-typecast)
         int32 scaledTotal = int32(awayScore + homeScore) * 10;
@@ -101,9 +99,7 @@ contract TotalScorerModule is IScorerModule {
      * @param moduleType The module type identifier
      * @return module The module contract address
      */
-    function _getModule(
-        bytes32 moduleType
-    ) internal view returns (address module) {
+    function _getModule(bytes32 moduleType) internal view returns (address module) {
         module = i_ospexCore.getModule(moduleType);
         if (module == address(0)) {
             revert TotalScorerModule__ModuleNotSet(moduleType);

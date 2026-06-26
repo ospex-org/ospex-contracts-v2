@@ -73,27 +73,36 @@ contract LeaderboardSecondaryMarketIneligibilityTest is Test {
         market = new SecondaryMarketModule(address(core), address(token));
         leaderboardModule = new LeaderboardModule(address(core));
         rulesModule = new RulesModule(address(core));
-        treasuryModule = new TreasuryModule(
-            address(core), address(token), address(0xFEED),
-            1_000_000, 500_000, 500_000
-        );
+        treasuryModule = new TreasuryModule(address(core), address(token), address(0xFEED), 1_000_000, 500_000, 500_000);
         mockContestModule = new MockContestModule();
         mockScorerModule = new MockScorerModule();
 
         bytes32[] memory types = new bytes32[](12);
         address[] memory addrs = new address[](12);
-        types[0]  = core.CONTEST_MODULE();         addrs[0]  = address(mockContestModule);
-        types[1]  = core.SPECULATION_MODULE();      addrs[1]  = address(speculationModule);
-        types[2]  = core.POSITION_MODULE();         addrs[2]  = address(positionModule);
-        types[3]  = core.MATCHING_MODULE();         addrs[3]  = address(this);
-        types[4]  = core.CRE_ORACLE_RECEIVER();           addrs[4]  = address(0xFEED);
-        types[5]  = core.TREASURY_MODULE();         addrs[5]  = address(treasuryModule);
-        types[6]  = core.LEADERBOARD_MODULE();      addrs[6]  = address(leaderboardModule);
-        types[7]  = core.RULES_MODULE();            addrs[7]  = address(rulesModule);
-        types[8]  = core.SECONDARY_MARKET_MODULE(); addrs[8]  = address(market);
-        types[9]  = core.MONEYLINE_SCORER_MODULE(); addrs[9]  = address(mockScorerModule);
-        types[10] = core.SPREAD_SCORER_MODULE();    addrs[10] = address(0x5901);
-        types[11] = core.TOTAL_SCORER_MODULE();     addrs[11] = address(0x7701);
+        types[0] = core.CONTEST_MODULE();
+        addrs[0] = address(mockContestModule);
+        types[1] = core.SPECULATION_MODULE();
+        addrs[1] = address(speculationModule);
+        types[2] = core.POSITION_MODULE();
+        addrs[2] = address(positionModule);
+        types[3] = core.MATCHING_MODULE();
+        addrs[3] = address(this);
+        types[4] = core.CRE_ORACLE_RECEIVER();
+        addrs[4] = address(0xFEED);
+        types[5] = core.TREASURY_MODULE();
+        addrs[5] = address(treasuryModule);
+        types[6] = core.LEADERBOARD_MODULE();
+        addrs[6] = address(leaderboardModule);
+        types[7] = core.RULES_MODULE();
+        addrs[7] = address(rulesModule);
+        types[8] = core.SECONDARY_MARKET_MODULE();
+        addrs[8] = address(market);
+        types[9] = core.MONEYLINE_SCORER_MODULE();
+        addrs[9] = address(mockScorerModule);
+        types[10] = core.SPREAD_SCORER_MODULE();
+        addrs[10] = address(0x5901);
+        types[11] = core.TOTAL_SCORER_MODULE();
+        addrs[11] = address(0x7701);
         core.bootstrapModules(types, addrs);
         core.finalize();
 
@@ -115,9 +124,14 @@ contract LeaderboardSecondaryMarketIneligibilityTest is Test {
 
         // Contest starts far in the future (so positions can be added and speculation registered)
         Contest memory contest = Contest({
-            awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Verified, contestCreator: address(this),
-            rundownId: "test", sportspageId: "test", jsonoddsId: "test"
+            awayScore: 0,
+            homeScore: 0,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Verified,
+            contestCreator: address(this),
+            rundownId: "test",
+            sportspageId: "test",
+            jsonoddsId: "test"
         });
         mockContestModule.setContest(contestId, contest);
         mockContestModule.setContestStartTime(contestId, uint32(block.timestamp + 24 hours));
@@ -125,11 +139,7 @@ contract LeaderboardSecondaryMarketIneligibilityTest is Test {
         // Create leaderboard (starts in 1 hour)
         vm.prank(lbCreator);
         leaderboardId = leaderboardModule.createLeaderboard(
-            ENTRY_FEE,
-            uint32(block.timestamp + 1 hours),
-            uint32(block.timestamp + 8 days),
-            1 days,
-            7 days
+            ENTRY_FEE, uint32(block.timestamp + 1 hours), uint32(block.timestamp + 8 days), 1 days, 7 days
         );
 
         // Warp to after leaderboard start but before contest start
@@ -156,12 +166,8 @@ contract LeaderboardSecondaryMarketIneligibilityTest is Test {
 
         // Attacker tries to register — should revert (secondary market position)
         vm.prank(attacker);
-        vm.expectRevert(
-            LeaderboardModule.LeaderboardModule__SecondaryMarketPositionIneligible.selector
-        );
-        leaderboardModule.registerPositionForLeaderboard(
-            specId, PositionType.Upper, leaderboardId
-        );
+        vm.expectRevert(LeaderboardModule.LeaderboardModule__SecondaryMarketPositionIneligible.selector);
+        leaderboardModule.registerPositionForLeaderboard(specId, PositionType.Upper, leaderboardId);
     }
 
     // =========================================================================
@@ -186,13 +192,9 @@ contract LeaderboardSecondaryMarketIneligibilityTest is Test {
         _registerUserForLeaderboard(alice);
 
         vm.prank(alice);
-        leaderboardModule.registerPositionForLeaderboard(
-            specId, PositionType.Upper, leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(specId, PositionType.Upper, leaderboardId);
 
-        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(
-            leaderboardId, alice, specId
-        );
+        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(leaderboardId, alice, specId);
         assertEq(lbPos.riskAmount, 100_000_000, "Risk should be full primary amount");
         assertEq(lbPos.user, alice, "Position should belong to alice");
     }
@@ -210,13 +212,9 @@ contract LeaderboardSecondaryMarketIneligibilityTest is Test {
         _registerUserForLeaderboard(alice);
 
         vm.prank(alice);
-        leaderboardModule.registerPositionForLeaderboard(
-            specId, PositionType.Upper, leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(specId, PositionType.Upper, leaderboardId);
 
-        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(
-            leaderboardId, alice, specId
-        );
+        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(leaderboardId, alice, specId);
         assertEq(lbPos.riskAmount, 100_000_000, "Risk should match primary position");
         assertEq(lbPos.profitAmount, 80_000_000, "Profit should match primary position");
         assertEq(lbPos.user, alice);
@@ -236,9 +234,14 @@ contract LeaderboardSecondaryMarketIneligibilityTest is Test {
         // Position 2: honestUser vs bob on contest 2
         uint256 contestId2 = 2;
         Contest memory contest2 = Contest({
-            awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Verified, contestCreator: address(this),
-            rundownId: "test2", sportspageId: "test2", jsonoddsId: "test2"
+            awayScore: 0,
+            homeScore: 0,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Verified,
+            contestCreator: address(this),
+            rundownId: "test2",
+            sportspageId: "test2",
+            jsonoddsId: "test2"
         });
         mockContestModule.setContest(contestId2, contest2);
         mockContestModule.setContestStartTime(contestId2, uint32(block.timestamp + 22 hours));
@@ -257,28 +260,20 @@ contract LeaderboardSecondaryMarketIneligibilityTest is Test {
 
         // honestUser registers primary position — succeeds
         vm.prank(honestUser);
-        leaderboardModule.registerPositionForLeaderboard(
-            specId2, PositionType.Upper, leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(specId2, PositionType.Upper, leaderboardId);
 
         // Attacker tries to register secondary position — blocked
         vm.prank(attacker);
-        vm.expectRevert(
-            LeaderboardModule.LeaderboardModule__SecondaryMarketPositionIneligible.selector
-        );
-        leaderboardModule.registerPositionForLeaderboard(
-            specId1, PositionType.Upper, leaderboardId
-        );
+        vm.expectRevert(LeaderboardModule.LeaderboardModule__SecondaryMarketPositionIneligible.selector);
+        leaderboardModule.registerPositionForLeaderboard(specId1, PositionType.Upper, leaderboardId);
 
         // Verify
-        LeaderboardPosition memory honestPos = leaderboardModule.getLeaderboardPosition(
-            leaderboardId, honestUser, specId2
-        );
+        LeaderboardPosition memory honestPos =
+            leaderboardModule.getLeaderboardPosition(leaderboardId, honestUser, specId2);
         assertEq(honestPos.riskAmount, 100_000_000, "Honest user's position should be registered");
 
-        LeaderboardPosition memory attackerPos = leaderboardModule.getLeaderboardPosition(
-            leaderboardId, attacker, specId1
-        );
+        LeaderboardPosition memory attackerPos =
+            leaderboardModule.getLeaderboardPosition(leaderboardId, attacker, specId1);
         assertEq(attackerPos.riskAmount, 0, "Attacker's position should NOT be registered");
     }
 
@@ -286,14 +281,9 @@ contract LeaderboardSecondaryMarketIneligibilityTest is Test {
     // Helpers
     // =========================================================================
 
-    function _createPrimaryPosition(
-        address maker,
-        address taker,
-        uint256 cId
-    ) internal returns (uint256 specId) {
+    function _createPrimaryPosition(address maker, address taker, uint256 cId) internal returns (uint256 specId) {
         specId = positionModule.recordFill(
-            cId, address(mockScorerModule), 0, PositionType.Upper,
-            maker, 100_000_000, taker, 80_000_000
+            cId, address(mockScorerModule), 0, PositionType.Upper, maker, 100_000_000, taker, 80_000_000
         );
     }
 

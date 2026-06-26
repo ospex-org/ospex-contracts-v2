@@ -51,14 +51,8 @@ contract SecondaryMarketModuleTest is Test {
 
         token = new MockERC20();
         speculationModule = new SpeculationModule(address(core), 3 days);
-        positionModule = new PositionModule(
-            address(core),
-            address(token)
-        );
-        treasuryModule = new TreasuryModule(
-            address(core), address(token), address(0xFEED),
-            1_000_000, 500_000, 500_000
-        );
+        positionModule = new PositionModule(address(core), address(token));
+        treasuryModule = new TreasuryModule(address(core), address(token), address(0xFEED), 1_000_000, 500_000, 500_000);
 
         // Create and register MockContestModule
         mockContestModule = new MockContestModule();
@@ -67,10 +61,7 @@ contract SecondaryMarketModuleTest is Test {
         MockLeaderboardModuleSM mockLeaderboard = new MockLeaderboardModuleSM();
 
         // Deploy secondary market module (2 params: core, token)
-        market = new SecondaryMarketModule(
-            address(core),
-            address(token)
-        );
+        market = new SecondaryMarketModule(address(core), address(token));
 
         // Create mock scorer modules for approved-scorer checks
         MockScorerModule mockMoneyline = new MockScorerModule();
@@ -83,18 +74,30 @@ contract SecondaryMarketModuleTest is Test {
         // Bootstrap all 12 modules
         bytes32[] memory types = new bytes32[](12);
         address[] memory addrs = new address[](12);
-        types[0]  = core.CONTEST_MODULE();           addrs[0]  = address(mockContestModule);
-        types[1]  = core.SPECULATION_MODULE();        addrs[1]  = address(speculationModule);
-        types[2]  = core.POSITION_MODULE();           addrs[2]  = address(positionModule);
-        types[3]  = core.MATCHING_MODULE();           addrs[3]  = address(this); // test contract acts as MATCHING_MODULE
-        types[4]  = core.CRE_ORACLE_RECEIVER();             addrs[4]  = address(oracleModule);
-        types[5]  = core.TREASURY_MODULE();           addrs[5]  = address(treasuryModule);
-        types[6]  = core.LEADERBOARD_MODULE();        addrs[6]  = address(mockLeaderboard);
-        types[7]  = core.RULES_MODULE();              addrs[7]  = address(0xD007);
-        types[8]  = core.SECONDARY_MARKET_MODULE();   addrs[8]  = address(market);
-        types[9]  = core.MONEYLINE_SCORER_MODULE();   addrs[9]  = moneylineScorerAddr;
-        types[10] = core.SPREAD_SCORER_MODULE();      addrs[10] = spreadScorerAddr;
-        types[11] = core.TOTAL_SCORER_MODULE();       addrs[11] = totalScorerAddr;
+        types[0] = core.CONTEST_MODULE();
+        addrs[0] = address(mockContestModule);
+        types[1] = core.SPECULATION_MODULE();
+        addrs[1] = address(speculationModule);
+        types[2] = core.POSITION_MODULE();
+        addrs[2] = address(positionModule);
+        types[3] = core.MATCHING_MODULE(); // test contract acts as MATCHING_MODULE
+        addrs[3] = address(this);
+        types[4] = core.CRE_ORACLE_RECEIVER();
+        addrs[4] = address(oracleModule);
+        types[5] = core.TREASURY_MODULE();
+        addrs[5] = address(treasuryModule);
+        types[6] = core.LEADERBOARD_MODULE();
+        addrs[6] = address(mockLeaderboard);
+        types[7] = core.RULES_MODULE();
+        addrs[7] = address(0xD007);
+        types[8] = core.SECONDARY_MARKET_MODULE();
+        addrs[8] = address(market);
+        types[9] = core.MONEYLINE_SCORER_MODULE();
+        addrs[9] = moneylineScorerAddr;
+        types[10] = core.SPREAD_SCORER_MODULE();
+        addrs[10] = spreadScorerAddr;
+        types[11] = core.TOTAL_SCORER_MODULE();
+        addrs[11] = totalScorerAddr;
         core.bootstrapModules(types, addrs);
         core.finalize();
 
@@ -137,14 +140,14 @@ contract SecondaryMarketModuleTest is Test {
         // Seller position: {riskAmount:10e6, profitAmount:1e6, Upper}
         // Buyer position:  {riskAmount:1e6, profitAmount:10e6, Lower}
         speculationId = positionModule.recordFill(
-            1,                    // contestId
-            moneylineScorerAddr,  // scorer (must be a registered scorer module)
-            0,                    // lineTicks (0 for moneyline)
-            positionType,         // makerPositionType = Upper
-            seller,               // maker
-            10e6,                 // makerRisk
-            buyer,                // taker
-            1e6                   // takerRisk
+            1, // contestId
+            moneylineScorerAddr, // scorer (must be a registered scorer module)
+            0, // lineTicks (0 for moneyline)
+            positionType, // makerPositionType = Upper
+            seller, // maker
+            10e6, // makerRisk
+            buyer, // taker
+            1e6 // takerRisk
         );
     }
 
@@ -157,9 +160,7 @@ contract SecondaryMarketModuleTest is Test {
         uint256 _riskAmount,
         uint256 _profitAmount
     ) internal pure returns (bytes32) {
-        return keccak256(abi.encode(
-            _speculationId, _seller, _positionType, _price, _riskAmount, _profitAmount
-        ));
+        return keccak256(abi.encode(_speculationId, _seller, _positionType, _price, _riskAmount, _profitAmount));
     }
 
     function testListPositionForSale() public {
@@ -167,18 +168,8 @@ contract SecondaryMarketModuleTest is Test {
         uint256 price = 5e6; // 5 USDC
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount
-        );
-        SaleListing memory listing = market.getSaleListing(
-            speculationId,
-            seller,
-            positionType
-        );
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
+        SaleListing memory listing = market.getSaleListing(speculationId, seller, positionType);
         assertEq(listing.price, price, "Price should match");
         assertEq(listing.riskAmount, riskAmount, "Risk amount should match");
         assertEq(listing.profitAmount, profitAmount, "Profit amount should match");
@@ -193,16 +184,8 @@ contract SecondaryMarketModuleTest is Test {
         uint256 price = 0;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        vm.expectRevert(
-            SecondaryMarketModule.SecondaryMarketModule__InvalidAmount.selector
-        );
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount
-        );
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__InvalidAmount.selector);
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
         vm.stopPrank();
     }
 
@@ -213,20 +196,9 @@ contract SecondaryMarketModuleTest is Test {
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
         vm.expectRevert(
-            abi.encodeWithSelector(
-                SecondaryMarketModule
-                    .SecondaryMarketModule__AmountAboveMaximum
-                    .selector,
-                riskAmount
-            )
+            abi.encodeWithSelector(SecondaryMarketModule.SecondaryMarketModule__AmountAboveMaximum.selector, riskAmount)
         );
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount
-        );
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
         vm.stopPrank();
     }
 
@@ -234,9 +206,14 @@ contract SecondaryMarketModuleTest is Test {
         // First settle and claim the position
         vm.warp(block.timestamp + 1 hours);
         Contest memory scored = Contest({
-            awayScore: 3, homeScore: 1, leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            rundownId: "", sportspageId: "", jsonoddsId: ""
+            awayScore: 3,
+            homeScore: 1,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored,
+            contestCreator: address(this),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
         });
         mockContestModule.setContest(1, scored);
         speculationModule.settleSpeculation(speculationId);
@@ -247,9 +224,7 @@ contract SecondaryMarketModuleTest is Test {
 
         // Try to list — should revert (speculation not active since it's settled)
         vm.prank(seller);
-        vm.expectRevert(
-            SecondaryMarketModule.SecondaryMarketModule__SpeculationNotActive.selector
-        );
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__SpeculationNotActive.selector);
         market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
     }
 
@@ -261,9 +236,14 @@ contract SecondaryMarketModuleTest is Test {
         // Settle and claim
         vm.warp(block.timestamp + 1 hours);
         Contest memory scored = Contest({
-            awayScore: 3, homeScore: 1, leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            rundownId: "", sportspageId: "", jsonoddsId: ""
+            awayScore: 3,
+            homeScore: 1,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored,
+            contestCreator: address(this),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
         });
         mockContestModule.setContest(1, scored);
         speculationModule.settleSpeculation(speculationId);
@@ -273,9 +253,7 @@ contract SecondaryMarketModuleTest is Test {
 
         // Try to buy — should revert (speculation not active since it's settled)
         vm.prank(buyer);
-        vm.expectRevert(
-            SecondaryMarketModule.SecondaryMarketModule__SpeculationNotActive.selector
-        );
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__SpeculationNotActive.selector);
         market.buyPosition(speculationId, seller, positionType, 5e6, bytes32(0));
     }
 
@@ -285,25 +263,9 @@ contract SecondaryMarketModuleTest is Test {
         uint256 price = 5e6;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount
-        );
-        vm.expectRevert(
-            SecondaryMarketModule
-                .SecondaryMarketModule__CannotBuyOwnPosition
-                .selector
-        );
-        market.buyPosition(
-            speculationId,
-            seller,
-            positionType,
-            1e6,
-            bytes32(0)
-        );
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__CannotBuyOwnPosition.selector);
+        market.buyPosition(speculationId, seller, positionType, 1e6, bytes32(0));
         vm.stopPrank();
     }
 
@@ -312,20 +274,10 @@ contract SecondaryMarketModuleTest is Test {
         uint256 price = 5e6;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount
-        );
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
         vm.stopPrank();
         vm.startPrank(buyer);
-        vm.expectRevert(
-            SecondaryMarketModule
-                .SecondaryMarketModule__InvalidAmount
-                .selector
-        );
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__InvalidAmount.selector);
         market.buyPosition(speculationId, seller, positionType, 0, bytes32(0));
         vm.stopPrank();
     }
@@ -335,41 +287,22 @@ contract SecondaryMarketModuleTest is Test {
         uint256 price = 5e6;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount
-        );
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
         vm.stopPrank();
         vm.startPrank(buyer);
         vm.expectRevert(
             abi.encodeWithSelector(
-                SecondaryMarketModule
-                    .SecondaryMarketModule__AmountAboveMaximum
-                    .selector,
-                riskAmount + 1
+                SecondaryMarketModule.SecondaryMarketModule__AmountAboveMaximum.selector, riskAmount + 1
             )
         );
-        market.buyPosition(
-            speculationId,
-            seller,
-            positionType,
-            riskAmount + 1,
-            bytes32(0)
-        );
+        market.buyPosition(speculationId, seller, positionType, riskAmount + 1, bytes32(0));
         vm.stopPrank();
     }
 
     // 3. Claiming Sale Proceeds
     function testClaimSaleProceeds_RevertsIfNoProceeds() public {
         vm.startPrank(seller);
-        vm.expectRevert(
-            SecondaryMarketModule
-                .SecondaryMarketModule__NoProceedsAvailable
-                .selector
-        );
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__NoProceedsAvailable.selector);
         market.claimSaleProceeds();
         vm.stopPrank();
     }
@@ -377,11 +310,7 @@ contract SecondaryMarketModuleTest is Test {
     // 4. Canceling a Listing
     function testCancelListing_RevertsIfListingNotActive() public {
         vm.startPrank(seller);
-        vm.expectRevert(
-            SecondaryMarketModule
-                .SecondaryMarketModule__ListingNotActive
-                .selector
-        );
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__ListingNotActive.selector);
         market.cancelListing(speculationId, positionType);
         vm.stopPrank();
     }
@@ -389,32 +318,22 @@ contract SecondaryMarketModuleTest is Test {
     // 5. Updating a Listing
     function testUpdateListing_RevertsIfListingNotActive() public {
         vm.startPrank(seller);
-        vm.expectRevert(
-            SecondaryMarketModule
-                .SecondaryMarketModule__ListingNotActive
-                .selector
-        );
-        market.updateListing(
-            speculationId,
-            positionType,
-            10e6,
-            10e6,
-            1e6
-        );
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__ListingNotActive.selector);
+        market.updateListing(speculationId, positionType, 10e6, 10e6, 1e6);
         vm.stopPrank();
     }
 
     function testUpdateListing_RevertsIfSpeculationNotOpen() public {
         // Create a new speculation via recordFill with a spread scorer
         uint256 testSpecId = positionModule.recordFill(
-            1,                    // contestId
-            spreadScorerAddr,     // scorer (registered spread scorer)
-            42,                   // lineTicks
-            positionType,         // makerPositionType = Upper
-            seller,               // maker
-            10e6,                 // makerRisk
-            buyer,                // taker
-            1e6                   // takerRisk
+            1, // contestId
+            spreadScorerAddr, // scorer (registered spread scorer)
+            42, // lineTicks
+            positionType, // makerPositionType = Upper
+            seller, // maker
+            10e6, // makerRisk
+            buyer, // taker
+            1e6 // takerRisk
         );
 
         // Now seller can list the position with the matched amount
@@ -424,7 +343,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             1e6, // price
             1e6, // riskAmount
-            1e6  // profitAmount
+            1e6 // profitAmount
         );
         vm.stopPrank();
 
@@ -452,18 +371,8 @@ contract SecondaryMarketModuleTest is Test {
         uint256 newPrice = 2e6;
         uint256 newRiskAmount = 1e6;
         uint256 newProfitAmount = 1e6;
-        vm.expectRevert(
-            SecondaryMarketModule
-                .SecondaryMarketModule__SpeculationNotActive
-                .selector
-        );
-        market.updateListing(
-            testSpecId,
-            positionType,
-            newPrice,
-            newRiskAmount,
-            newProfitAmount
-        );
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__SpeculationNotActive.selector);
+        market.updateListing(testSpecId, positionType, newPrice, newRiskAmount, newProfitAmount);
         vm.stopPrank();
     }
 
@@ -473,18 +382,8 @@ contract SecondaryMarketModuleTest is Test {
         uint256 price = 5e6;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount
-        );
-        SaleListing memory listing = market.getSaleListing(
-            speculationId,
-            seller,
-            positionType
-        );
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
+        SaleListing memory listing = market.getSaleListing(speculationId, seller, positionType);
         assertEq(listing.price, price, "Price should match");
         assertEq(listing.riskAmount, riskAmount, "Risk amount should match");
         assertEq(listing.profitAmount, profitAmount, "Profit amount should match");
@@ -497,24 +396,12 @@ contract SecondaryMarketModuleTest is Test {
         uint256 price = 5e6;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount
-        );
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
         vm.stopPrank();
         vm.startPrank(buyer);
         token.approve(address(market), price);
         bytes32 hash = market.getListingHash(speculationId, seller, positionType);
-        market.buyPosition(
-            speculationId,
-            seller,
-            positionType,
-            riskAmount,
-            hash
-        );
+        market.buyPosition(speculationId, seller, positionType, riskAmount, hash);
         vm.stopPrank();
         uint256 proceeds = market.getPendingSaleProceeds(seller);
         assertEq(proceeds, price, "Proceeds should match sale price");
@@ -537,20 +424,11 @@ contract SecondaryMarketModuleTest is Test {
         uint256 price = 5e6;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        bytes32 expectedHash = _computeListingHash(
-            speculationId, seller, positionType, price, riskAmount, profitAmount
-        );
+        bytes32 expectedHash = _computeListingHash(speculationId, seller, positionType, price, riskAmount, profitAmount);
         // Expect local event
         vm.expectEmit(true, true, false, true);
         emit SecondaryMarketModule.PositionListed(
-            speculationId,
-            seller,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount,
-            uint32(block.timestamp),
-            expectedHash
+            speculationId, seller, positionType, price, riskAmount, profitAmount, uint32(block.timestamp), expectedHash
         );
         // Expect core event (emitted by core contract)
         vm.expectEmit(true, true, false, true, address(core));
@@ -568,13 +446,7 @@ contract SecondaryMarketModuleTest is Test {
                 expectedHash
             )
         );
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount
-        );
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
         vm.stopPrank();
     }
 
@@ -587,24 +459,12 @@ contract SecondaryMarketModuleTest is Test {
         uint256 price = 5e6;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount
-        );
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
         vm.stopPrank();
         vm.startPrank(buyer);
         token.approve(address(market), price);
         bytes32 hash = market.getListingHash(speculationId, seller, positionType);
-        market.buyPosition(
-            speculationId,
-            seller,
-            positionType,
-            riskAmount,
-            hash
-        );
+        market.buyPosition(speculationId, seller, positionType, riskAmount, hash);
         vm.stopPrank();
 
         // Verify buyer position after purchase
@@ -624,20 +484,12 @@ contract SecondaryMarketModuleTest is Test {
         vm.expectEmit(true, false, false, true);
         emit SecondaryMarketModule.SaleProceedsClaimed(seller, price);
         vm.expectEmit(true, true, false, true, address(core));
-        emit OspexCore.CoreEventEmitted(
-            keccak256("SALE_PROCEEDS_CLAIMED"),
-            address(market),
-            abi.encode(seller, price)
-        );
+        emit OspexCore.CoreEventEmitted(keccak256("SALE_PROCEEDS_CLAIMED"), address(market), abi.encode(seller, price));
         market.claimSaleProceeds();
         uint256 afterBal = token.balanceOf(seller);
         assertEq(afterBal, before + price, "Seller should receive proceeds");
         // Proceeds should be zero after claim
-        assertEq(
-            market.getPendingSaleProceeds(seller),
-            0,
-            "Proceeds should be zero after claim"
-        );
+        assertEq(market.getPendingSaleProceeds(seller), 0, "Proceeds should be zero after claim");
         vm.stopPrank();
     }
 
@@ -648,67 +500,43 @@ contract SecondaryMarketModuleTest is Test {
         uint256 price = 5e6;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount
-        );
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
         // Cancel listing
         vm.expectEmit(true, true, false, true);
-        emit SecondaryMarketModule.ListingCancelled(
-            speculationId,
-            seller,
-            positionType
-        );
+        emit SecondaryMarketModule.ListingCancelled(speculationId, seller, positionType);
         vm.expectEmit(true, true, false, true, address(core));
         emit OspexCore.CoreEventEmitted(
-            keccak256("LISTING_CANCELLED"),
-            address(market),
-            abi.encode(speculationId, seller, positionType)
+            keccak256("LISTING_CANCELLED"), address(market), abi.encode(speculationId, seller, positionType)
         );
         market.cancelListing(speculationId, positionType);
-        SaleListing memory listing = market.getSaleListing(
-            speculationId,
-            seller,
-            positionType
-        );
+        SaleListing memory listing = market.getSaleListing(speculationId, seller, positionType);
         assertEq(listing.riskAmount, 0, "Listing should be deleted");
         vm.stopPrank();
     }
+
     function testCancelListing_RevertsIfPositionDoesNotExist() public {
         vm.startPrank(seller);
         uint256 price = 5e6;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount
-        );
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
         // Try to cancel a listing for a different positionType (Lower) that doesn't exist
-        vm.expectRevert(
-            SecondaryMarketModule
-                .SecondaryMarketModule__ListingNotActive
-                .selector
-        );
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__ListingNotActive.selector);
         market.cancelListing(speculationId, PositionType.Lower);
         vm.stopPrank();
     }
+
     function testCancelListing_RevertsIfPositionClaimed() public {
         // Create a separate fill with spread scorer so we can settle and claim
         uint256 testSpecId = positionModule.recordFill(
-            1,                     // contestId
-            spreadScorerAddr,      // scorer (registered spread scorer - defaults to Away = Upper wins)
-            42,                    // lineTicks
-            positionType,          // makerPositionType = Upper
-            seller,                // maker
-            10e6,                  // makerRisk
-            buyer,                 // taker
-            1e6                    // takerRisk
+            1, // contestId
+            spreadScorerAddr, // scorer (registered spread scorer - defaults to Away = Upper wins)
+            42, // lineTicks
+            positionType, // makerPositionType = Upper
+            seller, // maker
+            10e6, // makerRisk
+            buyer, // taker
+            1e6 // takerRisk
         );
 
         // Seller lists the position
@@ -746,19 +574,12 @@ contract SecondaryMarketModuleTest is Test {
         uint256 price = 5e6;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount
-        );
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
         uint256 newPrice = 6e6;
         uint256 newRiskAmount = 8e6;
         uint256 newProfitAmount = 1e6;
-        bytes32 expectedHash = _computeListingHash(
-            speculationId, seller, positionType, newPrice, newRiskAmount, newProfitAmount
-        );
+        bytes32 expectedHash =
+            _computeListingHash(speculationId, seller, positionType, newPrice, newRiskAmount, newProfitAmount);
         vm.expectEmit(true, true, false, true);
         emit SecondaryMarketModule.ListingUpdated(
             speculationId,
@@ -789,61 +610,33 @@ contract SecondaryMarketModuleTest is Test {
                 expectedHash
             )
         );
-        market.updateListing(
-            speculationId,
-            positionType,
-            newPrice,
-            newRiskAmount,
-            newProfitAmount
-        );
-        SaleListing memory listing = market.getSaleListing(
-            speculationId,
-            seller,
-            positionType
-        );
+        market.updateListing(speculationId, positionType, newPrice, newRiskAmount, newProfitAmount);
+        SaleListing memory listing = market.getSaleListing(speculationId, seller, positionType);
         assertEq(listing.price, newPrice, "Price should update");
         assertEq(listing.riskAmount, newRiskAmount, "Risk amount should update");
         assertEq(listing.profitAmount, newProfitAmount, "Profit amount should update");
         vm.stopPrank();
     }
+
     function testUpdateListing_RevertsIfNewRiskAmountAbovePosition() public {
         vm.startPrank(seller);
         uint256 price = 5e6;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount
-        );
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
         uint256 newRiskAmount = 20e6;
         vm.expectRevert(
             abi.encodeWithSelector(
-                SecondaryMarketModule
-                    .SecondaryMarketModule__AmountAboveMaximum
-                    .selector,
-                newRiskAmount
+                SecondaryMarketModule.SecondaryMarketModule__AmountAboveMaximum.selector, newRiskAmount
             )
         );
-        market.updateListing(
-            speculationId,
-            positionType,
-            0,
-            newRiskAmount,
-            0
-        );
+        market.updateListing(speculationId, positionType, 0, newRiskAmount, 0);
         vm.stopPrank();
     }
 
     // 4. getModuleType
     function testGetModuleType_ReturnsCorrectType() public view {
-        assertEq(
-            market.getModuleType(),
-            keccak256("SECONDARY_MARKET_MODULE"),
-            "Module type should match"
-        );
+        assertEq(market.getModuleType(), keccak256("SECONDARY_MARKET_MODULE"), "Module type should match");
     }
 
     // 5. buyPosition happy path
@@ -852,13 +645,7 @@ contract SecondaryMarketModuleTest is Test {
         uint256 price = 5e6;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount
-        );
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
         vm.stopPrank();
         vm.startPrank(buyer);
         token.approve(address(market), price);
@@ -866,50 +653,22 @@ contract SecondaryMarketModuleTest is Test {
         // Buying full riskAmount: profitAmount = (1e6 * 10e6) / 10e6 = 1e6, purchasePrice = (5e6 * 10e6) / 10e6 = 5e6
         vm.expectEmit(true, true, true, true);
         emit SecondaryMarketModule.PositionSold(
-            speculationId,
-            seller,
-            positionType,
-            buyer,
-            riskAmount,
-            profitAmount,
-            price
+            speculationId, seller, positionType, buyer, riskAmount, profitAmount, price
         );
         vm.expectEmit(true, true, true, true, address(core));
         emit OspexCore.CoreEventEmitted(
             keccak256("POSITION_SOLD"),
             address(market),
-            abi.encode(
-                speculationId,
-                seller,
-                positionType,
-                buyer,
-                riskAmount,
-                profitAmount,
-                price
-            )
+            abi.encode(speculationId, seller, positionType, buyer, riskAmount, profitAmount, price)
         );
         bytes32 hash = market.getListingHash(speculationId, seller, positionType);
-        market.buyPosition(
-            speculationId,
-            seller,
-            positionType,
-            riskAmount,
-            hash
-        );
+        market.buyPosition(speculationId, seller, positionType, riskAmount, hash);
         vm.stopPrank();
         // Listing should be deleted
-        SaleListing memory listing = market.getSaleListing(
-            speculationId,
-            seller,
-            positionType
-        );
+        SaleListing memory listing = market.getSaleListing(speculationId, seller, positionType);
         assertEq(listing.riskAmount, 0, "Listing should be deleted after full buy");
         // Proceeds should be correct
-        assertEq(
-            market.getPendingSaleProceeds(seller),
-            price,
-            "Proceeds should match sale price"
-        );
+        assertEq(market.getPendingSaleProceeds(seller), price, "Proceeds should match sale price");
 
         // Verify buyer position after purchase
         // profitAmount = (1e6 * 10e6) / 10e6 = 1e6
@@ -926,13 +685,9 @@ contract SecondaryMarketModuleTest is Test {
     function testConstructor_RevertsOnZeroAddresses() public {
         address valid = address(token);
         address zero = address(0);
-        vm.expectRevert(
-            SecondaryMarketModule.SecondaryMarketModule__InvalidAddress.selector
-        );
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__InvalidAddress.selector);
         new SecondaryMarketModule(zero, valid);
-        vm.expectRevert(
-            SecondaryMarketModule.SecondaryMarketModule__InvalidAddress.selector
-        );
+        vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__InvalidAddress.selector);
         new SecondaryMarketModule(valid, zero);
     }
 
@@ -941,40 +696,16 @@ contract SecondaryMarketModuleTest is Test {
         uint256 price = 10e6;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount
-        );
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
         vm.stopPrank();
         vm.startPrank(buyer);
         token.approve(address(market), price / 2);
         bytes32 hash = market.getListingHash(speculationId, seller, positionType);
-        market.buyPosition(
-            speculationId,
-            seller,
-            positionType,
-            riskAmount / 2,
-            hash
-        );
+        market.buyPosition(speculationId, seller, positionType, riskAmount / 2, hash);
         vm.stopPrank();
-        SaleListing memory listing = market.getSaleListing(
-            speculationId,
-            seller,
-            positionType
-        );
-        assertEq(
-            listing.riskAmount,
-            riskAmount / 2,
-            "Listing riskAmount should be reduced after partial buy"
-        );
-        assertEq(
-            listing.price,
-            price / 2,
-            "Listing price should be reduced proportionally after partial buy"
-        );
+        SaleListing memory listing = market.getSaleListing(speculationId, seller, positionType);
+        assertEq(listing.riskAmount, riskAmount / 2, "Listing riskAmount should be reduced after partial buy");
+        assertEq(listing.price, price / 2, "Listing price should be reduced proportionally after partial buy");
         // profitAmount should also be reduced proportionally
         assertEq(
             listing.profitAmount,
@@ -993,116 +724,62 @@ contract SecondaryMarketModuleTest is Test {
         assertEq(sellerPosPartial.riskAmount, 10e6 - 5e6, "Seller risk should decrease");
         assertEq(sellerPosPartial.profitAmount, 1e6 - 500000, "Seller profit should decrease");
     }
+
     function testUpdateListing_OnlyPrice() public {
         vm.startPrank(seller);
         uint256 price = 5e6;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount
-        );
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
         uint256 newPrice = 6e6;
-        market.updateListing(
-            speculationId,
-            positionType,
-            newPrice,
-            0,
-            0
-        );
-        SaleListing memory listing = market.getSaleListing(
-            speculationId,
-            seller,
-            positionType
-        );
+        market.updateListing(speculationId, positionType, newPrice, 0, 0);
+        SaleListing memory listing = market.getSaleListing(speculationId, seller, positionType);
         assertEq(listing.price, newPrice, "Price should update");
         assertEq(listing.riskAmount, riskAmount, "Risk amount should not change");
         assertEq(listing.profitAmount, profitAmount, "Profit amount should not change");
         vm.stopPrank();
     }
+
     function testUpdateListing_OnlyRiskAmount() public {
         vm.startPrank(seller);
         uint256 price = 5e6;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount
-        );
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
         uint256 newRiskAmount = 8e6;
-        market.updateListing(
-            speculationId,
-            positionType,
-            0,
-            newRiskAmount,
-            0
-        );
-        SaleListing memory listing = market.getSaleListing(
-            speculationId,
-            seller,
-            positionType
-        );
+        market.updateListing(speculationId, positionType, 0, newRiskAmount, 0);
+        SaleListing memory listing = market.getSaleListing(speculationId, seller, positionType);
         assertEq(listing.price, price, "Price should not change");
         assertEq(listing.riskAmount, newRiskAmount, "Risk amount should update");
         assertEq(listing.profitAmount, profitAmount, "Profit amount should not change");
         vm.stopPrank();
     }
+
     function testUpdateListing_NeitherPriceNorAmounts() public {
         vm.startPrank(seller);
         uint256 price = 5e6;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount
-        );
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
         market.updateListing(speculationId, positionType, 0, 0, 0);
-        SaleListing memory listing = market.getSaleListing(
-            speculationId,
-            seller,
-            positionType
-        );
+        SaleListing memory listing = market.getSaleListing(speculationId, seller, positionType);
         assertEq(listing.price, price, "Price should not change");
         assertEq(listing.riskAmount, riskAmount, "Risk amount should not change");
         assertEq(listing.profitAmount, profitAmount, "Profit amount should not change");
         vm.stopPrank();
     }
+
     function testUpdateListing_AllFields() public {
         vm.startPrank(seller);
         uint256 price = 5e6;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            price,
-            riskAmount,
-            profitAmount
-        );
+        market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
         uint256 newPrice = 6e6;
         uint256 newRiskAmount = 8e6;
         uint256 newProfitAmount = 1e6;
-        market.updateListing(
-            speculationId,
-            positionType,
-            newPrice,
-            newRiskAmount,
-            newProfitAmount
-        );
-        SaleListing memory listing = market.getSaleListing(
-            speculationId,
-            seller,
-            positionType
-        );
+        market.updateListing(speculationId, positionType, newPrice, newRiskAmount, newProfitAmount);
+        SaleListing memory listing = market.getSaleListing(speculationId, seller, positionType);
         assertEq(listing.price, newPrice, "Price should update");
         assertEq(listing.riskAmount, newRiskAmount, "Risk amount should update");
         assertEq(listing.profitAmount, newProfitAmount, "Profit amount should update");
@@ -1112,10 +789,7 @@ contract SecondaryMarketModuleTest is Test {
     function testSecondaryMarket_Revert_ModuleNotSet() public {
         // Create a new core and market instance without registering required modules
         OspexCore newCore = new OspexCore();
-        SecondaryMarketModule newMarket = new SecondaryMarketModule(
-            address(newCore),
-            address(token)
-        );
+        SecondaryMarketModule newMarket = new SecondaryMarketModule(address(newCore), address(token));
 
         // Bootstrap only the market itself but NOT the speculation module
         // We need all 12 modules registered, but we use dummy addresses for most
@@ -1130,8 +804,7 @@ contract SecondaryMarketModuleTest is Test {
         vm.startPrank(seller);
         vm.expectRevert(
             abi.encodeWithSelector(
-                SecondaryMarketModule.SecondaryMarketModule__ModuleNotSet.selector,
-                keccak256("SPECULATION_MODULE")
+                SecondaryMarketModule.SecondaryMarketModule__ModuleNotSet.selector, keccak256("SPECULATION_MODULE")
             )
         );
         newMarket.listPositionForSale(
@@ -1139,7 +812,7 @@ contract SecondaryMarketModuleTest is Test {
             positionType,
             5e6, // price
             10e6, // riskAmount
-            1e6  // profitAmount
+            1e6 // profitAmount
         );
         vm.stopPrank();
     }
@@ -1166,13 +839,7 @@ contract SecondaryMarketModuleTest is Test {
         uint256 pricePerUnit = totalPrice / totalRiskAmount; // 10 USDC per unit
 
         vm.startPrank(seller);
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            totalPrice,
-            totalRiskAmount,
-            totalProfitAmount
-        );
+        market.listPositionForSale(speculationId, positionType, totalPrice, totalRiskAmount, totalProfitAmount);
         vm.stopPrank();
 
         // Create additional buyers
@@ -1278,9 +945,7 @@ contract SecondaryMarketModuleTest is Test {
 
         // Verify seller received all proceeds
         assertEq(
-            market.getPendingSaleProceeds(seller),
-            totalPrice,
-            "Seller should have total price as pending proceeds"
+            market.getPendingSaleProceeds(seller), totalPrice, "Seller should have total price as pending proceeds"
         );
     }
 
@@ -1297,13 +962,7 @@ contract SecondaryMarketModuleTest is Test {
         uint256 totalProfitAmount = 1e6;
 
         vm.startPrank(seller);
-        market.listPositionForSale(
-            speculationId,
-            positionType,
-            totalPrice,
-            totalRiskAmount,
-            totalProfitAmount
-        );
+        market.listPositionForSale(speculationId, positionType, totalPrice, totalRiskAmount, totalProfitAmount);
         vm.stopPrank();
 
         // Buyer buys 4 riskAmount - should pay 8 USDC (4 * 2 USDC per unit)
@@ -1401,7 +1060,16 @@ contract SecondaryMarketModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)", speculationId, seller, uint8(positionType)),
-            abi.encode(Position({riskAmount: 10e6, profitAmount: 1e6, positionType: positionType, claimed: true, firstFillTimestamp: 0, acquiredViaSecondaryMarket: false}))
+            abi.encode(
+                Position({
+                    riskAmount: 10e6,
+                    profitAmount: 1e6,
+                    positionType: positionType,
+                    claimed: true,
+                    firstFillTimestamp: 0,
+                    acquiredViaSecondaryMarket: false
+                })
+            )
         );
         vm.prank(seller);
         vm.expectRevert(SecondaryMarketModule.SecondaryMarketModule__PositionAlreadyClaimed.selector);
@@ -1426,7 +1094,16 @@ contract SecondaryMarketModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)", speculationId, seller, uint8(positionType)),
-            abi.encode(Position({riskAmount: 10e6, profitAmount: 1e6, positionType: positionType, claimed: true, firstFillTimestamp: 0, acquiredViaSecondaryMarket: false}))
+            abi.encode(
+                Position({
+                    riskAmount: 10e6,
+                    profitAmount: 1e6,
+                    positionType: positionType,
+                    claimed: true,
+                    firstFillTimestamp: 0,
+                    acquiredViaSecondaryMarket: false
+                })
+            )
         );
 
         vm.prank(buyer);
@@ -1447,7 +1124,16 @@ contract SecondaryMarketModuleTest is Test {
         vm.mockCall(
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)", speculationId, seller, uint8(positionType)),
-            abi.encode(Position({riskAmount: 10e6, profitAmount: 1e6, positionType: positionType, claimed: true, firstFillTimestamp: 0, acquiredViaSecondaryMarket: false}))
+            abi.encode(
+                Position({
+                    riskAmount: 10e6,
+                    profitAmount: 1e6,
+                    positionType: positionType,
+                    claimed: true,
+                    firstFillTimestamp: 0,
+                    acquiredViaSecondaryMarket: false
+                })
+            )
         );
 
         vm.prank(seller);
@@ -1464,10 +1150,7 @@ contract SecondaryMarketModuleTest is Test {
         // Try to update profit to exceed position (seller's profitAmount is 1e6)
         vm.prank(seller);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                SecondaryMarketModule.SecondaryMarketModule__AmountAboveMaximum.selector,
-                999e6
-            )
+            abi.encodeWithSelector(SecondaryMarketModule.SecondaryMarketModule__AmountAboveMaximum.selector, 999e6)
         );
         market.updateListing(speculationId, positionType, 0, 0, 999e6);
     }
@@ -1584,9 +1267,7 @@ contract SecondaryMarketModuleTest is Test {
         market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
 
         // Compute hash with wrong seller address but same terms
-        bytes32 wrongSellerHash = _computeListingHash(
-            speculationId, address(0xDEAD), positionType, 5e6, 10e6, 1e6
-        );
+        bytes32 wrongSellerHash = _computeListingHash(speculationId, address(0xDEAD), positionType, 5e6, 10e6, 1e6);
 
         vm.startPrank(buyer);
         token.approve(address(market), 5e6);
@@ -1600,9 +1281,7 @@ contract SecondaryMarketModuleTest is Test {
         vm.prank(seller);
         market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
 
-        bytes32 wrongSpecHash = _computeListingHash(
-            speculationId + 999, seller, positionType, 5e6, 10e6, 1e6
-        );
+        bytes32 wrongSpecHash = _computeListingHash(speculationId + 999, seller, positionType, 5e6, 10e6, 1e6);
 
         vm.startPrank(buyer);
         token.approve(address(market), 5e6);
@@ -1616,9 +1295,7 @@ contract SecondaryMarketModuleTest is Test {
         vm.prank(seller);
         market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
 
-        bytes32 wrongTypeHash = _computeListingHash(
-            speculationId, seller, PositionType.Lower, 5e6, 10e6, 1e6
-        );
+        bytes32 wrongTypeHash = _computeListingHash(speculationId, seller, PositionType.Lower, 5e6, 10e6, 1e6);
 
         vm.startPrank(buyer);
         token.approve(address(market), 5e6);
@@ -1738,9 +1415,7 @@ contract SecondaryMarketModuleTest is Test {
         market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
 
         bytes32 viewHash = market.getListingHash(speculationId, seller, positionType);
-        bytes32 computedHash = _computeListingHash(
-            speculationId, seller, positionType, price, riskAmount, profitAmount
-        );
+        bytes32 computedHash = _computeListingHash(speculationId, seller, positionType, price, riskAmount, profitAmount);
 
         assertEq(viewHash, computedHash, "View function hash should match manual computation");
     }
@@ -1748,9 +1423,8 @@ contract SecondaryMarketModuleTest is Test {
     /// @notice getListingHash for non-existent listing returns hash of zero values
     function testGetListingHash_NonExistentListing_ReturnsZeroHash() public {
         bytes32 hash = market.getListingHash(speculationId, seller, positionType);
-        bytes32 zeroHash = keccak256(abi.encode(
-            speculationId, seller, positionType, uint256(0), uint256(0), uint256(0)
-        ));
+        bytes32 zeroHash =
+            keccak256(abi.encode(speculationId, seller, positionType, uint256(0), uint256(0), uint256(0)));
         assertEq(hash, zeroHash, "Non-existent listing hash should be hash of zeros");
     }
 
@@ -1759,15 +1433,12 @@ contract SecondaryMarketModuleTest is Test {
         uint256 price = 7e6;
         uint256 riskAmount = 10e6;
         uint256 profitAmount = 1e6;
-        bytes32 expectedHash = _computeListingHash(
-            speculationId, seller, positionType, price, riskAmount, profitAmount
-        );
+        bytes32 expectedHash = _computeListingHash(speculationId, seller, positionType, price, riskAmount, profitAmount);
 
         vm.prank(seller);
         vm.expectEmit(true, true, false, true);
         emit SecondaryMarketModule.PositionListed(
-            speculationId, seller, positionType, price, riskAmount, profitAmount,
-            uint32(block.timestamp), expectedHash
+            speculationId, seller, positionType, price, riskAmount, profitAmount, uint32(block.timestamp), expectedHash
         );
         market.listPositionForSale(speculationId, positionType, price, riskAmount, profitAmount);
     }
@@ -1778,15 +1449,11 @@ contract SecondaryMarketModuleTest is Test {
         market.listPositionForSale(speculationId, positionType, 5e6, 10e6, 1e6);
 
         uint256 newPrice = 8e6;
-        bytes32 expectedHash = _computeListingHash(
-            speculationId, seller, positionType, newPrice, 10e6, 1e6
-        );
+        bytes32 expectedHash = _computeListingHash(speculationId, seller, positionType, newPrice, 10e6, 1e6);
 
         vm.expectEmit(true, true, false, true);
         emit SecondaryMarketModule.ListingUpdated(
-            speculationId, seller, positionType,
-            5e6, newPrice, 10e6, 10e6, 1e6, 1e6,
-            expectedHash
+            speculationId, seller, positionType, 5e6, newPrice, 10e6, 10e6, 1e6, 1e6, expectedHash
         );
         market.updateListing(speculationId, positionType, newPrice, 0, 0);
         vm.stopPrank();

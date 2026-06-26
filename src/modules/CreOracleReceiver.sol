@@ -48,22 +48,19 @@ contract CreOracleReceiver is IModule, IReceiver {
     // ──────────────────────────── Constants ────────────────────────────
 
     bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
-    bytes32 public constant CRE_ORACLE_RECEIVER =
-        keccak256("CRE_ORACLE_RECEIVER");
+    bytes32 public constant CRE_ORACLE_RECEIVER = keccak256("CRE_ORACLE_RECEIVER");
 
     /// @notice Core-hub event type for an applied DON report. Mirrors the native
     ///         {CreReportProcessed} through OspexCore so a single core-only subscription sees the
     ///         oracle report envelope (reportKey, requestType, applied nonce, workflow version) that
     ///         the ContestModule state events do not carry.
-    bytes32 public constant EVENT_ORACLE_REPORT_PROCESSED =
-        keccak256("ORACLE_REPORT_PROCESSED");
+    bytes32 public constant EVENT_ORACLE_REPORT_PROCESSED = keccak256("ORACLE_REPORT_PROCESSED");
 
     /// @notice Core-hub event type for a permissionless oracle request. Mirrors the native
     ///         {CreOracleRequested} through OspexCore so a core-only subscription sees the request
     ///         side too — market/score requests have no ContestModule event, and verify's request is
     ///         otherwise only inferable from CONTEST_CREATED. One uniform request stream, all 3 types.
-    bytes32 public constant EVENT_ORACLE_REQUESTED =
-        keccak256("ORACLE_REQUESTED");
+    bytes32 public constant EVENT_ORACLE_REQUESTED = keccak256("ORACLE_REQUESTED");
 
     /// @notice Minimum length of the KeystoneForwarder metadata: 32 (workflowId) + 10
     ///         (workflowName) + 20 (workflowOwner). Production delivers 64 (+ bytes2 reportId), which
@@ -174,17 +171,8 @@ contract CreOracleReceiver is IModule, IReceiver {
      *        governed mainnet deploy
      * @param workflowName_ The CRE workflow name as bytes10 (0 to not enforce)
      */
-    constructor(
-        address ospexCore_,
-        address forwarder_,
-        address workflowOwner_,
-        bytes10 workflowName_
-    ) {
-        if (
-            ospexCore_ == address(0) ||
-            forwarder_ == address(0) ||
-            workflowOwner_ == address(0)
-        ) {
+    constructor(address ospexCore_, address forwarder_, address workflowOwner_, bytes10 workflowName_) {
+        if (ospexCore_ == address(0) || forwarder_ == address(0) || workflowOwner_ == address(0)) {
             revert CreOracleReceiver__InvalidAddress();
         }
         i_ospexCore = OspexCore(ospexCore_);
@@ -216,34 +204,25 @@ contract CreOracleReceiver is IModule, IReceiver {
         string calldata sportspageId,
         string calldata jsonoddsId
     ) external returns (uint256 contestId) {
-        contestId = IContestModule(_getModule(CONTEST_MODULE)).createContest(
-            rundownId,
-            sportspageId,
-            jsonoddsId,
-            LeagueId.Unknown, // resolved by the verify report
-            msg.sender
-        );
+        contestId = IContestModule(_getModule(CONTEST_MODULE))
+            .createContest(
+                rundownId,
+                sportspageId,
+                jsonoddsId,
+                LeagueId.Unknown, // resolved by the verify report
+                msg.sender
+            );
         // Bind the (future) verify report to this on-chain request; {_handleVerify} is fail-closed on it.
         s_verifyRequested[contestId] = true;
         // Verify is one-shot (ContestModule enforces Unverified->Verified), so nonce = 0.
         emit CreOracleRequested(
-            contestId,
-            uint8(OracleRequestType.ContestCreate),
-            0,
-            rundownId,
-            sportspageId,
-            jsonoddsId
+            contestId, uint8(OracleRequestType.ContestCreate), 0, rundownId, sportspageId, jsonoddsId
         );
         // Core-hub mirror (uniform request stream for core-only listeners).
         i_ospexCore.emitCoreEvent(
             EVENT_ORACLE_REQUESTED,
             abi.encode(
-                contestId,
-                uint8(OracleRequestType.ContestCreate),
-                uint64(0),
-                rundownId,
-                sportspageId,
-                jsonoddsId
+                contestId, uint8(OracleRequestType.ContestCreate), uint64(0), rundownId, sportspageId, jsonoddsId
             )
         );
     }
@@ -260,9 +239,7 @@ contract CreOracleReceiver is IModule, IReceiver {
      * @return requestNonce The new latest market nonce for the contest
      */
     function requestMarketUpdate(uint256 contestId) external returns (uint64 requestNonce) {
-        Contest memory c = IContestModule(_getModule(CONTEST_MODULE)).getContest(
-            contestId
-        );
+        Contest memory c = IContestModule(_getModule(CONTEST_MODULE)).getContest(contestId);
         if (c.contestStatus != ContestStatus.Verified) {
             revert CreOracleReceiver__ContestNotVerified(contestId);
         }
@@ -311,23 +288,13 @@ contract CreOracleReceiver is IModule, IReceiver {
         // Bind the (future) score report to this on-chain request; {_handleScore} is fail-closed on it.
         s_scoreRequested[contestId] = true;
         emit CreOracleRequested(
-            contestId,
-            uint8(OracleRequestType.ContestScore),
-            0,
-            c.rundownId,
-            c.sportspageId,
-            c.jsonoddsId
+            contestId, uint8(OracleRequestType.ContestScore), 0, c.rundownId, c.sportspageId, c.jsonoddsId
         );
         // Core-hub mirror (uniform request stream for core-only listeners).
         i_ospexCore.emitCoreEvent(
             EVENT_ORACLE_REQUESTED,
             abi.encode(
-                contestId,
-                uint8(OracleRequestType.ContestScore),
-                uint64(0),
-                c.rundownId,
-                c.sportspageId,
-                c.jsonoddsId
+                contestId, uint8(OracleRequestType.ContestScore), uint64(0), c.rundownId, c.sportspageId, c.jsonoddsId
             )
         );
     }
@@ -335,10 +302,7 @@ contract CreOracleReceiver is IModule, IReceiver {
     // ──────────────────────────── Receive (onReport) ──────────────────
 
     /// @inheritdoc IReceiver
-    function onReport(
-        bytes calldata metadata,
-        bytes calldata report
-    ) external override {
+    function onReport(bytes calldata metadata, bytes calldata report) external override {
         // (a) trusted forwarder
         if (msg.sender != i_forwarder) {
             revert CreOracleReceiver__InvalidSender(msg.sender, i_forwarder);
@@ -362,13 +326,8 @@ contract CreOracleReceiver is IModule, IReceiver {
         s_processedReport[reportKey] = true;
 
         // (d) decode the envelope + domain separation (chain + receiver).
-        (
-            uint8 requestType,
-            uint256 chainId,
-            address reportReceiver,
-            uint64 requestNonce,
-            bytes memory payload
-        ) = abi.decode(report, (uint8, uint256, address, uint64, bytes));
+        (uint8 requestType, uint256 chainId, address reportReceiver, uint64 requestNonce, bytes memory payload) =
+            abi.decode(report, (uint8, uint256, address, uint64, bytes));
         if (chainId != block.chainid) {
             revert CreOracleReceiver__WrongChainId(chainId, block.chainid);
         }
@@ -396,8 +355,7 @@ contract CreOracleReceiver is IModule, IReceiver {
         // do not carry. requestNonce is the envelope nonce (the applied market nonce; 0 otherwise).
         emit CreReportProcessed(reportKey, contestId, requestType, requestNonce, workflowVersion);
         i_ospexCore.emitCoreEvent(
-            EVENT_ORACLE_REPORT_PROCESSED,
-            abi.encode(reportKey, contestId, requestType, requestNonce, workflowVersion)
+            EVENT_ORACLE_REPORT_PROCESSED, abi.encode(reportKey, contestId, requestType, requestNonce, workflowVersion)
         );
     }
 
@@ -412,27 +370,23 @@ contract CreOracleReceiver is IModule, IReceiver {
      * @return contestId The resolved contest id
      * @return workflowVersion The CRE workflow build that produced the report
      */
-    function _handleVerify(
-        bytes memory payload
-    ) internal returns (uint256 contestId, uint16 workflowVersion) {
+    function _handleVerify(bytes memory payload) internal returns (uint256 contestId, uint16 workflowVersion) {
         uint8 leagueId;
         uint32 startTime;
         // workflowVersion is surfaced in {CreReportProcessed} (provenance); not used in on-chain logic.
-        (contestId, leagueId, startTime, workflowVersion) = abi.decode(
-            payload,
-            (uint256, uint8, uint32, uint16)
-        );
+        (contestId, leagueId, startTime, workflowVersion) = abi.decode(payload, (uint256, uint8, uint32, uint16));
         // Fail-closed request/report binding: only a contest this receiver created (which set the flag
         // and emitted the verify request) can be verified — blocks a verify report for contest 0 / any
         // uncreated or unrequested slot, which would otherwise mint a ghost Verified contest.
         if (!s_verifyRequested[contestId]) {
             revert CreOracleReceiver__VerifyNotRequested(contestId);
         }
-        IContestModule(_getModule(CONTEST_MODULE)).setContestLeagueIdAndStartTime(
-            contestId,
-            LeagueId(leagueId), // reverts if out of enum range
-            startTime
-        );
+        IContestModule(_getModule(CONTEST_MODULE))
+            .setContestLeagueIdAndStartTime(
+                contestId,
+                LeagueId(leagueId), // reverts if out of enum range
+                startTime
+            );
     }
 
     /**
@@ -450,10 +404,10 @@ contract CreOracleReceiver is IModule, IReceiver {
      * @return contestId The resolved contest id
      * @return workflowVersion The CRE workflow build that produced the report
      */
-    function _handleMarket(
-        bytes memory payload,
-        uint64 requestNonce
-    ) internal returns (uint256 contestId, uint16 workflowVersion) {
+    function _handleMarket(bytes memory payload, uint64 requestNonce)
+        internal
+        returns (uint256 contestId, uint16 workflowVersion)
+    {
         uint16 moneylineAwayOdds;
         uint16 moneylineHomeOdds;
         int32 spreadLineTicks;
@@ -474,10 +428,7 @@ contract CreOracleReceiver is IModule, IReceiver {
             overOdds,
             underOdds,
             workflowVersion
-        ) = abi.decode(
-            payload,
-            (uint256, uint16, uint16, int32, uint16, uint16, int32, uint16, uint16, uint16)
-        );
+        ) = abi.decode(payload, (uint256, uint16, uint16, int32, uint16, uint16, int32, uint16, uint16, uint16));
         // Request/report binding + freshness. Two guards:
         //   1. The nonce must be one this receiver actually emitted: 0 < nonce <= s_marketNonce.
         //      nonce 0 (or above the latest requested) means no matching request — fail closed.
@@ -496,17 +447,18 @@ contract CreOracleReceiver is IModule, IReceiver {
         // Effect before interaction (CEI): mark this nonce applied so a later report can't re-apply or
         // an out-of-order older one overwrite it. A revert in updateContestMarkets rolls this back.
         s_lastAppliedMarketNonce[contestId] = requestNonce;
-        IContestModule(_getModule(CONTEST_MODULE)).updateContestMarkets(
-            contestId,
-            moneylineAwayOdds,
-            moneylineHomeOdds,
-            spreadLineTicks,
-            spreadAwayOdds,
-            spreadHomeOdds,
-            totalLineTicks,
-            overOdds,
-            underOdds
-        );
+        IContestModule(_getModule(CONTEST_MODULE))
+            .updateContestMarkets(
+                contestId,
+                moneylineAwayOdds,
+                moneylineHomeOdds,
+                spreadLineTicks,
+                spreadAwayOdds,
+                spreadHomeOdds,
+                totalLineTicks,
+                overOdds,
+                underOdds
+            );
     }
 
     /**
@@ -517,25 +469,16 @@ contract CreOracleReceiver is IModule, IReceiver {
      * @return contestId The resolved contest id
      * @return workflowVersion The CRE workflow build that produced the report
      */
-    function _handleScore(
-        bytes memory payload
-    ) internal returns (uint256 contestId, uint16 workflowVersion) {
+    function _handleScore(bytes memory payload) internal returns (uint256 contestId, uint16 workflowVersion) {
         uint32 awayScore;
         uint32 homeScore;
         // workflowVersion (trailing field) is surfaced in {CreReportProcessed}; not used on-chain.
-        (contestId, awayScore, homeScore, workflowVersion) = abi.decode(
-            payload,
-            (uint256, uint32, uint32, uint16)
-        );
+        (contestId, awayScore, homeScore, workflowVersion) = abi.decode(payload, (uint256, uint32, uint32, uint16));
         // Fail-closed request/report binding: a score report applies only if a score request was emitted.
         if (!s_scoreRequested[contestId]) {
             revert CreOracleReceiver__ScoreNotRequested(contestId);
         }
-        IContestModule(_getModule(CONTEST_MODULE)).setScores(
-            contestId,
-            awayScore,
-            homeScore
-        );
+        IContestModule(_getModule(CONTEST_MODULE)).setScores(contestId, awayScore, homeScore);
     }
 
     // ──────────────────────────── Metadata decode ─────────────────────
@@ -547,9 +490,11 @@ contract CreOracleReceiver is IModule, IReceiver {
      *         it on every workflow update.
      * @dev Uses calldata slicing at static offsets.
      */
-    function _decodeMetadata(
-        bytes calldata metadata
-    ) internal pure returns (bytes10 workflowName, address workflowOwner) {
+    function _decodeMetadata(bytes calldata metadata)
+        internal
+        pure
+        returns (bytes10 workflowName, address workflowOwner)
+    {
         if (metadata.length < METADATA_MIN_LENGTH) {
             revert CreOracleReceiver__InvalidMetadata(metadata.length);
         }
@@ -559,9 +504,7 @@ contract CreOracleReceiver is IModule, IReceiver {
 
     // ──────────────────────────── Module lookup ───────────────────────
 
-    function _getModule(
-        bytes32 moduleType
-    ) internal view returns (address module) {
+    function _getModule(bytes32 moduleType) internal view returns (address module) {
         module = i_ospexCore.getModule(moduleType);
         if (module == address(0)) {
             revert CreOracleReceiver__ModuleNotSet(moduleType);
@@ -572,11 +515,7 @@ contract CreOracleReceiver is IModule, IReceiver {
     // ──────────────────────────── ERC165 ──────────────────────────────
 
     /// @inheritdoc IERC165
-    function supportsInterface(
-        bytes4 interfaceId
-    ) external pure override returns (bool) {
-        return
-            interfaceId == type(IReceiver).interfaceId ||
-            interfaceId == type(IERC165).interfaceId;
+    function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
+        return interfaceId == type(IReceiver).interfaceId || interfaceId == type(IERC165).interfaceId;
     }
 }

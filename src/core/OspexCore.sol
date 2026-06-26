@@ -18,24 +18,17 @@ contract OspexCore {
     // ──────────────────────────── Constants ────────────────────────────
 
     bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
-    bytes32 public constant SPECULATION_MODULE =
-        keccak256("SPECULATION_MODULE");
+    bytes32 public constant SPECULATION_MODULE = keccak256("SPECULATION_MODULE");
     bytes32 public constant POSITION_MODULE = keccak256("POSITION_MODULE");
     bytes32 public constant MATCHING_MODULE = keccak256("MATCHING_MODULE");
-    bytes32 public constant CRE_ORACLE_RECEIVER =
-        keccak256("CRE_ORACLE_RECEIVER");
+    bytes32 public constant CRE_ORACLE_RECEIVER = keccak256("CRE_ORACLE_RECEIVER");
     bytes32 public constant TREASURY_MODULE = keccak256("TREASURY_MODULE");
-    bytes32 public constant LEADERBOARD_MODULE =
-        keccak256("LEADERBOARD_MODULE");
+    bytes32 public constant LEADERBOARD_MODULE = keccak256("LEADERBOARD_MODULE");
     bytes32 public constant RULES_MODULE = keccak256("RULES_MODULE");
-    bytes32 public constant SECONDARY_MARKET_MODULE =
-        keccak256("SECONDARY_MARKET_MODULE");
-    bytes32 public constant MONEYLINE_SCORER_MODULE =
-        keccak256("MONEYLINE_SCORER_MODULE");
-    bytes32 public constant SPREAD_SCORER_MODULE =
-        keccak256("SPREAD_SCORER_MODULE");
-    bytes32 public constant TOTAL_SCORER_MODULE =
-        keccak256("TOTAL_SCORER_MODULE");
+    bytes32 public constant SECONDARY_MARKET_MODULE = keccak256("SECONDARY_MARKET_MODULE");
+    bytes32 public constant MONEYLINE_SCORER_MODULE = keccak256("MONEYLINE_SCORER_MODULE");
+    bytes32 public constant SPREAD_SCORER_MODULE = keccak256("SPREAD_SCORER_MODULE");
+    bytes32 public constant TOTAL_SCORER_MODULE = keccak256("TOTAL_SCORER_MODULE");
 
     // ──────────────────────────── Errors ───────────────────────────────
 
@@ -60,11 +53,7 @@ contract OspexCore {
     /// @param eventType The bytes32 event type identifier
     /// @param emitter The module that emitted the event
     /// @param eventData ABI-encoded event payload
-    event CoreEventEmitted(
-        bytes32 indexed eventType,
-        address indexed emitter,
-        bytes eventData
-    );
+    event CoreEventEmitted(bytes32 indexed eventType, address indexed emitter, bytes eventData);
 
     /// @notice Emitted when all modules are registered during bootstrap
     /// @param moduleCount The number of modules registered
@@ -86,8 +75,9 @@ contract OspexCore {
     }
 
     modifier onlyRegisteredModule() {
-        if (!s_isModuleRegistered[msg.sender])
+        if (!s_isModuleRegistered[msg.sender]) {
             revert OspexCore__NotRegisteredModule(msg.sender);
+        }
         _;
     }
 
@@ -119,17 +109,21 @@ contract OspexCore {
      * @param moduleTypes Array of bytes32 module type identifiers
      * @param moduleAddresses Array of corresponding module contract addresses
      */
-    function bootstrapModules(
-        bytes32[] calldata moduleTypes,
-        address[] calldata moduleAddresses
-    ) external onlyDeployer notFinalized {
-        if (moduleTypes.length != moduleAddresses.length)
+    function bootstrapModules(bytes32[] calldata moduleTypes, address[] calldata moduleAddresses)
+        external
+        onlyDeployer
+        notFinalized
+    {
+        if (moduleTypes.length != moduleAddresses.length) {
             revert OspexCore__ArrayLengthMismatch();
+        }
         for (uint256 i = 0; i < moduleTypes.length; i++) {
-            if (moduleAddresses[i] == address(0))
+            if (moduleAddresses[i] == address(0)) {
                 revert OspexCore__InvalidModuleAddress(moduleAddresses[i]);
-            if (s_moduleRegistry[moduleTypes[i]] != address(0))
+            }
+            if (s_moduleRegistry[moduleTypes[i]] != address(0)) {
                 revert OspexCore__DuplicateModuleType(moduleTypes[i]);
+            }
             s_moduleRegistry[moduleTypes[i]] = moduleAddresses[i];
             s_isModuleRegistered[moduleAddresses[i]] = true;
         }
@@ -156,8 +150,9 @@ contract OspexCore {
             TOTAL_SCORER_MODULE
         ];
         for (uint256 i = 0; i < required.length; i++) {
-            if (s_moduleRegistry[required[i]] == address(0))
+            if (s_moduleRegistry[required[i]] == address(0)) {
                 revert OspexCore__ModuleNotRegistered(required[i]);
+            }
         }
         s_finalized = true;
         emit Finalized();
@@ -171,9 +166,7 @@ contract OspexCore {
      * @param moduleType The bytes32 identifier for the module type
      * @return moduleAddress The module contract address
      */
-    function getModule(
-        bytes32 moduleType
-    ) external view returns (address moduleAddress) {
+    function getModule(bytes32 moduleType) external view returns (address moduleAddress) {
         moduleAddress = s_moduleRegistry[moduleType];
     }
 
@@ -182,9 +175,7 @@ contract OspexCore {
      * @param moduleAddress The address to check
      * @return True if the address is a registered module
      */
-    function isRegisteredModule(
-        address moduleAddress
-    ) external view returns (bool) {
+    function isRegisteredModule(address moduleAddress) external view returns (bool) {
         return s_isModuleRegistered[moduleAddress];
     }
 
@@ -203,10 +194,8 @@ contract OspexCore {
      * @return True if addr is a registered scorer module
      */
     function isApprovedScorer(address addr) external view returns (bool) {
-        return
-            addr == s_moduleRegistry[MONEYLINE_SCORER_MODULE] ||
-            addr == s_moduleRegistry[SPREAD_SCORER_MODULE] ||
-            addr == s_moduleRegistry[TOTAL_SCORER_MODULE];
+        return addr == s_moduleRegistry[MONEYLINE_SCORER_MODULE] || addr == s_moduleRegistry[SPREAD_SCORER_MODULE]
+            || addr == s_moduleRegistry[TOTAL_SCORER_MODULE];
     }
 
     // ──────────────────────────── Event Emission ──────────────────────
@@ -217,10 +206,7 @@ contract OspexCore {
      * @param eventType The bytes32 event type identifier
      * @param eventData ABI-encoded event payload
      */
-    function emitCoreEvent(
-        bytes32 eventType,
-        bytes calldata eventData
-    ) external onlyRegisteredModule {
+    function emitCoreEvent(bytes32 eventType, bytes calldata eventData) external onlyRegisteredModule {
         emit CoreEventEmitted(eventType, msg.sender, eventData);
     }
 
@@ -232,14 +218,8 @@ contract OspexCore {
      * @param payer The address paying the fee
      * @param feeType The category of fee being charged
      */
-    function processFee(
-        address payer,
-        FeeType feeType
-    ) external onlyRegisteredModule {
-        ITreasuryModule(s_moduleRegistry[TREASURY_MODULE]).processFee(
-            payer,
-            feeType
-        );
+    function processFee(address payer, FeeType feeType) external onlyRegisteredModule {
+        ITreasuryModule(s_moduleRegistry[TREASURY_MODULE]).processFee(payer, feeType);
     }
 
     /**
@@ -249,16 +229,8 @@ contract OspexCore {
      * @param payer2 Second payer (charged remainder)
      * @param feeType The category of fee being charged
      */
-    function processSplitFee(
-        address payer1,
-        address payer2,
-        FeeType feeType
-    ) external onlyRegisteredModule {
-        ITreasuryModule(s_moduleRegistry[TREASURY_MODULE]).processSplitFee(
-            payer1,
-            payer2,
-            feeType
-        );
+    function processSplitFee(address payer1, address payer2, FeeType feeType) external onlyRegisteredModule {
+        ITreasuryModule(s_moduleRegistry[TREASURY_MODULE]).processSplitFee(payer1, payer2, feeType);
     }
 
     /**
@@ -269,12 +241,10 @@ contract OspexCore {
      * @param amount The entry fee amount in USDC
      * @param leaderboardId The leaderboard receiving the entry
      */
-    function processLeaderboardEntryFee(
-        address payer,
-        uint256 amount,
-        uint256 leaderboardId
-    ) external onlyRegisteredModule {
-        ITreasuryModule(s_moduleRegistry[TREASURY_MODULE])
-            .processLeaderboardEntryFee(payer, amount, leaderboardId);
+    function processLeaderboardEntryFee(address payer, uint256 amount, uint256 leaderboardId)
+        external
+        onlyRegisteredModule
+    {
+        ITreasuryModule(s_moduleRegistry[TREASURY_MODULE]).processLeaderboardEntryFee(payer, amount, leaderboardId);
     }
 }

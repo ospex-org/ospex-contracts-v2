@@ -14,8 +14,5 @@ interface IScorerModule {
     /// @param contestId The ID of the contest to score
     /// @param lineTicks The line/spread/total number (10x format, 0 for moneyline)
     /// @return The winning side of the speculation
-    function determineWinSide(
-        uint256 contestId,
-        int32 lineTicks
-    ) external view returns (WinSide);
+    function determineWinSide(uint256 contestId, int32 lineTicks) external view returns (WinSide);
 }

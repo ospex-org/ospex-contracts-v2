@@ -1,13 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.26;
 
-import {
-    Contest,
-    ContestStatus,
-    ContestMarket,
-    FeeType,
-    LeagueId
-} from "../core/OspexTypes.sol";
+import {Contest, ContestStatus, ContestMarket, FeeType, LeagueId} from "../core/OspexTypes.sol";
 import {OspexCore} from "../core/OspexCore.sol";
 import {IContestModule} from "../interfaces/IContestModule.sol";
 
@@ -21,26 +15,17 @@ contract ContestModule is IContestModule {
     // ──────────────────────────── Constants ────────────────────────────
 
     bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
-    bytes32 public constant SPECULATION_MODULE =
-        keccak256("SPECULATION_MODULE");
-    bytes32 public constant CRE_ORACLE_RECEIVER =
-        keccak256("CRE_ORACLE_RECEIVER");
+    bytes32 public constant SPECULATION_MODULE = keccak256("SPECULATION_MODULE");
+    bytes32 public constant CRE_ORACLE_RECEIVER = keccak256("CRE_ORACLE_RECEIVER");
     bytes32 public constant TREASURY_MODULE = keccak256("TREASURY_MODULE");
-    bytes32 public constant MONEYLINE_SCORER_MODULE =
-        keccak256("MONEYLINE_SCORER_MODULE");
-    bytes32 public constant SPREAD_SCORER_MODULE =
-        keccak256("SPREAD_SCORER_MODULE");
-    bytes32 public constant TOTAL_SCORER_MODULE =
-        keccak256("TOTAL_SCORER_MODULE");
+    bytes32 public constant MONEYLINE_SCORER_MODULE = keccak256("MONEYLINE_SCORER_MODULE");
+    bytes32 public constant SPREAD_SCORER_MODULE = keccak256("SPREAD_SCORER_MODULE");
+    bytes32 public constant TOTAL_SCORER_MODULE = keccak256("TOTAL_SCORER_MODULE");
 
-    bytes32 public constant EVENT_CONTEST_CREATED =
-        keccak256("CONTEST_CREATED");
-    bytes32 public constant EVENT_CONTEST_VERIFIED =
-        keccak256("CONTEST_VERIFIED");
-    bytes32 public constant EVENT_CONTEST_MARKETS_UPDATED =
-        keccak256("CONTEST_MARKETS_UPDATED");
-    bytes32 public constant EVENT_CONTEST_SCORES_SET =
-        keccak256("CONTEST_SCORES_SET");
+    bytes32 public constant EVENT_CONTEST_CREATED = keccak256("CONTEST_CREATED");
+    bytes32 public constant EVENT_CONTEST_VERIFIED = keccak256("CONTEST_VERIFIED");
+    bytes32 public constant EVENT_CONTEST_MARKETS_UPDATED = keccak256("CONTEST_MARKETS_UPDATED");
+    bytes32 public constant EVENT_CONTEST_SCORES_SET = keccak256("CONTEST_SCORES_SET");
     bytes32 public constant EVENT_CONTEST_VOIDED = keccak256("CONTEST_VOIDED");
 
     /// @notice Upper bound on a single team's score. exists to keep
@@ -95,11 +80,7 @@ contract ContestModule is IContestModule {
     /// @param contestId The contest ID
     /// @param leagueId The resolved league ID (may differ from creation if created as Unknown)
     /// @param startTime The contest start timestamp
-    event ContestVerified(
-        uint256 indexed contestId,
-        LeagueId leagueId,
-        uint256 startTime
-    );
+    event ContestVerified(uint256 indexed contestId, LeagueId leagueId, uint256 startTime);
 
     /// @notice Emitted when market data is updated for a contest
     /// @param contestId The contest ID
@@ -129,11 +110,7 @@ contract ContestModule is IContestModule {
     /// @param contestId The contest ID
     /// @param awayScore Final away team score
     /// @param homeScore Final home team score
-    event ContestScoresSet(
-        uint256 indexed contestId,
-        uint32 awayScore,
-        uint32 homeScore
-    );
+    event ContestScoresSet(uint256 indexed contestId, uint32 awayScore, uint32 homeScore);
 
     /// @notice Emitted when a contest is voided due to cooldown expiry without scoring
     /// @param contestId The contest ID
@@ -172,8 +149,7 @@ contract ContestModule is IContestModule {
     mapping(uint256 => uint32) public s_contestStartTimes;
 
     /// @notice Contest ID → scorer address → ContestMarket
-    mapping(uint256 => mapping(address => ContestMarket))
-        private s_contestMarket;
+    mapping(uint256 => mapping(address => ContestMarket)) private s_contestMarket;
 
     // ──────────────────────────── Constructor ──────────────────────────
 
@@ -203,11 +179,7 @@ contract ContestModule is IContestModule {
         LeagueId approvedLeagueId,
         address contestCreator
     ) external override onlyCreOracleReceiver returns (uint256 contestId) {
-        if (
-            bytes(rundownId).length == 0 &&
-            bytes(sportspageId).length == 0 &&
-            bytes(jsonoddsId).length == 0
-        ) {
+        if (bytes(rundownId).length == 0 && bytes(sportspageId).length == 0 && bytes(jsonoddsId).length == 0) {
             revert ContestModule__InvalidValue();
         }
 
@@ -223,24 +195,10 @@ contract ContestModule is IContestModule {
         c.contestCreator = contestCreator;
         c.contestStatus = ContestStatus.Unverified;
 
-        emit ContestCreated(
-            contestId,
-            rundownId,
-            sportspageId,
-            jsonoddsId,
-            approvedLeagueId,
-            contestCreator
-        );
+        emit ContestCreated(contestId, rundownId, sportspageId, jsonoddsId, approvedLeagueId, contestCreator);
         i_ospexCore.emitCoreEvent(
             EVENT_CONTEST_CREATED,
-            abi.encode(
-                contestId,
-                rundownId,
-                sportspageId,
-                jsonoddsId,
-                approvedLeagueId,
-                contestCreator
-            )
+            abi.encode(contestId, rundownId, sportspageId, jsonoddsId, approvedLeagueId, contestCreator)
         );
     }
 
@@ -258,16 +216,12 @@ contract ContestModule is IContestModule {
         uint16 overOdds,
         uint16 underOdds
     ) external override onlyCreOracleReceiver {
-        if (s_contests[contestId].contestStatus != ContestStatus.Verified)
+        if (s_contests[contestId].contestStatus != ContestStatus.Verified) {
             revert ContestModule__ContestNotVerified(contestId);
+        }
         if (
-            moneylineAwayOdds == 0 ||
-            moneylineHomeOdds == 0 ||
-            spreadAwayOdds == 0 ||
-            spreadHomeOdds == 0 ||
-            overOdds == 0 ||
-            underOdds == 0 ||
-            totalLineTicks < 0
+            moneylineAwayOdds == 0 || moneylineHomeOdds == 0 || spreadAwayOdds == 0 || spreadHomeOdds == 0
+                || overOdds == 0 || underOdds == 0 || totalLineTicks < 0
         ) {
             revert ContestModule__InvalidMarketData();
         }
@@ -278,24 +232,15 @@ contract ContestModule is IContestModule {
         address totalScorer = _getModule(TOTAL_SCORER_MODULE);
 
         s_contestMarket[contestId][moneylineScorer] = ContestMarket({
-            lineTicks: 0,
-            upperOdds: moneylineAwayOdds,
-            lowerOdds: moneylineHomeOdds,
-            lastUpdated: timestamp
+            lineTicks: 0, upperOdds: moneylineAwayOdds, lowerOdds: moneylineHomeOdds, lastUpdated: timestamp
         });
 
         s_contestMarket[contestId][spreadScorer] = ContestMarket({
-            lineTicks: spreadLineTicks,
-            upperOdds: spreadAwayOdds,
-            lowerOdds: spreadHomeOdds,
-            lastUpdated: timestamp
+            lineTicks: spreadLineTicks, upperOdds: spreadAwayOdds, lowerOdds: spreadHomeOdds, lastUpdated: timestamp
         });
 
         s_contestMarket[contestId][totalScorer] = ContestMarket({
-            lineTicks: totalLineTicks,
-            upperOdds: overOdds,
-            lowerOdds: underOdds,
-            lastUpdated: timestamp
+            lineTicks: totalLineTicks, upperOdds: overOdds, lowerOdds: underOdds, lastUpdated: timestamp
         });
 
         emit ContestMarketsUpdated(
@@ -331,28 +276,25 @@ contract ContestModule is IContestModule {
     // ──────────────────────────── Verification & Scoring ──────────────
 
     /// @inheritdoc IContestModule
-    function setContestLeagueIdAndStartTime(
-        uint256 contestId,
-        LeagueId leagueId,
-        uint32 startTime
-    ) external override onlyCreOracleReceiver {
+    function setContestLeagueIdAndStartTime(uint256 contestId, LeagueId leagueId, uint32 startTime)
+        external
+        override
+        onlyCreOracleReceiver
+    {
         if (leagueId == LeagueId.Unknown || startTime == 0) {
             revert ContestModule__InvalidValue();
         }
-        if (s_contests[contestId].contestStatus != ContestStatus.Unverified)
+        if (s_contests[contestId].contestStatus != ContestStatus.Unverified) {
             revert ContestModule__InvalidStatus(contestId);
-        if (
-            s_contests[contestId].leagueId != LeagueId.Unknown &&
-            s_contests[contestId].leagueId != leagueId
-        ) revert ContestModule__LeagueMismatch();
+        }
+        if (s_contests[contestId].leagueId != LeagueId.Unknown && s_contests[contestId].leagueId != leagueId) {
+            revert ContestModule__LeagueMismatch();
+        }
         s_contests[contestId].leagueId = leagueId;
         s_contestStartTimes[contestId] = startTime;
         s_contests[contestId].contestStatus = ContestStatus.Verified;
         emit ContestVerified(contestId, leagueId, startTime);
-        i_ospexCore.emitCoreEvent(
-            EVENT_CONTEST_VERIFIED,
-            abi.encode(contestId, leagueId, startTime)
-        );
+        i_ospexCore.emitCoreEvent(EVENT_CONTEST_VERIFIED, abi.encode(contestId, leagueId, startTime));
     }
 
     /**
@@ -366,11 +308,7 @@ contract ContestModule is IContestModule {
      * @param awayScore The away score
      * @param homeScore The home score
      */
-    function setScores(
-        uint256 contestId,
-        uint32 awayScore,
-        uint32 homeScore
-    ) external override onlyCreOracleReceiver {
+    function setScores(uint256 contestId, uint32 awayScore, uint32 homeScore) external override onlyCreOracleReceiver {
         if (s_contests[contestId].contestStatus != ContestStatus.Verified) {
             revert ContestModule__AlreadyScored(contestId);
         }
@@ -382,10 +320,7 @@ contract ContestModule is IContestModule {
         s_contests[contestId].homeScore = homeScore;
         s_contests[contestId].contestStatus = ContestStatus.Scored;
         emit ContestScoresSet(contestId, awayScore, homeScore);
-        i_ospexCore.emitCoreEvent(
-            EVENT_CONTEST_SCORES_SET,
-            abi.encode(contestId, awayScore, homeScore)
-        );
+        i_ospexCore.emitCoreEvent(EVENT_CONTEST_SCORES_SET, abi.encode(contestId, awayScore, homeScore));
     }
 
     /// @inheritdoc IContestModule
@@ -401,26 +336,23 @@ contract ContestModule is IContestModule {
     // ──────────────────────────── View Functions ──────────────────────
 
     /// @inheritdoc IContestModule
-    function getContest(
-        uint256 contestId
-    ) external view override returns (Contest memory contest) {
+    function getContest(uint256 contestId) external view override returns (Contest memory contest) {
         contest = s_contests[contestId];
     }
 
     /// @inheritdoc IContestModule
-    function isContestTerminal(
-        uint256 contestId
-    ) external view override returns (bool) {
-        return
-            s_contests[contestId].contestStatus == ContestStatus.Scored ||
-            s_contests[contestId].contestStatus == ContestStatus.Voided;
+    function isContestTerminal(uint256 contestId) external view override returns (bool) {
+        return s_contests[contestId].contestStatus == ContestStatus.Scored
+            || s_contests[contestId].contestStatus == ContestStatus.Voided;
     }
 
     /// @inheritdoc IContestModule
-    function getContestMarket(
-        uint256 contestId,
-        address scorer
-    ) external view override returns (ContestMarket memory contestMarket) {
+    function getContestMarket(uint256 contestId, address scorer)
+        external
+        view
+        override
+        returns (ContestMarket memory contestMarket)
+    {
         contestMarket = s_contestMarket[contestId][scorer];
     }
 
@@ -431,9 +363,7 @@ contract ContestModule is IContestModule {
      * @param moduleType The module type identifier
      * @return module The module contract address
      */
-    function _getModule(
-        bytes32 moduleType
-    ) internal view returns (address module) {
+    function _getModule(bytes32 moduleType) internal view returns (address module) {
         module = i_ospexCore.getModule(moduleType);
         if (module == address(0)) {
             revert ContestModule__ModuleNotSet(moduleType);

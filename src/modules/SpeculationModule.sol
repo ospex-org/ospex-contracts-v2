@@ -5,14 +5,7 @@ import {ISpeculationModule} from "../interfaces/ISpeculationModule.sol";
 import {IContestModule} from "../interfaces/IContestModule.sol";
 import {IScorerModule} from "../interfaces/IScorerModule.sol";
 import {OspexCore} from "../core/OspexCore.sol";
-import {
-    Speculation,
-    SpeculationStatus,
-    WinSide,
-    Contest,
-    ContestStatus,
-    FeeType
-} from "../core/OspexTypes.sol";
+import {Speculation, SpeculationStatus, WinSide, Contest, ContestStatus, FeeType} from "../core/OspexTypes.sol";
 
 /**
  * @title SpeculationModule
@@ -24,19 +17,14 @@ import {
 contract SpeculationModule is ISpeculationModule {
     // ──────────────────────────── Constants ────────────────────────────
 
-    bytes32 public constant SPECULATION_MODULE =
-        keccak256("SPECULATION_MODULE");
+    bytes32 public constant SPECULATION_MODULE = keccak256("SPECULATION_MODULE");
     bytes32 public constant POSITION_MODULE = keccak256("POSITION_MODULE");
     bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
-    bytes32 public constant MONEYLINE_SCORER_MODULE =
-        keccak256("MONEYLINE_SCORER_MODULE");
-    bytes32 public constant TOTAL_SCORER_MODULE =
-        keccak256("TOTAL_SCORER_MODULE");
+    bytes32 public constant MONEYLINE_SCORER_MODULE = keccak256("MONEYLINE_SCORER_MODULE");
+    bytes32 public constant TOTAL_SCORER_MODULE = keccak256("TOTAL_SCORER_MODULE");
 
-    bytes32 public constant EVENT_SPECULATION_CREATED =
-        keccak256("SPECULATION_CREATED");
-    bytes32 public constant EVENT_SPECULATION_SETTLED =
-        keccak256("SPECULATION_SETTLED");
+    bytes32 public constant EVENT_SPECULATION_CREATED = keccak256("SPECULATION_CREATED");
+    bytes32 public constant EVENT_SPECULATION_SETTLED = keccak256("SPECULATION_SETTLED");
 
     /// @notice Absolute magnitude bound on lineTicks (10x-scaled), enforced for ALL scorers.
     /// @dev lineTicks is 10x-scaled (e.g. -35 = -3.5 points). 1_000_000 ticks = 100,000.0 points/total
@@ -91,11 +79,7 @@ contract SpeculationModule is ISpeculationModule {
     /// @param speculationId The speculation ID
     /// @param winner The winning side
     /// @param scorer The scorer module that determined the outcome
-    event SpeculationSettled(
-        uint256 indexed speculationId,
-        WinSide winner,
-        address scorer
-    );
+    event SpeculationSettled(uint256 indexed speculationId, WinSide winner, address scorer);
 
     // ──────────────────────────── State ────────────────────────────────
 
@@ -109,8 +93,7 @@ contract SpeculationModule is ISpeculationModule {
     /// @notice Speculation ID → Speculation struct
     mapping(uint256 => Speculation) public s_speculations;
     /// @notice Reverse lookup: contest ID → scorer → lineTicks → speculation ID
-    mapping(uint256 => mapping(address => mapping(int32 => uint256)))
-        public s_speculationLookup;
+    mapping(uint256 => mapping(address => mapping(int32 => uint256))) public s_speculationLookup;
 
     /**
      * @notice Deploys the SpeculationModule with immutable configuration
@@ -135,13 +118,11 @@ contract SpeculationModule is ISpeculationModule {
     // ──────────────────────────── Speculation Creation ─────────────────
 
     /// @inheritdoc ISpeculationModule
-    function createSpeculation(
-        uint256 contestId,
-        address scorer,
-        int32 lineTicks,
-        address maker,
-        address taker
-    ) external override returns (uint256) {
+    function createSpeculation(uint256 contestId, address scorer, int32 lineTicks, address maker, address taker)
+        external
+        override
+        returns (uint256)
+    {
         if (msg.sender != _getModule(POSITION_MODULE)) {
             revert SpeculationModule__NotAuthorized(msg.sender);
         }
@@ -159,13 +140,10 @@ contract SpeculationModule is ISpeculationModule {
      * @param taker The address that completed the market
      * @return speculationId The new speculation ID
      */
-    function _createSpeculation(
-        uint256 contestId,
-        address scorer,
-        int32 lineTicks,
-        address maker,
-        address taker
-    ) internal returns (uint256) {
+    function _createSpeculation(uint256 contestId, address scorer, int32 lineTicks, address maker, address taker)
+        internal
+        returns (uint256)
+    {
         if (lineTicks > MAX_LINE_TICKS || lineTicks < -MAX_LINE_TICKS) {
             revert SpeculationModule__LineTicksOutOfRange(lineTicks);
         }
@@ -173,17 +151,17 @@ contract SpeculationModule is ISpeculationModule {
             revert SpeculationModule__SpeculationExists();
         }
 
-        Contest memory contest = IContestModule(_getModule(CONTEST_MODULE))
-            .getContest(contestId);
-        if (contest.contestStatus != ContestStatus.Verified)
+        Contest memory contest = IContestModule(_getModule(CONTEST_MODULE)).getContest(contestId);
+        if (contest.contestStatus != ContestStatus.Verified) {
             revert SpeculationModule__InvalidContestStatus();
+        }
         if (!i_ospexCore.isApprovedScorer(scorer)) {
             revert SpeculationModule__ScorerNotApproved();
         }
 
         if (
-            (scorer == _getModule(MONEYLINE_SCORER_MODULE) && lineTicks != 0) ||
-            (scorer == _getModule(TOTAL_SCORER_MODULE) && lineTicks < 0)
+            (scorer == _getModule(MONEYLINE_SCORER_MODULE) && lineTicks != 0)
+                || (scorer == _getModule(TOTAL_SCORER_MODULE) && lineTicks < 0)
         ) {
             revert SpeculationModule__InvalidLineTicks();
         }
@@ -203,24 +181,9 @@ contract SpeculationModule is ISpeculationModule {
 
         s_speculationLookup[contestId][scorer][lineTicks] = speculationId;
 
-        emit SpeculationCreated(
-            speculationId,
-            contestId,
-            scorer,
-            lineTicks,
-            maker,
-            taker
-        );
+        emit SpeculationCreated(speculationId, contestId, scorer, lineTicks, maker, taker);
         i_ospexCore.emitCoreEvent(
-            EVENT_SPECULATION_CREATED,
-            abi.encode(
-                speculationId,
-                contestId,
-                scorer,
-                lineTicks,
-                maker,
-                taker
-            )
+            EVENT_SPECULATION_CREATED, abi.encode(speculationId, contestId, scorer, lineTicks, maker, taker)
         );
         return speculationId;
     }
@@ -229,21 +192,16 @@ contract SpeculationModule is ISpeculationModule {
 
     /// @inheritdoc ISpeculationModule
     function settleSpeculation(uint256 speculationId) external override {
-        if (speculationId == 0 || speculationId > s_speculationIdCounter)
+        if (speculationId == 0 || speculationId > s_speculationIdCounter) {
             revert SpeculationModule__InvalidSpeculationId();
-        IContestModule contestModule = IContestModule(
-            _getModule(CONTEST_MODULE)
-        );
+        }
+        IContestModule contestModule = IContestModule(_getModule(CONTEST_MODULE));
 
         Speculation storage s = s_speculations[speculationId];
 
-        uint32 contestStartTime = contestModule.s_contestStartTimes(
-            s.contestId
-        );
+        uint32 contestStartTime = contestModule.s_contestStartTimes(s.contestId);
 
-        if (
-            block.timestamp < uint256(contestStartTime) || contestStartTime == 0
-        ) {
+        if (block.timestamp < uint256(contestStartTime) || contestStartTime == 0) {
             revert SpeculationModule__InvalidStartTime();
         }
         if (s.speculationStatus == SpeculationStatus.Closed) {
@@ -258,35 +216,22 @@ contract SpeculationModule is ISpeculationModule {
             s.winSide = winSide;
             s.speculationStatus = SpeculationStatus.Closed;
 
-            emit SpeculationSettled(
-                speculationId,
-                s.winSide,
-                s.speculationScorer
-            );
+            emit SpeculationSettled(speculationId, s.winSide, s.speculationScorer);
             i_ospexCore.emitCoreEvent(
-                EVENT_SPECULATION_SETTLED,
-                abi.encode(speculationId, s.winSide, s.speculationScorer)
+                EVENT_SPECULATION_SETTLED, abi.encode(speculationId, s.winSide, s.speculationScorer)
             );
             return;
         }
 
-        if (
-            block.timestamp >=
-            uint256(contestStartTime) + uint256(i_voidCooldown)
-        ) {
+        if (block.timestamp >= uint256(contestStartTime) + uint256(i_voidCooldown)) {
             if (contest.contestStatus == ContestStatus.Verified) {
                 contestModule.voidContest(s.contestId);
             }
             s.speculationStatus = SpeculationStatus.Closed;
             s.winSide = WinSide.Void;
-            emit SpeculationSettled(
-                speculationId,
-                WinSide.Void,
-                s.speculationScorer
-            );
+            emit SpeculationSettled(speculationId, WinSide.Void, s.speculationScorer);
             i_ospexCore.emitCoreEvent(
-                EVENT_SPECULATION_SETTLED,
-                abi.encode(speculationId, WinSide.Void, s.speculationScorer)
+                EVENT_SPECULATION_SETTLED, abi.encode(speculationId, WinSide.Void, s.speculationScorer)
             );
             return;
         }
@@ -297,31 +242,25 @@ contract SpeculationModule is ISpeculationModule {
     // ──────────────────────────── View Functions ──────────────────────
 
     /// @inheritdoc ISpeculationModule
-    function getSpeculation(
-        uint256 speculationId
-    ) external view override returns (Speculation memory) {
+    function getSpeculation(uint256 speculationId) external view override returns (Speculation memory) {
         return s_speculations[speculationId];
     }
 
     /// @inheritdoc ISpeculationModule
-    function getSpeculationId(
-        uint256 contestId,
-        address scorer,
-        int32 lineTicks
-    ) external view override returns (uint256) {
+    function getSpeculationId(uint256 contestId, address scorer, int32 lineTicks)
+        external
+        view
+        override
+        returns (uint256)
+    {
         return s_speculationLookup[contestId][scorer][lineTicks];
     }
 
     /// @inheritdoc ISpeculationModule
-    function isContestPastCooldown(
-        uint256 contestId
-    ) external view override returns (bool) {
-        uint32 contestStartTime = IContestModule(_getModule(CONTEST_MODULE))
-            .s_contestStartTimes(contestId);
+    function isContestPastCooldown(uint256 contestId) external view override returns (bool) {
+        uint32 contestStartTime = IContestModule(_getModule(CONTEST_MODULE)).s_contestStartTimes(contestId);
         if (contestStartTime == 0) return false;
-        return
-            block.timestamp >=
-            uint256(contestStartTime) + uint256(i_voidCooldown);
+        return block.timestamp >= uint256(contestStartTime) + uint256(i_voidCooldown);
     }
 
     // ──────────────────────────── Module Lookup ───────────────────────
@@ -331,9 +270,7 @@ contract SpeculationModule is ISpeculationModule {
      * @param moduleType The module type identifier
      * @return module The module contract address
      */
-    function _getModule(
-        bytes32 moduleType
-    ) internal view returns (address module) {
+    function _getModule(bytes32 moduleType) internal view returns (address module) {
         module = i_ospexCore.getModule(moduleType);
         if (module == address(0)) {
             revert SpeculationModule__ModuleNotSet(moduleType);

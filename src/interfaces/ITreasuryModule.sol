@@ -24,11 +24,7 @@ interface ITreasuryModule is IModule {
      * @param payer2 Second payer (charged remainder)
      * @param feeType The category of fee being charged
      */
-    function processSplitFee(
-        address payer1,
-        address payer2,
-        FeeType feeType
-    ) external;
+    function processSplitFee(address payer1, address payer2, FeeType feeType) external;
 
     /**
      * @notice Permissionless funding of any leaderboard's prize pool
@@ -43,11 +39,7 @@ interface ITreasuryModule is IModule {
      * @param amount The entry fee amount in USDC
      * @param leaderboardId The leaderboard receiving the entry
      */
-    function processLeaderboardEntryFee(
-        address payer,
-        uint256 amount,
-        uint256 leaderboardId
-    ) external;
+    function processLeaderboardEntryFee(address payer, uint256 amount, uint256 leaderboardId) external;
 
     /**
      * @notice Transfers prize pool funds to a winner. Only callable by LeaderboardModule.
@@ -55,11 +47,7 @@ interface ITreasuryModule is IModule {
      * @param to The recipient address
      * @param amount The amount to disburse in USDC
      */
-    function claimPrizePool(
-        uint256 leaderboardId,
-        address to,
-        uint256 amount
-    ) external;
+    function claimPrizePool(uint256 leaderboardId, address to, uint256 amount) external;
 
     /**
      * @notice Returns the fee rate for a given FeeType (USDC token units)
@@ -73,7 +61,5 @@ interface ITreasuryModule is IModule {
      * @param leaderboardId The leaderboard ID
      * @return balance The prize pool balance in USDC
      */
-    function getPrizePool(
-        uint256 leaderboardId
-    ) external view returns (uint256 balance);
+    function getPrizePool(uint256 leaderboardId) external view returns (uint256 balance);
 }

@@ -51,10 +51,7 @@ interface ISecondaryMarketModule is IModule {
     /// @notice Cancels an active sale listing
     /// @param speculationId The speculation ID
     /// @param positionType The position type
-    function cancelListing(
-        uint256 speculationId,
-        PositionType positionType
-    ) external;
+    function cancelListing(uint256 speculationId, PositionType positionType) external;
 
     /// @notice Updates an existing sale listing with new price and/or amounts
     /// @dev Pass 0 for any field to keep the current value
@@ -76,27 +73,23 @@ interface ISecondaryMarketModule is IModule {
     /// @param seller The seller address
     /// @param positionType The position type
     /// @return listing The SaleListing struct
-    function getSaleListing(
-        uint256 speculationId,
-        address seller,
-        PositionType positionType
-    ) external view returns (SaleListing memory listing);
+    function getSaleListing(uint256 speculationId, address seller, PositionType positionType)
+        external
+        view
+        returns (SaleListing memory listing);
 
     /// @notice Returns pending sale proceeds for a seller
     /// @param seller The seller address
     /// @return amount Pending proceeds in USDC
-    function getPendingSaleProceeds(
-        address seller
-    ) external view returns (uint256 amount);
+    function getPendingSaleProceeds(address seller) external view returns (uint256 amount);
 
     /// @notice Returns the current hash of a listing's state for use as expectedHash in buyPosition
     /// @param speculationId The speculation ID
     /// @param seller The seller address
     /// @param positionType The position type
     /// @return The keccak256 hash of the listing's current state
-    function getListingHash(
-        uint256 speculationId,
-        address seller,
-        PositionType positionType
-    ) external view returns (bytes32);
+    function getListingHash(uint256 speculationId, address seller, PositionType positionType)
+        external
+        view
+        returns (bytes32);
 }

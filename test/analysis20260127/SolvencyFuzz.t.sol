@@ -55,10 +55,8 @@ contract SolvencyFuzz is Test {
 
         speculationModule = new SpeculationModule(address(core), 3600);
         positionModule = new PositionModule(address(core), address(token));
-        treasuryModule = new TreasuryModule(
-            address(core), address(token), protocolReceiver,
-            1_000_000, 500_000, 500_000
-        );
+        treasuryModule =
+            new TreasuryModule(address(core), address(token), protocolReceiver, 1_000_000, 500_000, 500_000);
         mockContestModule = new MockContestModule();
         mockLeaderboardModule = new MockLeaderboardModuleFuzz();
         mockScorer = new MockScorerModule();
@@ -66,18 +64,30 @@ contract SolvencyFuzz is Test {
         // Bootstrap all 12 modules
         bytes32[] memory types = new bytes32[](12);
         address[] memory addrs = new address[](12);
-        types[0]  = core.CONTEST_MODULE();           addrs[0]  = address(mockContestModule);
-        types[1]  = core.SPECULATION_MODULE();        addrs[1]  = address(speculationModule);
-        types[2]  = core.POSITION_MODULE();           addrs[2]  = address(positionModule);
-        types[3]  = core.MATCHING_MODULE();           addrs[3]  = address(this); // test contract acts as MATCHING_MODULE
-        types[4]  = core.CRE_ORACLE_RECEIVER();             addrs[4]  = address(0xD004);
-        types[5]  = core.TREASURY_MODULE();           addrs[5]  = address(treasuryModule);
-        types[6]  = core.LEADERBOARD_MODULE();        addrs[6]  = address(mockLeaderboardModule);
-        types[7]  = core.RULES_MODULE();              addrs[7]  = address(0xD007);
-        types[8]  = core.SECONDARY_MARKET_MODULE();   addrs[8]  = address(0xD008);
-        types[9]  = core.MONEYLINE_SCORER_MODULE();   addrs[9]  = address(0xCC01);
-        types[10] = core.SPREAD_SCORER_MODULE();      addrs[10] = address(mockScorer);
-        types[11] = core.TOTAL_SCORER_MODULE();       addrs[11] = address(0xCC02);
+        types[0] = core.CONTEST_MODULE();
+        addrs[0] = address(mockContestModule);
+        types[1] = core.SPECULATION_MODULE();
+        addrs[1] = address(speculationModule);
+        types[2] = core.POSITION_MODULE();
+        addrs[2] = address(positionModule);
+        types[3] = core.MATCHING_MODULE(); // test contract acts as MATCHING_MODULE
+        addrs[3] = address(this);
+        types[4] = core.CRE_ORACLE_RECEIVER();
+        addrs[4] = address(0xD004);
+        types[5] = core.TREASURY_MODULE();
+        addrs[5] = address(treasuryModule);
+        types[6] = core.LEADERBOARD_MODULE();
+        addrs[6] = address(mockLeaderboardModule);
+        types[7] = core.RULES_MODULE();
+        addrs[7] = address(0xD007);
+        types[8] = core.SECONDARY_MARKET_MODULE();
+        addrs[8] = address(0xD008);
+        types[9] = core.MONEYLINE_SCORER_MODULE();
+        addrs[9] = address(0xCC01);
+        types[10] = core.SPREAD_SCORER_MODULE();
+        addrs[10] = address(mockScorer);
+        types[11] = core.TOTAL_SCORER_MODULE();
+        addrs[11] = address(0xCC02);
         core.bootstrapModules(types, addrs);
         core.finalize();
 
@@ -133,10 +143,10 @@ contract SolvencyFuzz is Test {
 
         // Create positions via recordFill
         uint256 speculationId = positionModule.recordFill(
-            1,                    // contestId
-            address(mockScorer),  // scorer
+            1, // contestId
+            address(mockScorer), // scorer
             lineTicks,
-            PositionType.Upper,   // maker is Upper
+            PositionType.Upper, // maker is Upper
             maker,
             makerRisk,
             taker,
@@ -201,14 +211,7 @@ contract SolvencyFuzz is Test {
         int32 pushLineTicks = lineTicks + 10000;
 
         uint256 pushSpecId = positionModule.recordFill(
-            1,
-            address(mockScorer),
-            pushLineTicks,
-            PositionType.Upper,
-            maker,
-            makerRisk,
-            taker,
-            takerRisk
+            1, address(mockScorer), pushLineTicks, PositionType.Upper, maker, makerRisk, taker, takerRisk
         );
 
         // Score the contest and set Push
@@ -250,10 +253,7 @@ contract SolvencyExactDivision is Test {
             assertEq(
                 makerProfit * ODDS_SCALE,
                 fillMakerRisk * profitTicks,
-                string.concat(
-                    "Non-zero remainder at oddsTick=",
-                    vm.toString(oddsTick)
-                )
+                string.concat("Non-zero remainder at oddsTick=", vm.toString(oddsTick))
             );
         }
     }

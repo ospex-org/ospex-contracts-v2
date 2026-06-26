@@ -7,24 +7,24 @@ import {Contest, ContestStatus} from "../src/core/OspexTypes.sol";
 
 contract DecodeContest is Script {
     address constant CONTEST_MODULE = 0x41f2F71cd6B3fbFd3A4C82E60ea9288Aa86Fe32d;
-    
+
     function run() external view {
         uint256 contestId = vm.envOr("CONTEST_ID", uint256(222));
-        
+
         ContestModule contestModule = ContestModule(CONTEST_MODULE);
         Contest memory contest = contestModule.getContest(contestId);
-        
+
         // Display contest information in a readable format
         console.log("\n==== Contest Information ====");
         console.log("Contest ID:", contestId);
-        
+
         // Status (convert enum to string)
         string memory statusStr;
         if (contest.contestStatus == ContestStatus.Unverified) statusStr = "Unverified";
         else if (contest.contestStatus == ContestStatus.Verified) statusStr = "Verified";
         else if (contest.contestStatus == ContestStatus.Scored) statusStr = "Scored";
         else statusStr = "Unknown";
-        
+
         console.log("Status:", statusStr);
         console.log("Creator:", contest.contestCreator);
 
@@ -32,7 +32,7 @@ contract DecodeContest is Script {
         console.log("Rundown ID:", contest.rundownId);
         console.log("Sportspage ID:", contest.sportspageId);
         console.log("JSONOdds ID:", contest.jsonoddsId);
-        
+
         console.log("\n-- Scores --");
         console.log("Home Score:", contest.homeScore);
         console.log("Away Score:", contest.awayScore);

@@ -84,10 +84,8 @@ contract LeaderboardModuleTest is Test {
         // Deploy modules
         leaderboardModule = new LeaderboardModule(address(core));
         rulesModule = new RulesModule(address(core));
-        treasuryModule = new TreasuryModule(
-            address(core), address(token), protocolReceiver,
-            CONTEST_FEE, SPEC_FEE, LB_FEE
-        );
+        treasuryModule =
+            new TreasuryModule(address(core), address(token), protocolReceiver, CONTEST_FEE, SPEC_FEE, LB_FEE);
         positionModule = new PositionModule(address(core), address(token));
         speculationModule = new SpeculationModule(address(core), 7 days);
 
@@ -205,13 +203,8 @@ contract LeaderboardModuleTest is Test {
             ROI_WINDOW
         );
 
-        uint256 newLeaderboardId = leaderboardModule.createLeaderboard(
-            ENTRY_FEE,
-            startTime,
-            endTime,
-            SAFETY_PERIOD,
-            ROI_WINDOW
-        );
+        uint256 newLeaderboardId =
+            leaderboardModule.createLeaderboard(ENTRY_FEE, startTime, endTime, SAFETY_PERIOD, ROI_WINDOW);
 
         assertEq(newLeaderboardId, 2);
 
@@ -237,13 +230,7 @@ contract LeaderboardModuleTest is Test {
         token.transfer(nonAdmin, LB_FEE);
 
         vm.prank(nonAdmin);
-        uint256 newId = leaderboardModule.createLeaderboard(
-            ENTRY_FEE,
-            startTime,
-            endTime,
-            SAFETY_PERIOD,
-            ROI_WINDOW
-        );
+        uint256 newId = leaderboardModule.createLeaderboard(ENTRY_FEE, startTime, endTime, SAFETY_PERIOD, ROI_WINDOW);
 
         Leaderboard memory lb = leaderboardModule.getLeaderboard(newId);
         assertEq(lb.creator, nonAdmin);
@@ -258,13 +245,7 @@ contract LeaderboardModuleTest is Test {
 
         vm.prank(admin);
         vm.expectRevert(LeaderboardModule.LeaderboardModule__InvalidTimeRange.selector);
-        leaderboardModule.createLeaderboard(
-            ENTRY_FEE,
-            startTime,
-            endTime,
-            SAFETY_PERIOD,
-            ROI_WINDOW
-        );
+        leaderboardModule.createLeaderboard(ENTRY_FEE, startTime, endTime, SAFETY_PERIOD, ROI_WINDOW);
     }
 
     function testCreateLeaderboard_RevertsOnPastStartTime() public {
@@ -279,13 +260,7 @@ contract LeaderboardModuleTest is Test {
 
         vm.prank(admin);
         vm.expectRevert(LeaderboardModule.LeaderboardModule__InvalidTimeRange.selector);
-        leaderboardModule.createLeaderboard(
-            ENTRY_FEE,
-            startTime,
-            endTime,
-            SAFETY_PERIOD,
-            ROI_WINDOW
-        );
+        leaderboardModule.createLeaderboard(ENTRY_FEE, startTime, endTime, SAFETY_PERIOD, ROI_WINDOW);
     }
 
     // --- Leaderboard Speculation Tests ---
@@ -300,15 +275,9 @@ contract LeaderboardModuleTest is Test {
         // admin is the leaderboard creator
         vm.prank(admin);
         vm.expectEmit();
-        emit LeaderboardModule.LeaderboardSpeculationAdded(
-            leaderboardId,
-            speculationId
-        );
+        emit LeaderboardModule.LeaderboardSpeculationAdded(leaderboardId, speculationId);
 
-        leaderboardModule.addLeaderboardSpeculation(
-            leaderboardId,
-            speculationId
-        );
+        leaderboardModule.addLeaderboardSpeculation(leaderboardId, speculationId);
 
         // Verify the speculation is registered for the leaderboard
         bool isRegistered = leaderboardModule.s_leaderboardSpeculationRegistered(leaderboardId, speculationId);
@@ -318,10 +287,7 @@ contract LeaderboardModuleTest is Test {
     function testAddLeaderboardSpeculation_RevertsIfNotCreator() public {
         vm.prank(nonAdmin);
         vm.expectRevert(abi.encodeWithSelector(LeaderboardModule.LeaderboardModule__NotCreator.selector, nonAdmin));
-        leaderboardModule.addLeaderboardSpeculation(
-            leaderboardId,
-            speculationId
-        );
+        leaderboardModule.addLeaderboardSpeculation(leaderboardId, speculationId);
     }
 
     function testAddLeaderboardSpeculation_RevertsIfAlreadyExists() public {
@@ -334,28 +300,22 @@ contract LeaderboardModuleTest is Test {
 
         // Add first
         vm.prank(admin);
-        leaderboardModule.addLeaderboardSpeculation(
-            leaderboardId,
-            speculationId
-        );
+        leaderboardModule.addLeaderboardSpeculation(leaderboardId, speculationId);
 
         // Try to add again
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(LeaderboardModule.LeaderboardModule__SpeculationAlreadyExists.selector, speculationId));
-        leaderboardModule.addLeaderboardSpeculation(
-            leaderboardId,
-            speculationId
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                LeaderboardModule.LeaderboardModule__SpeculationAlreadyExists.selector, speculationId
+            )
         );
+        leaderboardModule.addLeaderboardSpeculation(leaderboardId, speculationId);
     }
 
     // --- Register User Tests ---
     function testRegisterUser_Success() public {
         // Mock rules module to allow valid bankroll
-        vm.mockCall(
-            address(rulesModule),
-            abi.encodeWithSignature("isBankrollValid(uint256,uint256)"),
-            abi.encode(true)
-        );
+        vm.mockCall(address(rulesModule), abi.encodeWithSignature("isBankrollValid(uint256,uint256)"), abi.encode(true));
 
         // Warp to after leaderboard start
         vm.warp(block.timestamp + 2 hours);
@@ -375,11 +335,7 @@ contract LeaderboardModuleTest is Test {
 
     function testRegisterUser_WithEntryFee() public {
         // Mock rules module to allow valid bankroll
-        vm.mockCall(
-            address(rulesModule),
-            abi.encodeWithSignature("isBankrollValid(uint256,uint256)"),
-            abi.encode(true)
-        );
+        vm.mockCall(address(rulesModule), abi.encodeWithSignature("isBankrollValid(uint256,uint256)"), abi.encode(true));
 
         // Warp to after leaderboard start
         vm.warp(block.timestamp + 2 hours);
@@ -396,11 +352,7 @@ contract LeaderboardModuleTest is Test {
 
     function testRegisterUser_SucceedsBeforeLeaderboardStarts() public {
         // Mock rules module to allow valid bankroll
-        vm.mockCall(
-            address(rulesModule),
-            abi.encodeWithSignature("isBankrollValid(uint256,uint256)"),
-            abi.encode(true)
-        );
+        vm.mockCall(address(rulesModule), abi.encodeWithSignature("isBankrollValid(uint256,uint256)"), abi.encode(true));
 
         // Don't warp time - leaderboard hasn't started yet but registration should work
 
@@ -436,11 +388,7 @@ contract LeaderboardModuleTest is Test {
 
     function testRegisterUser_RevertsIfAlreadyRegistered() public {
         // Mock rules module to allow valid bankroll
-        vm.mockCall(
-            address(rulesModule),
-            abi.encodeWithSignature("isBankrollValid(uint256,uint256)"),
-            abi.encode(true)
-        );
+        vm.mockCall(address(rulesModule), abi.encodeWithSignature("isBankrollValid(uint256,uint256)"), abi.encode(true));
 
         // Warp to after leaderboard start
         vm.warp(block.timestamp + 2 hours);
@@ -461,9 +409,7 @@ contract LeaderboardModuleTest is Test {
     function testRegisterUser_RevertsIfInvalidBankroll() public {
         // Mock rules module to reject invalid bankroll
         vm.mockCall(
-            address(rulesModule),
-            abi.encodeWithSignature("isBankrollValid(uint256,uint256)"),
-            abi.encode(false)
+            address(rulesModule), abi.encodeWithSignature("isBankrollValid(uint256,uint256)"), abi.encode(false)
         );
 
         // Warp to after leaderboard start
@@ -542,7 +488,6 @@ contract LeaderboardModuleTest is Test {
         // Mock rules module validation
         _mockRulesModuleValidation(true);
 
-
         vm.prank(user1);
         vm.expectEmit(true, true, true, true);
         emit LeaderboardModule.LeaderboardPositionAdded(
@@ -555,18 +500,10 @@ contract LeaderboardModuleTest is Test {
             leaderboardId
         );
 
-        leaderboardModule.registerPositionForLeaderboard(
-            speculationId,
-            PositionType.Upper,
-            leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, leaderboardId);
 
         // Verify position was registered
-        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(
-            leaderboardId,
-            user1,
-            speculationId
-        );
+        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(leaderboardId, user1, speculationId);
         assertEq(lbPos.riskAmount, 50_000_000);
         assertEq(lbPos.profitAmount, 40_000_000);
         assertEq(lbPos.user, user1);
@@ -583,28 +520,18 @@ contract LeaderboardModuleTest is Test {
             abi.encode(0, 0, uint8(0), false, uint32(0), false) // riskAmount = 0
         );
 
-
         vm.prank(user1);
         vm.expectRevert(LeaderboardModule.LeaderboardModule__NoRiskAmount.selector);
-        leaderboardModule.registerPositionForLeaderboard(
-            speculationId,
-            PositionType.Upper,
-            leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, leaderboardId);
     }
 
     function testRegisterPositionForLeaderboards_RevertsUserNotRegistered() public {
         _setupPositionAndSpeculation();
         _mockPositionModuleCalls();
 
-
         vm.prank(user1); // user1 not registered for leaderboard
         vm.expectRevert(LeaderboardModule.LeaderboardModule__UserNotRegisteredForLeaderboard.selector);
-        leaderboardModule.registerPositionForLeaderboard(
-            speculationId,
-            PositionType.Upper,
-            leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, leaderboardId);
     }
 
     function testRegisterPositionForLeaderboards_RevertsPositionAlreadyExists() public {
@@ -613,23 +540,14 @@ contract LeaderboardModuleTest is Test {
         _mockPositionModuleCalls();
         _mockRulesModuleValidation(true);
 
-
         // Register position first time
         vm.prank(user1);
-        leaderboardModule.registerPositionForLeaderboard(
-            speculationId,
-            PositionType.Upper,
-            leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, leaderboardId);
 
         // Try to register again - should fail
         vm.prank(user1);
         vm.expectRevert(LeaderboardModule.LeaderboardModule__PositionAlreadyExistsForSpeculation.selector);
-        leaderboardModule.registerPositionForLeaderboard(
-            speculationId,
-            PositionType.Upper,
-            leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, leaderboardId);
     }
 
     // --- Helper Functions ---
@@ -654,21 +572,18 @@ contract LeaderboardModuleTest is Test {
             address(speculationModule),
             abi.encodeWithSignature("getSpeculation(uint256)", speculationId),
             abi.encode(
-                contestId,                      // contestId
-                address(mockScorerModule),       // speculationScorer
-                int32(0),                        // lineTicks
-                address(0),                      // speculationCreator
-                uint8(0),                        // speculationStatus = Open
-                uint8(0)                         // winSide = TBD
+                contestId, // contestId
+                address(mockScorerModule), // speculationScorer
+                int32(0), // lineTicks
+                address(0), // speculationCreator
+                uint8(0), // speculationStatus = Open
+                uint8(0) // winSide = TBD
             )
         );
 
         // Add speculation to leaderboard (only creator can do this)
         vm.prank(admin);
-        leaderboardModule.addLeaderboardSpeculation(
-            leaderboardId,
-            speculationId
-        );
+        leaderboardModule.addLeaderboardSpeculation(leaderboardId, speculationId);
     }
 
     function _mockPositionModuleCalls() internal {
@@ -677,12 +592,12 @@ contract LeaderboardModuleTest is Test {
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)"),
             abi.encode(
-                50_000_000,  // riskAmount: 50 USDC
-                40_000_000,  // profitAmount: 40 USDC
-                uint8(0),    // positionType = Upper
-                false,       // claimed
-                uint32(block.timestamp),  // firstFillTimestamp
-                false        // acquiredViaSecondaryMarket
+                50_000_000, // riskAmount: 50 USDC
+                40_000_000, // profitAmount: 40 USDC
+                uint8(0), // positionType = Upper
+                false, // claimed
+                uint32(block.timestamp), // firstFillTimestamp
+                false // acquiredViaSecondaryMarket
             )
         );
 
@@ -691,12 +606,12 @@ contract LeaderboardModuleTest is Test {
             address(speculationModule),
             abi.encodeWithSignature("getSpeculation(uint256)"),
             abi.encode(
-                contestId,                      // contestId
-                address(mockScorerModule),       // speculationScorer (registered scorer)
-                int32(0),                        // lineTicks
-                address(0),                      // speculationCreator
-                uint8(0),                        // speculationStatus = Open
-                uint8(0)                         // winSide = TBD
+                contestId, // contestId
+                address(mockScorerModule), // speculationScorer (registered scorer)
+                int32(0), // lineTicks
+                address(0), // speculationCreator
+                uint8(0), // speculationStatus = Open
+                uint8(0) // winSide = TBD
             )
         );
     }
@@ -723,11 +638,7 @@ contract LeaderboardModuleTest is Test {
     }
 
     function _mockRulesModuleForRegistration() internal {
-        vm.mockCall(
-            address(rulesModule),
-            abi.encodeWithSignature("isBankrollValid(uint256,uint256)"),
-            abi.encode(true)
-        );
+        vm.mockCall(address(rulesModule), abi.encodeWithSignature("isBankrollValid(uint256,uint256)"), abi.encode(true));
     }
 
     function _mockTreasuryModuleForRegistration() internal {
@@ -786,19 +697,12 @@ contract LeaderboardModuleTest is Test {
         _mockPositionModuleCalls();
         _mockRulesModuleValidation(true);
 
-
         vm.prank(user1);
-        leaderboardModule.registerPositionForLeaderboard(
-            speculationId,
-            PositionType.Upper,
-            leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, leaderboardId);
 
         // Mock rules module for minimum positions
         vm.mockCall(
-            address(rulesModule),
-            abi.encodeWithSignature("isMinPositionsMet(uint256,uint256)"),
-            abi.encode(true)
+            address(rulesModule), abi.encodeWithSignature("isMinPositionsMet(uint256,uint256)"), abi.encode(true)
         );
 
         // Mock speculation module for ROI calculation — use mockScorerModule address
@@ -806,12 +710,12 @@ contract LeaderboardModuleTest is Test {
             address(speculationModule),
             abi.encodeWithSignature("getSpeculation(uint256)"),
             abi.encode(
-                contestId,                      // contestId
-                address(mockScorerModule),       // speculationScorer
-                int32(0),                        // lineTicks
-                address(0),                      // speculationCreator
-                uint8(1),                        // speculationStatus = Closed
-                uint8(5)                         // winSide = Push (for 0 ROI)
+                contestId, // contestId
+                address(mockScorerModule), // speculationScorer
+                int32(0), // lineTicks
+                address(0), // speculationCreator
+                uint8(1), // speculationStatus = Closed
+                uint8(5) // winSide = Push (for 0 ROI)
             )
         );
     }
@@ -826,9 +730,7 @@ contract LeaderboardModuleTest is Test {
 
         // Mock treasury module for prize claiming
         vm.mockCall(
-            address(treasuryModule),
-            abi.encodeWithSignature("claimPrizePool(uint256,address,uint256)"),
-            abi.encode()
+            address(treasuryModule), abi.encodeWithSignature("claimPrizePool(uint256,address,uint256)"), abi.encode()
         );
 
         vm.prank(user1);
@@ -872,9 +774,7 @@ contract LeaderboardModuleTest is Test {
 
         // Mock treasury module
         vm.mockCall(
-            address(treasuryModule),
-            abi.encodeWithSignature("claimPrizePool(uint256,address,uint256)"),
-            abi.encode()
+            address(treasuryModule), abi.encodeWithSignature("claimPrizePool(uint256,address,uint256)"), abi.encode()
         );
 
         // Claim first time
@@ -895,9 +795,7 @@ contract LeaderboardModuleTest is Test {
         vm.warp(block.timestamp + 365 days);
 
         vm.mockCall(
-            address(treasuryModule),
-            abi.encodeWithSignature("claimPrizePool(uint256,address,uint256)"),
-            abi.encode()
+            address(treasuryModule), abi.encodeWithSignature("claimPrizePool(uint256,address,uint256)"), abi.encode()
         );
 
         vm.prank(user1);
@@ -967,10 +865,10 @@ contract LeaderboardModuleTest is Test {
             abi.encode(
                 500_000_000, // riskAmount: 500 USDC - high amount
                 400_000_000, // profitAmount: 400 USDC
-                uint8(0),    // positionType = Upper
-                false,       // claimed
-                uint32(block.timestamp),  // firstFillTimestamp
-                false        // acquiredViaSecondaryMarket
+                uint8(0), // positionType = Upper
+                false, // claimed
+                uint32(block.timestamp), // firstFillTimestamp
+                false // acquiredViaSecondaryMarket
             )
         );
 
@@ -978,12 +876,12 @@ contract LeaderboardModuleTest is Test {
             address(speculationModule),
             abi.encodeWithSignature("getSpeculation(uint256)"),
             abi.encode(
-                contestId,                      // contestId
-                address(mockScorerModule),       // speculationScorer
-                int32(0),                        // lineTicks
-                address(0),                      // speculationCreator
-                uint8(0),                        // speculationStatus = Open
-                uint8(0)                         // winSide = TBD
+                contestId, // contestId
+                address(mockScorerModule), // speculationScorer
+                int32(0), // lineTicks
+                address(0), // speculationCreator
+                uint8(0), // speculationStatus = Open
+                uint8(0) // winSide = TBD
             )
         );
 
@@ -995,9 +893,7 @@ contract LeaderboardModuleTest is Test {
         );
 
         vm.mockCall(
-            address(rulesModule),
-            abi.encodeWithSignature("getMinBetAmount(uint256,uint256)"),
-            abi.encode(1_000_000)
+            address(rulesModule), abi.encodeWithSignature("getMinBetAmount(uint256,uint256)"), abi.encode(1_000_000)
         );
 
         vm.mockCall(
@@ -1006,20 +902,11 @@ contract LeaderboardModuleTest is Test {
             abi.encode(0) // LeaderboardPositionValidationResult.Valid
         );
 
-
         vm.prank(user1);
-        leaderboardModule.registerPositionForLeaderboard(
-            speculationId,
-            PositionType.Upper,
-            leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, leaderboardId);
 
         // Verify amount was capped
-        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(
-            leaderboardId,
-            user1,
-            speculationId
-        );
+        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(leaderboardId, user1, speculationId);
         assertEq(lbPos.riskAmount, 100_000_000); // Should be capped to max
         // profitAmount should be scaled proportionally: 400M * 100M / 500M = 80M
         assertEq(lbPos.profitAmount, 80_000_000);
@@ -1034,12 +921,12 @@ contract LeaderboardModuleTest is Test {
             address(positionModule),
             abi.encodeWithSignature("getPosition(uint256,address,uint8)"),
             abi.encode(
-                50_000_000,  // riskAmount: 50 USDC
-                40_000_000,  // profitAmount: 40 USDC
-                uint8(0),    // positionType = Upper
-                false,       // claimed
-                uint32(block.timestamp),  // firstFillTimestamp
-                false        // acquiredViaSecondaryMarket
+                50_000_000, // riskAmount: 50 USDC
+                40_000_000, // profitAmount: 40 USDC
+                uint8(0), // positionType = Upper
+                false, // claimed
+                uint32(block.timestamp), // firstFillTimestamp
+                false // acquiredViaSecondaryMarket
             )
         );
 
@@ -1047,44 +934,31 @@ contract LeaderboardModuleTest is Test {
             address(speculationModule),
             abi.encodeWithSignature("getSpeculation(uint256)"),
             abi.encode(
-                contestId,                      // contestId
-                address(mockScorerModule),       // speculationScorer
-                int32(0),                        // lineTicks
-                address(0),                      // speculationCreator
-                uint8(0),                        // speculationStatus = Open
-                uint8(0)                         // winSide = TBD
+                contestId, // contestId
+                address(mockScorerModule), // speculationScorer
+                int32(0), // lineTicks
+                address(0), // speculationCreator
+                uint8(0), // speculationStatus = Open
+                uint8(0) // winSide = TBD
             )
         );
 
         // Mock max bet to return 0 (simulates tiny bankroll where integer division rounds to 0)
-        vm.mockCall(
-            address(rulesModule),
-            abi.encodeWithSignature("getMaxBetAmount(uint256,uint256)"),
-            abi.encode(0)
-        );
+        vm.mockCall(address(rulesModule), abi.encodeWithSignature("getMaxBetAmount(uint256,uint256)"), abi.encode(0));
 
         // Mock min bet to also return 0 (no minimum configured)
-        vm.mockCall(
-            address(rulesModule),
-            abi.encodeWithSignature("getMinBetAmount(uint256,uint256)"),
-            abi.encode(0)
-        );
+        vm.mockCall(address(rulesModule), abi.encodeWithSignature("getMinBetAmount(uint256,uint256)"), abi.encode(0));
 
         // Should revert because capped risk amount rounds to zero
         vm.prank(user1);
         vm.expectRevert(LeaderboardModule.LeaderboardModule__BetSizeBelowMinimum.selector);
-        leaderboardModule.registerPositionForLeaderboard(
-            speculationId,
-            PositionType.Upper,
-            leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, leaderboardId);
     }
 
     function testRegisterPositionForLeaderboards_CanRetryAfterValidationFailure() public {
         _setupUserRegistration();
         _setupPositionAndSpeculation();
         _mockPositionModuleCalls();
-
 
         // ===== PHASE 1: Initial attempt with validation failure (should revert) =====
 
@@ -1109,15 +983,13 @@ contract LeaderboardModuleTest is Test {
 
         // First registration attempt should REVERT
         vm.prank(user1);
-        vm.expectRevert(abi.encodeWithSelector(
-            LeaderboardModule.LeaderboardModule__ValidationFailed.selector,
-            uint256(LeaderboardPositionValidationResult.OddsTooFavorable)
-        ));
-        leaderboardModule.registerPositionForLeaderboard(
-            speculationId,
-            PositionType.Upper,
-            leaderboardId
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                LeaderboardModule.LeaderboardModule__ValidationFailed.selector,
+                uint256(LeaderboardPositionValidationResult.OddsTooFavorable)
+            )
         );
+        leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, leaderboardId);
 
         // ===== PHASE 2: Retry should succeed =====
 
@@ -1130,11 +1002,7 @@ contract LeaderboardModuleTest is Test {
 
         // Second registration attempt should succeed
         vm.prank(user1);
-        leaderboardModule.registerPositionForLeaderboard(
-            speculationId,
-            PositionType.Upper,
-            leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, leaderboardId);
 
         // Verify position is now registered
         uint256 registeredSpecId = leaderboardModule.s_registeredLeaderboardSpeculation(
@@ -1146,11 +1014,7 @@ contract LeaderboardModuleTest is Test {
         assertEq(registeredSpecId, speculationId);
 
         // Verify the position details
-        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(
-            leaderboardId,
-            user1,
-            speculationId
-        );
+        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(leaderboardId, user1, speculationId);
         assertEq(lbPos.riskAmount, 50_000_000);
         assertEq(lbPos.profitAmount, 40_000_000);
         assertEq(lbPos.contestId, contestId);
@@ -1193,14 +1057,9 @@ contract LeaderboardModuleTest is Test {
         _mockPositionModuleCalls();
         _mockRulesModuleValidation(true);
 
-
         // Register positions for both users
         vm.prank(user1);
-        leaderboardModule.registerPositionForLeaderboard(
-            speculationId,
-            PositionType.Upper,
-            leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, leaderboardId);
 
         // For user2, use different speculation ID to avoid conflicts
         uint256 speculationId2 = 2;
@@ -1214,34 +1073,25 @@ contract LeaderboardModuleTest is Test {
             address(speculationModule),
             abi.encodeWithSignature("getSpeculation(uint256)", speculationId2),
             abi.encode(
-                contestId,                      // contestId
-                address(mockScorerModule),       // speculationScorer
-                int32(0),                        // lineTicks
-                address(0),                      // speculationCreator
-                uint8(0),                        // speculationStatus = Open
-                uint8(0)                         // winSide = TBD
+                contestId, // contestId
+                address(mockScorerModule), // speculationScorer
+                int32(0), // lineTicks
+                address(0), // speculationCreator
+                uint8(0), // speculationStatus = Open
+                uint8(0) // winSide = TBD
             )
         );
 
         // Add leaderboard speculation for user2 (creator adds it)
         vm.prank(admin);
-        leaderboardModule.addLeaderboardSpeculation(
-            leaderboardId,
-            speculationId2
-        );
+        leaderboardModule.addLeaderboardSpeculation(leaderboardId, speculationId2);
 
         vm.prank(user2);
-        leaderboardModule.registerPositionForLeaderboard(
-            speculationId2,
-            PositionType.Upper,
-            leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(speculationId2, PositionType.Upper, leaderboardId);
 
         // Mock rules module for minimum positions
         vm.mockCall(
-            address(rulesModule),
-            abi.encodeWithSignature("isMinPositionsMet(uint256,uint256)"),
-            abi.encode(true)
+            address(rulesModule), abi.encodeWithSignature("isMinPositionsMet(uint256,uint256)"), abi.encode(true)
         );
     }
 
@@ -1253,11 +1103,11 @@ contract LeaderboardModuleTest is Test {
             abi.encodeWithSignature("getPosition(uint256,address,uint8)", 2, user2, uint8(0)),
             abi.encode(
                 100_000_000, // riskAmount: 100 USDC (double user1's 50M)
-                80_000_000,  // profitAmount: 80 USDC
-                uint8(0),    // positionType = Upper
-                false,       // claimed
-                uint32(block.timestamp),  // firstFillTimestamp
-                false        // acquiredViaSecondaryMarket
+                80_000_000, // profitAmount: 80 USDC
+                uint8(0), // positionType = Upper
+                false, // claimed
+                uint32(block.timestamp), // firstFillTimestamp
+                false // acquiredViaSecondaryMarket
             )
         );
 
@@ -1266,12 +1116,12 @@ contract LeaderboardModuleTest is Test {
             address(speculationModule),
             abi.encodeWithSignature("getSpeculation(uint256)", 2),
             abi.encode(
-                contestId,                      // contestId
-                address(mockScorerModule),       // speculationScorer
-                int32(0),                        // lineTicks
-                address(0),                      // speculationCreator
-                uint8(1),                        // speculationStatus = Closed
-                uint8(1)                         // winSide = Away (user2 wins since they have Upper position)
+                contestId, // contestId
+                address(mockScorerModule), // speculationScorer
+                int32(0), // lineTicks
+                address(0), // speculationCreator
+                uint8(1), // speculationStatus = Closed
+                uint8(1) // winSide = Away (user2 wins since they have Upper position)
             )
         );
     }
@@ -1289,12 +1139,12 @@ contract LeaderboardModuleTest is Test {
             address(speculationModule),
             abi.encodeWithSignature("getSpeculation(uint256)", 1),
             abi.encode(
-                contestId,                      // contestId
-                address(mockScorerModule),       // speculationScorer
-                int32(0),                        // lineTicks
-                address(0),                      // speculationCreator
-                uint8(1),                        // speculationStatus = Closed
-                uint8(2)                         // winSide = Home (user1 has Upper, so loses)
+                contestId, // contestId
+                address(mockScorerModule), // speculationScorer
+                int32(0), // lineTicks
+                address(0), // speculationCreator
+                uint8(1), // speculationStatus = Closed
+                uint8(2) // winSide = Home (user1 has Upper, so loses)
             )
         );
 
@@ -1303,12 +1153,12 @@ contract LeaderboardModuleTest is Test {
             address(speculationModule),
             abi.encodeWithSignature("getSpeculation(uint256)", 2),
             abi.encode(
-                contestId,                      // contestId
-                address(mockScorerModule),       // speculationScorer
-                int32(0),                        // lineTicks
-                address(0),                      // speculationCreator
-                uint8(1),                        // speculationStatus = Closed
-                uint8(2)                         // winSide = Home (user2 has Upper, so loses)
+                contestId, // contestId
+                address(mockScorerModule), // speculationScorer
+                int32(0), // lineTicks
+                address(0), // speculationCreator
+                uint8(1), // speculationStatus = Closed
+                uint8(2) // winSide = Home (user2 has Upper, so loses)
             )
         );
 
@@ -1562,7 +1412,6 @@ contract LeaderboardModuleTest is Test {
         );
         _mockRulesModuleValidation(true);
 
-
         vm.prank(user1);
         leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, leaderboardId);
 
@@ -1571,9 +1420,14 @@ contract LeaderboardModuleTest is Test {
         uint256 contestId2 = 2;
         // Set up contest 2 in the mock
         Contest memory contest2 = Contest({
-            awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Verified, contestCreator: admin,
-            rundownId: "test2", sportspageId: "test2", jsonoddsId: "test2"
+            awayScore: 0,
+            homeScore: 0,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Verified,
+            contestCreator: admin,
+            rundownId: "test2",
+            sportspageId: "test2",
+            jsonoddsId: "test2"
         });
         mockContestModule.setContest(contestId2, contest2);
         mockContestModule.setContestStartTime(contestId2, uint32(block.timestamp + 4 hours));
@@ -1597,9 +1451,7 @@ contract LeaderboardModuleTest is Test {
 
         // Mock min positions
         vm.mockCall(
-            address(rulesModule),
-            abi.encodeWithSignature("isMinPositionsMet(uint256,uint256)"),
-            abi.encode(true)
+            address(rulesModule), abi.encodeWithSignature("isMinPositionsMet(uint256,uint256)"), abi.encode(true)
         );
 
         // --- Set scoring outcomes for ROI calculation ---
@@ -1656,7 +1508,6 @@ contract LeaderboardModuleTest is Test {
         );
         _mockRulesModuleValidation(true);
 
-
         vm.prank(user1);
         leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, leaderboardId);
 
@@ -1664,9 +1515,14 @@ contract LeaderboardModuleTest is Test {
         uint256 specId2 = 2;
         uint256 contestId2 = 2;
         Contest memory contest2 = Contest({
-            awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Verified, contestCreator: admin,
-            rundownId: "test2", sportspageId: "test2", jsonoddsId: "test2"
+            awayScore: 0,
+            homeScore: 0,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Verified,
+            contestCreator: admin,
+            rundownId: "test2",
+            sportspageId: "test2",
+            jsonoddsId: "test2"
         });
         mockContestModule.setContest(contestId2, contest2);
         mockContestModule.setContestStartTime(contestId2, uint32(block.timestamp + 4 hours));
@@ -1690,9 +1546,7 @@ contract LeaderboardModuleTest is Test {
 
         // Mock min positions
         vm.mockCall(
-            address(rulesModule),
-            abi.encodeWithSignature("isMinPositionsMet(uint256,uint256)"),
-            abi.encode(true)
+            address(rulesModule), abi.encodeWithSignature("isMinPositionsMet(uint256,uint256)"), abi.encode(true)
         );
 
         // --- Set scoring outcomes ---
@@ -1745,7 +1599,6 @@ contract LeaderboardModuleTest is Test {
         leaderboardModule.addLeaderboardSpeculation(leaderboardId, speculationId);
         _mockRulesModuleValidation(true);
 
-
         vm.prank(user1);
         leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, leaderboardId);
 
@@ -1768,9 +1621,7 @@ contract LeaderboardModuleTest is Test {
 
         // Mock min positions check
         vm.mockCall(
-            address(rulesModule),
-            abi.encodeWithSignature("isMinPositionsMet(uint256,uint256)"),
-            abi.encode(true)
+            address(rulesModule), abi.encodeWithSignature("isMinPositionsMet(uint256,uint256)"), abi.encode(true)
         );
 
         // Mock both speculations as Push (0 ROI) for scoring
@@ -1803,9 +1654,7 @@ contract LeaderboardModuleTest is Test {
     }
 
     // --- Helper: mirrors _calculateTimeBounds from LeaderboardModule for test use ---
-    function _calculateTimeBoundsExternal(
-        Leaderboard memory lb
-    ) internal pure returns (uint256, uint256) {
+    function _calculateTimeBoundsExternal(Leaderboard memory lb) internal pure returns (uint256, uint256) {
         uint256 roiWindowStart = uint256(lb.endTime) + uint256(lb.safetyPeriodDuration);
         uint256 roiWindowEnd = roiWindowStart + uint256(lb.roiSubmissionWindow);
         return (roiWindowStart, roiWindowEnd);
@@ -1900,9 +1749,7 @@ contract LeaderboardModuleTest is Test {
 
         // Mock min positions
         vm.mockCall(
-            address(rulesModule),
-            abi.encodeWithSignature("isMinPositionsMet(uint256,uint256)"),
-            abi.encode(true)
+            address(rulesModule), abi.encodeWithSignature("isMinPositionsMet(uint256,uint256)"), abi.encode(true)
         );
 
         // Mock speculation as Push for ROI calc
@@ -1924,11 +1771,7 @@ contract LeaderboardModuleTest is Test {
         vm.warp(roiWindowEnd);
 
         // Mock treasury to return 0 prize pool
-        vm.mockCall(
-            address(treasuryModule),
-            abi.encodeWithSignature("getPrizePool(uint256)"),
-            abi.encode(0)
-        );
+        vm.mockCall(address(treasuryModule), abi.encodeWithSignature("getPrizePool(uint256)"), abi.encode(0));
 
         // Winner should be able to claim without reverting (share = 0, skips treasury call)
         vm.prank(user1);
@@ -1977,11 +1820,7 @@ contract LeaderboardModuleTest is Test {
 
         vm.prank(user1);
         vm.expectRevert(LeaderboardModule.LeaderboardModule__PositionPredatesLeaderboard.selector);
-        leaderboardModule.registerPositionForLeaderboard(
-            speculationId,
-            PositionType.Upper,
-            leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, leaderboardId);
     }
 
     /// @notice Position filled at or after leaderboard start is accepted
@@ -2008,16 +1847,10 @@ contract LeaderboardModuleTest is Test {
 
         // Should succeed — firstFillTimestamp == lb.startTime, not less than
         vm.prank(user1);
-        leaderboardModule.registerPositionForLeaderboard(
-            speculationId,
-            PositionType.Upper,
-            leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, leaderboardId);
 
         // Verify position was registered
-        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(
-            leaderboardId, user1, speculationId
-        );
+        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(leaderboardId, user1, speculationId);
         assertEq(lbPos.riskAmount, 50_000_000, "Position should be registered");
     }
 
@@ -2053,11 +1886,7 @@ contract LeaderboardModuleTest is Test {
         // Bob's registration should revert — inherited timestamp predates LB
         vm.prank(user2);
         vm.expectRevert(LeaderboardModule.LeaderboardModule__PositionPredatesLeaderboard.selector);
-        leaderboardModule.registerPositionForLeaderboard(
-            speculationId,
-            PositionType.Upper,
-            leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, leaderboardId);
     }
 
     /// @notice Alice fills during LB, transfers to Bob during LB — Bob's registration succeeds
@@ -2091,16 +1920,10 @@ contract LeaderboardModuleTest is Test {
 
         // Bob's registration should succeed — inherited timestamp is during LB
         vm.prank(user2);
-        leaderboardModule.registerPositionForLeaderboard(
-            speculationId,
-            PositionType.Upper,
-            leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(speculationId, PositionType.Upper, leaderboardId);
 
         // Verify position was registered
-        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(
-            leaderboardId, user2, speculationId
-        );
+        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(leaderboardId, user2, speculationId);
         assertEq(lbPos.riskAmount, 50_000_000, "Transferred position should be registered");
         assertEq(lbPos.user, user2, "Position should be registered to Bob");
     }

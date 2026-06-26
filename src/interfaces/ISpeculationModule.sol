@@ -20,13 +20,9 @@ interface ISpeculationModule is IModule {
     /// @param maker The address that initiated the market (pays floor half of creation fee)
     /// @param taker The address that completed the market (pays remainder of creation fee)
     /// @return speculationId The new speculation ID
-    function createSpeculation(
-        uint256 contestId,
-        address scorer,
-        int32 lineTicks,
-        address maker,
-        address taker
-    ) external returns (uint256 speculationId);
+    function createSpeculation(uint256 contestId, address scorer, int32 lineTicks, address maker, address taker)
+        external
+        returns (uint256 speculationId);
 
     /// @notice Settles a speculation after the contest is scored. Permissionless.
     /// @dev Auto-voids if the void cooldown has elapsed and the contest remains unscored.
@@ -36,25 +32,20 @@ interface ISpeculationModule is IModule {
     /// @notice Gets the details of a speculation
     /// @param speculationId The speculation ID
     /// @return speculation The Speculation struct
-    function getSpeculation(
-        uint256 speculationId
-    ) external view returns (Speculation memory speculation);
+    function getSpeculation(uint256 speculationId) external view returns (Speculation memory speculation);
 
     /// @notice Gets a speculation ID by its unique key (contest/scorer/line)
     /// @param contestId The contest ID
     /// @param scorer The scorer module address
     /// @param lineTicks The line number (10x format)
     /// @return speculationId The speculation ID (0 if none exists)
-    function getSpeculationId(
-        uint256 contestId,
-        address scorer,
-        int32 lineTicks
-    ) external view returns (uint256 speculationId);
+    function getSpeculationId(uint256 contestId, address scorer, int32 lineTicks)
+        external
+        view
+        returns (uint256 speculationId);
 
     /// @notice Checks whether a contest has elapsed its void cooldown
     /// @param contestId The contest ID
     /// @return True if block.timestamp >= contest start time + void cooldown
-    function isContestPastCooldown(
-        uint256 contestId
-    ) external view returns (bool);
+    function isContestPastCooldown(uint256 contestId) external view returns (bool);
 }

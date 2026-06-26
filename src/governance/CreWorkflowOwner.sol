@@ -110,11 +110,7 @@ contract CreWorkflowOwner {
      *         `linkOwner` cannot pause or delete anything, and it reverts if already linked.
      * @dev Routed through the timelock like every other action, so even the bootstrap is delayed.
      */
-    function linkSelfAsOwner(
-        uint256 validityTimestamp,
-        bytes32 proof,
-        bytes calldata signature
-    ) external onlyTimelock {
+    function linkSelfAsOwner(uint256 validityTimestamp, bytes32 proof, bytes calldata signature) external onlyTimelock {
         i_registry.linkOwner(validityTimestamp, proof, signature);
         emit OwnerLinkForwarded(proof);
     }
