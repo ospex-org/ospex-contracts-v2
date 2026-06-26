@@ -97,11 +97,14 @@ contract DeployPolygonCre is Script {
         require(forwarder != address(0), "set KEYSTONE_FORWARDER (Polygon mainnet)"); // receiver also reverts on zero
         address workflowOwner = vm.envOr("WORKFLOW_OWNER", address(0));
         require(workflowOwner != address(0), "set WORKFLOW_OWNER (CRE workflow owner address)");
-        // WORKFLOW_NAME, when enforced, MUST be the bytes10 the CRE engine stamps into report metadata:
+        // WORKFLOW_NAME posture (IMMUTABLE -- choose consciously). RECOMMENDED for mainnet: ENFORCE the
+        // name. When enforced it MUST be the bytes10 the CRE engine stamps into report metadata:
         // SHA256(name) -> first 10 hex chars -> those 10 ASCII chars as bytes. This is a HASH of the name,
         // NOT bytes10 of the plaintext (e.g. "my_workflow" -> 0x62373666336165316465). The receiver
-        // compares i_workflowName against this metadata value verbatim, so passing plaintext bytes here
-        // would make onReport reject every report. 0 (default) = name not enforced (owner check only).
+        // compares i_workflowName against this metadata value verbatim, so passing the PLAINTEXT name here
+        // would make onReport reject every report -- a permanent brick. It MUST equal SHA256 of the exact
+        // name pinned in DeployCreGovernance (default "osverify"). 0 (default) = name NOT enforced
+        // (owner-only binding); acceptable, but pinning the name is strictly safer for an immutable deploy.
         bytes10 workflowName = bytes10(vm.envOr("WORKFLOW_NAME", bytes32(0)));
 
         console.log("=== Ospex Polygon Mainnet CRE Deployment (Zero-Admin) ===");
@@ -109,6 +112,11 @@ contract DeployPolygonCre is Script {
         console.log("Deployer:", deployer);
         console.log("KeystoneForwarder:", forwarder);
         console.log("Workflow owner:", workflowOwner);
+        console.log("Workflow name (bytes10):", vm.toString(abi.encodePacked(workflowName)));
+        console.log(
+            "  name enforcement:",
+            workflowName == bytes10(0) ? "OFF (owner-only binding)" : "ON (SHA256-derived bytes10, NOT plaintext)"
+        );
         console.log("Fee receiver:", FEE_RECEIVER);
         console.log("Balance:", deployer.balance);
 

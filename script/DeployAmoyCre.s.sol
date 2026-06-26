@@ -101,6 +101,11 @@ contract DeployAmoyCre is Script {
         console.log("Deployer:", deployer);
         console.log("KeystoneForwarder:", forwarder);
         console.log("Workflow owner:", workflowOwner);
+        console.log("Workflow name (bytes10):", vm.toString(abi.encodePacked(workflowName)));
+        console.log(
+            "  name enforcement:",
+            workflowName == bytes10(0) ? "OFF (owner-only binding)" : "ON (SHA256-derived bytes10, NOT plaintext)"
+        );
         require(deployer.balance > 0, "Deployer has zero balance");
 
         DeploymentConfig memory config = DeploymentConfig({
