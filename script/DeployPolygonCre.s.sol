@@ -43,9 +43,9 @@ import "../src/modules/MatchingModule.sol";
  *                                 mainnet forwarder address is deliberately NOT hardcoded/guessed here;
  *                                 it MUST be set to the real value and human-confirmed before deploy.
  *        WORKFLOW_OWNER         — the CRE workflow owner ADDRESS the report-metadata owner onReport
- *                                 enforces: the {CreWorkflowOwner} governance adapter for a governed
- *                                 mainnet deploy (it deploys SEPARATELY on Ethereum mainnet via
- *                                 DeployCreGovernance, so it does not exist at the time this script is
+ *                                 enforces: the per-action OspexCreTimelock for a governed mainnet
+ *                                 deploy (it deploys SEPARATELY on Ethereum mainnet via
+ *                                 DeployOspexCreTimelock, so it does not exist at the time this script is
  *                                 authored). MUST be set to the real value.
  *        WORKFLOW_NAME          — the CRE-derived bytes10 the DON stamps into report metadata (a HASH
  *                                 of the name, NOT plaintext bytes10 — see the note at the env read

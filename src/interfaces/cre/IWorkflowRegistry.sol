@@ -5,12 +5,13 @@ pragma solidity ^0.8.26;
  * @title IWorkflowRegistry
  * @notice Minimal interface for the Chainlink CRE WorkflowRegistry 2.0.0
  *         (Ethereum mainnet 0x4Ac54353FA4Fa961AfcC5ec4B118596d3305E7e5).
- * @dev Only the functions the Ospex owner ({CreWorkflowOwner}) ever calls are declared: `linkOwner`
- *      (one-time ownership bootstrap), `upsertWorkflow` (register/update — always ACTIVE), and
- *      `deleteWorkflow` (retire a workflow to free one of the org's hard-capped slots). The PAUSE
- *      lifecycle functions — `pauseWorkflow`, `batchPauseWorkflows`, `updateWorkflowDONFamily` — are
- *      intentionally absent so the owner contract has no symbol through which to pause; pausing is
- *      structurally impossible. Deleting does NOT require the workflow to be paused first.
+ * @dev Declares the functions the Ospex owner (the per-action {OspexCreTimelock}) needs: `linkOwner`
+ *      (one-time ownership bootstrap), `upsertWorkflow` (register/update), and `deleteWorkflow` (retire
+ *      a workflow to free one of the org's hard-capped slots). NOTE: the timelock executes via RAW
+ *      calldata, not this typed interface, so this is a documentation/encoding convenience and does NOT
+ *      restrict what the owner can call — pause IS reachable via the registry, but (like every
+ *      code/lifecycle op) it is 7-day-delayed + Safe-gated through the timelock. Deleting does NOT
+ *      require the workflow to be paused first.
  *
  *      Registry semantics that matter here:
  *        - The workflow owner is `msg.sender` of `upsertWorkflow`; the record is keyed by

@@ -35,8 +35,8 @@ import "../src/modules/MatchingModule.sol";
  *        KEYSTONE_FORWARDER     — Amoy production KeystoneForwarder (default below, from the CRE
  *                                 forwarder directory + `cre workflow supported-chains`).
  *        WORKFLOW_OWNER         — the CRE workflow owner ADDRESS (the report-metadata owner onReport
- *                                 enforces): an EOA for trial/Amoy deploys, or the CreWorkflowOwner
- *                                 adapter for governed deploys. MUST be set to the real value.
+ *                                 enforces): an EOA for trial/Amoy deploys, or the OspexCreTimelock
+ *                                 per-action timelock for governed deploys. MUST be set to the real value.
  *        WORKFLOW_NAME          — the CRE-derived bytes10 the DON stamps into report metadata (a HASH
  *                                 of the name, NOT plaintext bytes10 — see the note at the env read
  *                                 below). 0 = not enforced (the Amoy trials run unenforced).

@@ -23,8 +23,8 @@ import {IModule} from "../interfaces/IModule.sol";
  * @dev Trust model:
  *        (a) msg.sender MUST be the immutable KeystoneForwarder;
  *        (b) the report's workflow OWNER (and, when configured, NAME) parsed from the metadata MUST
- *            match our deployed workflow. The workflow OWNER is the {CreWorkflowOwner} governance
- *            adapter on a governed mainnet deploy. The workflow ID is NOT pinned: CRE rotates the id
+ *            match our deployed workflow. The workflow OWNER is the per-action {OspexCreTimelock}
+ *            timelock on a governed mainnet deploy. The workflow ID is NOT pinned: CRE rotates the id
  *            on every workflow update, so pinning it would brick a timelocked update;
  *        (c) the report's chainId + receiver MUST match this chain/contract (domain separation — the
  *            KeystoneForwarder already routes per chain/receiver);
@@ -133,7 +133,7 @@ contract CreOracleReceiver is IModule, IReceiver {
     /// @notice The trusted Chainlink KeystoneForwarder — the only valid {onReport} caller
     address public immutable i_forwarder;
     /// @notice The expected workflow owner. On a governed mainnet deploy this is the
-    ///         {CreWorkflowOwner} adapter address.
+    ///         per-action {OspexCreTimelock} timelock address.
     address public immutable i_workflowOwner;
     /// @notice The expected workflow name (bytes10). Enforced when non-zero. The workflow ID is
     ///         deliberately not pinned (CRE rotates it on every update).
@@ -170,7 +170,7 @@ contract CreOracleReceiver is IModule, IReceiver {
     /**
      * @param ospexCore_ The OspexCore contract address
      * @param forwarder_ The Chainlink KeystoneForwarder for the target chain
-     * @param workflowOwner_ The CRE workflow owner address — the {CreWorkflowOwner} adapter on a
+     * @param workflowOwner_ The CRE workflow owner address — the per-action {OspexCreTimelock} on a
      *        governed mainnet deploy
      * @param workflowName_ The CRE workflow name as bytes10 (0 to not enforce)
      */
