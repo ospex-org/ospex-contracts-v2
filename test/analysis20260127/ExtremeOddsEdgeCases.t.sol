@@ -68,10 +68,8 @@ contract ExtremeOddsEdgeCases is Test {
 
         speculationModule = new SpeculationModule(address(core), 3600);
         positionModule = new PositionModule(address(core), address(token));
-        treasuryModule = new TreasuryModule(
-            address(core), address(token), protocolReceiver,
-            1_000_000, 500_000, 500_000
-        );
+        treasuryModule =
+            new TreasuryModule(address(core), address(token), protocolReceiver, 1_000_000, 500_000, 500_000);
         mockContestModule = new MockContestModule();
         mockLeaderboardModule = new MockLeaderboardModuleExtreme();
         mockScorer = new MockScorerModule();
@@ -79,18 +77,30 @@ contract ExtremeOddsEdgeCases is Test {
         // Bootstrap all 12 modules
         bytes32[] memory types = new bytes32[](12);
         address[] memory addrs = new address[](12);
-        types[0]  = core.CONTEST_MODULE();           addrs[0]  = address(mockContestModule);
-        types[1]  = core.SPECULATION_MODULE();        addrs[1]  = address(speculationModule);
-        types[2]  = core.POSITION_MODULE();           addrs[2]  = address(positionModule);
-        types[3]  = core.MATCHING_MODULE();           addrs[3]  = address(this); // test contract acts as MATCHING_MODULE
-        types[4]  = core.CRE_ORACLE_RECEIVER();             addrs[4]  = address(0xD004);
-        types[5]  = core.TREASURY_MODULE();           addrs[5]  = address(treasuryModule);
-        types[6]  = core.LEADERBOARD_MODULE();        addrs[6]  = address(mockLeaderboardModule);
-        types[7]  = core.RULES_MODULE();              addrs[7]  = address(0xD007);
-        types[8]  = core.SECONDARY_MARKET_MODULE();   addrs[8]  = address(0xD008);
-        types[9]  = core.MONEYLINE_SCORER_MODULE();   addrs[9]  = address(0xCC01);
-        types[10] = core.SPREAD_SCORER_MODULE();      addrs[10] = address(mockScorer);
-        types[11] = core.TOTAL_SCORER_MODULE();       addrs[11] = address(0xCC02);
+        types[0] = core.CONTEST_MODULE();
+        addrs[0] = address(mockContestModule);
+        types[1] = core.SPECULATION_MODULE();
+        addrs[1] = address(speculationModule);
+        types[2] = core.POSITION_MODULE();
+        addrs[2] = address(positionModule);
+        types[3] = core.MATCHING_MODULE(); // test contract acts as MATCHING_MODULE
+        addrs[3] = address(this);
+        types[4] = core.CRE_ORACLE_RECEIVER();
+        addrs[4] = address(0xD004);
+        types[5] = core.TREASURY_MODULE();
+        addrs[5] = address(treasuryModule);
+        types[6] = core.LEADERBOARD_MODULE();
+        addrs[6] = address(mockLeaderboardModule);
+        types[7] = core.RULES_MODULE();
+        addrs[7] = address(0xD007);
+        types[8] = core.SECONDARY_MARKET_MODULE();
+        addrs[8] = address(0xD008);
+        types[9] = core.MONEYLINE_SCORER_MODULE();
+        addrs[9] = address(0xCC01);
+        types[10] = core.SPREAD_SCORER_MODULE();
+        addrs[10] = address(mockScorer);
+        types[11] = core.TOTAL_SCORER_MODULE();
+        addrs[11] = address(0xCC02);
         core.bootstrapModules(types, addrs);
         core.finalize();
 
@@ -113,7 +123,9 @@ contract ExtremeOddsEdgeCases is Test {
 
     /// @notice Replicate MatchingModule.matchCommitment fill math
     function _computeFill(uint16 oddsTick, uint256 takerDesiredRisk)
-        internal pure returns (uint256 fillMakerRisk, uint256 takerRisk)
+        internal
+        pure
+        returns (uint256 fillMakerRisk, uint256 takerRisk)
     {
         uint256 profitTicks = uint256(oddsTick) - ODDS_SCALE;
         uint256 rawFillMakerRisk = (takerDesiredRisk * uint256(ODDS_SCALE) + profitTicks - 1) / profitTicks;
@@ -122,20 +134,25 @@ contract ExtremeOddsEdgeCases is Test {
     }
 
     function _recordFill(uint256 makerRisk, uint256 takerRisk)
-        internal returns (uint256 speculationId, int32 lineTicks)
+        internal
+        returns (uint256 speculationId, int32 lineTicks)
     {
         lineTicks = nextLineTicks++;
         speculationId = positionModule.recordFill(
-            1, address(mockScorer), lineTicks,
-            PositionType.Upper, maker, makerRisk, taker, takerRisk
+            1, address(mockScorer), lineTicks, PositionType.Upper, maker, makerRisk, taker, takerRisk
         );
     }
 
     function _settleAndClaimWinner(uint256 speculationId, int32 lineTicks, uint256 expectedPayout) internal {
         Contest memory scored = Contest({
-            awayScore: 10, homeScore: 5, leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            rundownId: "", sportspageId: "", jsonoddsId: ""
+            awayScore: 10,
+            homeScore: 5,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored,
+            contestCreator: address(this),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
         });
         mockContestModule.setContest(1, scored);
         mockScorer.setWinSide(1, lineTicks, WinSide.Away);
@@ -155,13 +172,18 @@ contract ExtremeOddsEdgeCases is Test {
         _resetContest();
     }
 
-    function _settleAndClaimPush(
-        uint256 speculationId, int32 lineTicks, uint256 makerRisk, uint256 takerRisk
-    ) internal {
+    function _settleAndClaimPush(uint256 speculationId, int32 lineTicks, uint256 makerRisk, uint256 takerRisk)
+        internal
+    {
         Contest memory scored = Contest({
-            awayScore: 10, homeScore: 10, leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            rundownId: "", sportspageId: "", jsonoddsId: ""
+            awayScore: 10,
+            homeScore: 10,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored,
+            contestCreator: address(this),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
         });
         mockContestModule.setContest(1, scored);
         mockScorer.setWinSide(1, lineTicks, WinSide.Push);
@@ -184,9 +206,14 @@ contract ExtremeOddsEdgeCases is Test {
 
     function _resetContest() internal {
         Contest memory contest = Contest({
-            awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Verified, contestCreator: address(this),
-            rundownId: "", sportspageId: "", jsonoddsId: ""
+            awayScore: 0,
+            homeScore: 0,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Verified,
+            contestCreator: address(this),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
         });
         mockContestModule.setContest(1, contest);
         mockContestModule.setContestStartTime(1, uint32(block.timestamp));

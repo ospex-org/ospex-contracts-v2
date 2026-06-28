@@ -44,12 +44,7 @@ contract TreasuryModuleTest is Test {
 
         // Deploy TreasuryModule with fee rates set in constructor
         treasuryModule = new TreasuryModule(
-            address(core),
-            address(token),
-            protocolReceiver,
-            CONTEST_FEE,
-            SPECULATION_FEE,
-            LEADERBOARD_FEE
+            address(core), address(token), protocolReceiver, CONTEST_FEE, SPECULATION_FEE, LEADERBOARD_FEE
         );
 
         // Deploy mock leaderboard module
@@ -70,18 +65,30 @@ contract TreasuryModuleTest is Test {
         // Bootstrap all modules
         bytes32[] memory types = new bytes32[](12);
         address[] memory addrs = new address[](12);
-        types[0] = core.CONTEST_MODULE();           addrs[0] = address(0xD001);
-        types[1] = core.SPECULATION_MODULE();        addrs[1] = address(0xD002);
-        types[2] = core.POSITION_MODULE();           addrs[2] = address(0xD003);
-        types[3] = core.MATCHING_MODULE();           addrs[3] = address(0xD004);
-        types[4] = core.CRE_ORACLE_RECEIVER();             addrs[4] = address(0xD005);
-        types[5] = core.TREASURY_MODULE();           addrs[5] = address(treasuryModule);
-        types[6] = core.LEADERBOARD_MODULE();        addrs[6] = leaderboardModule;
-        types[7] = core.RULES_MODULE();              addrs[7] = address(0xD007);
-        types[8] = core.SECONDARY_MARKET_MODULE();   addrs[8] = address(0xD008);
-        types[9] = core.MONEYLINE_SCORER_MODULE();   addrs[9] = address(0xD009);
-        types[10] = core.SPREAD_SCORER_MODULE();     addrs[10] = address(0xD00A);
-        types[11] = core.TOTAL_SCORER_MODULE();      addrs[11] = address(0xD00B);
+        types[0] = core.CONTEST_MODULE();
+        addrs[0] = address(0xD001);
+        types[1] = core.SPECULATION_MODULE();
+        addrs[1] = address(0xD002);
+        types[2] = core.POSITION_MODULE();
+        addrs[2] = address(0xD003);
+        types[3] = core.MATCHING_MODULE();
+        addrs[3] = address(0xD004);
+        types[4] = core.CRE_ORACLE_RECEIVER();
+        addrs[4] = address(0xD005);
+        types[5] = core.TREASURY_MODULE();
+        addrs[5] = address(treasuryModule);
+        types[6] = core.LEADERBOARD_MODULE();
+        addrs[6] = leaderboardModule;
+        types[7] = core.RULES_MODULE();
+        addrs[7] = address(0xD007);
+        types[8] = core.SECONDARY_MARKET_MODULE();
+        addrs[8] = address(0xD008);
+        types[9] = core.MONEYLINE_SCORER_MODULE();
+        addrs[9] = address(0xD009);
+        types[10] = core.SPREAD_SCORER_MODULE();
+        addrs[10] = address(0xD00A);
+        types[11] = core.TOTAL_SCORER_MODULE();
+        addrs[11] = address(0xD00B);
         core.bootstrapModules(types, addrs);
         core.finalize();
     }
@@ -124,31 +131,40 @@ contract TreasuryModuleTest is Test {
 
     function testProcessFee_ZeroFeeRate_NoTransfer() public {
         // Deploy treasury with zero fee rate for contest creation
-        TreasuryModule zeroFeeTreasury = new TreasuryModule(
-            address(core), address(token), protocolReceiver, 0, SPECULATION_FEE, LEADERBOARD_FEE
-        );
+        TreasuryModule zeroFeeTreasury =
+            new TreasuryModule(address(core), address(token), protocolReceiver, 0, SPECULATION_FEE, LEADERBOARD_FEE);
 
         uint256 userBefore = token.balanceOf(user);
         // Need to call from core — but zeroFeeTreasury is not registered in core.
         // For this test, deploy a fresh core with zeroFeeTreasury
         OspexCore freshCore = new OspexCore();
-        zeroFeeTreasury = new TreasuryModule(
-            address(freshCore), address(token), protocolReceiver, 0, 0, 0
-        );
+        zeroFeeTreasury = new TreasuryModule(address(freshCore), address(token), protocolReceiver, 0, 0, 0);
         bytes32[] memory types = new bytes32[](12);
         address[] memory addrs = new address[](12);
-        types[0] = freshCore.CONTEST_MODULE();           addrs[0] = address(0xF001);
-        types[1] = freshCore.SPECULATION_MODULE();        addrs[1] = address(0xF002);
-        types[2] = freshCore.POSITION_MODULE();           addrs[2] = address(0xF003);
-        types[3] = freshCore.MATCHING_MODULE();           addrs[3] = address(0xF004);
-        types[4] = freshCore.CRE_ORACLE_RECEIVER();             addrs[4] = address(0xF005);
-        types[5] = freshCore.TREASURY_MODULE();           addrs[5] = address(zeroFeeTreasury);
-        types[6] = freshCore.LEADERBOARD_MODULE();        addrs[6] = address(0xF006);
-        types[7] = freshCore.RULES_MODULE();              addrs[7] = address(0xF007);
-        types[8] = freshCore.SECONDARY_MARKET_MODULE();   addrs[8] = address(0xF008);
-        types[9] = freshCore.MONEYLINE_SCORER_MODULE();   addrs[9] = address(0xF009);
-        types[10] = freshCore.SPREAD_SCORER_MODULE();     addrs[10] = address(0xF00A);
-        types[11] = freshCore.TOTAL_SCORER_MODULE();      addrs[11] = address(0xF00B);
+        types[0] = freshCore.CONTEST_MODULE();
+        addrs[0] = address(0xF001);
+        types[1] = freshCore.SPECULATION_MODULE();
+        addrs[1] = address(0xF002);
+        types[2] = freshCore.POSITION_MODULE();
+        addrs[2] = address(0xF003);
+        types[3] = freshCore.MATCHING_MODULE();
+        addrs[3] = address(0xF004);
+        types[4] = freshCore.CRE_ORACLE_RECEIVER();
+        addrs[4] = address(0xF005);
+        types[5] = freshCore.TREASURY_MODULE();
+        addrs[5] = address(zeroFeeTreasury);
+        types[6] = freshCore.LEADERBOARD_MODULE();
+        addrs[6] = address(0xF006);
+        types[7] = freshCore.RULES_MODULE();
+        addrs[7] = address(0xF007);
+        types[8] = freshCore.SECONDARY_MARKET_MODULE();
+        addrs[8] = address(0xF008);
+        types[9] = freshCore.MONEYLINE_SCORER_MODULE();
+        addrs[9] = address(0xF009);
+        types[10] = freshCore.SPREAD_SCORER_MODULE();
+        addrs[10] = address(0xF00A);
+        types[11] = freshCore.TOTAL_SCORER_MODULE();
+        addrs[11] = address(0xF00B);
         freshCore.bootstrapModules(types, addrs);
         freshCore.finalize();
 

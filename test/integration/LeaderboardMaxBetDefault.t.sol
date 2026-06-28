@@ -62,27 +62,36 @@ contract LeaderboardMaxBetDefaultTest is Test {
         speculationModule = new SpeculationModule(address(core), 3 days);
         leaderboardModule = new LeaderboardModule(address(core));
         rulesModule = new RulesModule(address(core));
-        treasuryModule = new TreasuryModule(
-            address(core), address(token), address(0xFEED),
-            1_000_000, 500_000, 500_000
-        );
+        treasuryModule = new TreasuryModule(address(core), address(token), address(0xFEED), 1_000_000, 500_000, 500_000);
         mockContestModule = new MockContestModule();
         mockScorerModule = new MockScorerModule();
 
         bytes32[] memory types = new bytes32[](12);
         address[] memory addrs = new address[](12);
-        types[0]  = core.CONTEST_MODULE();         addrs[0]  = address(mockContestModule);
-        types[1]  = core.SPECULATION_MODULE();      addrs[1]  = address(speculationModule);
-        types[2]  = core.POSITION_MODULE();         addrs[2]  = address(positionModule);
-        types[3]  = core.MATCHING_MODULE();         addrs[3]  = address(this);
-        types[4]  = core.CRE_ORACLE_RECEIVER();           addrs[4]  = address(0xFEED);
-        types[5]  = core.TREASURY_MODULE();         addrs[5]  = address(treasuryModule);
-        types[6]  = core.LEADERBOARD_MODULE();      addrs[6]  = address(leaderboardModule);
-        types[7]  = core.RULES_MODULE();            addrs[7]  = address(rulesModule);
-        types[8]  = core.SECONDARY_MARKET_MODULE(); addrs[8]  = address(0x5EC0);
-        types[9]  = core.MONEYLINE_SCORER_MODULE(); addrs[9]  = address(mockScorerModule);
-        types[10] = core.SPREAD_SCORER_MODULE();    addrs[10] = address(0x5901);
-        types[11] = core.TOTAL_SCORER_MODULE();     addrs[11] = address(0x7701);
+        types[0] = core.CONTEST_MODULE();
+        addrs[0] = address(mockContestModule);
+        types[1] = core.SPECULATION_MODULE();
+        addrs[1] = address(speculationModule);
+        types[2] = core.POSITION_MODULE();
+        addrs[2] = address(positionModule);
+        types[3] = core.MATCHING_MODULE();
+        addrs[3] = address(this);
+        types[4] = core.CRE_ORACLE_RECEIVER();
+        addrs[4] = address(0xFEED);
+        types[5] = core.TREASURY_MODULE();
+        addrs[5] = address(treasuryModule);
+        types[6] = core.LEADERBOARD_MODULE();
+        addrs[6] = address(leaderboardModule);
+        types[7] = core.RULES_MODULE();
+        addrs[7] = address(rulesModule);
+        types[8] = core.SECONDARY_MARKET_MODULE();
+        addrs[8] = address(0x5EC0);
+        types[9] = core.MONEYLINE_SCORER_MODULE();
+        addrs[9] = address(mockScorerModule);
+        types[10] = core.SPREAD_SCORER_MODULE();
+        addrs[10] = address(0x5901);
+        types[11] = core.TOTAL_SCORER_MODULE();
+        addrs[11] = address(0x7701);
         core.bootstrapModules(types, addrs);
         core.finalize();
 
@@ -101,9 +110,14 @@ contract LeaderboardMaxBetDefaultTest is Test {
 
         // Contest starts far in the future
         Contest memory contest = Contest({
-            awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Verified, contestCreator: address(this),
-            rundownId: "test", sportspageId: "test", jsonoddsId: "test"
+            awayScore: 0,
+            homeScore: 0,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Verified,
+            contestCreator: address(this),
+            rundownId: "test",
+            sportspageId: "test",
+            jsonoddsId: "test"
         });
         mockContestModule.setContest(contestId, contest);
         mockContestModule.setContestStartTime(contestId, uint32(block.timestamp + 24 hours));
@@ -111,11 +125,7 @@ contract LeaderboardMaxBetDefaultTest is Test {
         // Create leaderboard (no explicit maxBetPercentage — uses default)
         vm.prank(lbCreator);
         leaderboardId = leaderboardModule.createLeaderboard(
-            ENTRY_FEE,
-            uint32(block.timestamp + 1 hours),
-            uint32(block.timestamp + 8 days),
-            1 days,
-            7 days
+            ENTRY_FEE, uint32(block.timestamp + 1 hours), uint32(block.timestamp + 8 days), 1 days, 7 days
         );
 
         // Warp to after leaderboard start
@@ -133,19 +143,13 @@ contract LeaderboardMaxBetDefaultTest is Test {
 
         _registerUserForLeaderboard(user1, bankroll);
 
-        uint256 specId = _createPositionAndRegisterSpeculation(
-            user1, positionRisk, 400_000_000
-        );
+        uint256 specId = _createPositionAndRegisterSpeculation(user1, positionRisk, 400_000_000);
 
         vm.prank(user1);
-        leaderboardModule.registerPositionForLeaderboard(
-            specId, PositionType.Upper, leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(specId, PositionType.Upper, leaderboardId);
 
         // Position should be CAPPED to bankroll (100 USDC), not full 500 USDC
-        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(
-            leaderboardId, user1, specId
-        );
+        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(leaderboardId, user1, specId);
         assertEq(lbPos.riskAmount, bankroll, "Risk should be capped to bankroll");
         // Profit scaled proportionally: 400M * 100M / 500M = 80M
         assertEq(lbPos.profitAmount, 80_000_000, "Profit should be scaled proportionally");
@@ -162,18 +166,12 @@ contract LeaderboardMaxBetDefaultTest is Test {
 
         _registerUserForLeaderboard(user1, bankroll);
 
-        uint256 specId = _createPositionAndRegisterSpeculation(
-            user1, positionRisk, 40_000_000
-        );
+        uint256 specId = _createPositionAndRegisterSpeculation(user1, positionRisk, 40_000_000);
 
         vm.prank(user1);
-        leaderboardModule.registerPositionForLeaderboard(
-            specId, PositionType.Upper, leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(specId, PositionType.Upper, leaderboardId);
 
-        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(
-            leaderboardId, user1, specId
-        );
+        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(leaderboardId, user1, specId);
         assertEq(lbPos.riskAmount, positionRisk, "Risk should be full amount (within cap)");
         assertEq(lbPos.profitAmount, 40_000_000, "Profit should be full amount");
     }
@@ -187,11 +185,7 @@ contract LeaderboardMaxBetDefaultTest is Test {
         // Create a second leaderboard with explicit 100%
         vm.prank(lbCreator);
         uint256 lb2 = leaderboardModule.createLeaderboard(
-            0,
-            uint32(block.timestamp + 1),
-            uint32(block.timestamp + 8 days),
-            1 days,
-            7 days
+            0, uint32(block.timestamp + 1), uint32(block.timestamp + 8 days), 1 days, 7 days
         );
         vm.prank(lbCreator);
         rulesModule.setMaxBetPercentage(lb2, 10000); // 100%
@@ -215,13 +209,8 @@ contract LeaderboardMaxBetDefaultTest is Test {
     function test_ExplicitTighterCapEnforced() public {
         uint32 lb50Start = uint32(block.timestamp + 1);
         vm.prank(lbCreator);
-        uint256 lb50 = leaderboardModule.createLeaderboard(
-            0,
-            lb50Start,
-            uint32(block.timestamp + 8 days),
-            1 days,
-            7 days
-        );
+        uint256 lb50 =
+            leaderboardModule.createLeaderboard(0, lb50Start, uint32(block.timestamp + 8 days), 1 days, 7 days);
         vm.prank(lbCreator);
         rulesModule.setMaxBetPercentage(lb50, 5000); // 50%
 
@@ -230,7 +219,9 @@ contract LeaderboardMaxBetDefaultTest is Test {
 
         // Create position and add speculation to lb50
         uint256 specId = _createPositionAndRegisterSpeculation(
-            user1, 60_000_000, 48_000_000 // 60 USDC position
+            user1,
+            60_000_000,
+            48_000_000 // 60 USDC position
         );
         vm.prank(lbCreator);
         leaderboardModule.addLeaderboardSpeculation(lb50, specId);
@@ -239,14 +230,10 @@ contract LeaderboardMaxBetDefaultTest is Test {
         _registerUserForLeaderboard2(user1, bankroll, lb50);
 
         vm.prank(user1);
-        leaderboardModule.registerPositionForLeaderboard(
-            specId, PositionType.Upper, lb50
-        );
+        leaderboardModule.registerPositionForLeaderboard(specId, PositionType.Upper, lb50);
 
         // 60 USDC position should be capped to 50 USDC (50% of 100)
-        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(
-            lb50, user1, specId
-        );
+        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(lb50, user1, specId);
         assertEq(lbPos.riskAmount, 50_000_000, "Risk should be capped to 50% of bankroll");
         // Profit scaled: 48M * 50M / 60M = 40M
         assertEq(lbPos.profitAmount, 40_000_000, "Profit should be scaled proportionally");
@@ -260,11 +247,7 @@ contract LeaderboardMaxBetDefaultTest is Test {
     function test_ExplicitZeroProduces100PercentCap() public {
         vm.prank(lbCreator);
         uint256 lbZero = leaderboardModule.createLeaderboard(
-            0,
-            uint32(block.timestamp + 1),
-            uint32(block.timestamp + 8 days),
-            1 days,
-            7 days
+            0, uint32(block.timestamp + 1), uint32(block.timestamp + 8 days), 1 days, 7 days
         );
         // Explicitly set to 0
         vm.prank(lbCreator);
@@ -299,18 +282,16 @@ contract LeaderboardMaxBetDefaultTest is Test {
 
         // Attacker takes a 10,000 USDC position
         uint256 specId = _createPositionAndRegisterSpeculation(
-            attacker, attackerPosition, 8_000_000_000 // 8,000 USDC profit
+            attacker,
+            attackerPosition,
+            8_000_000_000 // 8,000 USDC profit
         );
 
         vm.prank(attacker);
-        leaderboardModule.registerPositionForLeaderboard(
-            specId, PositionType.Upper, leaderboardId
-        );
+        leaderboardModule.registerPositionForLeaderboard(specId, PositionType.Upper, leaderboardId);
 
         // The leaderboard snapshot should cap at 1 USDC (attacker's bankroll), not 10,000 USDC
-        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(
-            leaderboardId, attacker, specId
-        );
+        LeaderboardPosition memory lbPos = leaderboardModule.getLeaderboardPosition(leaderboardId, attacker, specId);
         assertEq(lbPos.riskAmount, attackerBankroll, "Attack position should be capped to bankroll");
         // Profit scaled: 8B * 1M / 10B = 800_000 (0.80 USDC)
         assertEq(lbPos.profitAmount, 800_000, "Profit should be scaled to capped risk");
@@ -320,14 +301,12 @@ contract LeaderboardMaxBetDefaultTest is Test {
     // Helpers
     // =========================================================================
 
-    function _createPositionAndRegisterSpeculation(
-        address maker,
-        uint256 riskAmount,
-        uint256 takerRisk
-    ) internal returns (uint256 specId) {
+    function _createPositionAndRegisterSpeculation(address maker, uint256 riskAmount, uint256 takerRisk)
+        internal
+        returns (uint256 specId)
+    {
         specId = positionModule.recordFill(
-            contestId, address(mockScorerModule), 0, PositionType.Upper,
-            maker, riskAmount, counterparty, takerRisk
+            contestId, address(mockScorerModule), 0, PositionType.Upper, maker, riskAmount, counterparty, takerRisk
         );
 
         // Add to default leaderboard if not already registered

@@ -10,7 +10,18 @@ import {PositionModule} from "../../src/modules/PositionModule.sol";
 import {OspexCore} from "../../src/core/OspexCore.sol";
 import {SpeculationModule} from "../../src/modules/SpeculationModule.sol";
 import {TreasuryModule} from "../../src/modules/TreasuryModule.sol";
-import {PositionType, Contest, ContestStatus, Position, WinSide, LeagueId, Speculation, SpeculationStatus, FeeType, Leaderboard} from "../../src/core/OspexTypes.sol";
+import {
+    PositionType,
+    Contest,
+    ContestStatus,
+    Position,
+    WinSide,
+    LeagueId,
+    Speculation,
+    SpeculationStatus,
+    FeeType,
+    Leaderboard
+} from "../../src/core/OspexTypes.sol";
 import {MockMarket} from "../mocks/MockMarket.sol";
 import {MockSpeculationModule} from "../mocks/MockSpeculationModule.sol";
 import {MockScorerModule} from "../mocks/MockScorerModule.sol";
@@ -30,8 +41,11 @@ contract MockLeaderboardModule {
     }
 
     function setLockedAmounts(
-        uint256 speculationId, address user, PositionType positionType,
-        uint256 risk, uint256 profit
+        uint256 speculationId,
+        address user,
+        PositionType positionType,
+        uint256 risk,
+        uint256 profit
     ) external {
         s_lockedRisk[speculationId][user][positionType] = risk;
         s_lockedProfit[speculationId][user][positionType] = profit;
@@ -71,8 +85,8 @@ contract PositionModuleTest is Test {
 
     // TreasuryModule fee rates (real production fees)
     uint256 constant CONTEST_FEE = 1_000_000; // 1.00 USDC
-    uint256 constant SPEC_FEE = 500_000;      // 0.50 USDC (split 250k maker / 250k taker)
-    uint256 constant LB_FEE = 500_000;        // 0.50 USDC
+    uint256 constant SPEC_FEE = 500_000; // 0.50 USDC (split 250k maker / 250k taker)
+    uint256 constant LB_FEE = 500_000; // 0.50 USDC
 
     // MockMarket for transfer tests — registered as SECONDARY_MARKET_MODULE
     MockMarket defaultMarket;
@@ -81,27 +95,37 @@ contract PositionModuleTest is Test {
     /// @dev The scorer registered as SPREAD_SCORER_MODULE is `scorer_`. The caller
     ///      must create its own SpeculationModule, PositionModule, and MockMarket
     ///      bound to the returned core.
-    function _buildModuleArrays(
-        address specMod,
-        address posMod,
-        address market,
-        address scorer_,
-        address treasury_
-    ) internal view returns (bytes32[] memory types2, address[] memory addrs2) {
+    function _buildModuleArrays(address specMod, address posMod, address market, address scorer_, address treasury_)
+        internal
+        view
+        returns (bytes32[] memory types2, address[] memory addrs2)
+    {
         types2 = new bytes32[](12);
         addrs2 = new address[](12);
-        types2[0]  = keccak256("CONTEST_MODULE");           addrs2[0]  = address(mockContestModule);
-        types2[1]  = keccak256("SPECULATION_MODULE");        addrs2[1]  = specMod;
-        types2[2]  = keccak256("POSITION_MODULE");           addrs2[2]  = posMod;
-        types2[3]  = keccak256("MATCHING_MODULE");           addrs2[3]  = address(this);
-        types2[4]  = keccak256("CRE_ORACLE_RECEIVER");             addrs2[4]  = address(0xD001);
-        types2[5]  = keccak256("TREASURY_MODULE");           addrs2[5]  = treasury_;
-        types2[6]  = keccak256("LEADERBOARD_MODULE");        addrs2[6]  = address(mockLeaderboardModule);
-        types2[7]  = keccak256("RULES_MODULE");              addrs2[7]  = address(0xD002);
-        types2[8]  = keccak256("SECONDARY_MARKET_MODULE");   addrs2[8]  = market;
-        types2[9]  = keccak256("MONEYLINE_SCORER_MODULE");   addrs2[9]  = address(0xCC01);
-        types2[10] = keccak256("SPREAD_SCORER_MODULE");      addrs2[10] = scorer_;
-        types2[11] = keccak256("TOTAL_SCORER_MODULE");       addrs2[11] = address(0xCC02);
+        types2[0] = keccak256("CONTEST_MODULE");
+        addrs2[0] = address(mockContestModule);
+        types2[1] = keccak256("SPECULATION_MODULE");
+        addrs2[1] = specMod;
+        types2[2] = keccak256("POSITION_MODULE");
+        addrs2[2] = posMod;
+        types2[3] = keccak256("MATCHING_MODULE");
+        addrs2[3] = address(this);
+        types2[4] = keccak256("CRE_ORACLE_RECEIVER");
+        addrs2[4] = address(0xD001);
+        types2[5] = keccak256("TREASURY_MODULE");
+        addrs2[5] = treasury_;
+        types2[6] = keccak256("LEADERBOARD_MODULE");
+        addrs2[6] = address(mockLeaderboardModule);
+        types2[7] = keccak256("RULES_MODULE");
+        addrs2[7] = address(0xD002);
+        types2[8] = keccak256("SECONDARY_MARKET_MODULE");
+        addrs2[8] = market;
+        types2[9] = keccak256("MONEYLINE_SCORER_MODULE");
+        addrs2[9] = address(0xCC01);
+        types2[10] = keccak256("SPREAD_SCORER_MODULE");
+        addrs2[10] = scorer_;
+        types2[11] = keccak256("TOTAL_SCORER_MODULE");
+        addrs2[11] = address(0xCC02);
     }
 
     function _bootstrapCore(
@@ -112,7 +136,8 @@ contract PositionModuleTest is Test {
         address scorer_,
         address treasury_
     ) internal {
-        (bytes32[] memory types2, address[] memory addrs2) = _buildModuleArrays(specMod, posMod, market, scorer_, treasury_);
+        (bytes32[] memory types2, address[] memory addrs2) =
+            _buildModuleArrays(specMod, posMod, market, scorer_, treasury_);
         _core.bootstrapModules(types2, addrs2);
         _core.finalize();
     }
@@ -126,11 +151,9 @@ contract PositionModuleTest is Test {
         token.transfer(taker, 500_000_000);
 
         speculationModule = new SpeculationModule(address(core), VOID_COOLDOWN);
-        positionModule = new PositionModule(
-            address(core),
-            address(token)
-        );
-        treasuryModule = new TreasuryModule(address(core), address(token), protocolReceiver, CONTEST_FEE, SPEC_FEE, LB_FEE);
+        positionModule = new PositionModule(address(core), address(token));
+        treasuryModule =
+            new TreasuryModule(address(core), address(token), protocolReceiver, CONTEST_FEE, SPEC_FEE, LB_FEE);
 
         // Register a mock contest module so SpeculationModule can call getContest
         mockContestModule = new MockContestModule();
@@ -194,9 +217,7 @@ contract PositionModuleTest is Test {
         uint256 takerRisk
     ) internal returns (uint256 speculationId) {
         speculationId = positionModule.recordFill(
-            contestId, scorer, lineTicks,
-            makerPositionType, maker, makerRisk,
-            _taker, takerRisk
+            contestId, scorer, lineTicks, makerPositionType, maker, makerRisk, _taker, takerRisk
         );
     }
 
@@ -213,9 +234,7 @@ contract PositionModuleTest is Test {
         uint256 takerRisk
     ) internal returns (uint256 speculationId) {
         speculationId = localPM.recordFill(
-            contestId, scorer, lineTicks,
-            makerPositionType, maker, makerRisk,
-            _taker, takerRisk
+            contestId, scorer, lineTicks, makerPositionType, maker, makerRisk, _taker, takerRisk
         );
     }
 
@@ -235,26 +254,44 @@ contract PositionModuleTest is Test {
         env.specMod = new MockSpeculationModule(address(env.core), VOID_COOLDOWN);
         env.posMod = new PositionModule(address(env.core), address(token));
         env.market = new MockMarket(address(env.posMod));
-        env.treasury = new TreasuryModule(address(env.core), address(token), protocolReceiver, CONTEST_FEE, SPEC_FEE, LB_FEE);
-        _bootstrapCore(env.core, address(env.specMod), address(env.posMod), address(env.market), address(defaultScorer), address(env.treasury));
+        env.treasury =
+            new TreasuryModule(address(env.core), address(token), protocolReceiver, CONTEST_FEE, SPEC_FEE, LB_FEE);
+        _bootstrapCore(
+            env.core,
+            address(env.specMod),
+            address(env.posMod),
+            address(env.market),
+            address(defaultScorer),
+            address(env.treasury)
+        );
         _approveTreasury(env.treasury);
     }
 
     /// @notice Helper to create a scored Contest struct (reduces stack depth vs inline struct literal)
     function _scoredContest(uint32 awayScore, uint32 homeScore) internal view returns (Contest memory) {
         return Contest({
-            awayScore: awayScore, homeScore: homeScore, leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Scored, contestCreator: address(this),
-            rundownId: "", sportspageId: "", jsonoddsId: ""
+            awayScore: awayScore,
+            homeScore: homeScore,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Scored,
+            contestCreator: address(this),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
         });
     }
 
     /// @notice Helper to create a verified Contest struct
     function _verifiedContest() internal view returns (Contest memory) {
         return Contest({
-            awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Verified, contestCreator: address(this),
-            rundownId: "", sportspageId: "", jsonoddsId: ""
+            awayScore: 0,
+            homeScore: 0,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Verified,
+            contestCreator: address(this),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
         });
     }
 
@@ -267,10 +304,7 @@ contract PositionModuleTest is Test {
 
     function testConstructor_RevertsOnZeroAddress() public {
         vm.expectRevert(PositionModule.PositionModule__InvalidAddress.selector);
-        new PositionModule(
-            address(0),
-            address(token)
-        );
+        new PositionModule(address(0), address(token));
     }
 
     function testGetModuleType() public view {
@@ -291,39 +325,24 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1,
-            address(defaultScorer),
-            42,
-            PositionType.Upper,
-            address(this),
-            makerRisk,
-            taker,
-            takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         // Verify speculation was created
         assertGt(specId, 0, "Speculation should have been created");
 
         // Verify maker position
-        Position memory makerPos = positionModule.getPosition(
-            specId,
-            address(this),
-            PositionType.Upper
-        );
+        Position memory makerPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
         assertEq(makerPos.riskAmount, 10_000_000, "Maker riskAmount should be 10M");
         assertEq(makerPos.profitAmount, 8_000_000, "Maker profitAmount should be 8M");
-        assertEq(uint(makerPos.positionType), uint(PositionType.Upper));
+        assertEq(uint256(makerPos.positionType), uint256(PositionType.Upper));
         assertFalse(makerPos.claimed);
 
         // Verify taker position
-        Position memory takerPos = positionModule.getPosition(
-            specId,
-            taker,
-            PositionType.Lower
-        );
+        Position memory takerPos = positionModule.getPosition(specId, taker, PositionType.Lower);
         assertEq(takerPos.riskAmount, 8_000_000, "Taker riskAmount should be 8M");
         assertEq(takerPos.profitAmount, 10_000_000, "Taker profitAmount should be 10M");
-        assertEq(uint(takerPos.positionType), uint(PositionType.Lower));
+        assertEq(uint256(takerPos.positionType), uint256(PositionType.Lower));
         assertFalse(takerPos.claimed);
     }
 
@@ -331,19 +350,10 @@ contract PositionModuleTest is Test {
         // Use an address that is NOT the MATCHING_MODULE
         address unauthorized = address(0xDEAD);
 
-        vm.expectRevert(
-            PositionModule.PositionModule__NotMatchingModule.selector
-        );
+        vm.expectRevert(PositionModule.PositionModule__NotMatchingModule.selector);
         vm.prank(unauthorized);
         positionModule.recordFill(
-            1,
-            address(defaultScorer),
-            42,
-            PositionType.Upper,
-            address(this),
-            10_000_000,
-            taker,
-            8_000_000
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), 10_000_000, taker, 8_000_000
         );
     }
 
@@ -359,14 +369,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1,
-            address(defaultScorer),
-            42,
-            PositionType.Upper,
-            address(this),
-            makerRisk,
-            taker,
-            takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         // Settle the speculation
@@ -381,21 +384,11 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         // recordFill will find the existing speculation (which is now Closed) and revert
-        vm.expectRevert(
-            PositionModule.PositionModule__SpeculationNotOpen.selector
-        );
+        vm.expectRevert(PositionModule.PositionModule__SpeculationNotOpen.selector);
         positionModule.recordFill(
-            1,
-            address(defaultScorer),
-            42,
-            PositionType.Upper,
-            address(this),
-            makerRisk,
-            taker,
-            takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
     }
-
 
     // --- recordFill with auto-speculation creation TESTS ---
 
@@ -437,18 +430,10 @@ contract PositionModuleTest is Test {
         assertEq(spec.lineTicks, 42);
 
         // Verify positions were created
-        Position memory makerPos = positionModule.getPosition(
-            specId,
-            address(this),
-            PositionType.Upper
-        );
+        Position memory makerPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
         assertGt(makerPos.riskAmount, 0, "Maker should have risk amount");
 
-        Position memory takerPos = positionModule.getPosition(
-            specId,
-            taker,
-            PositionType.Lower
-        );
+        Position memory takerPos = positionModule.getPosition(specId, taker, PositionType.Lower);
         assertGt(takerPos.riskAmount, 0, "Taker should have risk amount");
     }
 
@@ -467,14 +452,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1,
-            address(defaultScorer),
-            42,
-            PositionType.Upper,
-            address(this),
-            makerRisk,
-            taker,
-            takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         // Settle speculation (Away wins = Upper wins)
@@ -489,11 +467,7 @@ contract PositionModuleTest is Test {
         uint256 balAfter = token.balanceOf(address(this));
         assertEq(balAfter - balBefore, 18_000_000, "Winner payout should be 18M (10M + 8M)");
 
-        Position memory pos = positionModule.getPosition(
-            specId,
-            address(this),
-            PositionType.Upper
-        );
+        Position memory pos = positionModule.getPosition(specId, address(this), PositionType.Upper);
         assertTrue(pos.claimed);
         assertEq(pos.riskAmount, 0);
     }
@@ -510,14 +484,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1,
-            address(defaultScorer),
-            42,
-            PositionType.Upper,
-            address(this),
-            makerRisk,
-            taker,
-            takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         vm.warp(futureTime + 2 hours);
@@ -526,11 +493,7 @@ contract PositionModuleTest is Test {
         speculationModule.settleSpeculation(specId);
 
         positionModule.claimPosition(specId, PositionType.Upper);
-        Position memory pos = positionModule.getPosition(
-            specId,
-            address(this),
-            PositionType.Upper
-        );
+        Position memory pos = positionModule.getPosition(specId, address(this), PositionType.Upper);
         assertTrue(pos.claimed);
         assertEq(pos.riskAmount, 0);
     }
@@ -557,15 +520,7 @@ contract PositionModuleTest is Test {
         token.approve(address(env.posMod), takerRisk);
 
         uint256 specIdPush = _helperRecordFillLocal(
-            env.posMod,
-            1,
-            address(defaultScorer),
-            42,
-            PositionType.Upper,
-            address(this),
-            makerRisk,
-            taker,
-            takerRisk
+            env.posMod, 1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         vm.warp(futureTime + 2 hours);
@@ -577,10 +532,7 @@ contract PositionModuleTest is Test {
 
         // On Push: payout = riskAmount (original stake back)
         uint256 balBefore = token.balanceOf(address(this));
-        env.posMod.claimPosition(
-            specIdPush,
-            PositionType.Upper
-        );
+        env.posMod.claimPosition(specIdPush, PositionType.Upper);
         uint256 balAfter = token.balanceOf(address(this));
         assertEq(balAfter - balBefore, 10_000_000, "Push should return riskAmount (10M)");
 
@@ -594,15 +546,7 @@ contract PositionModuleTest is Test {
         token.approve(address(env.posMod), takerRisk);
 
         uint256 specIdVoid = _helperRecordFillLocal(
-            env.posMod,
-            2,
-            address(defaultScorer),
-            43,
-            PositionType.Upper,
-            address(this),
-            makerRisk,
-            taker,
-            takerRisk
+            env.posMod, 2, address(defaultScorer), 43, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         vm.warp(futureTime2 + 2 hours);
@@ -613,10 +557,7 @@ contract PositionModuleTest is Test {
         env.specMod.setSpeculationWinSide(specIdVoid, WinSide.Void);
 
         balBefore = token.balanceOf(address(this));
-        env.posMod.claimPosition(
-            specIdVoid,
-            PositionType.Upper
-        );
+        env.posMod.claimPosition(specIdVoid, PositionType.Upper);
         balAfter = token.balanceOf(address(this));
         assertEq(balAfter - balBefore, 10_000_000, "Void should return riskAmount (10M)");
     }
@@ -683,19 +624,12 @@ contract PositionModuleTest is Test {
 
         // Test win for Upper (Away)
         env.specMod.setSpeculationWinSide(specId1, WinSide.Away);
-        Position memory posUpper = env.posMod.getPosition(
-            specId1,
-            address(this),
-            PositionType.Upper
-        );
+        Position memory posUpper = env.posMod.getPosition(specId1, address(this), PositionType.Upper);
         emit log_named_uint("riskAmount (Upper win)", posUpper.riskAmount);
-        emit log_named_uint("positionType (Upper win)", uint(posUpper.positionType));
+        emit log_named_uint("positionType (Upper win)", uint256(posUpper.positionType));
 
         uint256 balBefore = token.balanceOf(address(this));
-        env.posMod.claimPosition(
-            specId1,
-            PositionType.Upper
-        );
+        env.posMod.claimPosition(specId1, PositionType.Upper);
         uint256 balAfter = token.balanceOf(address(this));
         emit log_named_uint("payout (Upper win)", balAfter - balBefore);
         // Winner gets riskAmount + profitAmount
@@ -703,19 +637,12 @@ contract PositionModuleTest is Test {
 
         // Test win for Lower (Home)
         env.specMod.setSpeculationWinSide(specId2, WinSide.Home);
-        Position memory posLower = env.posMod.getPosition(
-            specId2,
-            address(this),
-            PositionType.Lower
-        );
+        Position memory posLower = env.posMod.getPosition(specId2, address(this), PositionType.Lower);
         emit log_named_uint("riskAmount (Lower win)", posLower.riskAmount);
-        emit log_named_uint("positionType (Lower win)", uint(posLower.positionType));
+        emit log_named_uint("positionType (Lower win)", uint256(posLower.positionType));
 
         balBefore = token.balanceOf(address(this));
-        env.posMod.claimPosition(
-            specId2,
-            PositionType.Lower
-        );
+        env.posMod.claimPosition(specId2, PositionType.Lower);
         balAfter = token.balanceOf(address(this));
         emit log_named_uint("payout (Lower win)", balAfter - balBefore);
         assertGt(balAfter - balBefore, tokenUnit);
@@ -734,43 +661,19 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1,
-            address(defaultScorer),
-            42,
-            PositionType.Upper,
-            address(this),
-            makerRisk,
-            taker,
-            takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
-        Position memory makerPos = positionModule.getPosition(
-            specId,
-            address(this),
-            PositionType.Upper
-        );
+        Position memory makerPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
 
         // Use the default market (already registered as SECONDARY_MARKET_MODULE)
         vm.prank(address(defaultMarket));
         defaultMarket.transferPosition(
-            specId,
-            address(this),
-            PositionType.Upper,
-            user,
-            makerPos.riskAmount,
-            makerPos.profitAmount
+            specId, address(this), PositionType.Upper, user, makerPos.riskAmount, makerPos.profitAmount
         );
 
-        Position memory fromPos = positionModule.getPosition(
-            specId,
-            address(this),
-            PositionType.Upper
-        );
-        Position memory toPos = positionModule.getPosition(
-            specId,
-            user,
-            PositionType.Upper
-        );
+        Position memory fromPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
+        Position memory toPos = positionModule.getPosition(specId, user, PositionType.Upper);
         assertEq(fromPos.riskAmount, 0);
         assertEq(toPos.riskAmount, makerPos.riskAmount);
         assertEq(toPos.profitAmount, makerPos.profitAmount);
@@ -787,35 +690,17 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1,
-            address(defaultScorer),
-            42,
-            PositionType.Upper,
-            address(this),
-            makerRisk,
-            taker,
-            takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
-        Position memory makerPos = positionModule.getPosition(
-            specId,
-            address(this),
-            PositionType.Upper
-        );
+        Position memory makerPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
 
         // Create a MockMarket that is NOT registered as SECONDARY_MARKET_MODULE
         MockMarket unauthorizedMarket = new MockMarket(address(positionModule));
-        vm.expectRevert(
-            PositionModule.PositionModule__UnauthorizedMarket.selector
-        );
+        vm.expectRevert(PositionModule.PositionModule__UnauthorizedMarket.selector);
         vm.prank(address(unauthorizedMarket));
         unauthorizedMarket.transferPosition(
-            specId,
-            address(this),
-            PositionType.Upper,
-            user,
-            makerPos.riskAmount,
-            makerPos.profitAmount
+            specId, address(this), PositionType.Upper, user, makerPos.riskAmount, makerPos.profitAmount
         );
     }
 
@@ -829,31 +714,15 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1,
-            address(defaultScorer),
-            42,
-            PositionType.Upper,
-            address(this),
-            makerRisk,
-            taker,
-            takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
-        Position memory makerPos = positionModule.getPosition(
-            specId,
-            address(this),
-            PositionType.Upper
-        );
+        Position memory makerPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
 
         vm.expectRevert(PositionModule.PositionModule__InvalidAmount.selector);
         vm.prank(address(defaultMarket));
         defaultMarket.transferPosition(
-            specId,
-            address(this),
-            PositionType.Upper,
-            user,
-            makerPos.riskAmount + 1,
-            makerPos.profitAmount
+            specId, address(this), PositionType.Upper, user, makerPos.riskAmount + 1, makerPos.profitAmount
         );
     }
 
@@ -868,8 +737,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1, address(defaultScorer), 42,
-            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         // Score the contest (but DON'T settle the speculation)
@@ -881,8 +749,7 @@ contract PositionModuleTest is Test {
         vm.expectRevert(PositionModule.PositionModule__ContestAlreadyScored.selector);
         vm.prank(address(defaultMarket));
         defaultMarket.transferPosition(
-            specId, address(this), PositionType.Upper, user,
-            makerPos.riskAmount, makerPos.profitAmount
+            specId, address(this), PositionType.Upper, user, makerPos.riskAmount, makerPos.profitAmount
         );
     }
 
@@ -895,15 +762,19 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1, address(defaultScorer), 42,
-            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         // Void the contest (but DON'T settle the speculation)
         Contest memory voidedContest = Contest({
-            awayScore: 0, homeScore: 0, leagueId: LeagueId.NBA,
-            contestStatus: ContestStatus.Voided, contestCreator: address(this),
-            rundownId: "", sportspageId: "", jsonoddsId: ""
+            awayScore: 0,
+            homeScore: 0,
+            leagueId: LeagueId.NBA,
+            contestStatus: ContestStatus.Voided,
+            contestCreator: address(this),
+            rundownId: "",
+            sportspageId: "",
+            jsonoddsId: ""
         });
         mockContestModule.setContest(1, voidedContest);
 
@@ -912,8 +783,7 @@ contract PositionModuleTest is Test {
         vm.expectRevert(PositionModule.PositionModule__ContestAlreadyScored.selector);
         vm.prank(address(defaultMarket));
         defaultMarket.transferPosition(
-            specId, address(this), PositionType.Upper, user,
-            makerPos.riskAmount, makerPos.profitAmount
+            specId, address(this), PositionType.Upper, user, makerPos.riskAmount, makerPos.profitAmount
         );
     }
 
@@ -936,34 +806,15 @@ contract PositionModuleTest is Test {
         token.approve(address(env.posMod), takerRisk);
 
         uint256 specId = _helperRecordFillLocal(
-            env.posMod,
-            1,
-            address(defaultScorer),
-            42,
-            PositionType.Upper,
-            address(this),
-            makerRisk,
-            taker,
-            takerRisk
+            env.posMod, 1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         // Transfer entire position to another user via secondary market
         address buyer = address(0xBEEF);
-        env.market.transferPosition(
-            specId,
-            address(this),
-            PositionType.Upper,
-            buyer,
-            10_000_000,
-            10_000_000
-        );
+        env.market.transferPosition(specId, address(this), PositionType.Upper, buyer, 10_000_000, 10_000_000);
 
         // Verify maker's position now has riskAmount=0
-        Position memory makerPos = env.posMod.getPosition(
-            specId,
-            address(this),
-            PositionType.Upper
-        );
+        Position memory makerPos = env.posMod.getPosition(specId, address(this), PositionType.Upper);
         assertEq(makerPos.riskAmount, 0, "riskAmount should be 0 after full transfer");
 
         // Settle speculation
@@ -990,14 +841,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1,
-            address(defaultScorer),
-            42,
-            PositionType.Upper,
-            address(this),
-            makerRisk,
-            taker,
-            takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         // Settle speculation
@@ -1034,22 +878,11 @@ contract PositionModuleTest is Test {
         token.approve(address(treasuryModule), type(uint256).max);
 
         uint256 specId = _helperRecordFill(
-            1,
-            address(defaultScorer),
-            42,
-            PositionType.Upper,
-            user,
-            buyerRisk,
-            taker1,
-            buyerTakerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, user, buyerRisk, taker1, buyerTakerRisk
         );
 
         // Verify buyer's position
-        Position memory buyerPosBefore = positionModule.getPosition(
-            specId,
-            user,
-            PositionType.Upper
-        );
+        Position memory buyerPosBefore = positionModule.getPosition(specId, user, PositionType.Upper);
         assertEq(buyerPosBefore.riskAmount, buyerRisk, "Buyer should have 5 USDC risk");
 
         // Step 2: Seller creates a position (10 USDC risk)
@@ -1068,33 +901,16 @@ contract PositionModuleTest is Test {
 
         // Use the same speculation by calling recordFill with the same contest/scorer/lineTicks
         positionModule.recordFill(
-            1, address(defaultScorer), 42,
-            PositionType.Upper, seller, sellerRisk,
-            taker2, sellerTakerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, seller, sellerRisk, taker2, sellerTakerRisk
         );
 
         // Step 3: Transfer seller's position to buyer
         vm.prank(address(defaultMarket));
-        defaultMarket.transferPosition(
-            specId,
-            seller,
-            PositionType.Upper,
-            user,
-            sellerRisk,
-            sellerTakerRisk
-        );
+        defaultMarket.transferPosition(specId, seller, PositionType.Upper, user, sellerRisk, sellerTakerRisk);
 
         // Step 4: Verify buyer's riskAmount is ACCUMULATED (5 + 10 = 15)
-        Position memory buyerPosAfter = positionModule.getPosition(
-            specId,
-            user,
-            PositionType.Upper
-        );
-        assertEq(
-            buyerPosAfter.riskAmount,
-            buyerRisk + sellerRisk,
-            "Buyer's riskAmount should accumulate (5 + 10 = 15)"
-        );
+        Position memory buyerPosAfter = positionModule.getPosition(specId, user, PositionType.Upper);
+        assertEq(buyerPosAfter.riskAmount, buyerRisk + sellerRisk, "Buyer's riskAmount should accumulate (5 + 10 = 15)");
     }
 
     // =========================================================================
@@ -1111,7 +927,13 @@ contract PositionModuleTest is Test {
     }
 
     /// @notice Helper: settle a speculation as Home-wins (Lower wins)
-    function _settleAsHomeWins(uint256 /* specId */, uint256 contestId) internal {
+    function _settleAsHomeWins(
+        uint256,
+        /* specId */
+        uint256 contestId
+    )
+        internal
+    {
         vm.warp(block.timestamp + 2 hours);
         Contest memory c = _scoredContest(90, 100);
         mockContestModule.setContest(contestId, c);
@@ -1133,8 +955,7 @@ contract PositionModuleTest is Test {
         uint256 takerBalBefore = token.balanceOf(taker);
 
         uint256 specId = _helperRecordFill(
-            1, address(defaultScorer), 200,
-            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+            1, address(defaultScorer), 200, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         uint256 halfFee = SPEC_FEE / 2;
@@ -1164,8 +985,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1, address(defaultScorer), 201,
-            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+            1, address(defaultScorer), 201, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         Position memory mPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
@@ -1183,8 +1003,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1, address(defaultScorer), 202,
-            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+            1, address(defaultScorer), 202, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         Position memory mPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
@@ -1202,8 +1021,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1, address(defaultScorer), 203,
-            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+            1, address(defaultScorer), 203, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         Position memory mPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
@@ -1222,8 +1040,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1, address(defaultScorer), 204,
-            PositionType.Lower, address(this), makerRisk, taker, takerRisk
+            1, address(defaultScorer), 204, PositionType.Lower, address(this), makerRisk, taker, takerRisk
         );
 
         // Verify taker gets Upper position (opposite of maker)
@@ -1244,8 +1061,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk1);
 
         uint256 specId = _helperRecordFill(
-            1, address(defaultScorer), 250,
-            PositionType.Upper, address(this), makerRisk1, taker, takerRisk1
+            1, address(defaultScorer), 250, PositionType.Upper, address(this), makerRisk1, taker, takerRisk1
         );
 
         // Second fill with a different taker
@@ -1260,9 +1076,7 @@ contract PositionModuleTest is Test {
 
         // recordFill with same contest/scorer/lineTicks reuses existing speculation
         positionModule.recordFill(
-            1, address(defaultScorer), 250,
-            PositionType.Upper, address(this), makerRisk2,
-            taker2, takerRisk2
+            1, address(defaultScorer), 250, PositionType.Upper, address(this), makerRisk2, taker2, takerRisk2
         );
 
         // Verify maker's accumulated position
@@ -1289,8 +1103,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1, address(defaultScorer), 220,
-            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+            1, address(defaultScorer), 220, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         Position memory mPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
@@ -1310,9 +1123,7 @@ contract PositionModuleTest is Test {
         // SafeERC20 reverts with "Not allowed" from MockERC20
         vm.expectRevert("Not allowed");
         positionModule.recordFill(
-            1, address(defaultScorer), 221,
-            PositionType.Upper, address(this), makerRisk,
-            taker, takerRisk
+            1, address(defaultScorer), 221, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
     }
 
@@ -1328,8 +1139,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1, address(defaultScorer), 230,
-            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+            1, address(defaultScorer), 230, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         _settleAsAwayWins(specId, 1); // Upper wins
@@ -1358,8 +1168,16 @@ contract PositionModuleTest is Test {
             specMod2 = new SpeculationModule(address(core2), VOID_COOLDOWN);
             posMod2 = new PositionModule(address(core2), address(token));
             MockMarket localMarket = new MockMarket(address(posMod2));
-            TreasuryModule treasury2 = new TreasuryModule(address(core2), address(token), protocolReceiver, CONTEST_FEE, SPEC_FEE, LB_FEE);
-            _bootstrapCore(core2, address(specMod2), address(posMod2), address(localMarket), address(mockScorer), address(treasury2));
+            TreasuryModule treasury2 =
+                new TreasuryModule(address(core2), address(token), protocolReceiver, CONTEST_FEE, SPEC_FEE, LB_FEE);
+            _bootstrapCore(
+                core2,
+                address(specMod2),
+                address(posMod2),
+                address(localMarket),
+                address(mockScorer),
+                address(treasury2)
+            );
             _approveTreasury(treasury2);
 
             token.approve(address(posMod2), makerRisk);
@@ -1367,8 +1185,7 @@ contract PositionModuleTest is Test {
             token.approve(address(posMod2), takerRisk);
 
             specId = posMod2.recordFill(
-                1, address(mockScorer), 231,
-                PositionType.Upper, address(this), makerRisk, taker, takerRisk
+                1, address(mockScorer), 231, PositionType.Upper, address(this), makerRisk, taker, takerRisk
             );
         }
 
@@ -1393,8 +1210,10 @@ contract PositionModuleTest is Test {
         LocalEnv memory env = _createLocalEnv();
 
         // Risk/profit ratios corresponding to various odds
-        uint256[4] memory makerRisks = [uint256(10_000_000), uint256(10_000_000), uint256(10_000_000), uint256(10_000_000)];
-        uint256[4] memory takerRisks = [uint256(9_300_000), uint256(8_700_000), uint256(10_800_000), uint256(11_500_000)];
+        uint256[4] memory makerRisks =
+            [uint256(10_000_000), uint256(10_000_000), uint256(10_000_000), uint256(10_000_000)];
+        uint256[4] memory takerRisks =
+            [uint256(9_300_000), uint256(8_700_000), uint256(10_800_000), uint256(11_500_000)];
 
         for (uint256 i = 0; i < makerRisks.length; i++) {
             int32 lineTicks = int32(int256(240 + i));
@@ -1412,9 +1231,15 @@ contract PositionModuleTest is Test {
             mockContestModule.setContest(1, verified);
 
             uint256 specId = _helperRecordFillLocal(
-                env.posMod, 1, address(defaultScorer), lineTicks,
-                PositionType.Upper, address(this), makerRisks[i],
-                _taker, takerRisks[i]
+                env.posMod,
+                1,
+                address(defaultScorer),
+                lineTicks,
+                PositionType.Upper,
+                address(this),
+                makerRisks[i],
+                _taker,
+                takerRisks[i]
             );
 
             // Score the contest, then settle as Away wins (Upper wins)
@@ -1448,8 +1273,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1, address(defaultScorer), 42,
-            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         vm.expectRevert(PositionModule.PositionModule__InvalidAddress.selector);
@@ -1473,8 +1297,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1, address(defaultScorer), 42,
-            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         vm.expectRevert(PositionModule.PositionModule__InvalidAddress.selector);
@@ -1517,16 +1340,7 @@ contract PositionModuleTest is Test {
             takerRisk // takerRisk
         );
 
-        _helperRecordFill(
-            1,
-            address(defaultScorer),
-            42,
-            PositionType.Upper,
-            address(this),
-            makerRisk,
-            taker,
-            takerRisk
-        );
+        _helperRecordFill(1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk);
     }
 
     /// @notice Verify PositionClaimed event is emitted with correct fields
@@ -1539,14 +1353,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1,
-            address(defaultScorer),
-            42,
-            PositionType.Upper,
-            address(this),
-            makerRisk,
-            taker,
-            takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         _settleAsAwayWins(specId, 1); // Upper wins
@@ -1573,21 +1380,10 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1,
-            address(defaultScorer),
-            42,
-            PositionType.Upper,
-            address(this),
-            makerRisk,
-            taker,
-            takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
-        Position memory makerPos = positionModule.getPosition(
-            specId,
-            address(this),
-            PositionType.Upper
-        );
+        Position memory makerPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
 
         vm.expectEmit(true, true, true, true, address(positionModule));
         emit PositionModule.PositionTransferred(
@@ -1601,12 +1397,7 @@ contract PositionModuleTest is Test {
 
         vm.prank(address(defaultMarket));
         defaultMarket.transferPosition(
-            specId,
-            address(this),
-            PositionType.Upper,
-            user,
-            makerPos.riskAmount,
-            makerPos.profitAmount
+            specId, address(this), PositionType.Upper, user, makerPos.riskAmount, makerPos.profitAmount
         );
     }
 
@@ -1678,11 +1469,7 @@ contract PositionModuleTest is Test {
         env.specMod.setSpeculationWinSide(specId1, WinSide.Away);
 
         // Get maker positions for exact payout calculation
-        Position memory posUpper = env.posMod.getPosition(
-            specId1,
-            address(this),
-            PositionType.Upper
-        );
+        Position memory posUpper = env.posMod.getPosition(specId1, address(this), PositionType.Upper);
 
         // Winner gets exactly riskAmount + profitAmount
         uint256 balBefore = token.balanceOf(address(this));
@@ -1701,11 +1488,7 @@ contract PositionModuleTest is Test {
 
         // Home wins for specId2 (Lower maker wins)
         env.specMod.setSpeculationWinSide(specId2, WinSide.Home);
-        Position memory posLower = env.posMod.getPosition(
-            specId2,
-            address(this),
-            PositionType.Lower
-        );
+        Position memory posLower = env.posMod.getPosition(specId2, address(this), PositionType.Lower);
 
         balBefore = token.balanceOf(address(this));
         env.posMod.claimPosition(specId2, PositionType.Lower);
@@ -1736,14 +1519,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1,
-            address(defaultScorer),
-            42,
-            PositionType.Upper,
-            address(this),
-            makerRisk,
-            taker,
-            takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         // Speculation is still Open -- claim should revert
@@ -1771,8 +1547,7 @@ contract PositionModuleTest is Test {
         token.approve(address(env.posMod), takerRisk);
 
         uint256 specId = _helperRecordFillLocal(
-            env.posMod, 1, address(defaultScorer), 42,
-            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+            env.posMod, 1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         vm.warp(block.timestamp + 2 hours);
@@ -1808,8 +1583,7 @@ contract PositionModuleTest is Test {
         token.approve(address(env.posMod), takerRisk);
 
         uint256 specId = _helperRecordFillLocal(
-            env.posMod, 1, address(defaultScorer), 50,
-            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+            env.posMod, 1, address(defaultScorer), 50, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         vm.warp(block.timestamp + 2 hours);
@@ -1842,15 +1616,14 @@ contract PositionModuleTest is Test {
         LocalEnv memory env = _createLocalEnv();
 
         uint256 makerRisk = 100_000_000; // 100 USDC (100e6)
-        uint256 takerRisk = 80_000_000;  // 80 USDC (80e6)
+        uint256 takerRisk = 80_000_000; // 80 USDC (80e6)
 
         token.approve(address(env.posMod), makerRisk);
         vm.prank(taker);
         token.approve(address(env.posMod), takerRisk);
 
         uint256 specId = _helperRecordFillLocal(
-            env.posMod, 1, address(defaultScorer), 42,
-            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+            env.posMod, 1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         // Verify initial position: risk=100e6, profit=80e6
@@ -1860,14 +1633,15 @@ contract PositionModuleTest is Test {
 
         // Transfer half to another address
         address receiver = address(0xAAAA);
-        env.market.transferPosition(
-            specId,
-            address(this),
-            PositionType.Upper,
-            receiver,
-            50_000_000, // half risk
-            40_000_000  // half profit
-        );
+        env.market
+            .transferPosition(
+                specId,
+                address(this),
+                PositionType.Upper,
+                receiver,
+                50_000_000, // half risk
+                40_000_000 // half profit
+            );
 
         // Verify sender has remainder: risk=50e6, profit=40e6
         Position memory senderPos = env.posMod.getPosition(specId, address(this), PositionType.Upper);
@@ -1934,8 +1708,7 @@ contract PositionModuleTest is Test {
         token.approve(address(env.treasury), type(uint256).max);
 
         uint256 specId = _helperRecordFillLocal(
-            env.posMod, 1, address(defaultScorer), 42,
-            PositionType.Upper, address(this), makerRisk1, taker1, takerRisk1
+            env.posMod, 1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk1, taker1, takerRisk1
         );
 
         // Fill 2 -- same speculation (same contest/scorer/lineTicks)
@@ -1943,22 +1716,20 @@ contract PositionModuleTest is Test {
         vm.prank(taker2);
         token.approve(address(env.posMod), takerRisk2);
 
-        env.posMod.recordFill(
-            1, address(defaultScorer), 42,
-            PositionType.Upper, address(this), makerRisk2,
-            taker2, takerRisk2
-        );
+        env.posMod
+            .recordFill(
+                1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk2, taker2, takerRisk2
+            );
 
         // Fill 3 -- same speculation
         token.approve(address(env.posMod), makerRisk3);
         vm.prank(taker3);
         token.approve(address(env.posMod), takerRisk3);
 
-        env.posMod.recordFill(
-            1, address(defaultScorer), 42,
-            PositionType.Upper, address(this), makerRisk3,
-            taker3, takerRisk3
-        );
+        env.posMod
+            .recordFill(
+                1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk3, taker3, takerRisk3
+            );
 
         // Verify aggregated position
         uint256 totalMakerRisk = makerRisk1 + makerRisk2 + makerRisk3; // 22M
@@ -1978,11 +1749,7 @@ contract PositionModuleTest is Test {
         uint256 balBefore = token.balanceOf(address(this));
         env.posMod.claimPosition(specId, PositionType.Upper);
         uint256 payout = token.balanceOf(address(this)) - balBefore;
-        assertEq(
-            payout,
-            totalMakerRisk + totalMakerProfit,
-            "Claim payout == totalRiskAmount + totalProfitAmount"
-        );
+        assertEq(payout, totalMakerRisk + totalMakerProfit, "Claim payout == totalRiskAmount + totalProfitAmount");
     }
 
     // =====================================================================
@@ -2005,8 +1772,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1, address(defaultScorer), 42,
-            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         // Lock the full position amounts (simulates leaderboard registration)
@@ -2015,9 +1781,7 @@ contract PositionModuleTest is Test {
         // Attempt full transfer -- should revert (remaining would be 0 < locked)
         vm.expectRevert(PositionModule.PositionModule__TransferLocked.selector);
         vm.prank(address(defaultMarket));
-        defaultMarket.transferPosition(
-            specId, address(this), PositionType.Upper, taker, makerRisk, takerRisk
-        );
+        defaultMarket.transferPosition(specId, address(this), PositionType.Upper, taker, makerRisk, takerRisk);
     }
 
     /// @notice Transfer succeeds when no amounts are locked (default)
@@ -2030,14 +1794,11 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1, address(defaultScorer), 42,
-            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         vm.prank(address(defaultMarket));
-        defaultMarket.transferPosition(
-            specId, address(this), PositionType.Upper, taker, makerRisk, takerRisk
-        );
+        defaultMarket.transferPosition(specId, address(this), PositionType.Upper, taker, makerRisk, takerRisk);
 
         Position memory fromPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
         assertEq(fromPos.riskAmount, 0, "sender should have 0 risk after full transfer");
@@ -2053,8 +1814,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1, address(defaultScorer), 42,
-            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         // Lock maker's Upper position
@@ -2063,9 +1823,7 @@ contract PositionModuleTest is Test {
         // Taker's Lower position is NOT locked -- transfer should succeed
         address recipient = address(0xDEAD);
         vm.prank(address(defaultMarket));
-        defaultMarket.transferPosition(
-            specId, taker, PositionType.Lower, recipient, takerRisk, makerRisk
-        );
+        defaultMarket.transferPosition(specId, taker, PositionType.Lower, recipient, takerRisk, makerRisk);
 
         Position memory recipientPos = positionModule.getPosition(specId, recipient, PositionType.Lower);
         assertEq(recipientPos.riskAmount, takerRisk, "taker's unlocked position should transfer");
@@ -2087,8 +1845,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1, address(defaultScorer), 42,
-            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         Position memory makerPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
@@ -2110,8 +1867,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk * 2);
 
         uint256 specId = _helperRecordFill(
-            1, address(defaultScorer), 42,
-            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         // Read the stored firstFillTimestamp (avoids via_ir timestamp caching)
@@ -2123,10 +1879,7 @@ contract PositionModuleTest is Test {
         vm.warp(200_000);
 
         // Second fill on same speculation aggregates but preserves timestamp
-        _helperRecordFill(
-            1, address(defaultScorer), 42,
-            PositionType.Upper, address(this), makerRisk, taker, takerRisk
-        );
+        _helperRecordFill(1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk);
 
         Position memory makerPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
         assertEq(makerPos.firstFillTimestamp, firstFillTime, "firstFillTimestamp must be preserved from first fill");
@@ -2149,8 +1902,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1, address(defaultScorer), 42,
-            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         // Read source's firstFillTimestamp from stored position
@@ -2164,12 +1916,13 @@ contract PositionModuleTest is Test {
         // Transfer full position to user (who has no existing position)
         vm.prank(address(defaultMarket));
         defaultMarket.transferPosition(
-            specId, address(this), PositionType.Upper,
-            user, sourcePos.riskAmount, sourcePos.profitAmount
+            specId, address(this), PositionType.Upper, user, sourcePos.riskAmount, sourcePos.profitAmount
         );
 
         Position memory toPos = positionModule.getPosition(specId, user, PositionType.Upper);
-        assertEq(toPos.firstFillTimestamp, expectedTimestamp, "Fresh destination should inherit source's firstFillTimestamp");
+        assertEq(
+            toPos.firstFillTimestamp, expectedTimestamp, "Fresh destination should inherit source's firstFillTimestamp"
+        );
     }
 
     /// @notice Transfer to a destination with existing exposure results in min(from, to) timestamp
@@ -2185,8 +1938,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk);
 
         uint256 specId = _helperRecordFill(
-            1, address(defaultScorer), 42,
-            PositionType.Upper, address(this), makerRisk, taker, takerRisk
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk, taker, takerRisk
         );
 
         // Read T1 from stored position
@@ -2207,10 +1959,7 @@ contract PositionModuleTest is Test {
         vm.prank(taker2);
         token.approve(address(positionModule), takerRisk);
 
-        _helperRecordFill(
-            1, address(defaultScorer), 42,
-            PositionType.Upper, user, makerRisk, taker2, takerRisk
-        );
+        _helperRecordFill(1, address(defaultScorer), 42, PositionType.Upper, user, makerRisk, taker2, takerRisk);
 
         // Read T2 from stored position
         Position memory pos2 = positionModule.getPosition(specId, user, PositionType.Upper);
@@ -2220,10 +1969,7 @@ contract PositionModuleTest is Test {
 
         // Transfer some of address(this) Upper → user Upper
         vm.prank(address(defaultMarket));
-        defaultMarket.transferPosition(
-            specId, address(this), PositionType.Upper,
-            user, 2_000_000, 1_600_000
-        );
+        defaultMarket.transferPosition(specId, address(this), PositionType.Upper, user, 2_000_000, 1_600_000);
 
         // User's firstFillTimestamp should now be min(T1, T2) = T1
         Position memory userAfter = positionModule.getPosition(specId, user, PositionType.Upper);
@@ -2241,8 +1987,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk1);
 
         uint256 specId = _helperRecordFill(
-            1, address(defaultScorer), 42,
-            PositionType.Upper, address(this), makerRisk1, taker, takerRisk1
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk1, taker, takerRisk1
         );
 
         // Lock 10M risk / 8M profit (the registered leaderboard amounts)
@@ -2257,8 +2002,7 @@ contract PositionModuleTest is Test {
         token.approve(address(positionModule), takerRisk2);
 
         _helperRecordFill(
-            1, address(defaultScorer), 42,
-            PositionType.Upper, address(this), makerRisk2, taker, takerRisk2
+            1, address(defaultScorer), 42, PositionType.Upper, address(this), makerRisk2, taker, takerRisk2
         );
 
         // Maker now has: risk = 15M, profit = 12M. Locked: risk = 10M, profit = 8M.
@@ -2269,9 +2013,7 @@ contract PositionModuleTest is Test {
 
         // Transfer the excess (5M risk, 4M profit) -- should succeed
         vm.prank(address(defaultMarket));
-        defaultMarket.transferPosition(
-            specId, address(this), PositionType.Upper, taker, makerRisk2, takerRisk2
-        );
+        defaultMarket.transferPosition(specId, address(this), PositionType.Upper, taker, makerRisk2, takerRisk2);
 
         // Remaining should equal the locked amounts exactly
         Position memory afterPos = positionModule.getPosition(specId, address(this), PositionType.Upper);
@@ -2281,8 +2023,6 @@ contract PositionModuleTest is Test {
         // Trying to transfer even 1 more wei should revert
         vm.expectRevert(PositionModule.PositionModule__TransferLocked.selector);
         vm.prank(address(defaultMarket));
-        defaultMarket.transferPosition(
-            specId, address(this), PositionType.Upper, taker, 1, 0
-        );
+        defaultMarket.transferPosition(specId, address(this), PositionType.Upper, taker, 1, 0);
     }
 }

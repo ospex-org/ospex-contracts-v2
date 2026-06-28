@@ -24,6 +24,7 @@ contract MockERC20 is IERC20 {
     constructor() {
         balanceOf[msg.sender] = totalSupply;
     }
+
     function transfer(address to, uint256 amount) public returns (bool) {
         require(balanceOf[msg.sender] >= amount, "Insufficient balance");
         balanceOf[msg.sender] -= amount;
@@ -31,11 +32,13 @@ contract MockERC20 is IERC20 {
         emit Transfer(msg.sender, to, amount);
         return true;
     }
+
     function approve(address spender, uint256 amount) public returns (bool) {
         allowance[msg.sender][spender] = amount;
         emit Approval(msg.sender, spender, amount);
         return true;
     }
+
     function transferFrom(address from, address to, uint256 amount) public returns (bool) {
         require(allowance[from][msg.sender] >= amount, "Not allowed");
         require(balanceOf[from] >= amount, "Insufficient balance");
@@ -45,10 +48,10 @@ contract MockERC20 is IERC20 {
         emit Transfer(from, to, amount);
         return true;
     }
-    
+
     function mint(address to, uint256 amount) external {
         balanceOf[to] += amount;
         totalSupply += amount;
         emit Transfer(address(0), to, amount);
     }
-} 
+}

@@ -28,19 +28,14 @@ contract RulesModule is IRulesModule {
     // ──────────────────────────── Constants ────────────────────────────
 
     bytes32 public constant RULES_MODULE = keccak256("RULES_MODULE");
-    bytes32 public constant LEADERBOARD_MODULE =
-        keccak256("LEADERBOARD_MODULE");
+    bytes32 public constant LEADERBOARD_MODULE = keccak256("LEADERBOARD_MODULE");
     bytes32 public constant CONTEST_MODULE = keccak256("CONTEST_MODULE");
-    bytes32 public constant SPECULATION_MODULE =
-        keccak256("SPECULATION_MODULE");
-    bytes32 public constant MONEYLINE_SCORER_MODULE =
-        keccak256("MONEYLINE_SCORER_MODULE");
-    bytes32 public constant SPREAD_SCORER_MODULE =
-        keccak256("SPREAD_SCORER_MODULE");
+    bytes32 public constant SPECULATION_MODULE = keccak256("SPECULATION_MODULE");
+    bytes32 public constant MONEYLINE_SCORER_MODULE = keccak256("MONEYLINE_SCORER_MODULE");
+    bytes32 public constant SPREAD_SCORER_MODULE = keccak256("SPREAD_SCORER_MODULE");
 
     bytes32 public constant EVENT_RULE_SET = keccak256("RULE_SET");
-    bytes32 public constant EVENT_DEVIATION_RULE_SET =
-        keccak256("DEVIATION_RULE_SET");
+    bytes32 public constant EVENT_DEVIATION_RULE_SET = keccak256("DEVIATION_RULE_SET");
 
     /// @notice Maximum basis points (10000 = 100%)
     uint16 public constant MAX_BPS = 10000;
@@ -70,11 +65,7 @@ contract RulesModule is IRulesModule {
     /// @param leaderboardId The leaderboard ID
     /// @param ruleType The rule name (e.g. "minBankroll", "maxBetPercentage")
     /// @param value The rule value
-    event RuleSet(
-        uint256 indexed leaderboardId,
-        string ruleType,
-        uint256 value
-    );
+    event RuleSet(uint256 indexed leaderboardId, string ruleType, uint256 value);
 
     /// @notice Emitted when a deviation rule is set for a leaderboard
     /// @param leaderboardId The leaderboard ID
@@ -94,14 +85,14 @@ contract RulesModule is IRulesModule {
 
     /// @notice Validates the caller is the leaderboard creator and the leaderboard has not started
     modifier onlyCreatorBeforeStart(uint256 leaderboardId) {
-        Leaderboard memory lb = ILeaderboardModule(
-            _getModule(LEADERBOARD_MODULE)
-        ).getLeaderboard(leaderboardId);
+        Leaderboard memory lb = ILeaderboardModule(_getModule(LEADERBOARD_MODULE)).getLeaderboard(leaderboardId);
         if (lb.startTime == 0) revert RulesModule__InvalidLeaderboard();
-        if (msg.sender != lb.creator)
+        if (msg.sender != lb.creator) {
             revert RulesModule__NotCreator(msg.sender);
-        if (block.timestamp >= lb.startTime)
+        }
+        if (block.timestamp >= lb.startTime) {
             revert RulesModule__LeaderboardStarted();
+        }
         _;
     }
 
@@ -135,12 +126,11 @@ contract RulesModule is IRulesModule {
     mapping(uint256 => bool) public s_allowMoneylineSpreadPairing;
 
     /// @notice Leaderboard ID → league → scorer → position type → max deviation
-    mapping(uint256 => mapping(LeagueId => mapping(address => mapping(PositionType => int32))))
-        public s_deviationRules;
+    mapping(uint256 => mapping(LeagueId => mapping(address => mapping(PositionType => int32)))) public s_deviationRules;
 
     /// @notice Tracks which deviation rules have been explicitly set
-    mapping(uint256 => mapping(LeagueId => mapping(address => mapping(PositionType => bool))))
-        public s_deviationRuleSet;
+    mapping(uint256 => mapping(LeagueId => mapping(address => mapping(PositionType => bool)))) public
+        s_deviationRuleSet;
 
     // ──────────────────────────── Constructor ──────────────────────────
 
@@ -161,106 +151,73 @@ contract RulesModule is IRulesModule {
     // ──────────────────────────── Rule Setters ─────────────────────────
 
     /// @inheritdoc IRulesModule
-    function setMinBankroll(
-        uint256 leaderboardId,
-        uint256 value
-    ) external override onlyCreatorBeforeStart(leaderboardId) {
-        if (
-            value > 0 &&
-            s_maxBankroll[leaderboardId] > 0 &&
-            value > s_maxBankroll[leaderboardId]
-        ) revert RulesModule__InvalidValue();
+    function setMinBankroll(uint256 leaderboardId, uint256 value)
+        external
+        override
+        onlyCreatorBeforeStart(leaderboardId)
+    {
+        if (value > 0 && s_maxBankroll[leaderboardId] > 0 && value > s_maxBankroll[leaderboardId]) {
+            revert RulesModule__InvalidValue();
+        }
         s_minBankroll[leaderboardId] = value;
         emit RuleSet(leaderboardId, "minBankroll", value);
-        i_ospexCore.emitCoreEvent(
-            EVENT_RULE_SET,
-            abi.encode(leaderboardId, "minBankroll", value)
-        );
+        i_ospexCore.emitCoreEvent(EVENT_RULE_SET, abi.encode(leaderboardId, "minBankroll", value));
     }
 
     /// @inheritdoc IRulesModule
-    function setMaxBankroll(
-        uint256 leaderboardId,
-        uint256 value
-    ) external override onlyCreatorBeforeStart(leaderboardId) {
-        if (
-            value > 0 &&
-            s_minBankroll[leaderboardId] > 0 &&
-            value < s_minBankroll[leaderboardId]
-        ) revert RulesModule__InvalidValue();
+    function setMaxBankroll(uint256 leaderboardId, uint256 value)
+        external
+        override
+        onlyCreatorBeforeStart(leaderboardId)
+    {
+        if (value > 0 && s_minBankroll[leaderboardId] > 0 && value < s_minBankroll[leaderboardId]) {
+            revert RulesModule__InvalidValue();
+        }
         s_maxBankroll[leaderboardId] = value;
         emit RuleSet(leaderboardId, "maxBankroll", value);
-        i_ospexCore.emitCoreEvent(
-            EVENT_RULE_SET,
-            abi.encode(leaderboardId, "maxBankroll", value)
-        );
+        i_ospexCore.emitCoreEvent(EVENT_RULE_SET, abi.encode(leaderboardId, "maxBankroll", value));
     }
 
     /// @inheritdoc IRulesModule
-    function setMinBetPercentage(
-        uint256 leaderboardId,
-        uint16 value
-    )
+    function setMinBetPercentage(uint256 leaderboardId, uint16 value)
         external
         override
         onlyCreatorBeforeStart(leaderboardId)
         valueNotExceedingMaxBps(value)
     {
-        if (
-            value > 0 &&
-            s_maxBetPercentage[leaderboardId] > 0 &&
-            value > s_maxBetPercentage[leaderboardId]
-        ) revert RulesModule__InvalidValue();
+        if (value > 0 && s_maxBetPercentage[leaderboardId] > 0 && value > s_maxBetPercentage[leaderboardId]) {
+            revert RulesModule__InvalidValue();
+        }
         s_minBetPercentage[leaderboardId] = value;
         emit RuleSet(leaderboardId, "minBetPercentage", value);
-        i_ospexCore.emitCoreEvent(
-            EVENT_RULE_SET,
-            abi.encode(leaderboardId, "minBetPercentage", value)
-        );
+        i_ospexCore.emitCoreEvent(EVENT_RULE_SET, abi.encode(leaderboardId, "minBetPercentage", value));
     }
 
     /// @inheritdoc IRulesModule
-    function setMaxBetPercentage(
-        uint256 leaderboardId,
-        uint16 value
-    )
+    function setMaxBetPercentage(uint256 leaderboardId, uint16 value)
         external
         override
         onlyCreatorBeforeStart(leaderboardId)
         valueNotExceedingMaxBps(value)
     {
-        if (
-            value > 0 &&
-            s_minBetPercentage[leaderboardId] > 0 &&
-            value < s_minBetPercentage[leaderboardId]
-        ) revert RulesModule__InvalidValue();
+        if (value > 0 && s_minBetPercentage[leaderboardId] > 0 && value < s_minBetPercentage[leaderboardId]) {
+            revert RulesModule__InvalidValue();
+        }
         s_maxBetPercentage[leaderboardId] = value;
         emit RuleSet(leaderboardId, "maxBetPercentage", value);
-        i_ospexCore.emitCoreEvent(
-            EVENT_RULE_SET,
-            abi.encode(leaderboardId, "maxBetPercentage", value)
-        );
+        i_ospexCore.emitCoreEvent(EVENT_RULE_SET, abi.encode(leaderboardId, "maxBetPercentage", value));
     }
 
     /// @inheritdoc IRulesModule
-    function setMinBets(
-        uint256 leaderboardId,
-        uint16 value
-    ) external override onlyCreatorBeforeStart(leaderboardId) {
+    function setMinBets(uint256 leaderboardId, uint16 value) external override onlyCreatorBeforeStart(leaderboardId) {
         if (value == 0) revert RulesModule__InvalidValue();
         s_minBets[leaderboardId] = value;
         emit RuleSet(leaderboardId, "minBets", value);
-        i_ospexCore.emitCoreEvent(
-            EVENT_RULE_SET,
-            abi.encode(leaderboardId, "minBets", value)
-        );
+        i_ospexCore.emitCoreEvent(EVENT_RULE_SET, abi.encode(leaderboardId, "minBets", value));
     }
 
     /// @inheritdoc IRulesModule
-    function setOddsEnforcementBps(
-        uint256 leaderboardId,
-        uint16 value
-    )
+    function setOddsEnforcementBps(uint256 leaderboardId, uint16 value)
         external
         override
         onlyCreatorBeforeStart(leaderboardId)
@@ -268,23 +225,18 @@ contract RulesModule is IRulesModule {
     {
         s_oddsEnforcementBps[leaderboardId] = value;
         emit RuleSet(leaderboardId, "oddsEnforcementBps", value);
-        i_ospexCore.emitCoreEvent(
-            EVENT_RULE_SET,
-            abi.encode(leaderboardId, "oddsEnforcementBps", value)
-        );
+        i_ospexCore.emitCoreEvent(EVENT_RULE_SET, abi.encode(leaderboardId, "oddsEnforcementBps", value));
     }
 
     /// @inheritdoc IRulesModule
-    function setAllowLiveBetting(
-        uint256 leaderboardId,
-        bool value
-    ) external override onlyCreatorBeforeStart(leaderboardId) {
+    function setAllowLiveBetting(uint256 leaderboardId, bool value)
+        external
+        override
+        onlyCreatorBeforeStart(leaderboardId)
+    {
         s_allowLiveBetting[leaderboardId] = value;
         emit RuleSet(leaderboardId, "allowLiveBetting", value ? 1 : 0);
-        i_ospexCore.emitCoreEvent(
-            EVENT_RULE_SET,
-            abi.encode(leaderboardId, "allowLiveBetting", value ? 1 : 0)
-        );
+        i_ospexCore.emitCoreEvent(EVENT_RULE_SET, abi.encode(leaderboardId, "allowLiveBetting", value ? 1 : 0));
     }
 
     /// @inheritdoc IRulesModule
@@ -296,92 +248,55 @@ contract RulesModule is IRulesModule {
         int32 maxDeviation
     ) external override onlyCreatorBeforeStart(leaderboardId) {
         if (maxDeviation < 0) revert RulesModule__InvalidDeviation();
-        s_deviationRules[leaderboardId][leagueId][scorer][
-            positionType
-        ] = maxDeviation;
-        s_deviationRuleSet[leaderboardId][leagueId][scorer][
-            positionType
-        ] = true;
+        s_deviationRules[leaderboardId][leagueId][scorer][positionType] = maxDeviation;
+        s_deviationRuleSet[leaderboardId][leagueId][scorer][positionType] = true;
 
-        emit DeviationRuleSet(
-            leaderboardId,
-            leagueId,
-            scorer,
-            positionType,
-            maxDeviation
-        );
+        emit DeviationRuleSet(leaderboardId, leagueId, scorer, positionType, maxDeviation);
         i_ospexCore.emitCoreEvent(
-            EVENT_DEVIATION_RULE_SET,
-            abi.encode(
-                leaderboardId,
-                leagueId,
-                scorer,
-                positionType,
-                maxDeviation
-            )
+            EVENT_DEVIATION_RULE_SET, abi.encode(leaderboardId, leagueId, scorer, positionType, maxDeviation)
         );
     }
 
     /// @inheritdoc IRulesModule
-    function setAllowMoneylineSpreadPairing(
-        uint256 leaderboardId,
-        bool value
-    ) external override onlyCreatorBeforeStart(leaderboardId) {
+    function setAllowMoneylineSpreadPairing(uint256 leaderboardId, bool value)
+        external
+        override
+        onlyCreatorBeforeStart(leaderboardId)
+    {
         s_allowMoneylineSpreadPairing[leaderboardId] = value;
-        emit RuleSet(
-            leaderboardId,
-            "allowMoneylineSpreadPairing",
-            value ? 1 : 0
-        );
+        emit RuleSet(leaderboardId, "allowMoneylineSpreadPairing", value ? 1 : 0);
         i_ospexCore.emitCoreEvent(
-            EVENT_RULE_SET,
-            abi.encode(
-                leaderboardId,
-                "allowMoneylineSpreadPairing",
-                value ? 1 : 0
-            )
+            EVENT_RULE_SET, abi.encode(leaderboardId, "allowMoneylineSpreadPairing", value ? 1 : 0)
         );
     }
 
     // ──────────────────────────── Validation Functions ─────────────────
 
     /// @inheritdoc IRulesModule
-    function isBankrollValid(
-        uint256 leaderboardId,
-        uint256 bankroll
-    ) external view override returns (bool) {
-        if (
-            s_minBankroll[leaderboardId] > 0 &&
-            bankroll < s_minBankroll[leaderboardId]
-        ) {
+    function isBankrollValid(uint256 leaderboardId, uint256 bankroll) external view override returns (bool) {
+        if (s_minBankroll[leaderboardId] > 0 && bankroll < s_minBankroll[leaderboardId]) {
             return false;
         }
-        if (
-            s_maxBankroll[leaderboardId] > 0 &&
-            bankroll > s_maxBankroll[leaderboardId]
-        ) {
+        if (s_maxBankroll[leaderboardId] > 0 && bankroll > s_maxBankroll[leaderboardId]) {
             return false;
         }
         return true;
     }
 
     /// @inheritdoc IRulesModule
-    function isMinPositionsMet(
-        uint256 leaderboardId,
-        uint256 userPositions
-    ) external view override returns (bool) {
+    function isMinPositionsMet(uint256 leaderboardId, uint256 userPositions) external view override returns (bool) {
         uint16 minBets = s_minBets[leaderboardId];
         uint16 effectiveMin = minBets > 0 ? minBets : 1;
         return userPositions >= effectiveMin;
     }
 
     /// @inheritdoc IRulesModule
-    function validateOdds(
-        uint256 leaderboardId,
-        uint256 riskAmount,
-        uint256 profitAmount,
-        uint16 marketOddsTick
-    ) public view override returns (bool) {
+    function validateOdds(uint256 leaderboardId, uint256 riskAmount, uint256 profitAmount, uint16 marketOddsTick)
+        public
+        view
+        override
+        returns (bool)
+    {
         uint16 enforcementBps = s_oddsEnforcementBps[leaderboardId];
 
         // If no enforcement set, all odds are valid
@@ -410,19 +325,13 @@ contract RulesModule is IRulesModule {
         int32 userNumber,
         int32 marketNumber
     ) public view override returns (bool) {
-        if (
-            !s_deviationRuleSet[leaderboardId][leagueId][scorer][positionType]
-        ) {
+        if (!s_deviationRuleSet[leaderboardId][leagueId][scorer][positionType]) {
             return true; // No rule set, allow all numbers
         }
 
-        int32 maxDeviation = s_deviationRules[leaderboardId][leagueId][scorer][
-            positionType
-        ];
+        int32 maxDeviation = s_deviationRules[leaderboardId][leagueId][scorer][positionType];
 
-        int32 difference = userNumber > marketNumber
-            ? userNumber - marketNumber
-            : marketNumber - userNumber;
+        int32 difference = userNumber > marketNumber ? userNumber - marketNumber : marketNumber - userNumber;
 
         return difference <= maxDeviation;
     }
@@ -449,116 +358,72 @@ contract RulesModule is IRulesModule {
         uint256 riskAmount,
         uint256 profitAmount
     ) external view override returns (LeaderboardPositionValidationResult) {
-        ILeaderboardModule leaderboardModule = ILeaderboardModule(
-            _getModule(LEADERBOARD_MODULE)
-        );
-        IContestModule contestModule = IContestModule(
-            _getModule(CONTEST_MODULE)
-        );
-        Leaderboard memory leaderboard = leaderboardModule.getLeaderboard(
-            leaderboardId
-        );
+        ILeaderboardModule leaderboardModule = ILeaderboardModule(_getModule(LEADERBOARD_MODULE));
+        IContestModule contestModule = IContestModule(_getModule(CONTEST_MODULE));
+        Leaderboard memory leaderboard = leaderboardModule.getLeaderboard(leaderboardId);
 
-        if (leaderboard.startTime == 0)
+        if (leaderboard.startTime == 0) {
             return LeaderboardPositionValidationResult.LeaderboardDoesNotExist;
+        }
 
-        if (block.timestamp < leaderboard.startTime)
+        if (block.timestamp < leaderboard.startTime) {
             return LeaderboardPositionValidationResult.LeaderboardHasNotStarted;
-        if (block.timestamp >= leaderboard.endTime)
+        }
+        if (block.timestamp >= leaderboard.endTime) {
             return LeaderboardPositionValidationResult.LeaderboardHasEnded;
+        }
 
-        if (
-            !leaderboardModule.s_leaderboardSpeculationRegistered(
-                leaderboardId,
-                speculationId
-            )
-        ) {
+        if (!leaderboardModule.s_leaderboardSpeculationRegistered(leaderboardId, speculationId)) {
             return LeaderboardPositionValidationResult.SpeculationNotRegistered;
         }
 
-        Speculation memory speculation = ISpeculationModule(
-            _getModule(SPECULATION_MODULE)
-        ).getSpeculation(speculationId);
+        Speculation memory speculation =
+            ISpeculationModule(_getModule(SPECULATION_MODULE)).getSpeculation(speculationId);
 
         if (!s_allowLiveBetting[leaderboardId]) {
-            if (
-                block.timestamp >=
-                contestModule.s_contestStartTimes(speculation.contestId)
-            ) {
-                return
-                    LeaderboardPositionValidationResult.LiveBettingNotAllowed;
+            if (block.timestamp >= contestModule.s_contestStartTimes(speculation.contestId)) {
+                return LeaderboardPositionValidationResult.LiveBettingNotAllowed;
             }
         }
 
-        Contest memory contest = contestModule.getContest(
-            speculation.contestId
-        );
+        Contest memory contest = contestModule.getContest(speculation.contestId);
 
-        ContestMarket memory contestMarket = contestModule.getContestMarket(
-            speculation.contestId,
-            speculation.speculationScorer
-        );
+        ContestMarket memory contestMarket =
+            contestModule.getContestMarket(speculation.contestId, speculation.speculationScorer);
 
-        if (
-            !validateNumber(
+        if (!validateNumber(
                 leaderboardId,
                 contest.leagueId,
                 speculation.speculationScorer,
                 positionType,
                 userNumber,
                 contestMarket.lineTicks
-            )
-        ) {
+            )) {
             return LeaderboardPositionValidationResult.NumberDeviationTooLarge;
         }
 
-        uint16 marketOddsTick = positionType == PositionType.Upper
-            ? contestMarket.upperOdds
-            : contestMarket.lowerOdds;
+        uint16 marketOddsTick = positionType == PositionType.Upper ? contestMarket.upperOdds : contestMarket.lowerOdds;
 
-        if (
-            !validateOdds(
-                leaderboardId,
-                riskAmount,
-                profitAmount,
-                marketOddsTick
-            )
-        ) {
+        if (!validateOdds(leaderboardId, riskAmount, profitAmount, marketOddsTick)) {
             return LeaderboardPositionValidationResult.OddsTooFavorable;
         }
 
         if (!s_allowMoneylineSpreadPairing[leaderboardId]) {
-            if (
-                speculation.speculationScorer ==
-                _getModule(MONEYLINE_SCORER_MODULE)
-            ) {
+            if (speculation.speculationScorer == _getModule(MONEYLINE_SCORER_MODULE)) {
                 if (
                     leaderboardModule.s_registeredLeaderboardSpeculation(
-                        leaderboardId,
-                        user,
-                        speculation.contestId,
-                        _getModule(SPREAD_SCORER_MODULE)
-                    ) != 0
+                            leaderboardId, user, speculation.contestId, _getModule(SPREAD_SCORER_MODULE)
+                        ) != 0
                 ) {
-                    return
-                        LeaderboardPositionValidationResult
-                            .MoneylineSpreadPairingNotAllowed;
+                    return LeaderboardPositionValidationResult.MoneylineSpreadPairingNotAllowed;
                 }
-            } else if (
-                speculation.speculationScorer ==
-                _getModule(SPREAD_SCORER_MODULE)
-            ) {
+            } else if (speculation.speculationScorer == _getModule(SPREAD_SCORER_MODULE)) {
                 if (
                     leaderboardModule.s_registeredLeaderboardSpeculation(
-                        leaderboardId,
-                        user,
-                        speculation.contestId,
-                        _getModule(MONEYLINE_SCORER_MODULE)
-                    ) != 0
+                            leaderboardId, user, speculation.contestId, _getModule(MONEYLINE_SCORER_MODULE)
+                        ) != 0
                 ) {
-                    return
-                        LeaderboardPositionValidationResult
-                            .MoneylineSpreadPairingNotAllowed;
+                    return LeaderboardPositionValidationResult.MoneylineSpreadPairingNotAllowed;
                 }
             }
         }
@@ -569,24 +434,18 @@ contract RulesModule is IRulesModule {
     // ──────────────────────────── View Functions ──────────────────────
 
     /// @inheritdoc IRulesModule
-    function getDeviationRule(
-        uint256 leaderboardId,
-        LeagueId leagueId,
-        address scorer,
-        PositionType positionType
-    ) external view override returns (int32 maxDeviation, bool isSet) {
-        maxDeviation = s_deviationRules[leaderboardId][leagueId][scorer][
-            positionType
-        ];
-        isSet = s_deviationRuleSet[leaderboardId][leagueId][scorer][
-            positionType
-        ];
+    function getDeviationRule(uint256 leaderboardId, LeagueId leagueId, address scorer, PositionType positionType)
+        external
+        view
+        override
+        returns (int32 maxDeviation, bool isSet)
+    {
+        maxDeviation = s_deviationRules[leaderboardId][leagueId][scorer][positionType];
+        isSet = s_deviationRuleSet[leaderboardId][leagueId][scorer][positionType];
     }
 
     /// @inheritdoc IRulesModule
-    function getAllRules(
-        uint256 leaderboardId
-    )
+    function getAllRules(uint256 leaderboardId)
         external
         view
         override
@@ -614,14 +473,14 @@ contract RulesModule is IRulesModule {
     }
 
     /// @inheritdoc IRulesModule
-    function getMaxBetAmount(
-        uint256 leaderboardId,
-        uint256 bankroll
-    ) external view override returns (uint256 maxBetAmount) {
+    function getMaxBetAmount(uint256 leaderboardId, uint256 bankroll)
+        external
+        view
+        override
+        returns (uint256 maxBetAmount)
+    {
         if (s_maxBetPercentage[leaderboardId] > 0) {
-            maxBetAmount =
-                (bankroll * s_maxBetPercentage[leaderboardId]) /
-                MAX_BPS;
+            maxBetAmount = (bankroll * s_maxBetPercentage[leaderboardId]) / MAX_BPS;
         } else {
             maxBetAmount = bankroll; // Default: 100% of bankroll
         }
@@ -629,14 +488,14 @@ contract RulesModule is IRulesModule {
     }
 
     /// @inheritdoc IRulesModule
-    function getMinBetAmount(
-        uint256 leaderboardId,
-        uint256 bankroll
-    ) external view override returns (uint256 minBetAmount) {
+    function getMinBetAmount(uint256 leaderboardId, uint256 bankroll)
+        external
+        view
+        override
+        returns (uint256 minBetAmount)
+    {
         if (s_minBetPercentage[leaderboardId] > 0) {
-            minBetAmount =
-                (bankroll * s_minBetPercentage[leaderboardId]) /
-                MAX_BPS;
+            minBetAmount = (bankroll * s_minBetPercentage[leaderboardId]) / MAX_BPS;
         } else {
             minBetAmount = 0; // No minimum
         }
@@ -650,9 +509,7 @@ contract RulesModule is IRulesModule {
      * @param moduleType The module type identifier
      * @return module The module contract address
      */
-    function _getModule(
-        bytes32 moduleType
-    ) internal view returns (address module) {
+    function _getModule(bytes32 moduleType) internal view returns (address module) {
         module = i_ospexCore.getModule(moduleType);
         if (module == address(0)) {
             revert RulesModule__ModuleNotSet(moduleType);

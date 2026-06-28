@@ -44,8 +44,7 @@ import "../src/modules/MatchingModule.sol";
 contract DeployAmoyCre is Script {
     // Amoy production KeystoneForwarder — confirmed via the CRE forwarder directory and
     // `cre workflow supported-chains` (tenant-scoped) on 2026-06-22.
-    address constant DEFAULT_KEYSTONE_FORWARDER =
-        0x76c9cf548b4179F8901cda1f8623568b58215E62;
+    address constant DEFAULT_KEYSTONE_FORWARDER = 0x76c9cf548b4179F8901cda1f8623568b58215E62;
     address constant USDC_ADDRESS = 0xB1D1c0A8Cc8BB165b34735972E798f64A785eaF8;
 
     struct DeploymentConfig {
@@ -129,9 +128,7 @@ contract DeployAmoyCre is Script {
         vm.stopBroadcast();
     }
 
-    function _deployContracts(
-        DeploymentConfig memory config
-    ) internal returns (DeployedContracts memory c) {
+    function _deployContracts(DeploymentConfig memory config) internal returns (DeployedContracts memory c) {
         c.usdc = USDC_ADDRESS;
 
         console.log("\n--- Deploying OspexCore ---");
@@ -183,14 +180,8 @@ contract DeployAmoyCre is Script {
         console.log("SecondaryMarketModule:", c.secondaryMarketModule);
 
         // === CRE oracle receiver (replaces the Functions OracleModule) ===
-        c.oracleModule = address(
-            new CreOracleReceiver(
-                c.ospexCore,
-                config.forwarder,
-                config.workflowOwner,
-                config.workflowName
-            )
-        );
+        c.oracleModule =
+            address(new CreOracleReceiver(c.ospexCore, config.forwarder, config.workflowOwner, config.workflowName));
         console.log("CreOracleReceiver (CRE_ORACLE_RECEIVER):", c.oracleModule);
 
         console.log("\nAll 12 modules deployed.");
@@ -203,18 +194,30 @@ contract DeployAmoyCre is Script {
 
         bytes32[] memory types = new bytes32[](12);
         address[] memory addrs = new address[](12);
-        types[0] = core.CONTEST_MODULE();          addrs[0] = c.contestModule;
-        types[1] = core.SPECULATION_MODULE();      addrs[1] = c.speculationModule;
-        types[2] = core.POSITION_MODULE();         addrs[2] = c.positionModule;
-        types[3] = core.MATCHING_MODULE();         addrs[3] = c.matchingModule;
-        types[4] = core.CRE_ORACLE_RECEIVER();     addrs[4] = c.oracleModule;
-        types[5] = core.TREASURY_MODULE();         addrs[5] = c.treasuryModule;
-        types[6] = core.LEADERBOARD_MODULE();      addrs[6] = c.leaderboardModule;
-        types[7] = core.RULES_MODULE();            addrs[7] = c.rulesModule;
-        types[8] = core.SECONDARY_MARKET_MODULE(); addrs[8] = c.secondaryMarketModule;
-        types[9] = core.MONEYLINE_SCORER_MODULE(); addrs[9] = c.moneylineScorerModule;
-        types[10] = core.SPREAD_SCORER_MODULE();   addrs[10] = c.spreadScorerModule;
-        types[11] = core.TOTAL_SCORER_MODULE();    addrs[11] = c.totalScorerModule;
+        types[0] = core.CONTEST_MODULE();
+        addrs[0] = c.contestModule;
+        types[1] = core.SPECULATION_MODULE();
+        addrs[1] = c.speculationModule;
+        types[2] = core.POSITION_MODULE();
+        addrs[2] = c.positionModule;
+        types[3] = core.MATCHING_MODULE();
+        addrs[3] = c.matchingModule;
+        types[4] = core.CRE_ORACLE_RECEIVER();
+        addrs[4] = c.oracleModule;
+        types[5] = core.TREASURY_MODULE();
+        addrs[5] = c.treasuryModule;
+        types[6] = core.LEADERBOARD_MODULE();
+        addrs[6] = c.leaderboardModule;
+        types[7] = core.RULES_MODULE();
+        addrs[7] = c.rulesModule;
+        types[8] = core.SECONDARY_MARKET_MODULE();
+        addrs[8] = c.secondaryMarketModule;
+        types[9] = core.MONEYLINE_SCORER_MODULE();
+        addrs[9] = c.moneylineScorerModule;
+        types[10] = core.SPREAD_SCORER_MODULE();
+        addrs[10] = c.spreadScorerModule;
+        types[11] = core.TOTAL_SCORER_MODULE();
+        addrs[11] = c.totalScorerModule;
 
         core.bootstrapModules(types, addrs);
         console.log("All 12 modules bootstrapped.");

@@ -17,9 +17,7 @@ interface IContestModule is IModule {
     /// @notice Returns the start timestamp for a contest (set during verification)
     /// @param contestId The contest ID
     /// @return The contest start timestamp
-    function s_contestStartTimes(
-        uint256 contestId
-    ) external view returns (uint32);
+    function s_contestStartTimes(uint256 contestId) external view returns (uint32);
 
     /// @notice Creates a new contest. Only callable by CreOracleReceiver.
     /// @param rundownId Contest ID from Rundown API
@@ -63,21 +61,13 @@ interface IContestModule is IModule {
     /// @param contestId The contest identifier
     /// @param leagueId The league ID
     /// @param startTime The contest start timestamp
-    function setContestLeagueIdAndStartTime(
-        uint256 contestId,
-        LeagueId leagueId,
-        uint32 startTime
-    ) external;
+    function setContestLeagueIdAndStartTime(uint256 contestId, LeagueId leagueId, uint32 startTime) external;
 
     /// @notice Sets the final scores for a contest. Only callable by CreOracleReceiver.
     /// @param contestId The contest identifier
     /// @param awayScore Final away team score
     /// @param homeScore Final home team score
-    function setScores(
-        uint256 contestId,
-        uint32 awayScore,
-        uint32 homeScore
-    ) external;
+    function setScores(uint256 contestId, uint32 awayScore, uint32 homeScore) external;
 
     /// @notice Voids a contest, permanently blocking scoring. Only callable by SpeculationModule.
     /// @dev Once voided, setScores reverts because contestStatus != Verified.
@@ -88,9 +78,7 @@ interface IContestModule is IModule {
     /// @notice Gets contest data
     /// @param contestId The ID of the contest
     /// @return contest The contest struct
-    function getContest(
-        uint256 contestId
-    ) external view returns (Contest memory contest);
+    function getContest(uint256 contestId) external view returns (Contest memory contest);
 
     /// @notice Checks if a contest has been scored or voided
     /// @param contestId The ID of the contest
@@ -101,8 +89,8 @@ interface IContestModule is IModule {
     /// @param contestId The ID of the contest
     /// @param scorer The scorer contract address
     /// @return contestMarket The contest market data
-    function getContestMarket(
-        uint256 contestId,
-        address scorer
-    ) external view returns (ContestMarket memory contestMarket);
+    function getContestMarket(uint256 contestId, address scorer)
+        external
+        view
+        returns (ContestMarket memory contestMarket);
 }

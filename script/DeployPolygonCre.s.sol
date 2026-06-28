@@ -128,14 +128,14 @@ contract DeployPolygonCre is Script {
         // CONFIGURABLE: Protocol parameters — see docs/deployment/DEPLOYMENT_PARAMETERS.md
         // UNCHANGED from the proven R4 mainnet config.
         DeploymentConfig memory config = DeploymentConfig({
-            voidCooldown: 7 days,                // CONFIGURABLE: Mainnet 7 days, Amoy 1 day, Anvil 3 days
-            contestCreationFee: 1_000_000,       // CONFIGURABLE: 1.00 USDC
-            speculationCreationFee: 500_000,     // CONFIGURABLE: 0.50 USDC (split between maker and taker)
-            leaderboardCreationFee: 500_000,     // CONFIGURABLE: 0.50 USDC
-            protocolReceiver: FEE_RECEIVER,      // CONFIGURABLE: fee receiver address
-            forwarder: forwarder,                // CRE: Polygon mainnet KeystoneForwarder (env)
-            workflowOwner: workflowOwner,        // CRE: workflow owner / governance adapter (env)
-            workflowName: workflowName           // CRE: enforced bytes10 workflow name (env, 0 = off)
+            voidCooldown: 7 days, // CONFIGURABLE: Mainnet 7 days, Amoy 1 day, Anvil 3 days
+            contestCreationFee: 1_000_000, // CONFIGURABLE: 1.00 USDC
+            speculationCreationFee: 500_000, // CONFIGURABLE: 0.50 USDC (split between maker and taker)
+            leaderboardCreationFee: 500_000, // CONFIGURABLE: 0.50 USDC
+            protocolReceiver: FEE_RECEIVER, // CONFIGURABLE: fee receiver address
+            forwarder: forwarder, // CRE: Polygon mainnet KeystoneForwarder (env)
+            workflowOwner: workflowOwner, // CRE: workflow owner / governance adapter (env)
+            workflowName: workflowName // CRE: enforced bytes10 workflow name (env, 0 = off)
         });
 
         vm.startBroadcast(deployer);
@@ -148,9 +148,7 @@ contract DeployPolygonCre is Script {
         vm.stopBroadcast();
     }
 
-    function _deployContracts(
-        DeploymentConfig memory config
-    ) internal returns (DeployedContracts memory c) {
+    function _deployContracts(DeploymentConfig memory config) internal returns (DeployedContracts memory c) {
         c.usdc = USDC_ADDRESS;
 
         c.ospexCore = address(new OspexCore());
@@ -164,19 +162,22 @@ contract DeployPolygonCre is Script {
         c.totalScorerModule = address(new TotalScorerModule(c.ospexCore));
         c.matchingModule = address(new MatchingModule(c.ospexCore));
 
-        c.treasuryModule = address(new TreasuryModule(
-            c.ospexCore, c.usdc, config.protocolReceiver,
-            config.contestCreationFee, config.speculationCreationFee, config.leaderboardCreationFee
-        ));
-        c.speculationModule = address(new SpeculationModule(
-            c.ospexCore, config.voidCooldown
-        ));
+        c.treasuryModule = address(
+            new TreasuryModule(
+                c.ospexCore,
+                c.usdc,
+                config.protocolReceiver,
+                config.contestCreationFee,
+                config.speculationCreationFee,
+                config.leaderboardCreationFee
+            )
+        );
+        c.speculationModule = address(new SpeculationModule(c.ospexCore, config.voidCooldown));
         c.positionModule = address(new PositionModule(c.ospexCore, c.usdc));
         c.secondaryMarketModule = address(new SecondaryMarketModule(c.ospexCore, c.usdc));
         // === CRE oracle receiver (replaces the Functions OracleModule) ===
-        c.oracleModule = address(new CreOracleReceiver(
-            c.ospexCore, config.forwarder, config.workflowOwner, config.workflowName
-        ));
+        c.oracleModule =
+            address(new CreOracleReceiver(c.ospexCore, config.forwarder, config.workflowOwner, config.workflowName));
         console.log("CreOracleReceiver (CRE_ORACLE_RECEIVER):", c.oracleModule);
 
         console.log("All 12 modules deployed.");
@@ -188,18 +189,30 @@ contract DeployPolygonCre is Script {
 
         bytes32[] memory types = new bytes32[](12);
         address[] memory addrs = new address[](12);
-        types[0] = core.CONTEST_MODULE();           addrs[0] = c.contestModule;
-        types[1] = core.SPECULATION_MODULE();        addrs[1] = c.speculationModule;
-        types[2] = core.POSITION_MODULE();           addrs[2] = c.positionModule;
-        types[3] = core.MATCHING_MODULE();           addrs[3] = c.matchingModule;
-        types[4] = core.CRE_ORACLE_RECEIVER();       addrs[4] = c.oracleModule;
-        types[5] = core.TREASURY_MODULE();           addrs[5] = c.treasuryModule;
-        types[6] = core.LEADERBOARD_MODULE();        addrs[6] = c.leaderboardModule;
-        types[7] = core.RULES_MODULE();              addrs[7] = c.rulesModule;
-        types[8] = core.SECONDARY_MARKET_MODULE();   addrs[8] = c.secondaryMarketModule;
-        types[9] = core.MONEYLINE_SCORER_MODULE();   addrs[9] = c.moneylineScorerModule;
-        types[10] = core.SPREAD_SCORER_MODULE();     addrs[10] = c.spreadScorerModule;
-        types[11] = core.TOTAL_SCORER_MODULE();      addrs[11] = c.totalScorerModule;
+        types[0] = core.CONTEST_MODULE();
+        addrs[0] = c.contestModule;
+        types[1] = core.SPECULATION_MODULE();
+        addrs[1] = c.speculationModule;
+        types[2] = core.POSITION_MODULE();
+        addrs[2] = c.positionModule;
+        types[3] = core.MATCHING_MODULE();
+        addrs[3] = c.matchingModule;
+        types[4] = core.CRE_ORACLE_RECEIVER();
+        addrs[4] = c.oracleModule;
+        types[5] = core.TREASURY_MODULE();
+        addrs[5] = c.treasuryModule;
+        types[6] = core.LEADERBOARD_MODULE();
+        addrs[6] = c.leaderboardModule;
+        types[7] = core.RULES_MODULE();
+        addrs[7] = c.rulesModule;
+        types[8] = core.SECONDARY_MARKET_MODULE();
+        addrs[8] = c.secondaryMarketModule;
+        types[9] = core.MONEYLINE_SCORER_MODULE();
+        addrs[9] = c.moneylineScorerModule;
+        types[10] = core.SPREAD_SCORER_MODULE();
+        addrs[10] = c.spreadScorerModule;
+        types[11] = core.TOTAL_SCORER_MODULE();
+        addrs[11] = c.totalScorerModule;
 
         core.bootstrapModules(types, addrs);
         core.finalize();
