@@ -15,7 +15,7 @@ import {OspexCreTimelock} from "../src/governance/OspexCreTimelock.sol";
  *         `.claude/reviews/cre-governance-build-manifest.md`).
  *
  *         WHERE THIS RUNS — Ethereum mainnet (the only chain the CRE WorkflowRegistry 2.0.0 lives on,
- *         @ 0x4Ac54353FA4Fa961AfcC5ec4B118596d3305E7e5). The CreOracleReceiver it serves can be Amoy
+ *         at 0x4Ac54353FA4Fa961AfcC5ec4B118596d3305E7e5). The CreOracleReceiver it serves can be Amoy
  *         (test) or Polygon (prod); governance is deployed once and reused across receiver redeploys.
  *
  *         TWO PHASES (the CRE link/secrets/register bootstrap is off-chain and must happen INSTANTLY,
@@ -27,7 +27,7 @@ import {OspexCreTimelock} from "../src/governance/OspexCreTimelock.sol";
  *           (off-chain) cre-cli + cast        -> link the timelock as owner, create secrets
  *                                                (allowlistRequest), register the workflow — ALL via
  *                                                schedule+execute with delay 0 (instant).
- *           PHASE 3  `configureAndLockdown()` -> set global delay = 7d + the registry `allowlistRequest`
+ *           PHASE 2  `configureAndLockdown()` -> set global delay = 7d + the registry `allowlistRequest`
  *                                                key lane = 1s, grant ADMIN to the timelock itself,
  *                                                deployer renounces ADMIN. From here: code ops take the
  *                                                full delay, key rotation is ~instant, and even changing
@@ -130,7 +130,7 @@ contract DeployOspexCreTimelock is Script {
         }
         require(tl.hasRole(tl.ADMIN_ROLE(), deployer), "deployer is not admin (already locked down?)");
 
-        console.log("=== OspexCreTimelock configure + lockdown (PHASE 3) ===");
+        console.log("=== OspexCreTimelock configure + lockdown (PHASE 2) ===");
         console.log("Timelock:", tlAddr);
         console.log("Safe (granted proposer/executor/canceller):", safe);
         console.log("Final global delay (seconds):", finalDelay);

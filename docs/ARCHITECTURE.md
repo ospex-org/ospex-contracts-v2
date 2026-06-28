@@ -142,7 +142,7 @@ It then dispatches on the report's `requestType` and applies the verified result
 
 **Immutable constructor parameters:** `ospexCore`, `forwarder` (the trusted KeystoneForwarder), `workflowOwner`, and an optional `workflowName` pin. There is no approved signer, no script-hash storage, and no Ownable/setter.
 
-**Governance (Ethereum mainnet):** The CRE workflow is owned by a `CreWorkflowOwner` adapter behind an OpenZeppelin `TimelockController` (7-day delay on mainnet). PAUSE is structurally impossible — only timelocked `update`/`delete` exist. A compromised timelock proposer could push a malicious workflow update only after the delay, and can never pause the oracle or touch protocol funds.
+**Governance (Ethereum mainnet):** The CRE workflow in the Ethereum-mainnet WorkflowRegistry is owned **directly** by a single contract, `OspexCreTimelock` (a per-action timelock — a close port of Chainlink's audited `Timelock.sol`). A global minimum delay of 7 days applies to every `(target, selector)` by default; the only fast carve-out is `allowlistRequest` on the WorkflowRegistry (set to 1 second), the single on-chain op behind every `cre secrets` command (all Vault secret allowlist requests). Everything else — code update (`upsertWorkflow`), `deleteWorkflow`, `pauseWorkflow`, and `linkOwner` — inherits the 7-day delay. A 2-of-3 Safe holds proposer/executor/canceller; after `configureAndLockdown()` the timelock self-administers (sole ADMIN is the timelock itself). Pause, code-update, delete, and lifecycle ops are reachable but timelocked 7 days and Safe-gated — only Vault secret allowlist requests get the 1-second fast lane. A compromised Safe could push a malicious workflow update (or pause) only after the delay, and can never touch protocol funds.
 
 ### TreasuryModule.sol
 
@@ -242,7 +242,7 @@ Each implements `determineWinSide(contestId, lineTicks)` returning which side wo
 - **Zero admin functions** on PositionModule (user fund escrow)
 - **Bootstrap-then-finalize** — no admin key after deployment
 - **CreOracleReceiver passive validation** — the oracle has no admin function; it only accepts a DON report that clears the `onReport` trust funnel (trusted KeystoneForwarder, matching workflow owner/name, domain separation, per-report idempotency, fail-closed request binding). There are no on-chain script approvals.
-- **Timelock-governed CRE workflow** — the off-chain workflow is owned by a `CreWorkflowOwner` adapter behind an OZ `TimelockController` (7-day mainnet delay). No pause path exists.
+- **Timelock-governed CRE workflow** — the off-chain workflow is owned directly by `OspexCreTimelock`, a per-action timelock (7-day mainnet delay, 2-of-3 Safe-gated). Pause / code-update / delete / lifecycle ops are reachable but timelocked 7 days and Safe-gated; only Vault secret allowlist requests (every `cre secrets` op) have the 1-second fast lane.
 - **Operator can halt, not steal** — an operator that stops running/funding the workflow can only stall scoring, which lets affected Verified contests auto-void and refund permissionlessly after the cooldown; settlement is immutable and settle/claim are permissionless.
 
 ---

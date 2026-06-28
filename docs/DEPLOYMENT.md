@@ -28,18 +28,18 @@
 
 ## Network Configuration
 
-> **R5 (Chainlink CRE) configuration.** The R4 Chainlink Functions config (LINK token, Functions Router, DON ID, subscription 191/416) is **retired** — the oracle is now the `CreOracleReceiver` driven by an off-chain Chainlink CRE workflow. The receiver is wired to a trusted **KeystoneForwarder** and a **workflow owner** (the governance adapter), with an optional immutable **workflow-name** pin. CRE execution is funded **off-chain** at the workflow owner — there is no on-chain LINK subscription and no LINK-per-call.
+> **R5 (Chainlink CRE) configuration.** The R4 Chainlink Functions config (LINK token, Functions Router, DON ID, subscription 191/416) is **retired** — the oracle is now the `CreOracleReceiver` driven by an off-chain Chainlink CRE workflow. The receiver is wired to a trusted **KeystoneForwarder** and a **workflow owner** (the `OspexCreTimelock`), with an optional immutable **workflow-name** pin. CRE execution is funded **off-chain** at the workflow owner — there is no on-chain LINK subscription and no LINK-per-call.
 
 | Parameter | Mainnet (Polygon) | Testnet (Amoy) |
 |-----------|-------------------|----------------|
 | Chain ID | 137 | 80002 |
 | KeystoneForwarder (`KEYSTONE_FORWARDER`) | **no default — required** (Polygon mainnet production forwarder; must be human-confirmed) | CRE Amoy production forwarder (script default; overridable) |
-| Workflow Owner (`WORKFLOW_OWNER`) | the `CreWorkflowOwner` governance adapter (from `DeployCreGovernance` on Ethereum mainnet) | the CRE workflow owner address |
+| Workflow Owner (`WORKFLOW_OWNER`) | the `OspexCreTimelock` (the direct linked owner, from `DeployOspexCreTimelock` on Ethereum mainnet) | the CRE workflow owner address |
 | Workflow Name (`WORKFLOW_NAME`, immutable) | optional pin — `0`/empty = owner-only binding; if enforced, the **SHA256-derived bytes10** the CRE engine stamps into report metadata (NOT bytes10 of the plaintext name) | same posture |
 | Token | Native USDC (6 decimals) | Mock USDC (6 decimals) |
 | USDC Address | `0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359` | `0xB1D1c0A8Cc8BB165b34735972E798f64A785eaF8` |
 
-> **Workflow-name footgun:** `WORKFLOW_NAME` is **immutable** on the receiver. If you enforce it, it MUST be the SHA256-derived bytes10 that the CRE engine stamps into report metadata (i.e. `SHA256(name)` → first 10 hex chars → those 10 ASCII chars as bytes), **not** `bytes10` of the plaintext name. Passing the plaintext value makes `onReport` reject every report and **permanently bricks the immutable receiver**. The plaintext name pinned in `DeployCreGovernance` (default `"osverify"`) and the name whose SHA256-bytes10 the receiver enforces **must be the same name** — this is a hard cross-script invariant.
+> **Workflow-name footgun:** `WORKFLOW_NAME` is **immutable** on the receiver. If you enforce it, it MUST be the SHA256-derived bytes10 that the CRE engine stamps into report metadata (i.e. `SHA256(name)` → first 10 hex chars → those 10 ASCII chars as bytes), **not** `bytes10` of the plaintext name. Passing the plaintext value makes `onReport` reject every report and **permanently bricks the immutable receiver**. The plaintext name registered via the timelocked `upsertWorkflow` on the WorkflowRegistry (default `"osverify"`) and the name whose SHA256-bytes10 the receiver enforces **must be the same name** — this is a hard cross-component invariant.
 
 ---
 
@@ -76,31 +76,30 @@ If the fork deployment succeeds (all modules registered, `finalize()` clean), yo
 
 ## CRE Deploy Flow (read first — order matters)
 
-The R5 oracle is a Chainlink CRE workflow whose on-chain receiver (`CreOracleReceiver`) is governed by a timelocked adapter. Deploy in this order:
+The R5 oracle is a Chainlink CRE workflow whose on-chain receiver (`CreOracleReceiver`) is governed directly by a per-action timelock (`OspexCreTimelock`). Deploy in this order:
 
-1. **Deploy governance on Ethereum mainnet FIRST.** `DeployCreGovernance.s.sol` stands up an OZ `TimelockController` fronting a `CreWorkflowOwner` adapter (the linked owner of the CRE workflow in the WorkflowRegistry). Record the **adapter address** — it becomes `WORKFLOW_OWNER` for the protocol deploy.
+1. **Deploy governance on Ethereum mainnet FIRST.** `DeployOspexCreTimelock.s.sol` deploys the `OspexCreTimelock` — a per-action timelock that is the DIRECT raw-call linked owner of the CRE workflow in the WorkflowRegistry (there is no adapter and no OZ `TimelockController`). It is two-phase: `deploy()` stands up the timelock in its bootstrap state (global delay 0), then `configureAndLockdown()` raises the global delay to 7 days, sets the registry `allowlistRequest` fast lane to 1s, and hands ADMIN to the timelock itself. Record the **timelock address** — it becomes `WORKFLOW_OWNER` for the protocol deploy.
 
    ```bash
-   TIMELOCK_PROPOSER=0xGovernanceWallet \
-   TIMELOCK_MIN_DELAY=604800 \
    DEPLOYER_ADDRESS=0xMainnetGasPayer \
-   forge script script/DeployCreGovernance.s.sol:DeployCreGovernance \
+   OSPEX_TIMELOCK_SAFE=0xTwoOfThreeSafe \
+   forge script script/DeployOspexCreTimelock.s.sol:DeployOspexCreTimelock --sig 'deploy()' \
      --rpc-url $ETH_MAINNET_RPC --broadcast -vvvv
    ```
 
-   Env: `WORKFLOW_REGISTRY` (default `0x4Ac54353FA4Fa961AfcC5ec4B118596d3305E7e5`, Ethereum-mainnet WorkflowRegistry 2.0.0); `WORKFLOW_NAME` (default `"osverify"` — plaintext, pinned in the adapter); `TIMELOCK_PROPOSER` (required); `TIMELOCK_MIN_DELAY` in seconds (e.g. `604800` = 7d). The script deploys the two contracts only; `linkSelfAsOwner` + `updateWorkflow` are separate **timelocked** operations.
+   Env: `WORKFLOW_REGISTRY` (default `0x4Ac54353FA4Fa961AfcC5ec4B118596d3305E7e5`, Ethereum-mainnet WorkflowRegistry 2.0.0); `OSPEX_TIMELOCK_SAFE` (the 2-of-3 Safe holding proposer/executor/canceller — required); `DEPLOYER_ADDRESS` (temporary admin / gas payer — required); `OSPEX_TIMELOCK_FINAL_DELAY` in seconds (default `604800` = 7d, applied in `configureAndLockdown()`). `deploy()` stands up the single timelock in its bootstrap state (global delay 0); the registry `linkOwner` + `upsertWorkflow` (and the `allowlistRequest` secret op) are separate calls the timelock issues via schedule/execute, then `configureAndLockdown()` raises the delay to 7d and locks down admin. The workflow name comes from the registered `upsertWorkflow`, not from this script.
 
 2. **Deploy the protocol** with `DeployAmoyCre.s.sol` (testnet) / `DeployPolygonCre.s.sol` (mainnet) — deploys `CreOracleReceiver` into the `CRE_ORACLE_RECEIVER` slot wired to the forwarder + workflow owner from step 1.
 
-3. **Deploy + register the CRE workflow** (separate `ospex-cre` repo) and point it at the receiver via the timelocked `linkSelfAsOwner` + `updateWorkflow`. Fund the CRE workflow owner **off-chain** (there is no on-chain LINK subscription).
+3. **Deploy + register the CRE workflow** (separate `ospex-cre` repo) and point it at the receiver via the registry's timelocked `linkOwner` + `upsertWorkflow` (issued by the `OspexCreTimelock`). Fund the CRE workflow owner **off-chain** (there is no on-chain LINK subscription).
 
 ### CreOracleReceiver env values (read exactly as the scripts read them)
 
 | Env | Meaning |
 |-----|---------|
 | `KEYSTONE_FORWARDER` | Trusted KeystoneForwarder that delivers CRE reports. **No mainnet default — required.** The receiver reverts on the zero address. |
-| `WORKFLOW_OWNER` | **Required.** The `CreWorkflowOwner` governance-adapter address from step 1. The receiver enforces this against the report-metadata owner. |
-| `WORKFLOW_NAME` | **Immutable.** `0`/empty = owner-only binding (name not enforced). If enforced it MUST be the **SHA256-derived bytes10** the CRE engine stamps into report metadata, **NOT** `bytes10` of the plaintext name — a wrong value permanently bricks the immutable receiver. Must match the plaintext name pinned in `DeployCreGovernance` (default `"osverify"`). |
+| `WORKFLOW_OWNER` | **Required.** The `OspexCreTimelock` address from step 1. The receiver enforces this against the report-metadata owner. |
+| `WORKFLOW_NAME` | **Immutable.** `0`/empty = owner-only binding (name not enforced). If enforced it MUST be the **SHA256-derived bytes10** the CRE engine stamps into report metadata, **NOT** `bytes10` of the plaintext name — a wrong value permanently bricks the immutable receiver. Must match the plaintext name registered via the timelocked `upsertWorkflow` on the WorkflowRegistry (default `"osverify"`). |
 | `DEPLOYER_ADDRESS` | The funded EOA that broadcasts (gas payer). On mainnet it must equal the approved deployer (hard guard). |
 
 ---
@@ -112,13 +111,13 @@ The R5 oracle is a Chainlink CRE workflow whose on-chain receiver (`CreOracleRec
 1. [Foundry](https://book.getfoundry.sh/getting-started/installation) installed
 2. Submodules initialized: `git submodule update --init --recursive`
 3. Deployer wallet funded with POL for gas ([Polygon Faucet](https://faucet.polygon.technology/))
-4. CRE governance deployed (step 1 of the CRE Deploy Flow) — you have the `WORKFLOW_OWNER` adapter address
+4. CRE governance deployed (step 1 of the CRE Deploy Flow) — you have the `WORKFLOW_OWNER` timelock address
 5. CRE workflow owner funded **off-chain** (no on-chain LINK subscription)
 
 ### Deploy Command
 
 ```bash
-WORKFLOW_OWNER=0xWorkflowOwnerAdapter \
+WORKFLOW_OWNER=0xOspexCreTimelock \
 forge script script/DeployAmoyCre.s.sol:DeployAmoyCre \
   --rpc-url https://rpc-amoy.polygon.technology \
   --broadcast \
@@ -139,8 +138,8 @@ forge script script/DeployAmoyCre.s.sol:DeployAmoyCre \
 - [ ] All 3 scorer modules recognized by `isApprovedScorer()` (script checks this automatically)
 - [ ] Save all deployed contract addresses from the console output
 - [ ] Confirm `CreOracleReceiver` is registered in the `CRE_ORACLE_RECEIVER` slot (script asserts this automatically)
-- [ ] Confirm the deployed receiver's workflow owner == `WORKFLOW_OWNER` (the governance adapter)
-- [ ] Deploy/register the CRE workflow (`ospex-cre`) and point it at this receiver via the timelocked `linkSelfAsOwner` + `updateWorkflow`
+- [ ] Confirm the deployed receiver's workflow owner == `WORKFLOW_OWNER` (the `OspexCreTimelock`)
+- [ ] Deploy/register the CRE workflow (`ospex-cre`) and point it at this receiver via the registry's timelocked `linkOwner` + `upsertWorkflow`
 - [ ] Fund the CRE workflow owner **off-chain**
 - [ ] Update downstream services (indexer, read API, market data writer, market maker, frontend) with the new contract addresses
 - [ ] Run the post-deploy event smoke test from [`testing/POST_DEPLOY_SMOKE_TEST.md`](testing/POST_DEPLOY_SMOKE_TEST.md) — confirms downstream consumers decode every event payload correctly
@@ -151,7 +150,7 @@ forge script script/DeployAmoyCre.s.sol:DeployAmoyCre \
 
 ### Prerequisites
 
-1. CRE governance deployed on **Ethereum mainnet** (step 1 of the CRE Deploy Flow) — you have the `WORKFLOW_OWNER` adapter address
+1. CRE governance deployed on **Ethereum mainnet** (step 1 of the CRE Deploy Flow) — you have the `WORKFLOW_OWNER` timelock address
 2. The real Polygon-mainnet production **KeystoneForwarder** address, human-confirmed (`DeployPolygonCre` has **no default** for it)
 3. `DEPLOYER_ADDRESS` equal to the approved mainnet deployer (hard guard in the script)
 4. CRE workflow owner funded **off-chain**
@@ -161,7 +160,7 @@ forge script script/DeployAmoyCre.s.sol:DeployAmoyCre \
 ```bash
 DEPLOYER_ADDRESS=0xApprovedMainnetDeployer \
 KEYSTONE_FORWARDER=0xPolygonMainnetForwarder \
-WORKFLOW_OWNER=0xWorkflowOwnerAdapter \
+WORKFLOW_OWNER=0xOspexCreTimelock \
 forge script script/DeployPolygonCre.s.sol:DeployPolygonCre \
   --rpc-url $POLYGON_RPC_URL \
   --broadcast \
@@ -175,7 +174,7 @@ forge script script/DeployPolygonCre.s.sol:DeployPolygonCre \
 
 > **Do NOT use `https://polygon-rpc.com`** — it returns 401 as of March 2026. Use your Alchemy RPC URL from `.env`.
 
-> To pin the immutable workflow name, also set `WORKFLOW_NAME` to the SHA256-derived bytes10 value (see the CreOracleReceiver env table). The plaintext name must match the one pinned in `DeployCreGovernance` (default `"osverify"`).
+> To pin the immutable workflow name, also set `WORKFLOW_NAME` to the SHA256-derived bytes10 value (see the CreOracleReceiver env table). The plaintext name must match the one registered via the timelocked `upsertWorkflow` on the WorkflowRegistry (default `"osverify"`).
 
 ### Mainnet vs. Amoy Configuration
 
@@ -184,7 +183,7 @@ forge script script/DeployPolygonCre.s.sol:DeployPolygonCre \
 | Value | Amoy | Mainnet |
 |-------|------|---------|
 | KeystoneForwarder | CRE Amoy forwarder (script default) | **no default — set `KEYSTONE_FORWARDER`, human-confirmed** |
-| Workflow Owner | `CreWorkflowOwner` adapter | `CreWorkflowOwner` adapter (Ethereum-mainnet governance) |
+| Workflow Owner | `OspexCreTimelock` | `OspexCreTimelock` (Ethereum-mainnet governance) |
 | Workflow Name | optional pin (SHA256-bytes10) | optional pin (SHA256-bytes10) |
 | USDC | `0xB1D1c0...eaF8` (mock) | `0x3c499c...3359` (native) |
 | Fee Receiver | deployer | `0xdaC630...5114` |
@@ -197,8 +196,8 @@ forge script script/DeployPolygonCre.s.sol:DeployPolygonCre \
 - [ ] All 3 scorer modules recognized by `isApprovedScorer()`
 - [ ] Contract source code verified on Polygonscan
 - [ ] Confirm `CreOracleReceiver` is registered in the `CRE_ORACLE_RECEIVER` slot (script asserts this automatically)
-- [ ] Confirm the deployed receiver's workflow owner == `WORKFLOW_OWNER` (the Ethereum-mainnet governance adapter)
-- [ ] Deploy/register the CRE workflow (`ospex-cre`) and point it at this receiver via the timelocked `linkSelfAsOwner` + `updateWorkflow`
+- [ ] Confirm the deployed receiver's workflow owner == `WORKFLOW_OWNER` (the Ethereum-mainnet `OspexCreTimelock`)
+- [ ] Deploy/register the CRE workflow (`ospex-cre`) and point it at this receiver via the registry's timelocked `linkOwner` + `upsertWorkflow`
 - [ ] Fund the CRE workflow owner **off-chain**
 - [ ] Update all downstream services (indexer, read API, market data writer, market maker, frontend) with the new contract addresses
 - [ ] Run the post-deploy event smoke test from [`testing/POST_DEPLOY_SMOKE_TEST.md`](testing/POST_DEPLOY_SMOKE_TEST.md)

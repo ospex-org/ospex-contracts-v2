@@ -90,7 +90,7 @@ The leaderboard abuse surface is real but bounded by the existing rules engine. 
 
 **Why it was right (R4).** The hash commitment ensured that what ran on Chainlink Functions was exactly what was approved — no runtime substitution was possible. Anyone could hash the published source and compare against the on-chain hash.
 
-**R5 equivalent.** The CRE workflow source is public in the `ospex-cre` repo, and the workflow is governed by a `CreWorkflowOwner` adapter behind a `TimelockController` — any change to the logic is observable on-chain for the delay window before it can take effect.
+**R5 equivalent.** The CRE workflow source is public in the `ospex-cre` repo, and the workflow is owned directly by `OspexCreTimelock` (src/governance/OspexCreTimelock.sol), a per-action timelock with a 7-day default delay on mainnet — any change to the logic is observable on-chain for the delay window before it can take effect.
 
 ---
 
@@ -168,7 +168,7 @@ The leaderboard abuse surface is real but bounded by the existing rules engine. 
 
 ## Script Approvals Are Permanent (Unless Expiry Set)
 
-> **R4 (Chainlink Functions) — FULLY OBSOLETE under the R5 Chainlink CRE oracle migration.** See CreOracleReceiver / the cre-oracle skill. R5 has **no EIP-712 script approvals, no `i_approvedSigner`, and no on-chain script hashes** — the entire mechanism this section describes is gone. Governance over the oracle is now exercised through the **CRE workflow-governance model**: a `CreWorkflowOwner` adapter behind an OZ `TimelockController` (7-day delay on mainnet), where only timelocked `update`/`delete` of the workflow exist and there is no pause path. The section below is retained as historical R4 context only.
+> **R4 (Chainlink Functions) — FULLY OBSOLETE under the R5 Chainlink CRE oracle migration.** See CreOracleReceiver / the cre-oracle skill. R5 has **no EIP-712 script approvals, no `i_approvedSigner`, and no on-chain script hashes** — the entire mechanism this section describes is gone. Governance over the oracle is now exercised through the **CRE workflow-governance model**: `OspexCreTimelock` (src/governance/OspexCreTimelock.sol), a per-action timelock that owns the workflow directly in the Ethereum-mainnet WorkflowRegistry. A global 7-day delay plus a 2-of-3 Safe gate applies to every (target, selector) by default — code update, delete, lifecycle ops, and `pauseWorkflow` are all reachable but timelocked; only Vault secret allowlist requests (every `cre secrets` op) have a 1-second fast lane. The section below is retained as historical R4 context only.
 
 **What it is.** EIP-712 script approvals signed by `i_approvedSigner` include a `validUntil` field. If `validUntil == 0`, the approval is permanent — it never expires. Once a contest is created with approved script hashes, those hashes are stored on-chain and the approval is never re-checked.
 
