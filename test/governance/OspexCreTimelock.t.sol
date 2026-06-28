@@ -18,6 +18,11 @@ contract MockRegistry {
     function keyOp(bytes32 digest, uint256 /*expiry*/ ) external {
         lastKey = digest;
     }
+
+    /// @dev A target call that reverts — to exercise the timelock's `_execute` failure branch.
+    function boom() external pure {
+        revert("boom");
+    }
 }
 
 /// @notice Tests for the Ospex per-action timelock. Focus = the TWO-line `[OSPEX]` modification
@@ -356,6 +361,92 @@ contract OspexCreTimelockTest is Test {
         // documented; this is WHY the Safe gets no roles until the delay is raised).
         assertEq(t.getMinDelay(address(reg), codeSel), 0);
         assertEq(t.getMinDelay(), 0);
+    }
+
+    // ----------------------- coverage: reachable branches (execute revert, cancel/view edges) -----------------------
+
+    function test_execute_revertsIfUnderlyingCallReverts() public {
+        OspexCreTimelock.Call[] memory c = _calls(address(reg), abi.encodeCall(MockRegistry.boom, ()));
+        bytes32 salt = keccak256("boom");
+        vm.prank(safe);
+        tl.scheduleBatch(c, NO_PRED, salt, CODE_DELAY); // boom selector unset -> inherits 7d
+        vm.warp(block.timestamp + CODE_DELAY);
+        vm.prank(safe);
+        vm.expectRevert("Timelock: underlying transaction reverted");
+        tl.executeBatch(c, NO_PRED, salt);
+    }
+
+    function test_cancel_revertsIfNotPending() public {
+        OspexCreTimelock.Call[] memory c = _calls(address(reg), abi.encodeCall(MockRegistry.codeOp, (uint256(1))));
+        bytes32 id = tl.hashOperationBatch(c, NO_PRED, keccak256("never-scheduled"));
+        vm.prank(safe);
+        vm.expectRevert("Timelock: operation cannot be cancelled");
+        tl.cancel(id);
+    }
+
+    function test_getMinDelay_revertsOnUnder4ByteCalldata() public {
+        OspexCreTimelock.Call[] memory c = _calls(address(reg), hex"001122"); // 3 bytes < 4-byte selector
+        vm.expectRevert();
+        tl.getMinDelay(c);
+    }
+
+    function test_adminBypass_adminCanScheduleWithoutProposerRole() public {
+        // admin "automatically inhabits all other roles" via onlyRoleOrAdminRole -> the deployer/admin
+        // can drive the bootstrap ops without holding PROPOSER. (global=0 here so it's instant.)
+        address[] memory only = new address[](1);
+        only[0] = safe;
+        OspexCreTimelock t = new OspexCreTimelock(0, address(this), only, only, only);
+        assertFalse(t.hasRole(t.PROPOSER_ROLE(), address(this)));
+
+        // realistic timestamp so a delay-0 op (the bootstrap pattern) isn't confused with
+        // _DONE_TIMESTAMP (=1) at forge's default block.timestamp of 1
+        vm.warp(1_000_000);
+        OspexCreTimelock.Call[] memory c = _calls(address(reg), abi.encodeCall(MockRegistry.codeOp, (uint256(5))));
+        bytes32 salt = keccak256("adminbypass");
+        t.scheduleBatch(c, NO_PRED, salt, 0); // this = admin, not proposer -> admin-bypass branch
+        t.executeBatch(c, NO_PRED, salt);
+        assertEq(reg.lastCode(), 5);
+    }
+
+    function test_updateDelayParams_revertsForNonAdmin() public {
+        OspexCreTimelock.UpdateDelayParams[] memory p = new OspexCreTimelock.UpdateDelayParams[](1);
+        p[0] = OspexCreTimelock.UpdateDelayParams({target: address(reg), selector: keySel, newDelay: 5});
+        vm.prank(safe); // proposer, NOT admin
+        vm.expectRevert();
+        tl.updateDelay(p);
+    }
+
+    function test_operationLifecycleViewHelpers() public {
+        OspexCreTimelock.Call[] memory c =
+            _calls(address(reg), abi.encodeCall(MockRegistry.keyOp, (bytes32(uint256(3)), uint256(0))));
+        bytes32 salt = keccak256("lifecycle");
+        bytes32 id = tl.hashOperationBatch(c, NO_PRED, salt);
+
+        assertFalse(tl.isOperation(id));
+        assertEq(tl.getTimestamp(id), 0);
+
+        vm.prank(safe);
+        tl.scheduleBatch(c, NO_PRED, salt, 1);
+        assertTrue(tl.isOperation(id));
+        assertTrue(tl.isOperationPending(id));
+        assertFalse(tl.isOperationReady(id));
+        assertFalse(tl.isOperationDone(id));
+
+        vm.warp(block.timestamp + 1);
+        assertTrue(tl.isOperationReady(id));
+
+        vm.prank(safe);
+        tl.executeBatch(c, NO_PRED, salt);
+        assertTrue(tl.isOperationDone(id));
+        assertFalse(tl.isOperationPending(id));
+        assertEq(tl.getTimestamp(id), 1); // _DONE_TIMESTAMP
+    }
+
+    function test_receive_acceptsEth() public {
+        vm.deal(address(this), 1 ether);
+        (bool ok,) = address(tl).call{value: 1 ether}("");
+        assertTrue(ok);
+        assertEq(address(tl).balance, 1 ether);
     }
 
     // ----------------------- helper -----------------------
