@@ -43,9 +43,9 @@ import "../src/modules/MatchingModule.sol";
  *                                 mainnet forwarder address is deliberately NOT hardcoded/guessed here;
  *                                 it MUST be set to the real value and human-confirmed before deploy.
  *        WORKFLOW_OWNER         — the CRE workflow owner ADDRESS the report-metadata owner onReport
- *                                 enforces: the {CreWorkflowOwner} governance adapter for a governed
- *                                 mainnet deploy (it deploys SEPARATELY on Ethereum mainnet via
- *                                 DeployCreGovernance, so it does not exist at the time this script is
+ *                                 enforces: the per-action OspexCreTimelock for a governed mainnet
+ *                                 deploy (it deploys SEPARATELY on Ethereum mainnet via
+ *                                 DeployOspexCreTimelock, so it does not exist at the time this script is
  *                                 authored). MUST be set to the real value.
  *        WORKFLOW_NAME          — the CRE-derived bytes10 the DON stamps into report metadata (a HASH
  *                                 of the name, NOT plaintext bytes10 — see the note at the env read
@@ -91,7 +91,7 @@ contract DeployPolygonCre is Script {
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
 
         // CRE oracle wiring — parameterized via env exactly like DeployAmoyCre. The mainnet forwarder
-        // has NO default (must never be guessed); the workflow owner has no default (governance adapter
+        // has NO default (must never be guessed); the workflow owner has no default (the per-action OspexCreTimelock
         // deploys separately); the workflow name defaults to not-enforced.
         address forwarder = vm.envAddress("KEYSTONE_FORWARDER");
         require(forwarder != address(0), "set KEYSTONE_FORWARDER (Polygon mainnet)"); // receiver also reverts on zero
@@ -103,7 +103,7 @@ contract DeployPolygonCre is Script {
         // NOT bytes10 of the plaintext (e.g. "my_workflow" -> 0x62373666336165316465). The receiver
         // compares i_workflowName against this metadata value verbatim, so passing the PLAINTEXT name here
         // would make onReport reject every report -- a permanent brick. It MUST equal SHA256 of the exact
-        // name pinned in DeployCreGovernance (default "osverify"). 0 (default) = name NOT enforced
+        // name registered via the timelocked upsertWorkflow on the WorkflowRegistry (default "osverify"). 0 (default) = name NOT enforced
         // (owner-only binding); acceptable, but pinning the name is strictly safer for an immutable deploy.
         bytes10 workflowName = bytes10(vm.envOr("WORKFLOW_NAME", bytes32(0)));
 
@@ -134,7 +134,7 @@ contract DeployPolygonCre is Script {
             leaderboardCreationFee: 500_000, // CONFIGURABLE: 0.50 USDC
             protocolReceiver: FEE_RECEIVER, // CONFIGURABLE: fee receiver address
             forwarder: forwarder, // CRE: Polygon mainnet KeystoneForwarder (env)
-            workflowOwner: workflowOwner, // CRE: workflow owner / governance adapter (env)
+            workflowOwner: workflowOwner, // CRE: workflow owner / OspexCreTimelock (env)
             workflowName: workflowName // CRE: enforced bytes10 workflow name (env, 0 = off)
         });
 
@@ -252,7 +252,7 @@ contract DeployPolygonCre is Script {
         console.log("  TotalScorerModule:", c.totalScorerModule);
         console.log("\n=== NEXT STEPS (CRE) ===");
         console.log("1. Point the CRE workflow config (receiverAddress + eventAddress) at this CreOracleReceiver.");
-        console.log("2. Ensure the workflow owner matches WORKFLOW_OWNER (governance adapter on Ethereum mainnet).");
+        console.log("2. Ensure the workflow owner matches WORKFLOW_OWNER (OspexCreTimelock on Ethereum mainnet).");
         console.log("3. Update all dependent services with new addresses.");
         console.log("4. Test with small positions before going live.");
     }
