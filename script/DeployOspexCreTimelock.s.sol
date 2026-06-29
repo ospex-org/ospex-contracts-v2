@@ -22,8 +22,8 @@ import {OspexCreTimelock} from "../src/governance/OspexCreTimelock.sol";
  *         so the timelock is deployed with global delay = 0, bootstrapped, THEN raised + locked down):
  *
  *           PHASE 1  `deploy()`               -> timelock in bootstrap state: global minDelay = 0,
- *                                                admin = deployer (temporary), 2-of-3 Safe as
- *                                                proposer/executor/canceller.
+ *                                                admin = deployer (temporary), the cold-wallet controller
+ *                                                as proposer/executor/canceller.
  *           (off-chain) cre-cli + cast        -> link the timelock as owner, create secrets
  *                                                (allowlistRequest), register the workflow — ALL via
  *                                                schedule+execute with delay 0 (instant).
@@ -35,7 +35,10 @@ import {OspexCreTimelock} from "../src/governance/OspexCreTimelock.sol";
  *
  *         Env inputs:
  *           DEPLOYER_ADDRESS           — the funded EOA that broadcasts (gas payer; temp admin).
- *           OSPEX_TIMELOCK_SAFE        — the 2-of-3 Safe (proposer/executor/canceller). MUST be set (phase 1).
+ *           OSPEX_TIMELOCK_CONTROLLER  — the cold-wallet controller (proposer/executor/canceller). Holds
+ *                                        any address; the launch config is a single cold wallet, and the
+ *                                        roles can later be migrated to a multisig via a 7-day governance
+ *                                        op. MUST be set (phase 1).
  *           OSPEX_TIMELOCK             — the address deployed in phase 1 (phase 3 input). MUST be set (phase 3).
  *           WORKFLOW_REGISTRY          — CRE WorkflowRegistry (default: Ethereum-mainnet 2.0.0 address).
  *           OSPEX_TIMELOCK_FINAL_DELAY — production global delay in SECONDS (default 604800 = 7d). A
@@ -65,25 +68,28 @@ contract DeployOspexCreTimelock is Script {
     }
 
     /// @notice PHASE 1 — deploy the timelock in its BOOTSTRAP state (global delay = 0, admin = deployer,
-    ///         2-of-3 Safe as proposer/executor/canceller). Nothing is locked yet.
+    ///         the cold-wallet controller as proposer/executor/canceller). Nothing is locked yet.
     function deploy() external {
         address deployer = vm.envOr("DEPLOYER_ADDRESS", address(0));
         require(deployer != address(0), "set DEPLOYER_ADDRESS");
         require(deployer.balance > 0, "Deployer has zero balance");
 
         address registry = _resolveRegistry();
-        address safe = vm.envOr("OSPEX_TIMELOCK_SAFE", address(0));
-        require(safe != address(0), "set OSPEX_TIMELOCK_SAFE (the 2-of-3 Safe: proposer/executor/canceller)");
+        address controller = vm.envOr("OSPEX_TIMELOCK_CONTROLLER", address(0));
+        require(
+            controller != address(0),
+            "set OSPEX_TIMELOCK_CONTROLLER (the cold-wallet controller: proposer/executor/canceller)"
+        );
 
         // Bootstrap runs with admin = the deployer ALONE — NO proposers/executors/cancellers yet — so
-        // during the instant global=0 window only the deployer key can execute anything. The Safe is
+        // during the instant global=0 window only the deployer key can execute anything. The controller is
         // granted its operational roles in configureAndLockdown(), AFTER the delay is raised.
         address[] memory none = new address[](0);
 
         console.log("=== Deploy OspexCreTimelock (PHASE 1: bootstrap state, global delay = 0) ===");
         console.log("Chain id:", block.chainid);
         console.log("WorkflowRegistry:", registry);
-        console.log("Safe (granted operational roles in phase 3):", safe);
+        console.log("Controller (granted operational roles in phase 3):", controller);
         console.log("Temp admin (deployer ALONE; renounced in phase 3):", deployer);
 
         vm.startBroadcast(deployer);
@@ -114,8 +120,8 @@ contract DeployOspexCreTimelock is Script {
         require(tlAddr != address(0), "set OSPEX_TIMELOCK (the address deployed in phase 1)");
         OspexCreTimelock tl = OspexCreTimelock(payable(tlAddr));
 
-        address safe = vm.envOr("OSPEX_TIMELOCK_SAFE", address(0));
-        require(safe != address(0), "set OSPEX_TIMELOCK_SAFE (granted proposer/executor/canceller here)");
+        address controller = vm.envOr("OSPEX_TIMELOCK_CONTROLLER", address(0));
+        require(controller != address(0), "set OSPEX_TIMELOCK_CONTROLLER (granted proposer/executor/canceller here)");
 
         uint256 finalDelay = vm.envOr("OSPEX_TIMELOCK_FINAL_DELAY", uint256(7 days));
         // Fat-finger guards on the delay (the protocol's protection window):
@@ -132,7 +138,7 @@ contract DeployOspexCreTimelock is Script {
 
         console.log("=== OspexCreTimelock configure + lockdown (PHASE 2) ===");
         console.log("Timelock:", tlAddr);
-        console.log("Safe (granted proposer/executor/canceller):", safe);
+        console.log("Controller (granted proposer/executor/canceller):", controller);
         console.log("Final global delay (seconds):", finalDelay);
         console.log("Final global delay (days):", finalDelay / 1 days);
         console.log("Fast key lane: registry.allowlistRequest = 1s");
@@ -145,13 +151,13 @@ contract DeployOspexCreTimelock is Script {
         });
 
         vm.startBroadcast(deployer);
-        // 1) set the two production delay numbers FIRST (so the Safe never holds a role while global = 0)
+        // 1) set the two production delay numbers FIRST (so the controller never holds a role while global = 0)
         tl.updateDelay(finalDelay); // global default -> all code/lifecycle ops inherit this
         tl.updateDelay(keyLane); // the single fast carve-out -> key rotation
-        // 2) NOW grant the Safe its operational roles (after the delay is in force)
-        tl.grantRole(tl.PROPOSER_ROLE(), safe);
-        tl.grantRole(tl.EXECUTOR_ROLE(), safe);
-        tl.grantRole(tl.CANCELLER_ROLE(), safe);
+        // 2) NOW grant the controller its operational roles (after the delay is in force)
+        tl.grantRole(tl.PROPOSER_ROLE(), controller);
+        tl.grantRole(tl.EXECUTOR_ROLE(), controller);
+        tl.grantRole(tl.CANCELLER_ROLE(), controller);
         // 3) hand ADMIN to the timelock itself, deployer renounces (MUST be last)
         tl.grantRole(tl.ADMIN_ROLE(), tlAddr); // self-administered: rule changes are themselves delayed
         tl.renounceRole(tl.ADMIN_ROLE(), deployer);
@@ -164,10 +170,10 @@ contract DeployOspexCreTimelock is Script {
         require(tl.getRoleMember(tl.ADMIN_ROLE(), 0) == tlAddr, "sole ADMIN must be the timelock");
         require(!tl.hasRole(tl.ADMIN_ROLE(), deployer), "deployer still ADMIN -- lockdown failed");
         require(
-            tl.hasRole(tl.PROPOSER_ROLE(), safe) && tl.hasRole(tl.EXECUTOR_ROLE(), safe)
-                && tl.hasRole(tl.CANCELLER_ROLE(), safe),
-            "Safe operational roles not granted"
+            tl.hasRole(tl.PROPOSER_ROLE(), controller) && tl.hasRole(tl.EXECUTOR_ROLE(), controller)
+                && tl.hasRole(tl.CANCELLER_ROLE(), controller),
+            "controller operational roles not granted"
         );
-        console.log("Lockdown verified: sole ADMIN = timelock, deployer out, Safe = proposer/exec/canceller.");
+        console.log("Lockdown verified: sole ADMIN = timelock, deployer out, controller = proposer/exec/canceller.");
     }
 }

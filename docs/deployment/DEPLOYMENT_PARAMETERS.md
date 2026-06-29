@@ -42,7 +42,7 @@ These are runtime operations done after deployment, not baked into constructors.
 | Step | Anvil | Amoy | Mainnet | Notes |
 |------|-------|------|---------|-------|
 | Deploy / register the CRE workflow | N/A | `ospex-cre` workflow on Amoy | `ospex-cre` workflow, owned directly by the `OspexCreTimelock` | Point the workflow config (`receiverAddress` + `eventAddress`) at this `CreOracleReceiver` |
-| Point the workflow at the receiver | N/A | Direct workflow update | Timelocked raw `linkOwner` + `upsertWorkflow` registry calls via the `OspexCreTimelock` (schedule/execute, 7-day delay + 2-of-3 Safe gate) | The receiver's `workflowOwner` must match the registered workflow owner |
+| Point the workflow at the receiver | N/A | Direct workflow update | Timelocked raw `linkOwner` + `upsertWorkflow` registry calls via the `OspexCreTimelock` (schedule/execute, 7-day delay) | The receiver's `workflowOwner` must match the registered workflow owner |
 | Fund the CRE workflow **off-chain** | N/A | Workflow-owner CRE balance | Workflow-owner CRE balance | No per-call LINK and no on-chain subscription — the workflow run is funded off-chain at the workflow owner |
 | Provision data-provider secrets | N/A | CRE secrets | CRE secrets | API keys for The Rundown / Sportspage / JSONOdds, held by the CRE workflow (not on-chain) |
 | Update downstream services | N/A | indexer, read API, market data writer, market maker, frontend | indexer, read API, market data writer, market maker, frontend | New contract addresses in each service's config |

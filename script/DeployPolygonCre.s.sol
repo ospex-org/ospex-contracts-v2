@@ -54,7 +54,7 @@ import "../src/modules/MatchingModule.sol";
 contract DeployPolygonCre is Script {
     // Polygon mainnet token — UNCHANGED from the proven R4 mainnet config.
     address constant USDC_ADDRESS = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
-    // CONFIGURABLE: Protocol fee receiver (hardware wallet / multisig for mainnet) — UNCHANGED from R4.
+    // CONFIGURABLE: Protocol fee receiver for mainnet — UNCHANGED from R4.
     address constant FEE_RECEIVER = 0xdaC630aE52b868FF0A180458eFb9ac88e7425114;
     // CONFIGURABLE: The mainnet deployer EOA (the broadcaster). Hard guard: DEPLOYER_ADDRESS must equal this.
     address constant APPROVED_DEPLOYER = 0xfd6C7Fc1F182de53AA636584f1c6B80d9D885886;
