@@ -92,12 +92,12 @@ The R5 oracle is a Chainlink CRE workflow whose on-chain receiver (`CreOracleRec
 
    ```bash
    DEPLOYER_ADDRESS=0xMainnetGasPayer \
-   OSPEX_TIMELOCK_SAFE=0xTwoOfThreeSafe \
+   OSPEX_TIMELOCK_CONTROLLER=0xColdWalletController \
    forge script script/DeployOspexCreTimelock.s.sol:DeployOspexCreTimelock --sig 'deploy()' \
      --rpc-url $ETH_MAINNET_RPC --broadcast -vvvv
    ```
 
-   Env: `WORKFLOW_REGISTRY` (default `0x4Ac54353FA4Fa961AfcC5ec4B118596d3305E7e5`, Ethereum-mainnet WorkflowRegistry 2.0.0); `OSPEX_TIMELOCK_SAFE` (the 2-of-3 Safe holding proposer/executor/canceller — required); `DEPLOYER_ADDRESS` (temporary admin / gas payer — required); `OSPEX_TIMELOCK_FINAL_DELAY` in seconds (default `604800` = 7d, applied in `configureAndLockdown()`). `deploy()` stands up the single timelock in its bootstrap state (global delay 0); the registry `linkOwner` + `upsertWorkflow` (and the `allowlistRequest` secret op) are separate calls the timelock issues via schedule/execute, then `configureAndLockdown()` raises the delay to 7d and locks down admin. The workflow name comes from the registered `upsertWorkflow`, not from this script.
+   Env: `WORKFLOW_REGISTRY` (default `0x4Ac54353FA4Fa961AfcC5ec4B118596d3305E7e5`, Ethereum-mainnet WorkflowRegistry 2.0.0); `OSPEX_TIMELOCK_CONTROLLER` (the single cold-wallet controller holding proposer/executor/canceller — required); `DEPLOYER_ADDRESS` (temporary admin / gas payer — required); `OSPEX_TIMELOCK_FINAL_DELAY` in seconds (default `604800` = 7d, applied in `configureAndLockdown()`). `deploy()` stands up the single timelock in its bootstrap state (global delay 0); the registry `linkOwner` + `upsertWorkflow` (and the `allowlistRequest` secret op) are separate calls the timelock issues via schedule/execute, then `configureAndLockdown()` raises the delay to 7d and locks down admin. The workflow name comes from the registered `upsertWorkflow`, not from this script.
 
 2. **Deploy the protocol** with `DeployAmoyCre.s.sol` (testnet) / `DeployPolygonCre.s.sol` (mainnet) — deploys `CreOracleReceiver` into the `CRE_ORACLE_RECEIVER` slot wired to the forwarder + workflow owner from step 1.
 

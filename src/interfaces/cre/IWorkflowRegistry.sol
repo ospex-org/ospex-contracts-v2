@@ -10,7 +10,7 @@ pragma solidity ^0.8.26;
  *      a workflow to free one of the org's hard-capped slots). NOTE: the timelock executes via RAW
  *      calldata, not this typed interface, so this is a documentation/encoding convenience and does NOT
  *      restrict what the owner can call — pause IS reachable via the registry, but (like every
- *      code/lifecycle op) it is 7-day-delayed + Safe-gated through the timelock. Deleting does NOT
+ *      code/lifecycle op) it is 7-day-delayed through the timelock. Deleting does NOT
  *      require the workflow to be paused first.
  *
  *      Registry semantics that matter here:
