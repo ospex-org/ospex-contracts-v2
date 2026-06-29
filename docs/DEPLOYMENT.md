@@ -2,27 +2,37 @@
 
 ## Mainnet Contract Addresses (Polygon, Chain ID 137)
 
-**Current deploy:** Round 4, 2026-04-28 (first tx block 86135682). See [`deployment/POLYGON_MAINNET_R4.md`](deployment/POLYGON_MAINNET_R4.md) for the full deploy summary, broadcast log, and verification output.
+**Current deploy:** Round 5 (CRE oracle migration), 2026-06-28 (first tx block 89322650). R5 replaces the Chainlink Functions `OracleModule` with `CreOracleReceiver` in the `CRE_ORACLE_RECEIVER` slot, governed by an `OspexCreTimelock` on **Ethereum mainnet**. The prior round (R4) is archived; see [`deployment/POLYGON_MAINNET_R4.md`](deployment/POLYGON_MAINNET_R4.md) for its full record.
 
-> The address table below is the **live R4 deploy** (the current address-of-record). The `OracleModule` row is the R4 Chainlink Functions oracle; the R5 CRE migration replaces it with `CreOracleReceiver` in the `CRE_ORACLE_RECEIVER` slot. The R5 deploy flow is documented in the sections below — its mainnet addresses will be recorded here when R5 ships.
+> The address table below is the **live R5 deploy** (the current address-of-record), finalized and zero-admin. The oracle slot is now `CreOracleReceiver` (the R4 Functions `OracleModule` is retired). Ethereum-mainnet governance addresses are in the **Governance** subsection below the table.
 
 | Contract | Address |
 |----------|---------|
-| OspexCore | [`0xECD12Af197FBF4C9F706B5Eb11a19c40Cfd643db`](https://polygonscan.com/address/0xECD12Af197FBF4C9F706B5Eb11a19c40Cfd643db) |
-| ContestModule | [`0x1Eb0048650380369C6F4239dE070114463626102`](https://polygonscan.com/address/0x1Eb0048650380369C6F4239dE070114463626102) |
-| SpeculationModule | [`0xd757387893E779AC35451CeA639a408A537b9a1B`](https://polygonscan.com/address/0xd757387893E779AC35451CeA639a408A537b9a1B) |
-| PositionModule | [`0x0DCd42f8609cd7884ddBa3481b03a78dfc88366c`](https://polygonscan.com/address/0x0DCd42f8609cd7884ddBa3481b03a78dfc88366c) |
-| MatchingModule | [`0x1B93579B044f0eE3c4C8a9F479A323DeF7770712`](https://polygonscan.com/address/0x1B93579B044f0eE3c4C8a9F479A323DeF7770712) |
-| OracleModule | [`0x7e1397eD5b4c9f606DCF2EB0281485B2296E29Bb`](https://polygonscan.com/address/0x7e1397eD5b4c9f606DCF2EB0281485B2296E29Bb) |
-| TreasuryModule | [`0xCB56CD2c509301e888965DD3A2E5C486Fe03a56e`](https://polygonscan.com/address/0xCB56CD2c509301e888965DD3A2E5C486Fe03a56e) |
-| LeaderboardModule | [`0x63f76D5796296FFB94132C6f70d3ff9c3c5a0DEF`](https://polygonscan.com/address/0x63f76D5796296FFB94132C6f70d3ff9c3c5a0DEF) |
-| RulesModule | [`0x05aF3d55F44CfaFA59c3B152A1547b5219d90f93`](https://polygonscan.com/address/0x05aF3d55F44CfaFA59c3B152A1547b5219d90f93) |
-| SecondaryMarketModule | [`0xaD2B4437296B46a1b107Bb2dB7AC4082182b6059`](https://polygonscan.com/address/0xaD2B4437296B46a1b107Bb2dB7AC4082182b6059) |
-| MoneylineScorerModule | [`0xd846B7FdbD8C9F67d1580B2C6a8Bd7Fdcb15390b`](https://polygonscan.com/address/0xd846B7FdbD8C9F67d1580B2C6a8Bd7Fdcb15390b) |
-| SpreadScorerModule | [`0x99c5fF5131F269cA178e2Ea78f2a2A222a3a7d5e`](https://polygonscan.com/address/0x99c5fF5131F269cA178e2Ea78f2a2A222a3a7d5e) |
-| TotalScorerModule | [`0xC141679f09413EDe38E3Cd36a3e4aDE423827972`](https://polygonscan.com/address/0xC141679f09413EDe38E3Cd36a3e4aDE423827972) |
+| OspexCore | [`0x40047BAFcdEd16C938058b7b67186299a2893561`](https://polygonscan.com/address/0x40047BAFcdEd16C938058b7b67186299a2893561) |
+| ContestModule | [`0x0f838AF735E95625905c6acFB887a2E9f4DB9216`](https://polygonscan.com/address/0x0f838AF735E95625905c6acFB887a2E9f4DB9216) |
+| SpeculationModule | [`0xEA21b58E91eDcA41d0c42A8655234F8A64fa31bc`](https://polygonscan.com/address/0xEA21b58E91eDcA41d0c42A8655234F8A64fa31bc) |
+| PositionModule | [`0x3C71fdB8ABF41487a512440e5ce6490158C26e56`](https://polygonscan.com/address/0x3C71fdB8ABF41487a512440e5ce6490158C26e56) |
+| MatchingModule | [`0x46Af20B6307Aa0Ec13de10EF58a02c5F1b5C9559`](https://polygonscan.com/address/0x46Af20B6307Aa0Ec13de10EF58a02c5F1b5C9559) |
+| CreOracleReceiver (CRE_ORACLE_RECEIVER) | [`0x06e3470012039797119Ae30e1236169304F9220C`](https://polygonscan.com/address/0x06e3470012039797119Ae30e1236169304F9220C) |
+| TreasuryModule | [`0x07f357e67cc9B48D029b1E4C9B7F45569a2eB85C`](https://polygonscan.com/address/0x07f357e67cc9B48D029b1E4C9B7F45569a2eB85C) |
+| LeaderboardModule | [`0x02228F4bAB35d9631296C47C2103789474aD72ee`](https://polygonscan.com/address/0x02228F4bAB35d9631296C47C2103789474aD72ee) |
+| RulesModule | [`0x5a5662C8246Ed3dC2422Cc8f773564fA41b34723`](https://polygonscan.com/address/0x5a5662C8246Ed3dC2422Cc8f773564fA41b34723) |
+| SecondaryMarketModule | [`0xf779d82E9a11234767921A73913dAd429F140aFB`](https://polygonscan.com/address/0xf779d82E9a11234767921A73913dAd429F140aFB) |
+| MoneylineScorerModule | [`0x59555106D4B5f1A797f3552f60ac418Eb6B6f6BD`](https://polygonscan.com/address/0x59555106D4B5f1A797f3552f60ac418Eb6B6f6BD) |
+| SpreadScorerModule | [`0x8f293da716164d5A32dc087A85e5164D929ae9D4`](https://polygonscan.com/address/0x8f293da716164d5A32dc087A85e5164D929ae9D4) |
+| TotalScorerModule | [`0xB4B1E2A2a75C34e9E4C5D3BB8A432aff973DaDa0`](https://polygonscan.com/address/0xB4B1E2A2a75C34e9E4C5D3BB8A432aff973DaDa0) |
 
-**Token:** Native USDC ([`0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359`](https://polygonscan.com/address/0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359)), 6 decimals
+**Token:** Native USDC ([`0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359`](https://polygonscan.com/address/0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359)), 6 decimals — unchanged from R4
+
+### Governance (Ethereum mainnet, Chain ID 1)
+
+The CRE workflow owner / oracle governance is the `OspexCreTimelock`, deployed on **Ethereum mainnet** (where the CRE WorkflowRegistry 2.0.0 lives). It is the sole controller behind a **7-day delay** (with a 1-second fast lane for the `allowlistRequest` key-rotation op), self-administered, deployer renounced.
+
+| Contract | Chain | Address |
+|----------|-------|---------|
+| OspexCreTimelock (workflow owner / governance) | Ethereum mainnet | [`0x40047BAFcdEd16C938058b7b67186299a2893561`](https://etherscan.io/address/0x40047BAFcdEd16C938058b7b67186299a2893561) |
+
+> ⚠ **Same-address note:** the timelock's Ethereum address (`0x40047BAF…`) is the same string as the Polygon `OspexCore` above. This is expected, not an error — both were the first contract (nonce 0) deployed by the same one-time deployer, and CREATE addresses depend only on `(deployer, nonce)`, not the chain. They are **distinct contracts on distinct chains**. The CRE workflow is `osverify` (workflow id `0097efdade80ff0a9557d927a1c07075a453bba9cd0fae7e22519c613ec47805`); `WORKFLOW_NAME` enforcement is OFF (owner-only binding).
 
 ---
 
