@@ -191,7 +191,7 @@ interface IRulesModule is IModule {
     /// @notice Calculates the maximum allowed bet amount based on bankroll and max bet percentage
     /// @param leaderboardId The ID of the leaderboard
     /// @param bankroll The user's declared bankroll
-    /// @return maxBetAmount The maximum allowed bet (type(uint256).max if no limit set)
+    /// @return maxBetAmount The maximum allowed bet (the full bankroll — i.e. 100% — if no max bet percentage set)
     function getMaxBetAmount(uint256 leaderboardId, uint256 bankroll) external view returns (uint256 maxBetAmount);
 
     /// @notice Calculates the minimum required bet amount based on bankroll and min bet percentage

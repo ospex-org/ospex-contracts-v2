@@ -25,14 +25,17 @@ enum ContestStatus {
     Unverified, // Initial state
     Verified, // Contest verified by oracle
     Scored, // Final scores recorded
-    Voided // Locked to void from speculation
+    Voided // Terminally voided via SpeculationModule's auto-void cascade; permanently blocks scoring
 }
 
-/// @notice Represents a market for a contest
+/// @notice Represents oracle-published reference market data for a contest
+/// @dev Never a settlement input. The odds/lines here are consumed on-chain only by
+///      RulesModule's leaderboard validation gates (validateOdds / validateNumber);
+///      matching ignores them entirely — trade prices come from maker commitments.
 struct ContestMarket {
-    int32 lineTicks; // Line/spread/total number
-    uint16 upperOdds; // Upper odds (reference only)
-    uint16 lowerOdds; // Lower odds (reference only)
+    int32 lineTicks; // Line/spread/total number (10x scale: -35 = -3.5 points)
+    uint16 upperOdds; // Upper-side reference odds (100x ticks: 191 = 1.91)
+    uint16 lowerOdds; // Lower-side reference odds (100x ticks)
     uint32 lastUpdated;
 }
 
@@ -63,8 +66,8 @@ enum LeagueId {
 struct Speculation {
     uint256 contestId; // Associated contest ID
     address speculationScorer; // Scorer contract address
-    int32 lineTicks; // Line/spread/total number
-    address speculationTaker; // Creator address
+    int32 lineTicks; // Line/spread/total number (10x scale: -35 = -3.5; odds ticks elsewhere are 100x)
+    address speculationTaker; // Taker of the market-creating first fill (informational; not read on-chain)
     SpeculationStatus speculationStatus; // Current status
     WinSide winSide; // Winning side
 }

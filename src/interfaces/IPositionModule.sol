@@ -11,8 +11,11 @@ import {IModule} from "./IModule.sol";
  */
 interface IPositionModule is IModule {
     /// @notice Records a fill. Only callable by MatchingModule.
-    /// @dev Creates the speculation if it doesn't exist yet. Creation fee is split
-    ///      between maker and taker. Bet-size enforcement applies to takerRisk only.
+    /// @dev Creates the speculation if it doesn't exist yet; on that first fill the creation fee
+    ///      is split between maker and taker and pulled by TreasuryModule (a separate USDC
+    ///      allowance from the PositionModule stake allowance — see docs/ARCHITECTURE.md,
+    ///      "USDC Approvals"). No min/max bet-size limits are enforced at this layer: amounts
+    ///      must be non-zero, and maker-side lot rounding happens upstream in MatchingModule.
     /// @param contestId The contest ID
     /// @param scorer The scorer address
     /// @param lineTicks The line number (10x format, 0 for moneyline)

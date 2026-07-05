@@ -299,7 +299,10 @@ contract ContestModule is IContestModule {
 
     /**
      * @notice Sets the final oracle score for a contest
-     * @dev Oracle-set scores are immutable once written. This intentionally favors
+     * @dev Reverts with ContestModule__AlreadyScored whenever the contest is not currently
+     *      Verified — including never-verified and Voided contests, not only already-scored
+     *      ones (the error name covers the common case, not every cause).
+     *      Oracle-set scores are immutable once written. This intentionally favors
      *      settlement finality over discretionary score correction. If upstream data sources
      *      disagree, scoring should fail before this function is reached. If a wrong but
      *      internally consistent result is submitted first, the protocol accepts that as

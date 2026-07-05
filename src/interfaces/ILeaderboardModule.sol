@@ -31,21 +31,27 @@ interface ILeaderboardModule is IModule {
         view
         returns (uint256);
 
-    /// @notice Returns the locked risk for a user in a leaderboard
+    /// @notice Returns the leaderboard-locked risk for a (speculation, user, position type)
+    /// @dev Keyed by speculation, NOT by leaderboard — this is a high-water mark across ALL
+    ///      leaderboards the user registered this position for. It only ratchets up and is
+    ///      never released. Its sole consumer is PositionModule.transferPosition, which blocks
+    ///      secondary-market transfers that would drop the remaining position below this floor.
     /// @param speculationId The ID of the speculation
     /// @param user The address of the user
     /// @param positionType The position type (Upper or Lower)
-    /// @return The locked risk
+    /// @return The locked risk floor
     function s_lockedRisk(uint256 speculationId, address user, PositionType positionType)
         external
         view
         returns (uint256);
 
-    /// @notice Returns the locked profit for a user in a leaderboard
+    /// @notice Returns the leaderboard-locked profit for a (speculation, user, position type)
+    /// @dev Same semantics as s_lockedRisk: speculation-keyed, cross-leaderboard high-water
+    ///      mark, never released, consumed only by PositionModule.transferPosition.
     /// @param speculationId The ID of the speculation
     /// @param user The address of the user
     /// @param positionType The position type (Upper or Lower)
-    /// @return The locked profit
+    /// @return The locked profit floor
     function s_lockedProfit(uint256 speculationId, address user, PositionType positionType)
         external
         view
@@ -122,7 +128,8 @@ interface ILeaderboardModule is IModule {
         returns (LeaderboardPosition memory);
 
     /// @notice Gets the submitted ROI for a user in a leaderboard
-    /// @dev Returns 0 if not yet submitted — use hasClaimed or check s_roiSubmitted for disambiguation
+    /// @dev Returns 0 if not yet submitted, and a legitimately submitted ROI can also be exactly 0 —
+    ///      check s_roiSubmitted to disambiguate. (hasClaimed tracks prize claiming, not submission.)
     /// @param leaderboardId The ID of the leaderboard
     /// @param user The address of the user
     /// @return The user's ROI (scaled by ROI_PRECISION = 1e18)
