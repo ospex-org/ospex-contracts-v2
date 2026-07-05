@@ -200,7 +200,10 @@ contract MatchingModule is IModule, EIP712, ReentrancyGuard {
     /**
      * @notice Match against a signed commitment, creating the speculation if it doesn't exist
      * @dev The taker is msg.sender. Both maker and taker must have approved the
-     *      PositionModule contract for USDC spending.
+     *      PositionModule contract for USDC spending. On a first fill that auto-creates
+     *      the speculation, both parties additionally pay the split creation fee, which
+     *      TreasuryModule pulls directly from their wallets — so maker and taker also
+     *      need a USDC allowance for TreasuryModule (see docs/ARCHITECTURE.md, "USDC Approvals").
      *      This function reverts if fillMakerRisk exceeds remaining capacity — it does
      *      not auto-clip to the remainder. Off-chain callers must read s_filledRisk and
      *      size takerDesiredRisk accordingly. This is intentional: revert-or-exact-fill

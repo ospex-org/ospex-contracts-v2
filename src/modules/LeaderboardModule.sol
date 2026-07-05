@@ -25,7 +25,8 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
  * @title LeaderboardModule
  * @notice Handles leaderboard creation, user registration, position tracking,
  *         ROI scoring, and prize distribution for the Ospex protocol.
- * @dev Permissionless: anyone can create a leaderboard (0.50 USDC fee). The creator
+ * @dev Permissionless: anyone can create a leaderboard (flat creation fee set in the
+ *      TreasuryModule constructor; 0.50 USDC on the current mainnet deployment). The creator
  *      controls which speculations are eligible. Entry fees go entirely to the prize pool.
  *      Winner-take-all: the user(s) with the single highest ROI share the entire prize
  *      pool equally. There is no ranked or tiered payout.
