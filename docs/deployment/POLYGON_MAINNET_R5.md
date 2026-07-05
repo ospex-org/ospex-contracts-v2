@@ -2,10 +2,7 @@
 
 **Deploy date:** 2026-06-28
 **Round:** R5 (CRE oracle migration — the Chainlink Functions `OracleModule` is replaced by `CreOracleReceiver` in the `CRE_ORACLE_RECEIVER` slot)
-**Deploy script:** `script/DeployPolygonCre.s.sol:DeployPolygonCre`
-**Repo commit (from broadcast):** `d2be2cb`
 **Network:** Polygon Mainnet (chain id 137)
-**Deployer:** `0x53AF7B1BB308abD6F106231B75a241fB3e9eeA5C` (one-time deployer EOA)
 **Deploy block (first tx):** **89322650**
 **First TX hash:** `0x6021d5de6d0db72088966ecf25ba857b98d3f195418222fcae546f4242daff1e` (OspexCore CREATE)
 **Compiler:** Solidity 0.8.26 (`--via-ir --optimize`)
@@ -30,7 +27,7 @@
 | TotalScorerModule | [`0xB4B1E2A2a75C34e9E4C5D3BB8A432aff973DaDa0`](https://polygonscan.com/address/0xB4B1E2A2a75C34e9E4C5D3BB8A432aff973DaDa0) |
 | USDC (native) | [`0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359`](https://polygonscan.com/address/0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359) |
 
-Addresses cross-checked three ways: the broadcast artifact `contractAddress` values, this repo's `docs/DEPLOYMENT.md` table, and the `.ospex-r5-deploy` run log all agree; OspexCore, MatchingModule, and PositionModule are additionally verified-by-name on Polygonscan.
+Addresses match this repo's `docs/DEPLOYMENT.md` table and are independently verifiable on-chain: contract code is present at every listed address on Polygon (chain 137), and OspexCore, MatchingModule, and PositionModule are source-verified by name on Polygonscan (Solidity 0.8.26).
 
 ## CRE oracle & governance (Ethereum mainnet, chain id 1)
 
@@ -46,10 +43,9 @@ CRE workflow: `osverify` (workflow id `0097efdade80ff0a9557d927a1c07075a453bba9c
 
 ## Notes
 
-- Bootstrap + finalize pattern used (`bootstrapModules()` then `finalize()`). The registry is finalized — no admin key remains.
-- The in-script `finalize()` transient-reverted during the broadcast and was re-sent standalone (via `cast send`), so the confirming `finalize()` tx and its block are **not** in this deploy's `run-latest.json` broadcast artifact. The registry is finalized on-chain.
+- Bootstrap + finalize pattern (`bootstrapModules()` then `finalize()`). The registry is finalized on-chain — `OspexCore.s_finalized()` returns `true` — so no admin key remains and the deployer retains no privileged role (its only powers, `bootstrapModules()`/`finalize()`, are permanently disabled once finalized).
 - Protocol parameters (fee receiver, void cooldown, USDC), the CRE receiver env values, and the full per-network parameter set: see [`../DEPLOYMENT.md`](../DEPLOYMENT.md) and [`DEPLOYMENT_PARAMETERS.md`](DEPLOYMENT_PARAMETERS.md).
 
-## Artifacts
+## Verification
 
-- Broadcast log: [`../../broadcast/DeployPolygonCre.s.sol/137/run-latest.json`](../../broadcast/DeployPolygonCre.s.sol/137/run-latest.json) — every CREATE tx with constructor args, gas, and block confirmations.
+The raw Foundry broadcast log is not committed to the repo (`/broadcast/` is gitignored), so this record does not link one. Every address above is independently verifiable on-chain instead: contract code is present at each address on Polygon (chain 137), the contracts are source-verified on Polygonscan, and `OspexCore.s_finalized()` reads `true`.
