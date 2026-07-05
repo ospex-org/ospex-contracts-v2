@@ -87,16 +87,16 @@ forge coverage --ir-minimum
 
 | Document | Contents |
 |----------|----------|
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Module-by-module function reference, protocol flow, security model |
+| [E2E_TRACES.md](docs/E2E_TRACES.md) | Function-by-function trace of every protocol process — start here to verify from source |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Module-by-module function reference, protocol flow, USDC approvals, security model |
 | [DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) | Intentional non-obvious behaviors and the reasoning behind them |
 | [TRUST_MODEL.md](docs/TRUST_MODEL.md) | Zero-admin trust model — what cannot change after `finalize()` |
 | [RISKS.md](docs/RISKS.md) | Self-assessed risk register (no professional audit yet) |
 | [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Deployment instructions and Polygon mainnet contract addresses |
-| [SELL_MATCHED_PAIR.md](docs/SELL_MATCHED_PAIR.md) | Secondary-market sell flow diagram |
 
 ## Deployment
 
-Live on Polygon mainnet (chain ID 137). See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for contract addresses and [docs/deployment/POLYGON_MAINNET_R4.md](docs/deployment/POLYGON_MAINNET_R4.md) for the round-4 deploy snapshot.
+Live on Polygon mainnet (chain ID 137). See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for contract addresses and the per-round deploy records under [docs/deployment/](docs/deployment/).
 
 ## License
 
