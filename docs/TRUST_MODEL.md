@@ -1,7 +1,7 @@
 # Ospex Protocol — Trust Model
 
-> **As of commit**: `d34f0d0`
-> **Applies to**: R4 (zero-admin, post-hardening)
+> **As of commit**: `b3d6647`
+> **Applies to**: R5 (the live Polygon mainnet deployment; the zero-admin bootstrap-then-finalize pattern is unchanged since R4)
 > **Pattern**: Bootstrap-then-finalize — no admin key after deployment
 
 ---
@@ -73,8 +73,6 @@ All of these are user-initiated and follow the contract logic — no admin overr
 
 The zero-admin model eliminates admin-key risk but does not eliminate all trust dependencies:
 
-> **R4 (Chainlink Functions) — SUPERSEDED by the R5 Chainlink CRE oracle migration.** See CreOracleReceiver / the cre-oracle skill. The "Oracle Correctness" and "Approved Signer Discipline" subsections below describe the retired R4 trust boundary (approved signer, EIP-712 script approvals, per-contest script hashes, signer immutability). **None of that exists under R5** — see the "R5 CRE trust model" stub immediately below.
-
 ### R5 CRE trust model
 
 Under R5 the oracle is **Chainlink CRE** (`CreOracleReceiver`). There are **no EIP-712 script approvals, no approved signer, and no on-chain script hashes**. An off-chain CRE workflow verifies and scores contests against the three sports-data sources, and the on-chain receiver **passively validates** each report: a trusted **KeystoneForwarder** delivered it, the report-metadata **workflow owner** matches, the optional immutable **workflow-name** pin matches, plus **per-report idempotency** and **market-nonce freshness**. The workflow is governed by the **`OspexCreTimelock`** — a per-action timelock that is the direct linked owner of the WorkflowRegistry (no `CreWorkflowOwner` adapter, no OZ `TimelockController`), with a global 7-day delay on mainnet and a single cold-wallet controller holding PROPOSER/EXECUTOR/CANCELLER; **pause / code-update / delete / lifecycle ops are all reachable but timelocked 7 days** — only Vault secret allowlist requests (every `cre secrets` op) have the 1-second fast lane. The operator can **HALT scoring** (which voids contests), but **cannot steal or trap funds**: settlement is immutable, and an unscored `Verified` contest **auto-voids and refunds principal permissionlessly** after the cooldown (any participant can settle + claim — there is no operator gate).
@@ -139,19 +137,7 @@ The protocol is betting that the hardened, tested contract code is correct and c
 
 ## Comparison to Previous Model
 
-The pre-hardening contracts used OpenZeppelin AccessControl with role-based admin functions:
-
-| Capability | Previous Model | Current Model |
-|------------|---------------|---------------|
-| Module swap | `registerModule()` with `MODULE_ADMIN_ROLE` | Impossible after `finalize()` |
-| Fee changes | `setFeeRates()`, `setProtocolCut()`, `setProtocolReceiver()` | All immutable (constructor) |
-| Score override | `scoreContestManually()` with `SCORE_MANAGER_ROLE` | Does not exist |
-| Speculation forfeit | `forfeitSpeculation()` with `SPECULATION_MANAGER_ROLE` | Does not exist; auto-void after cooldown |
-| Prize sweep | `adminSweep()` on LeaderboardModule | Does not exist |
-| Admin transfer | `proposeAdmin()` / `acceptAdmin()` | Does not exist |
-| Role grants | `grantRole()` / `revokeRole()` via AccessControl | No AccessControl imported |
-
-The previous model retained admin powers as a pragmatic safety net for an unaudited protocol. The hardening cycle eliminated all admin powers and replaced discretionary fallbacks with permissionless, deterministic mechanisms (auto-void, permissionless scoring, immutable parameters).
+Earlier pre-mainnet versions used OpenZeppelin AccessControl with role-based admin powers (module swap, manual score override, speculation forfeit, prize sweep, admin transfer). The hardening cycle deleted all of them and replaced every discretionary fallback with a permissionless, deterministic mechanism: auto-void after the cooldown, permissionless scoring requests and settlement, and constructor-immutable parameters. No AccessControl is imported anywhere in the deployed contracts.
 
 ---
 
@@ -174,6 +160,8 @@ assert(ospexCore.getModule(POSITION_MODULE) == EXPECTED_POSITION_MODULE);
 ```
 
 There are no admin roles to query, no ownership to check, no timelocks to inspect. The absence of admin infrastructure is itself the trust property.
+
+**Registry completeness — one check needs chain history, not code.** `finalize()` proves that *at least* the 12 required module types are registered; it does not by itself prove that *only* those 12 were registered, because `bootstrapModules()` accepts arbitrary type identifiers pre-finalize. To close that gap, verify the deployment's bootstrap history directly: the registry is written only by `bootstrapModules()` calls from the deployer before `finalize()`, so enumerate the `ModulesBootstrapped` events on the deployed OspexCore to locate every bootstrap transaction, then decode those transactions' calldata — the event itself carries only a module count; the calldata is the source of the registered types and addresses. For the R5 deployment this is a small, one-time check anchored at the OspexCore address recorded in [DEPLOYMENT.md](./DEPLOYMENT.md); a published provenance record for it is planned in the `ospex-artifacts` evidence repo.
 
 ---
 

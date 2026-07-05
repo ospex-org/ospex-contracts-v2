@@ -1,6 +1,6 @@
 # Ospex Protocol — Design Decisions
 
-> **As of commit**: `d34f0d0`
+> **As of commit**: `b3d6647`
 >
 > Intentional behaviors from the hardening cycle. Each section documents a decision that looks unusual on first read but is correct by design. This is a reference doc for reviewers, auditors, and agents.
 
@@ -70,8 +70,6 @@ The leaderboard abuse surface is real but bounded by the existing rules engine. 
 
 ## Triple-Source Oracle Verification
 
-> **R4 (Chainlink Functions) — SUPERSEDED by the R5 Chainlink CRE oracle migration.** See CreOracleReceiver / the cre-oracle skill. Triple-source verification is **still done** — it is now enforced **off-chain inside the CRE workflow** (across the same three providers), not by on-chain Chainlink Functions JS with on-chain script hashes. The consensus guarantee below still holds; only the execution venue changed.
-
 **What it is.** The off-chain CRE workflow for contest verification and scoring queries three independent sports data APIs (The Rundown, Sportspage Feeds, JSONOdds). The workflow requires unanimous agreement across all three sources. If any source returns different data — different scores, different teams, different start times — no report is produced and no on-chain state is written.
 
 **What might look wrong.** Three API sources seems redundant.
@@ -79,18 +77,6 @@ The leaderboard abuse surface is real but bounded by the existing rules engine. 
 **Why it's right.** Single-source oracles create a single point of failure. If one API has a data error, stale cache, or is temporarily compromised, the protocol would accept incorrect data. Triple-source consensus means a single corrupted feed cannot affect settlement. The cost is higher API latency and occasional legitimate disagreements (different reporting windows, delayed score finalization), but the safety guarantee is substantial: an attacker would need to compromise three independent providers simultaneously.
 
 **What an agent/user should know.** Scoring may occasionally fail due to source disagreement (one API reporting "final" before others). This is expected and safe — the workflow retries until all three agree. The CRE workflow source lives in the `ospex-cre` repo.
-
----
-
-## Oracle Source Auditability
-
-> **R4 (Chainlink Functions) — FULLY OBSOLETE under the R5 Chainlink CRE oracle migration.** See CreOracleReceiver / the cre-oracle skill. R5 stores **no on-chain script hashes** and has **no approved signer** — the on-chain "hash → preimage" commitment chain this section described is gone. Under R5 the verification/scoring logic lives in the public off-chain CRE workflow (`ospex-cre` repo), and the on-chain `CreOracleReceiver` validates only the report's provenance (KeystoneForwarder, workflow owner/name) and freshness, not the source. The paragraphs below are retained as historical R4 context only.
-
-**What it is.** The R4 on-chain contracts stored keccak256 hashes of the JavaScript source files used for contest creation, market updates, and scoring, with the plaintext sources published for public verification.
-
-**Why it was right (R4).** The hash commitment ensured that what ran on Chainlink Functions was exactly what was approved — no runtime substitution was possible. Anyone could hash the published source and compare against the on-chain hash.
-
-**R5 equivalent.** The CRE workflow source is public in the `ospex-cre` repo, and the workflow is owned directly by `OspexCreTimelock` (src/governance/OspexCreTimelock.sol), a per-action timelock with a 7-day default delay on mainnet — any change to the logic is observable on-chain for the delay window before it can take effect.
 
 ---
 
@@ -166,20 +152,6 @@ The leaderboard abuse surface is real but bounded by the existing rules engine. 
 
 ---
 
-## Script Approvals Are Permanent (Unless Expiry Set)
-
-> **R4 (Chainlink Functions) — FULLY OBSOLETE under the R5 Chainlink CRE oracle migration.** See CreOracleReceiver / the cre-oracle skill. R5 has **no EIP-712 script approvals, no `i_approvedSigner`, and no on-chain script hashes** — the entire mechanism this section describes is gone. Governance over the oracle is now exercised through the **CRE workflow-governance model**: `OspexCreTimelock` (src/governance/OspexCreTimelock.sol), a per-action timelock that owns the workflow directly in the Ethereum-mainnet WorkflowRegistry. A global 7-day delay applies to every (target, selector) by default — code update, delete, lifecycle ops, and `pauseWorkflow` are all reachable but timelocked; only Vault secret allowlist requests (every `cre secrets` op) have a 1-second fast lane. Proposer/executor/canceller is held by a single cold-wallet controller. The section below is retained as historical R4 context only.
-
-**What it is.** EIP-712 script approvals signed by `i_approvedSigner` include a `validUntil` field. If `validUntil == 0`, the approval is permanent — it never expires. Once a contest is created with approved script hashes, those hashes are stored on-chain and the approval is never re-checked.
-
-**What might look wrong.** Permanent approvals mean a script hash approved today is valid forever, even if the approved signer's key is later compromised.
-
-**Why it's right.** Script approvals are checked at contest creation time only. After creation, scoring validates the JS source against the per-contest stored hash — the signer is not consulted. This means signer rotation and approval expiry cannot retroactively affect live contests, which is critical for settlement finality. For time-bounded governance, use `validUntil > 0`. For stable, well-tested scripts, `validUntil == 0` avoids the operational risk of expired approvals blocking contest creation.
-
-**What an agent/user should know.** The approved signer is immutable (`i_approvedSigner` is set in the OracleModule constructor). Governance over which scripts are approved is exercised through signer discipline — the signer must carefully review scripts before signing approvals.
-
----
-
 ## Oracle Scores Are Final Once Written
 
 **What it is.** `ContestModule.setScores()` can only be called once per contest (it requires `ContestStatus.Verified`; after scoring, status becomes `Scored`). There is no `overrideScores()`, no `correctScores()`, no dispute mechanism.
@@ -201,6 +173,30 @@ The leaderboard abuse surface is real but bounded by the existing rules engine. 
 **Why it's right.** A mutable receiver is an admin-key attack vector — whoever can change it can redirect all fee revenue. Making it immutable eliminates this vector entirely. The trade-off is that transitioning to a new treasury requires redeploying the protocol. For a zero-admin protocol, this is consistent: if you can't change anything else, you shouldn't be able to change where money goes either.
 
 **What an agent/user should know.** Protocol fees go to a fixed address that cannot be changed. Verify `i_protocolReceiver` on-chain if you want to know where fees are flowing.
+
+---
+
+## Dual Event Emission
+
+**What it is.** Every state change in every module emits two events: a native, typed Solidity event on the emitting module, and a mirror routed through `OspexCore.emitCoreEvent(bytes32 eventType, bytes eventData)` carrying the same fields as a positional `abi.encode` payload under a `keccak256` string tag. `emitCoreEvent` is restricted to registered modules, so the `CoreEventEmitted` event's `emitter` field is trustworthy provenance.
+
+**What might look wrong.** Two event systems doing one job doubles log gas on every hot path; the mirror payloads have no on-chain schema (each field layout exists only as the argument list at its emit site); and in a few cases the two names diverge — most notably the native fill event is `PositionFilled` while its mirror tag is `POSITION_MATCHED_PAIR`; CreOracleReceiver's `CreOracleRequested`/`CreReportProcessed` likewise mirror as `ORACLE_REQUESTED`/`ORACLE_REPORT_PROCESSED`.
+
+**Why it's right.** The hub gives off-chain infrastructure a single-address subscription: one log filter on OspexCore sees every protocol event regardless of which module emitted it, which keeps the indexer's chain-watching surface to one contract. The native events remain because they are the typed, human-readable form that block explorers and per-module tooling decode for free.
+
+**What an agent/user should know.** The positional layout of each core-event payload is a hard compatibility contract with off-chain consumers — treat the `abi.encode` argument order at each emit site as frozen. If you are building an indexer, subscribe to `CoreEventEmitted` on OspexCore and dispatch on `eventType`; the authoritative encoding for each type is the emitting function's source. When searching for fill events, remember the naming split noted above.
+
+---
+
+## Leaderboard ROI Submission Is One-Shot and Timing-Dependent
+
+**What it is.** `submitLeaderboardROI` may be called exactly once per user per leaderboard, only inside the ROI submission window. It computes ROI from each registered speculation's **live** `winSide` at the moment of submission: `TBD` — which means unscored **or scored-but-not-yet-settled** — contributes zero profit/loss and does not count toward the minimum-positions requirement. There is no resubmission and no correction path.
+
+**What might look wrong.** Two users holding identical positions can record different ROIs depending on *when* they submit — and a user who submits while one of their speculations is scored but unsettled silently forfeits that position's contribution forever.
+
+**Why it's right.** One-shot submission is what makes the winner bookkeeping and the prize-pool snapshot safe: allowing resubmission would let participants watch the current highest ROI and re-time their own, and would reopen already-recorded winner sets. Reading live outcomes (rather than maintaining per-position settlement callbacks into the leaderboard) keeps the module simple and gas-flat outside the submission itself. The cost is that settlement ordering becomes the submitter's responsibility — a deliberate trade, since `settleSpeculation()` is permissionless and costs only gas.
+
+**What an agent/user should know.** Before submitting: call `settleSpeculation()` on every speculation you registered (anyone can — see [E2E_TRACES.md](./E2E_TRACES.md), Trace 4), confirm each reads `Closed`, then submit. Prefer submitting after outcomes are final rather than early in the window. Leaderboard creators should size `safetyPeriodDuration` so that scoring and settlement comfortably precede the ROI window.
 
 ---
 

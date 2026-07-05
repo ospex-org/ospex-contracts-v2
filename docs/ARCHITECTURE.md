@@ -1,6 +1,6 @@
 # Ospex Protocol Architecture
 
-> **As of commit**: `d34f0d0`
+> **As of commit**: `b3d6647`
 
 Ospex is a decentralized peer-to-peer sports speculation protocol on Polygon. Zero vigorish — users set their own odds.
 
@@ -142,7 +142,7 @@ It then dispatches on the report's `requestType` and applies the verified result
 
 **Immutable constructor parameters:** `ospexCore`, `forwarder` (the trusted KeystoneForwarder), `workflowOwner`, and an optional `workflowName` pin. There is no approved signer, no script-hash storage, and no Ownable/setter.
 
-**Governance (Ethereum mainnet):** The CRE workflow in the Ethereum-mainnet WorkflowRegistry is owned **directly** by a single contract, `OspexCreTimelock` (a per-action timelock — a close port of Chainlink's audited `Timelock.sol`). A global minimum delay of 7 days applies to every `(target, selector)` by default; the only fast carve-out is `allowlistRequest` on the WorkflowRegistry (set to 1 second), the single on-chain op behind every `cre secrets` command (all Vault secret allowlist requests). Everything else — code update (`upsertWorkflow`), `deleteWorkflow`, `pauseWorkflow`, and `linkOwner` — inherits the 7-day delay. A single cold-wallet controller holds proposer/executor/canceller; after `configureAndLockdown()` the timelock self-administers (sole ADMIN is the timelock itself). Pause, code-update, delete, and lifecycle ops are reachable but timelocked 7 days — only Vault secret allowlist requests get the 1-second fast lane. A compromised controller could push a malicious workflow update (or pause) only after the delay, and can never touch protocol funds.
+**Governance (Ethereum mainnet):** The CRE workflow is owned directly by `OspexCreTimelock`, a per-action timelock (a close port of Chainlink's audited `Timelock.sol`). Every workflow operation — code update (`upsertWorkflow`), `deleteWorkflow`, `pauseWorkflow`, lifecycle — is timelocked 7 days; the only 1-second fast lane is the WorkflowRegistry's `allowlistRequest` (Vault secret allowlisting, behind every `cre secrets` command). A single cold-wallet controller holds proposer/executor/canceller, and the timelock self-administers after `configureAndLockdown()`. A compromised controller could push a malicious workflow change only after the 7-day window — and can never touch protocol funds. Full trust analysis: [TRUST_MODEL.md](./TRUST_MODEL.md).
 
 ### TreasuryModule.sol
 
@@ -231,6 +231,26 @@ Each implements `determineWinSide(contestId, lineTicks)` returning which side wo
 8. Users claim payouts from PositionModule
 ```
 
+For the function-by-function version of each step — the exact contracts, gates, and cross-module hand-offs, in execution order — see [E2E_TRACES.md](./E2E_TRACES.md). That document is the recommended starting point for anyone verifying a protocol process from source.
+
+---
+
+## USDC Approvals (who is the spender?)
+
+Three different contracts pull USDC directly from user wallets via `safeTransferFrom`, depending on the action. Approving only PositionModule is the most common integration mistake — a first fill on a new market will revert on the fee pull without a TreasuryModule allowance.
+
+| Action | Approve (spender) | What is pulled |
+|--------|-------------------|----------------|
+| Match / fill (both sides' stakes) | **PositionModule** | `makerRisk` / `takerRisk` into escrow |
+| First fill of a new market (speculation creation fee) | **TreasuryModule** | Half the fee from the maker, half from the taker |
+| Create a contest (via `createContestAndRequestVerify`) | **TreasuryModule** | Contest-creation fee from the caller |
+| Create a leaderboard | **TreasuryModule** | Leaderboard-creation fee from the creator |
+| Register for a leaderboard (entry fee) | **TreasuryModule** | `entryFee` into the prize pool |
+| Sponsor a prize pool (`fundLeaderboard`) | **TreasuryModule** | Sponsorship amount into the prize pool |
+| Buy on the secondary market | **SecondaryMarketModule** | `purchasePrice` (escrowed, then claimable by the seller) |
+
+Protocol fees are pulled by TreasuryModule (routed through OspexCore's `processFee`/`processSplitFee` relays) and go directly to the immutable protocol receiver; they never sit in TreasuryModule. Prize-pool money (entry fees, sponsorships) is held by TreasuryModule until winners claim.
+
 ---
 
 ## Security Model
@@ -242,7 +262,7 @@ Each implements `determineWinSide(contestId, lineTicks)` returning which side wo
 - **Zero admin functions** on PositionModule (user fund escrow)
 - **Bootstrap-then-finalize** — no admin key after deployment
 - **CreOracleReceiver passive validation** — the oracle has no admin function; it only accepts a DON report that clears the `onReport` trust funnel (trusted KeystoneForwarder, matching workflow owner/name, domain separation, per-report idempotency, fail-closed request binding). There are no on-chain script approvals.
-- **Timelock-governed CRE workflow** — the off-chain workflow is owned directly by `OspexCreTimelock`, a per-action timelock (7-day mainnet delay, single cold-wallet controller). Pause / code-update / delete / lifecycle ops are reachable but timelocked 7 days; only Vault secret allowlist requests (every `cre secrets` op) have the 1-second fast lane.
+- **Timelock-governed CRE workflow** — workflow ownership sits behind `OspexCreTimelock` (7-day delay on all workflow operations; see the CreOracleReceiver governance note above and [TRUST_MODEL.md](./TRUST_MODEL.md)).
 - **Operator can halt, not steal** — an operator that stops running/funding the workflow can only stall scoring, which lets affected Verified contests auto-void and refund permissionlessly after the cooldown; settlement is immutable and settle/claim are permissionless.
 
 ---

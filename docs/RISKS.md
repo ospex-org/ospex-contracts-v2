@@ -1,7 +1,7 @@
 # Ospex Protocol — Risk Assessment
 
-> **As of commit**: `d34f0d0`
-> **Last updated**: 2026-05-05
+> **As of commit**: `b3d6647`
+> **Last updated**: 2026-07-05
 > **Chain**: Polygon mainnet (chain ID 137) / Polygon Amoy testnet (chain ID 80002)
 > **Trust model**: Zero-admin (bootstrap-then-finalize)
 
@@ -27,12 +27,12 @@ The smart contracts have not been professionally audited. All 13 deployed contra
 **What this means:**
 - There may be undiscovered vulnerabilities — reentrancy paths, integer edge cases, incorrect access control, or economic exploits that a professional audit would catch.
 - The protocol uses established libraries (OpenZeppelin ReentrancyGuard, SafeERC20, EIP712, ECDSA) and follows Checks-Effects-Interactions, but these mitigations are only as good as their application.
-- Every other risk in this document is amplified by the absence of an audit.
 - **The zero-admin model means there is no upgrade path.** If a critical bug is found, the only recourse is deploying new contracts and migrating users. The deployer cannot hotfix, pause, or swap modules.
 
 **Mitigation:**
-- Source code is publicly available for review.
+- Source code is publicly available for review, with function-level process maps in [E2E_TRACES.md](./E2E_TRACES.md) to make independent review practical.
 - The hardening cycle eliminated all admin powers, reducing the attack surface to contract logic bugs only.
+- The protocol is under active maintenance and review: an internal adversarial engineering review (2026-07-05; 32 independent review agents, 253 source-verified claims) found no fund-safety issues, and its findings — documentation gaps and the leaderboard scaling bounds in §4 — are incorporated into this document set. This is not a substitute for an independent audit.
 - A professional audit is planned but has not been scheduled.
 
 **User guidance:** Do not deposit funds you cannot afford to lose.
@@ -65,8 +65,6 @@ The zero-admin model means the protocol has no emergency controls. There is no p
 ---
 
 ## 3. Oracle & Settlement — HIGH
-
-> **R4 (Chainlink Functions) — SUPERSEDED by the R5 Chainlink CRE oracle migration.** See CreOracleReceiver / the cre-oracle skill. The section below describes the retired R4 oracle (Chainlink Functions, approved signer, hash-locked scripts, LINK-per-call). Under R5 the oracle is an off-chain Chainlink CRE workflow reporting into `CreOracleReceiver`; there is no approved signer, no on-chain script hash, and no caller-paid LINK. The triple-source verification still applies, now enforced inside the CRE workflow. See the added **"CRE workflow-owner / governance compromise"** risk in §6 (Key Management) and the residual operator-liveness note there.
 
 Contest outcomes are determined by an off-chain Chainlink CRE workflow that queries three independent sports data APIs and reports back through a trusted KeystoneForwarder to `CreOracleReceiver`. The CRE workflow is operated and funded off-chain by the protocol developer.
 
@@ -104,6 +102,15 @@ SecondaryMarketModule is deployed and functional. Positions transferred via the 
 ### Prize Pool Dust
 
 Leaderboard prize distribution divides the pool among winners. Rounding can leave small amounts in TreasuryModule. There is no admin sweep — this dust remains in the contract indefinitely.
+
+### Leaderboard Scaling & Configuration Bounds
+
+The leaderboard layer is the only part of the protocol whose transaction gas grows with user input (the core match/fill/settle/claim paths are all constant-cost). Measured with Foundry against the deployed source, under cold-storage conditions:
+
+- **ROI submission is linear in registered positions.** `submitLeaderboardROI` costs ≈ 142k gas plus ≈ 20.4k gas per registered position (worst case — every position a winner). It is one-shot, non-paginated, and must fit in a single transaction inside the fixed ROI window: against a 30M gas ceiling that is roughly 1,400 positions; against Polygon's current 160M block gas limit, roughly 7,800. A user who registers more positions than fit in one transaction cannot submit at all and forfeits — there is no pagination and no alternate claim path. Because each registered position requires a distinct creator-whitelisted (contest, scorer) slot, ordinary leaderboards sit far below these bounds; creators should still keep eligible-market counts sane (hundreds, not thousands).
+- **There is no prospective-ROI view function.** To preview ROI before submitting, simulate `submitLeaderboardROI` via `eth_call` (subject to the RPC provider's gas cap, commonly 50M ≈ roughly 2,400 positions).
+- **Settle before you submit.** ROI reads each speculation's live outcome at submission time; a scored-but-not-yet-settled speculation still reads as TBD and contributes zero — permanently, since submission is final. Call the permissionless `settleSpeculation()` on every market you registered before submitting. See [DESIGN_DECISIONS.md](./DESIGN_DECISIONS.md#leaderboard-roi-submission-is-one-shot-and-timing-dependent).
+- **Exact-ROI ties are reproducible** (identical declared bankroll and identical positions produce identical ROI), and tie handling has two costs that grow with the tie-cohort size: the next strictly-higher submitter pays to clear the previous tied-winner list inside their own transaction, and every prize claimant pays a linear membership scan. A deliberately manufactured mega-tie (thousands of sybil entries at the same ROI) could make out-submitting the cohort prohibitively expensive inside the fixed window. **Creator guidance:** for leaderboards with meaningful prize pools, set a non-zero entry fee and a non-zero minimum bet percentage — both make sybil ties expensive — and prefer curated, bounded speculation whitelists.
 
 ---
 
@@ -143,9 +150,7 @@ The protocol's off-chain infrastructure has no redundancy.
 
 **Key Management:**
 
-> **R4 (Chainlink Functions) — SUPERSEDED by the R5 Chainlink CRE oracle migration.** See CreOracleReceiver / the cre-oracle skill. The R4 "approved signer key" trust dependency below no longer exists — R5 has no approved signer and no on-chain script approvals. See the **CRE workflow-owner / governance compromise** risk that replaces it.
-
-- **CRE workflow-owner / governance compromise** (replaces the R4 approved-signer risk): The CRE workflow is owned directly by an `OspexCreTimelock` per-action timelock (a close port of Chainlink's audited `Timelock.sol`), whose proposer/executor/canceller is held by a single cold-wallet controller. A compromise of that controller could, after the 7-day timelock delay, push a malicious workflow update or pause the workflow. It **cannot pause the oracle quickly** (pause is reachable but inherits the 7-day delay — only Vault secret allowlist requests have the 1-second fast lane) and **cannot touch protocol funds** (settlement is immutable; PositionModule has zero admin functions). *Mitigations:* every code/lifecycle operation must be scheduled on-chain and is observable for the full 7-day window before it can take effect, so a malicious operation can be seen — and cancelled, or the protocol exited — before it lands; the auto-void/refund floor still returns principal permissionlessly regardless. As the protocol matures, the controller roles can be migrated to a multisig via a 7-day governance operation to remove the single-key dependency.
+- **CRE workflow-owner / governance compromise**: The CRE workflow is owned directly by an `OspexCreTimelock` per-action timelock (a close port of Chainlink's audited `Timelock.sol`), whose proposer/executor/canceller is held by a single cold-wallet controller. A compromise of that controller could, after the 7-day timelock delay, push a malicious workflow update or pause the workflow. It **cannot pause the oracle quickly** (pause is reachable but inherits the 7-day delay — only Vault secret allowlist requests have the 1-second fast lane) and **cannot touch protocol funds** (settlement is immutable; PositionModule has zero admin functions). *Mitigations:* every code/lifecycle operation must be scheduled on-chain and is observable for the full 7-day window before it can take effect, so a malicious operation can be seen — and cancelled, or the protocol exited — before it lands; the auto-void/refund floor still returns principal permissionlessly regardless. As the protocol matures, the controller roles can be migrated to a multisig via a 7-day governance operation to remove the single-key dependency.
 - **Residual operator-liveness risk:** The operator can **halt scoring** (e.g. by not running the workflow), which causes affected contests to **auto-void and refund** after the cooldown. Principal is always recoverable permissionlessly — no operator gate on settle/claim.
 - Agent wallet private keys are stored without hardware security module (HSM) or multisig protection.
 
