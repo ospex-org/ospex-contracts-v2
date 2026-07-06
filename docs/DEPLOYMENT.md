@@ -2,7 +2,7 @@
 
 ## Mainnet Contract Addresses (Polygon, Chain ID 137)
 
-**Current deploy:** Round 5 (CRE oracle migration), 2026-06-28 (first tx block 89322650). R5 replaces the Chainlink Functions `OracleModule` with `CreOracleReceiver` in the `CRE_ORACLE_RECEIVER` slot, governed by an `OspexCreTimelock` on **Ethereum mainnet**. The full R5 per-deploy record (deploy metadata, first-tx hash, CRE/governance detail) is in [`deployment/POLYGON_MAINNET_R5.md`](deployment/POLYGON_MAINNET_R5.md). The prior round (R4) is archived; see [`deployment/POLYGON_MAINNET_R4.md`](deployment/POLYGON_MAINNET_R4.md) for its full record.
+**Current deploy:** Round 5 (CRE oracle migration), 2026-06-28 (first tx block 89322650). R5 replaces the Chainlink Functions `OracleModule` with `CreOracleReceiver` in the `CRE_ORACLE_RECEIVER` slot, governed by an `OspexCreTimelock` on **Ethereum mainnet**. The full R5 per-deploy record (deploy metadata, first-tx hash, CRE/governance detail) is in [`deployment/POLYGON_MAINNET_R5.md`](deployment/POLYGON_MAINNET_R5.md), and the registry provenance proof (exactly 12 modules registered, then finalized — with an independent-verification recipe) is in [`deployment/POLYGON_MAINNET_R5_PROVENANCE.md`](deployment/POLYGON_MAINNET_R5_PROVENANCE.md). The prior round (R4) is archived; see [`deployment/POLYGON_MAINNET_R4.md`](deployment/POLYGON_MAINNET_R4.md) for its full record.
 
 > The address table below is the **live R5 deploy** (the current address-of-record), finalized and zero-admin. The oracle slot is now `CreOracleReceiver` (the R4 Functions `OracleModule` is retired). Ethereum-mainnet governance addresses are in the **Governance** subsection below the table.
 

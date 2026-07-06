@@ -49,3 +49,5 @@ CRE workflow: `osverify` (workflow id `0097efdade80ff0a9557d927a1c07075a453bba9c
 ## Verification
 
 The raw Foundry broadcast log is not committed to the repo (`/broadcast/` is gitignored), so this record does not link one. Every address above is independently verifiable on-chain instead: contract code is present at each address on Polygon (chain 137), the contracts are source-verified on Polygonscan, and `OspexCore.s_finalized()` reads `true`.
+
+**Registry provenance:** the complete bootstrap history — one `bootstrapModules` transaction registering exactly the 12 modules above, followed by `finalize()` — is proven and reproducible in [`POLYGON_MAINNET_R5_PROVENANCE.md`](./POLYGON_MAINNET_R5_PROVENANCE.md) (machine-readable: [`polygon-mainnet-r5-provenance.json`](./polygon-mainnet-r5-provenance.json)).
