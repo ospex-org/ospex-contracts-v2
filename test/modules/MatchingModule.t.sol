@@ -626,36 +626,49 @@ contract MatchingModuleTest is Test {
         matchingModule.matchCommitment(c, sig, DEFAULT_TAKER_DESIRED_RISK);
     }
 
-    /// @notice raiseMinNonce invalidates below-floor commitments while at-or-above-floor
-    ///         commitments on the SAME speculation still match. This proves the "keep"
-    ///         half of the on-chain truth a market-maker bulk-nonce cancel relies on:
-    ///         raising the floor to 5 drops nonce 3 (NonceTooLow) but leaves nonce 6
-    ///         matchable. Both commitments share one maker and one speculation
-    ///         (contestId, scorer, lineTicks), differing only in nonce.
+    /// @notice raiseMinNonce invalidates only STRICTLY-below-floor commitments: on the SAME
+    ///         speculation, a commitment AT the floor and one ABOVE it both still match, while a
+    ///         below-floor one reverts. This proves the "keep" half of the on-chain truth a
+    ///         market-maker bulk-nonce cancel relies on — and specifically the BOUNDARY: the match
+    ///         check is `nonce < minNonce` (strict), so `nonce == newMinNonce` MUST survive. The MM
+    ///         picks `newMinNonce = max(target nonce) + 1`, so a keeper sitting exactly at the floor
+    ///         is the tightest surviving case; a `<=` check would wrongly burn it. All three
+    ///         commitments share one maker and one speculation, differing only in nonce.
     function test_RaiseMinNonceKeepsAtOrAboveFloor() public {
-        // low: nonce strictly below the floor-to-be (5)
+        // below the floor-to-be (5) — invalidated by the raise
         MatchingModule.OspexCommitment memory low = _defaultCommitment();
         low.nonce = 3;
         bytes memory lowSig = _signCommitment(low, MAKER_PK);
 
-        // keep: nonce at-or-above the floor-to-be (5)
-        MatchingModule.OspexCommitment memory keep = _defaultCommitment();
-        keep.nonce = 6;
-        bytes memory keepSig = _signCommitment(keep, MAKER_PK);
+        // AT the floor — the binding boundary; must survive (nonce == floor is NOT < floor)
+        MatchingModule.OspexCommitment memory atFloor = _defaultCommitment();
+        atFloor.nonce = 5;
+        bytes memory atFloorSig = _signCommitment(atFloor, MAKER_PK);
+
+        // above the floor — must survive
+        MatchingModule.OspexCommitment memory above = _defaultCommitment();
+        above.nonce = 6;
+        bytes memory aboveSig = _signCommitment(above, MAKER_PK);
 
         // Maker raises the nonce floor to 5 for this speculation.
         vm.prank(maker);
         matchingModule.raiseMinNonce(DEFAULT_CONTEST_ID, defaultScorer, DEFAULT_LINE_TICKS, 5);
 
-        // low (nonce 3 < 5) is now unmatchable.
+        // nonce 3 < 5 → unmatchable
         vm.prank(taker);
         vm.expectRevert(MatchingModule.MatchingModule__NonceTooLow.selector);
         matchingModule.matchCommitment(low, lowSig, DEFAULT_TAKER_DESIRED_RISK);
 
-        // keep (nonce 6 >= 5) survives the raise and still matches.
+        // nonce 5 == 5 → survives (a `<=` floor check would wrongly reject this exact boundary)
         vm.prank(taker);
-        matchingModule.matchCommitment(keep, keepSig, DEFAULT_TAKER_DESIRED_RISK);
-        assertEq(mockPosition.recordFillCallCount(), 1);
+        matchingModule.matchCommitment(atFloor, atFloorSig, DEFAULT_TAKER_DESIRED_RISK);
+
+        // nonce 6 > 5 → survives
+        vm.prank(taker);
+        matchingModule.matchCommitment(above, aboveSig, DEFAULT_TAKER_DESIRED_RISK);
+
+        // Both keepers matched; the below-floor one reverted before recording.
+        assertEq(mockPosition.recordFillCallCount(), 2);
     }
 
     function test_RaiseMinNoncePerMakerPerSpeculation() public {
