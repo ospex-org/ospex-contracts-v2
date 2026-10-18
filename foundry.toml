@@ -7,7 +7,11 @@ evm_version = "cancun"
 via_ir = true
 optimizer = true
 
-fs_permissions = [{ access = "read", path = "chainlink-functions" }, { access = "read-write", path = "deployments" }]
+fs_permissions = [
+    { access = "read", path = "chainlink-functions" },
+    { access = "read-write", path = "deployments" },
+    { access = "read", path = "lib/openzeppelin-contracts/package.json" },
+]
 
 [profile.ci]
 solc = "0.8.26"

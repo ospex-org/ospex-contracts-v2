@@ -27,9 +27,10 @@ jobs:
 
       - name: Clone exact dependencies directly
         run: |
-          # Remove any existing lib directories except forge-std
-          rm -rf lib/chainlink lib/foundry-chainlink-toolkit lib/openzeppelin-contracts
-          
+          # Remove any existing lib directories except the two submodules: forge-std and
+          # openzeppelin-contracts, which the checkout above pins to their recorded commits
+          rm -rf lib/chainlink lib/foundry-chainlink-toolkit
+
           # Clone chainlink directly to the exact commit you have locally
           git clone https://github.com/smartcontractkit/chainlink lib/chainlink
           cd lib/chainlink
@@ -38,13 +39,13 @@ jobs:
           
           # Clone other dependencies
           git clone https://github.com/smartcontractkit/foundry-chainlink-toolkit lib/foundry-chainlink-toolkit
-          git clone https://github.com/OpenZeppelin/openzeppelin-contracts lib/openzeppelin-contracts
 
       - name: Verify dependencies are installed
         run: |
           echo "Verifying chainlink files exist:"
           ls -la lib/chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol
           ls -la lib/chainlink/contracts/src/v0.8/functions/v1_0_0/libraries/FunctionsRequest.sol
+          git -C lib/openzeppelin-contracts log -1 --format='openzeppelin-contracts at %H'
           echo "Dependencies installed successfully!"
 
       - name: Show Forge version
