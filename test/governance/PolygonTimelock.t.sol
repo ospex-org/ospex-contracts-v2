@@ -33,11 +33,14 @@ contract PolygonTimelockTest is Test {
     uint256 internal constant DAY0 = 60;
     uint256 internal constant SEVEN_DAYS = 604_800;
 
-    /// @dev Kept apart from the script's own constant. OpenZeppelin v5.5.0's TimelockController built with
-    ///      this repo's foundry.toml, minus solc's 53-byte metadata trailer: the same on a Windows build, a
-    ///      Linux build and a standalone compile of the verification input.
-    bytes32 internal constant PINNED = 0xc3bc13a3ed744700e803d10a97d2d3305b017bd75c917bdc407a7fd02c0b944c;
-    uint256 internal constant PINNED_LENGTH = 5448;
+    /// @dev Kept apart from the script's own constants. OpenZeppelin v5.5.0's TimelockController built with
+    ///      this repo's foundry.toml, hashed with the 32-byte source digest in its metadata zeroed: the same
+    ///      on a Windows build, a Linux build, a standalone compile of the verification input, and in a
+    ///      deploy to a fork of Polygon.
+    bytes32 internal constant PINNED_INIT = 0x06e4a76c9b1409ecf842a8bb6d4a1e17eb1d2514f0a08c3f090ab894ee4ff757;
+    bytes32 internal constant PINNED_CODE = 0x2ded0b376fdbd407ed64919fa8ebf624dcd3ee6a65293a08bce7cee8cad2231a;
+    uint256 internal constant INIT_LENGTH = 6753;
+    uint256 internal constant CODE_LENGTH = 5448;
 
     bytes32 internal constant ADMIN = 0x00;
     bytes32 internal constant PROPOSER = keccak256("PROPOSER_ROLE");
@@ -148,10 +151,18 @@ contract PolygonTimelockTest is Test {
     /// `_grantRole(CANCELLER_ROLE, proposers[i]);` (and restore it afterwards). This goes red: the build is
     /// then not the pinned one, and the run refuses it with "not the pinned build".
     function test_mustNever3_onlyTheStockContractWithTheRuledRoles() public {
-        (TimelockController t, Write[] memory writes) = _deploy(DAY0);
+        (TimelockController t, Write[] memory writes, bytes memory sent) = _deployRecorded(DAY0);
+        bytes memory runtime = address(t).code;
 
-        assertEq(address(t).code.length, PINNED_LENGTH, "code length");
-        assertEq(_withoutTrailer(address(t).code), PINNED, "code is not the pinned build");
+        // What was sent: the pinned creation code, then the four ruled constructor arguments.
+        bytes memory args = abi.encode(DAY0, _list(k), _list(address(0)), address(0));
+        assertEq(sent.length, INIT_LENGTH + args.length, "init code length");
+        assertEq(_masked(_slice(sent, 0, INIT_LENGTH), runtime), PINNED_INIT, "creation code is not the pinned build");
+        assertEq(_slice(sent, INIT_LENGTH, args.length), args, "constructor arguments");
+
+        // What is there: the pinned runtime code, the ruled roles, and nothing else written.
+        assertEq(runtime.length, CODE_LENGTH, "code length");
+        assertEq(_masked(runtime, runtime), PINNED_CODE, "code is not the pinned build");
         _assertRuledRoles(t);
         _assertRuledWrites(t, writes, DAY0);
     }
@@ -171,35 +182,42 @@ contract PolygonTimelockTest is Test {
             "5.5.0",
             "the library's release"
         );
+        assertEq(script.STOCK_INIT_HASH(), PINNED_INIT, "script's creation-code pin");
+        assertEq(script.STOCK_CODE_HASH(), PINNED_CODE, "script's runtime-code pin");
         (TimelockController t,) = _deploy(DAY0);
         bytes memory code = address(t).code;
-        assertEq(script.STOCK_CODE_HASH(), PINNED, "script's pin");
-        assertEq(_withoutTrailer(code), PINNED, "deployed code");
-        assertEq(script.stockHash(code), PINNED, "script's hash of the deployed code");
+        bytes memory init = type(TimelockController).creationCode;
+        assertEq(script.stockHash(code), PINNED_CODE, "script's hash of the deployed code");
+        assertEq(script.stockHash(init), PINNED_INIT, "script's hash of the creation code");
 
-        // One changed byte of executable code is refused...
+        // A changed byte outside the source digest is refused: in the code...
         bytes memory changed = bytes.concat(code);
         changed[100] = changed[100] ^ 0x01;
-        assertTrue(script.stockHash(changed) != PINNED, "a changed opcode passes");
+        assertTrue(script.stockHash(changed) != PINNED_CODE, "a changed opcode passes");
         vm.etch(address(t), changed);
         VmSafe.Log[] memory none;
         vm.expectRevert(bytes("not the pinned build"));
         script.verify(t, k, deployer, DAY0, none);
+        // ...in the metadata's compiler version (its last byte sits 3 from the end)...
+        bytes memory compiler = bytes.concat(code);
+        compiler[compiler.length - 3] = compiler[compiler.length - 3] ^ 0x01;
+        assertTrue(script.stockHash(compiler) != PINNED_CODE, "another compiler version passes");
+        // ...and in the constructor.
+        bytes memory constructorChanged = bytes.concat(init);
+        constructorChanged[100] = constructorChanged[100] ^ 0x01;
+        assertTrue(script.stockHash(constructorChanged) != PINNED_INIT, "a changed constructor passes");
 
-        // ...and so is code whose trailer does not declare 0x0033, or code too short to hold one.
-        bytes memory low = bytes.concat(code);
-        low[low.length - 1] = 0x34;
-        assertEq(script.stockHash(low), bytes32(0), "a trailer length of 0x0034 passes");
-        bytes memory high = bytes.concat(code);
-        high[high.length - 2] = 0x01;
-        assertEq(script.stockHash(high), bytes32(0), "a trailer length of 0x0133 passes");
-        assertEq(script.stockHash(hex"0033"), bytes32(0), "two bytes pass");
+        // Code with no metadata section, or with two, is refused.
+        bytes memory bare = bytes.concat(code);
+        bare[bare.length - 53] = 0x00;
+        assertEq(script.stockHash(bare), bytes32(0), "code with no metadata section passes");
+        assertEq(script.stockHash(bytes.concat(code, code)), bytes32(0), "code with two sections passes");
 
-        // Only the trailer's 32-byte source digest is not compared: it hashes the source text, which
-        // changes with line endings.
+        // Only the 32-byte source digest is not compared: it hashes the source text, which changes with
+        // a checkout's line endings.
         bytes memory digest = bytes.concat(code);
         digest[digest.length - 20] = digest[digest.length - 20] ^ 0x01;
-        assertEq(script.stockHash(digest), PINNED, "the digest is compared");
+        assertEq(script.stockHash(digest), PINNED_CODE, "the digest is compared");
     }
 
     /// run() reads the deployed contract back before it returns; the verify() tests above show what the
@@ -448,9 +466,27 @@ contract PolygonTimelockTest is Test {
     // ---------------------------------------------------------------------------------------------------
 
     function _deploy(uint256 delay) internal returns (TimelockController t, Write[] memory writes) {
+        (t, writes,) = _deployRecorded(delay);
+    }
+
+    /// @dev Deploys through the script and returns what the state diff saw: every storage write to the
+    ///      timelock, and the init code its creation was sent.
+    function _deployRecorded(uint256 delay)
+        internal
+        returns (TimelockController t, Write[] memory writes, bytes memory sent)
+    {
         vm.startStateDiffRecording();
         t = script.run(k, 137, delay);
         VmSafe.AccountAccess[] memory diff = vm.stopAndReturnStateDiff();
+
+        uint256 creates;
+        for (uint256 i; i < diff.length; ++i) {
+            if (diff[i].kind == VmSafe.AccountAccessKind.Create && diff[i].account == address(t)) {
+                sent = diff[i].data;
+                ++creates;
+            }
+        }
+        assertEq(creates, 1, "one creation");
 
         uint256 n;
         for (uint256 i; i < diff.length; ++i) {
@@ -526,13 +562,30 @@ contract PolygonTimelockTest is Test {
         script.verify(t, k, address(this), DAY0, logs);
     }
 
-    /// @dev keccak256 of `code` without its last 53 bytes, written apart from the script's stockHash.
-    function _withoutTrailer(bytes memory code) internal pure returns (bytes32 h) {
-        bytes memory body = new bytes(code.length - 53);
-        for (uint256 i; i < body.length; ++i) {
-            body[i] = code[i];
+    /// @dev Written apart from the script's stockHash: the source digest is read by position from the
+    ///      runtime's 53-byte metadata trailer (it fills the trailer's bytes 10 to 41), then its one copy in
+    ///      `code` is zeroed.
+    function _masked(bytes memory code, bytes memory runtime) internal pure returns (bytes32) {
+        bytes32 digest = bytes32(_slice(runtime, runtime.length - 43, 32));
+        bytes memory c = bytes.concat(code);
+        uint256 copies;
+        for (uint256 i; i + 32 <= c.length; ++i) {
+            if (bytes32(_slice(c, i, 32)) == digest) {
+                for (uint256 j; j < 32; ++j) {
+                    c[i + j] = 0;
+                }
+                ++copies;
+            }
         }
-        h = keccak256(body);
+        assertEq(copies, 1, "copies of the source digest");
+        return keccak256(c);
+    }
+
+    function _slice(bytes memory b, uint256 start, uint256 len) internal pure returns (bytes memory out) {
+        out = new bytes(len);
+        for (uint256 i; i < len; ++i) {
+            out[i] = b[start + i];
+        }
     }
 
     function _expectRefused(TimelockController t, VmSafe.Log[] memory logs, string memory reason) internal {

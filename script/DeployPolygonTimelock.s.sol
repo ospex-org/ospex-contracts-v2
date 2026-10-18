@@ -20,11 +20,11 @@ import {TimelockController} from "@openzeppelin/contracts/governance/TimelockCon
  *         Both fail unless the timelock's code, roles, delay and logs are exactly that layout.
  */
 contract DeployPolygonTimelock is Script {
-    /// @dev keccak256 of TimelockController's runtime code from OpenZeppelin v5.5.0 (commit fcbae53),
-    ///      built with this repo's foundry.toml, minus solc's 53-byte metadata trailer. The trailer
-    ///      hashes the source text, which changes with a checkout's line endings, so it is left out.
-    ///      v5.6.1 and v5.7.0 build to the same code, so the release is checked on its own as well.
-    bytes32 public constant STOCK_CODE_HASH = 0xc3bc13a3ed744700e803d10a97d2d3305b017bd75c917bdc407a7fd02c0b944c;
+    /// @dev OpenZeppelin v5.5.0's TimelockController (commit fcbae53) built with this repo's foundry.toml:
+    ///      stockHash of its creation code and of its runtime code. v5.6.1 and v5.7.0 build to the same
+    ///      bytes apart from the source digest that stockHash zeroes, so the release is checked on its own.
+    bytes32 public constant STOCK_INIT_HASH = 0x06e4a76c9b1409ecf842a8bb6d4a1e17eb1d2514f0a08c3f090ab894ee4ff757;
+    bytes32 public constant STOCK_CODE_HASH = 0x2ded0b376fdbd407ed64919fa8ebf624dcd3ee6a65293a08bce7cee8cad2231a;
     string public constant OPENZEPPELIN = "5.5.0";
     uint256 public constant POLYGON = 137;
 
@@ -36,6 +36,7 @@ contract DeployPolygonTimelock is Script {
         require(block.chainid == chainId, "the RPC is not on chain 137");
         string memory release = vm.parseJsonString(vm.readFile("lib/openzeppelin-contracts/package.json"), ".version");
         require(keccak256(bytes(release)) == keccak256(bytes(OPENZEPPELIN)), "OpenZeppelin is not v5.5.0");
+        require(stockHash(type(TimelockController).creationCode) == STOCK_INIT_HASH, "not the pinned build");
 
         vm.recordLogs();
         vm.startBroadcast();
@@ -104,14 +105,26 @@ contract DeployPolygonTimelock is Script {
         );
     }
 
-    /// @notice keccak256 of `code` without solc's metadata trailer, whose length (0x33) is the last two
-    ///         bytes. Zero when the code does not end that way.
-    function stockHash(bytes memory code) public pure returns (bytes32 h) {
-        uint256 n = code.length;
-        if (n < 53 || code[n - 2] != 0x00 || code[n - 1] != 0x33) return bytes32(0);
-        assembly ("memory-safe") {
-            h := keccak256(add(code, 0x20), sub(n, 53))
+    /// @notice keccak256 of `code` with the 32-byte source digest in solc's metadata zeroed. The digest
+    ///         hashes the source text, which changes with a checkout's line endings; every other byte is
+    ///         compared. Zero unless `code` holds exactly one metadata section.
+    function stockHash(bytes memory code) public pure returns (bytes32) {
+        bytes memory c = bytes.concat(code);
+        uint256 sections;
+        for (uint256 i; i + 42 <= c.length; ++i) {
+            uint256 word;
+            assembly ("memory-safe") {
+                word := mload(add(add(c, 0x20), i))
+            }
+            // a2 64 "ipfs" 58 22 12 20: the metadata's first key, then the 32-byte digest's header.
+            if (word >> 176 == 0xa2646970667358221220) {
+                assembly ("memory-safe") {
+                    mstore(add(add(c, 0x2a), i), 0)
+                }
+                ++sections;
+            }
         }
+        return sections == 1 ? keccak256(c) : bytes32(0);
     }
 
     function _one(address a) private pure returns (address[] memory list) {
