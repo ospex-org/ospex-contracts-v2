@@ -20,9 +20,14 @@ import {TimelockController} from "@openzeppelin/contracts/governance/TimelockCon
  *         Both fail unless the timelock's code, roles, delay and logs are exactly that layout.
  */
 contract DeployPolygonTimelock is Script {
-    /// @dev OpenZeppelin v5.5.0's TimelockController (commit fcbae53) built with this repo's foundry.toml:
-    ///      stockHash of its creation code and of its runtime code. v5.6.1 and v5.7.0 build to the same
-    ///      bytes apart from the source digest that stockHash zeroes, so the release is checked on its own.
+    /// @dev The frozen artifact: OpenZeppelin v5.5.0's TimelockController (commit fcbae53) with LF source
+    ///      text, built by solc 0.8.26 with this repo's foundry.toml and remappings.txt. keccak256 of its
+    ///      creation code and of its runtime code, every byte, the metadata included. A standalone compile
+    ///      of the verification input gives the same bytes.
+    bytes32 public constant EXACT_INIT_HASH = 0x352e04ba86c69a442bc4b3d0d009723eb1677dd9a81e9731a48befbd1fa11b4a;
+    bytes32 public constant EXACT_CODE_HASH = 0x1f4a487e94bf4ae08bcad7a0fda749625eb1fb682e5edd89400ee412b93833e7;
+    /// @dev The same two as stockHash, with the metadata's source digest zeroed: every executable byte.
+    ///      v5.6.1 and v5.7.0 build to the same executable bytes, so the release is checked on its own.
     bytes32 public constant STOCK_INIT_HASH = 0x06e4a76c9b1409ecf842a8bb6d4a1e17eb1d2514f0a08c3f090ab894ee4ff757;
     bytes32 public constant STOCK_CODE_HASH = 0x2ded0b376fdbd407ed64919fa8ebf624dcd3ee6a65293a08bce7cee8cad2231a;
     string public constant OPENZEPPELIN = "5.5.0";
@@ -37,6 +42,9 @@ contract DeployPolygonTimelock is Script {
         string memory release = vm.parseJsonString(vm.readFile("lib/openzeppelin-contracts/package.json"), ".version");
         require(keccak256(bytes(release)) == keccak256(bytes(OPENZEPPELIN)), "OpenZeppelin is not v5.5.0");
         require(stockHash(type(TimelockController).creationCode) == STOCK_INIT_HASH, "not the pinned build");
+        require(
+            keccak256(type(TimelockController).creationCode) == EXACT_INIT_HASH, "the metadata is not the pinned build's"
+        );
 
         vm.recordLogs();
         vm.startBroadcast();
@@ -72,6 +80,7 @@ contract DeployPolygonTimelock is Script {
         view
     {
         require(stockHash(address(timelock).code) == STOCK_CODE_HASH, "not the pinned build");
+        require(keccak256(address(timelock).code) == EXACT_CODE_HASH, "the metadata is not the pinned build's");
         require(timelock.getMinDelay() == delay, "delay is not the input");
 
         address[4] memory who = [k, address(0), address(timelock), deployer];
@@ -105,9 +114,9 @@ contract DeployPolygonTimelock is Script {
         );
     }
 
-    /// @notice keccak256 of `code` with the 32-byte source digest in solc's metadata zeroed. The digest
-    ///         hashes the source text, which changes with a checkout's line endings; every other byte is
-    ///         compared. Zero unless `code` holds exactly one metadata section.
+    /// @notice keccak256 of `code` with the 32-byte source digest in solc's metadata zeroed, so every other
+    ///         byte is compared. Checked before the exact hash, it tells a changed contract ("not the pinned
+    ///         build") from a changed metadata. Zero unless `code` holds exactly one metadata section.
     function stockHash(bytes memory code) public pure returns (bytes32) {
         bytes memory c = bytes.concat(code);
         uint256 sections;

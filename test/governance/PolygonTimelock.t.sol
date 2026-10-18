@@ -33,10 +33,12 @@ contract PolygonTimelockTest is Test {
     uint256 internal constant DAY0 = 60;
     uint256 internal constant SEVEN_DAYS = 604_800;
 
-    /// @dev Kept apart from the script's own constants. OpenZeppelin v5.5.0's TimelockController built with
-    ///      this repo's foundry.toml, hashed with the 32-byte source digest in its metadata zeroed: the same
-    ///      on a Windows build, a Linux build, a standalone compile of the verification input, and in a
-    ///      deploy to a fork of Polygon.
+    /// @dev Kept apart from the script's own constants. The frozen artifact: OpenZeppelin v5.5.0's
+    ///      TimelockController with LF source text, built by solc 0.8.26 with this repo's foundry.toml and
+    ///      remappings.txt, every byte hashed, the metadata included.
+    bytes32 internal constant EXACT_INIT = 0x352e04ba86c69a442bc4b3d0d009723eb1677dd9a81e9731a48befbd1fa11b4a;
+    bytes32 internal constant EXACT_CODE = 0x1f4a487e94bf4ae08bcad7a0fda749625eb1fb682e5edd89400ee412b93833e7;
+    /// @dev The same two with the 32-byte source digest in the metadata zeroed: every executable byte.
     bytes32 internal constant PINNED_INIT = 0x06e4a76c9b1409ecf842a8bb6d4a1e17eb1d2514f0a08c3f090ab894ee4ff757;
     bytes32 internal constant PINNED_CODE = 0x2ded0b376fdbd407ed64919fa8ebf624dcd3ee6a65293a08bce7cee8cad2231a;
     uint256 internal constant INIT_LENGTH = 6753;
@@ -158,11 +160,13 @@ contract PolygonTimelockTest is Test {
         bytes memory args = abi.encode(DAY0, _list(k), _list(address(0)), address(0));
         assertEq(sent.length, INIT_LENGTH + args.length, "init code length");
         assertEq(_masked(_slice(sent, 0, INIT_LENGTH), runtime), PINNED_INIT, "creation code is not the pinned build");
+        assertEq(keccak256(_slice(sent, 0, INIT_LENGTH)), EXACT_INIT, "creation code is not the frozen artifact");
         assertEq(_slice(sent, INIT_LENGTH, args.length), args, "constructor arguments");
 
         // What is there: the pinned runtime code, the ruled roles, and nothing else written.
         assertEq(runtime.length, CODE_LENGTH, "code length");
         assertEq(_masked(runtime, runtime), PINNED_CODE, "code is not the pinned build");
+        assertEq(keccak256(runtime), EXACT_CODE, "code is not the frozen artifact");
         _assertRuledRoles(t);
         _assertRuledWrites(t, writes, DAY0);
     }
@@ -182,11 +186,16 @@ contract PolygonTimelockTest is Test {
             "5.5.0",
             "the library's release"
         );
-        assertEq(script.STOCK_INIT_HASH(), PINNED_INIT, "script's creation-code pin");
-        assertEq(script.STOCK_CODE_HASH(), PINNED_CODE, "script's runtime-code pin");
+        assertEq(script.EXACT_INIT_HASH(), EXACT_INIT, "script's creation-code pin");
+        assertEq(script.EXACT_CODE_HASH(), EXACT_CODE, "script's runtime-code pin");
+        assertEq(script.STOCK_INIT_HASH(), PINNED_INIT, "script's executable creation-code pin");
+        assertEq(script.STOCK_CODE_HASH(), PINNED_CODE, "script's executable runtime-code pin");
         (TimelockController t,) = _deploy(DAY0);
         bytes memory code = address(t).code;
         bytes memory init = type(TimelockController).creationCode;
+        // This build is the frozen artifact, every byte, and so is what the deploy left on chain.
+        assertEq(keccak256(init), EXACT_INIT, "the build's creation code is not the frozen artifact");
+        assertEq(keccak256(code), EXACT_CODE, "the deployed code is not the frozen artifact");
         assertEq(script.stockHash(code), PINNED_CODE, "script's hash of the deployed code");
         assertEq(script.stockHash(init), PINNED_INIT, "script's hash of the creation code");
 
@@ -213,11 +222,24 @@ contract PolygonTimelockTest is Test {
         assertEq(script.stockHash(bare), bytes32(0), "code with no metadata section passes");
         assertEq(script.stockHash(bytes.concat(code, code)), bytes32(0), "code with two sections passes");
 
-        // Only the 32-byte source digest is not compared: it hashes the source text, which changes with
-        // a checkout's line endings.
+        // A changed source digest is refused too. The executable-code hash does not see it; the exact
+        // hash does.
         bytes memory digest = bytes.concat(code);
         digest[digest.length - 20] = digest[digest.length - 20] ^ 0x01;
-        assertEq(script.stockHash(digest), PINNED_CODE, "the digest is compared");
+        assertEq(script.stockHash(digest), PINNED_CODE, "the executable-code hash sees the digest");
+        vm.etch(address(t), digest);
+        vm.expectRevert(bytes("the metadata is not the pinned build's"));
+        script.verify(t, k, deployer, DAY0, none);
+        // Control: with the deployed code put back, both code checks pass and the read-back reaches the
+        // logs, of which none were given.
+        vm.etch(address(t), code);
+        vm.expectRevert(bytes("the timelock has other logs"));
+        script.verify(t, k, deployer, DAY0, none);
+
+        // The run refuses a changed build before it creates anything: a changed constructor byte, and a
+        // changed source digest, in the creation code the script carries.
+        _expectRunRefusesBeforeBuilding(100, "not the pinned build");
+        _expectRunRefusesBeforeBuilding(_offsetOf(init, _digest(code)), "the metadata is not the pinned build's");
     }
 
     /// run() reads the deployed contract back before it returns; the verify() tests above show what the
@@ -579,6 +601,57 @@ contract PolygonTimelockTest is Test {
         }
         assertEq(copies, 1, "copies of the source digest");
         return keccak256(c);
+    }
+
+    /// @dev The source digest, read by position from the runtime's 53-byte metadata trailer.
+    function _digest(bytes memory runtime) internal pure returns (bytes32) {
+        return bytes32(_slice(runtime, runtime.length - 43, 32));
+    }
+
+    /// @dev Where the one copy of `word` starts in `b`.
+    function _offsetOf(bytes memory b, bytes32 word) internal pure returns (uint256 at) {
+        uint256 copies;
+        for (uint256 i; i + 32 <= b.length; ++i) {
+            if (_word(b, i) == word) {
+                at = i;
+                ++copies;
+            }
+        }
+        assertEq(copies, 1, "copies of the word");
+    }
+
+    function _word(bytes memory b, uint256 i) internal pure returns (bytes32 w) {
+        assembly ("memory-safe") {
+            w := mload(add(add(b, 0x20), i))
+        }
+    }
+
+    /// @dev The script carries the timelock's creation code inside its own code. Flips byte `pos` of every
+    ///      copy there, runs the changed script, and expects it refused for `reason` before any contract is
+    ///      created (a creation the refusal later undoes is still recorded). Then puts the script back.
+    function _expectRunRefusesBeforeBuilding(uint256 pos, string memory reason) internal {
+        bytes memory init = type(TimelockController).creationCode;
+        bytes memory original = address(script).code;
+        bytes memory changed = bytes.concat(original);
+        uint256 copies;
+        for (uint256 i; i + init.length <= changed.length; ++i) {
+            if (_word(changed, i) == _word(init, 0) && keccak256(_slice(changed, i, init.length)) == keccak256(init)) {
+                changed[i + pos] = changed[i + pos] ^ 0x01;
+                ++copies;
+                i += init.length - 1;
+            }
+        }
+        assertGt(copies, 0, "the script carries the creation code");
+
+        vm.etch(address(script), changed);
+        vm.startStateDiffRecording();
+        vm.expectRevert(bytes(reason));
+        script.run(k, 137, DAY0);
+        VmSafe.AccountAccess[] memory diff = vm.stopAndReturnStateDiff();
+        for (uint256 i; i < diff.length; ++i) {
+            assertTrue(diff[i].kind != VmSafe.AccountAccessKind.Create, "a contract was created");
+        }
+        vm.etch(address(script), original);
     }
 
     function _slice(bytes memory b, uint256 start, uint256 len) internal pure returns (bytes memory out) {

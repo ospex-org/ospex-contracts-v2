@@ -1,0 +1,4 @@
+# Check out text with LF line endings on every platform. Solidity's metadata hashes each source file's
+# text, so a CRLF checkout builds to a different metadata hash. A submodule follows its own attributes and
+# the local git config, not this file.
+* text=auto eol=lf
