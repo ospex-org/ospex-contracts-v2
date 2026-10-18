@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {VmSafe} from "forge-std/Vm.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {DeployPolygonTimelock} from "../../script/DeployPolygonTimelock.s.sol";
 
@@ -72,7 +73,7 @@ contract PolygonTimelockTest is Test {
 
     /// Must never happen 1: the deploy is sent from the key's address.
     /// Break: delete `require(k != sender, "K is the sender");` in run(). This goes red: the timelock is
-    /// then built, and only the read-back refuses it, with "the deployer is K".
+    /// then built, and only the read-back refuses it, with "a role is not as ruled".
     function test_mustNever1_theKeyCannotSendTheDeploy() public {
         uint64 nonce = vm.getNonce(deployer);
         address wouldBe = vm.computeCreateAddress(deployer, nonce);
@@ -185,13 +186,77 @@ contract PolygonTimelockTest is Test {
         vm.expectRevert(bytes("not the pinned build"));
         script.verify(t, k, deployer, DAY0, none);
 
-        // ...and so is a trailer of another length. Only the trailer's 32-byte source digest is not
-        // compared: it hashes the source text, which changes with line endings.
+        // ...and so is code whose trailer does not declare 0x0033, or code too short to hold one.
+        bytes memory low = bytes.concat(code);
+        low[low.length - 1] = 0x34;
+        assertEq(script.stockHash(low), bytes32(0), "a trailer length of 0x0034 passes");
+        bytes memory high = bytes.concat(code);
+        high[high.length - 2] = 0x01;
+        assertEq(script.stockHash(high), bytes32(0), "a trailer length of 0x0133 passes");
+        assertEq(script.stockHash(hex"0033"), bytes32(0), "two bytes pass");
+
+        // Only the trailer's 32-byte source digest is not compared: it hashes the source text, which
+        // changes with line endings.
         bytes memory digest = bytes.concat(code);
         digest[digest.length - 20] = digest[digest.length - 20] ^ 0x01;
         assertEq(script.stockHash(digest), PINNED, "the digest is compared");
-        bytes memory longer = bytes.concat(code, hex"00");
-        assertEq(script.stockHash(longer), bytes32(0), "a trailer of another length passes");
+    }
+
+    /// run() reads the deployed contract back before it returns; the verify() tests above show what the
+    /// read-back refuses. (A wrong answer cannot be mocked in: forge puts code at a mocked address, and
+    /// the deploy then collides with it.)
+    function test_readBack_runReadsTheDeployedContract() public {
+        address next = vm.computeCreateAddress(deployer, vm.getNonce(deployer));
+        vm.expectCall(next, abi.encodeCall(TimelockController.getMinDelay, ()), 1);
+        vm.expectCall(next, abi.encodeCall(IAccessControl.hasRole, (PROPOSER, k)), 1);
+        vm.expectCall(next, abi.encodeCall(IAccessControl.hasRole, (ADMIN, deployer)), 1);
+        assertEq(address(script.run(k, 137, DAY0)), next, "deployed there");
+    }
+
+    /// The read-back compares every field of every log, in order. Built from this test contract, so
+    /// the deployer is address(this).
+    function test_readBack_everyLogFieldIsCompared() public {
+        vm.recordLogs();
+        TimelockController t = new TimelockController(DAY0, _list(k), _list(address(0)), address(0));
+        VmSafe.Log[] memory logs = vm.getRecordedLogs();
+        script.verify(t, k, address(this), DAY0, logs);
+
+        // A deployer named wrongly holds no role either; only the logs' sender field shows it.
+        vm.expectRevert(bytes("a role log is not as ruled"));
+        script.verify(t, k, stranger, DAY0, logs);
+
+        for (uint256 i; i < logs.length; ++i) {
+            string memory reason = i < 4 ? "a role log is not as ruled" : "the delay log is not as ruled";
+            VmSafe.Log[] memory bad = _copy(logs);
+            bad[i].emitter = stranger;
+            _expectRefused(t, bad, reason);
+
+            for (uint256 j; j < logs[i].topics.length; ++j) {
+                bad = _copy(logs);
+                bad[i].topics[j] = bytes32(uint256(bad[i].topics[j]) ^ 1);
+                _expectRefused(t, bad, reason);
+            }
+
+            bad = _copy(logs);
+            bytes32[] memory fewer = new bytes32[](logs[i].topics.length - 1);
+            for (uint256 j; j < fewer.length; ++j) {
+                fewer[j] = logs[i].topics[j];
+            }
+            bad[i].topics = fewer;
+            _expectRefused(t, bad, reason);
+
+            bad = _copy(logs);
+            bad[i].data = bytes.concat(bad[i].data, hex"00");
+            _expectRefused(t, bad, reason);
+        }
+
+        VmSafe.Log[] memory swapped = _copy(logs);
+        (swapped[1], swapped[2]) = (swapped[2], swapped[1]);
+        _expectRefused(t, swapped, "a role log is not as ruled");
+
+        VmSafe.Log[] memory otherDelay = _copy(logs);
+        otherDelay[4].data = abi.encode(uint256(0), DAY0 + 1);
+        _expectRefused(t, otherDelay, "the delay log is not as ruled");
     }
 
     /// 2. Proposer or canceller is anything but exactly {K}, K is zero or the deployer, or either role goes
@@ -468,6 +533,23 @@ contract PolygonTimelockTest is Test {
             body[i] = code[i];
         }
         h = keccak256(body);
+    }
+
+    function _expectRefused(TimelockController t, VmSafe.Log[] memory logs, string memory reason) internal {
+        vm.expectRevert(bytes(reason));
+        script.verify(t, k, address(this), DAY0, logs);
+    }
+
+    /// @dev A deep copy, so one change cannot reach the original's topics or data.
+    function _copy(VmSafe.Log[] memory logs) internal pure returns (VmSafe.Log[] memory out) {
+        out = new VmSafe.Log[](logs.length);
+        for (uint256 i; i < logs.length; ++i) {
+            bytes32[] memory topics = new bytes32[](logs[i].topics.length);
+            for (uint256 j; j < topics.length; ++j) {
+                topics[j] = logs[i].topics[j];
+            }
+            out[i] = VmSafe.Log(topics, bytes.concat(logs[i].data), logs[i].emitter);
+        }
     }
 
     function _list(address a) internal pure returns (address[] memory list) {

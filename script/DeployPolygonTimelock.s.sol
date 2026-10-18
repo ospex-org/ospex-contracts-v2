@@ -36,7 +36,6 @@ contract DeployPolygonTimelock is Script {
         require(block.chainid == chainId, "the RPC is not on chain 137");
         string memory release = vm.parseJsonString(vm.readFile("lib/openzeppelin-contracts/package.json"), ".version");
         require(keccak256(bytes(release)) == keccak256(bytes(OPENZEPPELIN)), "OpenZeppelin is not v5.5.0");
-        require(stockHash(type(TimelockController).runtimeCode) == STOCK_CODE_HASH, "not the pinned build");
 
         vm.recordLogs();
         vm.startBroadcast();
@@ -71,7 +70,6 @@ contract DeployPolygonTimelock is Script {
         public
         view
     {
-        require(k != deployer, "the deployer is K");
         require(stockHash(address(timelock).code) == STOCK_CODE_HASH, "not the pinned build");
         require(timelock.getMinDelay() == delay, "delay is not the input");
 
