@@ -6,8 +6,16 @@ solc = "0.8.26"
 evm_version = "cancun"
 via_ir = true
 optimizer = true
+# Remappings come from remappings.txt alone. Left on, forge adds one for each folder it finds under lib/,
+# and every contract's metadata records them, so the same sources would build to a different metadata
+# hash in a checkout with other libraries present.
+auto_detect_remappings = false
 
-fs_permissions = [{ access = "read", path = "chainlink-functions" }, { access = "read-write", path = "deployments" }]
+fs_permissions = [
+    { access = "read", path = "chainlink-functions" },
+    { access = "read-write", path = "deployments" },
+    { access = "read", path = "lib/openzeppelin-contracts/package.json" },
+]
 
 [profile.ci]
 solc = "0.8.26"

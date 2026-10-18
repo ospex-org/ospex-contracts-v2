@@ -1,0 +1,5 @@
+# Check out text with LF line endings on every platform, so the files on disk are the text solc hashes
+# into each contract's metadata. Foundry turns CRLF into LF before it compiles, so with it a CRLF checkout
+# builds the same bytes; a tool that hands the files to solc as they are would not. A submodule follows
+# its own attributes and the local git config, not this file.
+* text=auto eol=lf
