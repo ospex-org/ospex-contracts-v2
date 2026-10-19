@@ -213,6 +213,12 @@ contract DeploySignpostTest is Test {
         }
         f.contracts = twelve;
         _expectDeployRefused(f, "v2 is its core and twelve modules");
+
+        // A core that is not finalized.
+        f = script.v2();
+        vm.mockCall(V2_CORE, abi.encodeWithSignature("s_finalized()"), abi.encode(false));
+        _expectDeployRefused(f, "the core is not finalized");
+        vm.clearMockedCalls();
     }
 
     /// The script carries the signpost's creation code. A changed executable byte, and a changed source
@@ -223,11 +229,27 @@ contract DeploySignpostTest is Test {
         assertEq(script.stockHash(init), script.STOCK_INIT_HASH(), "its executable bytes");
         _expectRunRefusesBeforeBuilding(100, "not the pinned build");
         _expectRunRefusesBeforeBuilding(_digestOffset(init), "the metadata is not the pinned build's");
+
+        // Code with no metadata section, or with two, has no executable-code hash at all.
+        bytes memory bare = bytes.concat(init);
+        bare[_digestOffset(init) - 10] = 0x00;
+        assertEq(script.stockHash(bare), bytes32(0), "code with no metadata section");
+        assertEq(script.stockHash(bytes.concat(init, init)), bytes32(0), "code with two sections");
     }
 
-    /// The read-back compares the code, the owner, every field of the one entry, and its one log. run() reads
-    /// forge's recorded logs for its own read-back, which leaves none for a test, so the signpost here is
-    /// built by the test with v2's values: the same code, since the code holds only the owner's address.
+    /// run() reads the deployed signpost back before it returns; test_readBack_verifyComparesEveryField shows
+    /// what the read-back refuses.
+    function test_readBack_runReadsTheDeployedContract() public {
+        address next = vm.computeCreateAddress(deployer, vm.getNonce(deployer));
+        vm.expectCall(next, abi.encodeCall(OspexSignpost.entryCount, ()), 1);
+        vm.expectCall(next, abi.encodeCall(OspexSignpost.getEntry, (0)), 1);
+        assertEq(address(script.run()), next, "deployed there");
+    }
+
+    /// The read-back compares the code (which holds the owner), the entry count, every field of the one
+    /// entry, each code hash against the chain, and the one log. run() reads forge's recorded logs for its
+    /// own read-back, which leaves none for a test, so the signpost here is built by the test with v2's
+    /// values: the same code, since the code holds only the owner's address.
     function test_readBack_verifyComparesEveryField() public {
         DeploySignpost.First memory f = script.v2();
         vm.recordLogs();
@@ -237,7 +259,24 @@ contract DeploySignpostTest is Test {
         assertEq(keccak256(address(s).code), script.EXACT_CODE_HASH(), "the pinned runtime code");
         script.verify(s, f, logs);
 
+        // The code: a changed executable byte, then a changed source digest. Then put back.
+        bytes memory code = address(s).code;
+        bytes memory changed = bytes.concat(code);
+        changed[100] = changed[100] ^ 0x01;
+        vm.etch(address(s), changed);
+        vm.expectRevert(bytes("not the pinned build"));
+        script.verify(s, f, logs);
+        bytes memory digest = bytes.concat(code);
+        digest[digest.length - 20] = digest[digest.length - 20] ^ 0x01;
+        vm.etch(address(s), digest);
+        vm.expectRevert(bytes("the metadata is not the pinned build's"));
+        script.verify(s, f, logs);
+        vm.etch(address(s), code);
+        script.verify(s, f, logs);
+
         // A signpost holding other values, each read against v2's.
+        _expectVerifyRefused(_with(f, "kind"), "the first entry's kind");
+        _expectVerifyRefused(_with(f, "coin"), "the first entry's coin");
         _expectVerifyRefused(_with(f, "commit"), "the first entry's commit");
         _expectVerifyRefused(_with(f, "deployBlock"), "the first entry's deploy block");
         _expectVerifyRefused(_with(f, "order"), "the first entry's contracts");
@@ -275,11 +314,24 @@ contract DeploySignpostTest is Test {
         vm.expectRevert(bytes("the first entry's log is not as ruled"));
         script.verify(s, f, longer);
 
-        // After a move, or a second entry, the read-back refuses: it is for right after the deploy.
+        // After a second entry, or a move, the read-back refuses: it is for right after the deploy.
+        OspexSignpost second = new OspexSignpost(f.timelock, f.kind, f.coin, f.contracts, f.commit, f.deployBlock);
+        vm.prank(TIMELOCK);
+        second.addEntry(OspexSignpost.Kind.Betting, USDC, _one(USDC), V2_COMMIT, V2_DEPLOY_BLOCK);
+        vm.expectRevert(bytes("the signpost has other entries"));
+        script.verify(second, f, logs);
         bytes memory retire = abi.encodeCall(OspexSignpost.moveForward, (0, OspexSignpost.Status.Retired, 0, ""));
         _viaTheTimelock(address(s), retire, bytes32(uint256(1)));
         vm.expectRevert(bytes("the first entry is not building"));
         script.verify(s, f, logs);
+
+        // A listed contract whose code no longer matches what the entry holds: here, v2's TotalScorerModule
+        // given other code after the signpost was built. The entry and the pins still agree; the chain does
+        // not.
+        OspexSignpost fresh = new OspexSignpost(f.timelock, f.kind, f.coin, f.contracts, f.commit, f.deployBlock);
+        vm.etch(f.contracts[12], hex"6001");
+        vm.expectRevert(bytes("a code hash is not the chain's"));
+        script.verify(fresh, f, logs);
     }
 
     function test_inputs_anyChainButPolygonIsRefused() public {
@@ -419,6 +471,8 @@ contract DeploySignpostTest is Test {
     {
         g = script.v2();
         bytes32 w = keccak256(bytes(what));
+        if (w == keccak256("kind")) g.kind = OspexSignpost.Kind.Betting;
+        if (w == keccak256("coin")) g.coin = address(0xc2132D05D31c914a87C6611C10748AEb04B58e8F); // Polygon's USDT
         if (w == keccak256("commit")) g.commit = bytes20(uint160(f.commit) ^ 1);
         if (w == keccak256("deployBlock")) g.deployBlock = f.deployBlock + 1;
         if (w == keccak256("order")) (g.contracts[1], g.contracts[2]) = (g.contracts[2], g.contracts[1]);

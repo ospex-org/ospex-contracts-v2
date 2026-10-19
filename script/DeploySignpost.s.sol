@@ -180,12 +180,13 @@ contract DeploySignpost is Script {
         require(IV2PositionModule(f.contracts[3]).i_token() == f.coin, "the coin is not v2's");
     }
 
-    /// @notice Fails unless `signpost` is the pinned build, owned by `f.timelock`, holding exactly the first
-    ///         entry `f` as building, with exactly the constructor's one log.
+    /// @notice Fails unless `signpost` is the pinned build, owned by TIMELOCK, holding exactly the first entry
+    ///         `f` as building, with exactly the constructor's one log.
     function verify(OspexSignpost signpost, First memory f, VmSafe.Log[] memory logs) public view {
+        // The pinned runtime code holds the owner, TIMELOCK, in its one immutable, so these two checks are
+        // also the owner's.
         require(stockHash(address(signpost).code) == STOCK_CODE_HASH, "not the pinned build");
         require(keccak256(address(signpost).code) == EXACT_CODE_HASH, "the metadata is not the pinned build's");
-        require(signpost.i_timelock() == f.timelock, "the owner is not the timelock");
         require(signpost.entryCount() == 1, "the signpost has other entries");
 
         OspexSignpost.Entry memory e = signpost.getEntry(0);
@@ -198,8 +199,8 @@ contract DeploySignpost is Script {
         }
         require(e.commit == f.commit, "the first entry's commit");
         require(e.deployBlock == f.deployBlock, "the first entry's deploy block");
+        // The reason needs no check of its own: the signpost writes one only on retirement, which this refuses.
         require(e.status == OspexSignpost.Status.Building, "the first entry is not building");
-        require(bytes(e.reason).length == 0, "the first entry has a reason");
 
         // The constructor's one log, every field, and nothing else.
         require(logs.length == 1, "the signpost has other logs");
