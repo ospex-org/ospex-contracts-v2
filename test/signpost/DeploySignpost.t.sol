@@ -345,11 +345,12 @@ contract DeploySignpostTest is Test {
         OspexSignpost s = _v2Signpost();
         address[] memory set = _one(USDC);
         address[4] memory callers = [K, deployer, TIMELOCK_DEPLOYER, stranger];
+        // Each as its own transaction: the caller is the sender and the origin.
         for (uint256 i; i < callers.length; ++i) {
-            vm.prank(callers[i]);
+            vm.prank(callers[i], callers[i]);
             vm.expectRevert(abi.encodeWithSelector(OspexSignpost.OspexSignpost__NotTheTimelock.selector, callers[i]));
             s.addEntry(OspexSignpost.Kind.Betting, USDC, set, V2_COMMIT, V2_DEPLOY_BLOCK);
-            vm.prank(callers[i]);
+            vm.prank(callers[i], callers[i]);
             vm.expectRevert(abi.encodeWithSelector(OspexSignpost.OspexSignpost__NotTheTimelock.selector, callers[i]));
             s.moveForward(0, OspexSignpost.Status.Retired, 0, "");
         }

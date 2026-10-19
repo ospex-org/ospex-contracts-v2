@@ -33,11 +33,11 @@ contract DeploySignpost is Script {
     /// @dev The frozen artifact: src/signpost/OspexSignpost.sol at this commit, built by solc 0.8.26 with
     ///      this repo's foundry.toml and remappings.txt. keccak256 of its creation code, and of its runtime
     ///      code with TIMELOCK in its one immutable, every byte, the metadata included.
-    bytes32 public constant EXACT_INIT_HASH = 0x5b093f0ae885ffc2ad7d09c0154583795a12b2e8b8dc390135063bec81ecbf1f;
-    bytes32 public constant EXACT_CODE_HASH = 0xe13da43ce8f40b49b9dc0ea2e2c54a8f3407278d2a55e64ced4531bb08c8ba16;
+    bytes32 public constant EXACT_INIT_HASH = 0xcc6cd0440eba938b071457bde20d6a9c2ac33ebd975bfdb5ef6a03a426845cdf;
+    bytes32 public constant EXACT_CODE_HASH = 0x8e9825eee784d86186f78673b1cec491425dd517e4663e73dd7c72bea19cf9e8;
     /// @dev The same two with the metadata's source digest zeroed: every executable byte.
-    bytes32 public constant STOCK_INIT_HASH = 0x29f45cb3d1d39f49463fd99cc52a7460918aece6fda98e38897682e858e18253;
-    bytes32 public constant STOCK_CODE_HASH = 0x37cde99f31ef98da17f634625d2b4749d2af680f1a93297e005f850890f55dc5;
+    bytes32 public constant STOCK_INIT_HASH = 0x71d7b33f3789695955023d8175e19dbf0b6a7dbc3012f250e35f26b57b2e1594;
+    bytes32 public constant STOCK_CODE_HASH = 0xec38bf72ca9c2a4d2a63e837625b2d251bddb08eaa9e077f4521dca1b7aa320f;
 
     /// @dev The Polygon timelock: OpenZeppelin's TimelockController v5.5.0, created in block 95761553 by
     ///      script/DeployPolygonTimelock.s.sol, with K its one proposer and canceller.

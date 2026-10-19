@@ -45,9 +45,10 @@ contract OspexSignpost {
     /// @param codeHashes Each contract's code hash, in the same order, read from the chain when the entry
     ///        was written.
     /// @param commit The git commit of the set's source.
-    /// @param deployBlock The block in which the set's first contract was created.
+    /// @param deployBlock The block in which the set's first contract was created, as the entry gives it.
+    ///        The signpost checks only that it is above 0 and not after the block the entry is written in.
     /// @param status Where the set stands.
-    /// @param reason The one-line reason given on retirement, if any.
+    /// @param reason The reason given on retirement, if any: no line feed and no carriage return.
     struct Entry {
         Kind kind;
         address coin;
@@ -63,7 +64,7 @@ contract OspexSignpost {
 
     /// @notice Thrown when anything but the timelock calls a write
     error OspexSignpost__NotTheTimelock(address caller);
-    /// @notice Thrown when the owner given at deploy holds no contract code
+    /// @notice Thrown when the owner given at deploy holds no contract code, or holds a wallet's delegation
     error OspexSignpost__TimelockNotAContract(address timelock);
     /// @notice Thrown when the owner given at deploy is the deployer
     error OspexSignpost__TimelockIsTheDeployer(address timelock);
@@ -87,7 +88,7 @@ contract OspexSignpost {
     error OspexSignpost__ReportersNotRecorded(address games, uint256 game);
     /// @notice Thrown when a reason is given for a move that is not a retirement
     error OspexSignpost__ReasonOnlyOnRetirement();
-    /// @notice Thrown when a reason holds a line break
+    /// @notice Thrown when a reason holds a line feed or a carriage return
     error OspexSignpost__ReasonNotOneLine();
 
     // ──────────────────────────── Events ───────────────────────────────
@@ -137,7 +138,7 @@ contract OspexSignpost {
         bytes20 commit,
         uint64 deployBlock
     ) {
-        if (timelock.code.length == 0) revert OspexSignpost__TimelockNotAContract(timelock);
+        if (!_isContract(timelock)) revert OspexSignpost__TimelockNotAContract(timelock);
         if (timelock == msg.sender) revert OspexSignpost__TimelockIsTheDeployer(timelock);
         i_timelock = timelock;
         _add(kind, coin, contracts, commit, deployBlock);
@@ -221,19 +222,24 @@ contract OspexSignpost {
         emit EntryAdded(id, kind, coin, contracts, codeHashes, commit, deployBlock);
     }
 
-    /// @dev The account's code hash. Refuses an account with no code, and a wallet that has delegated its
-    ///      code (EIP-7702: 23 bytes, starting 0xef0100), whose code its owner can change.
+    /// @dev The account's code hash. Refuses an account that is not a contract (see {_isContract}).
     function _codeHashOf(address account) private view returns (bytes32) {
-        uint256 size = account.code.length;
-        if (size == 0 || (size == 23 && bytes3(account.code) == 0xef0100)) {
-            revert OspexSignpost__NotAContract(account);
-        }
+        if (!_isContract(account)) revert OspexSignpost__NotAContract(account);
         return account.codehash;
+    }
+
+    /// @dev True for an account holding contract code. False for one with no code, and for a wallet that has
+    ///      delegated its code (EIP-7702: 23 bytes, starting 0xef0100), whose code its owner can change.
+    function _isContract(address account) private view returns (bool) {
+        uint256 size = account.code.length;
+        return size != 0 && !(size == 23 && bytes3(account.code) == 0xef0100);
     }
 
     /// @dev Refuses unless `games` answers the reporters read for `game` with at least one reporter and a
     ///      kind for each. An answer too short to hold two lists is refused by name; a longer answer that
-    ///      is not two well-formed lists reverts in the decoding.
+    ///      is not two well-formed lists reverts in the decoding. This checks the answer's shape for one
+    ///      game. Whether the games contract records each game's reporters at its creation is that
+    ///      contract's own rule; the entry's code hashes are what let a reader check which code it is.
     function _requireRecordedReporters(address games, uint256 game) private view {
         (bool ok, bytes memory answer) = games.staticcall(abi.encodeCall(IGameReporters.getGameReporters, (game)));
         if (!ok || answer.length < 128) revert OspexSignpost__ReportersNotRecorded(games, game);
