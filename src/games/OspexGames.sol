@@ -148,7 +148,7 @@ contract OspexGames is IOspexGames {
         if (count == 0) revert OspexGames__NoReporters();
         if (kinds.length != count) revert OspexGames__KindsLengthMismatch(count, kinds.length);
         if (window == 0) revert OspexGames__WindowZero();
-        bool firstN;
+        bool firstN = false;
         for (uint256 i; i < count; ++i) {
             address account = reporters[i];
             if (account == address(0)) revert OspexGames__ZeroReporter();
@@ -192,13 +192,12 @@ contract OspexGames is IOspexGames {
         uint64 window = s_window;
         g.window = window;
 
-        Reporter[] storage copy = s_gameReporters[gameId];
         uint256 count = s_approved.length;
         address[] memory accounts = new address[](count);
         uint8[] memory kinds = new uint8[](count);
         for (uint256 i; i < count; ++i) {
             Reporter memory r = s_approved[i];
-            copy.push(r);
+            s_gameReporters[gameId].push(r);
             accounts[i] = r.account;
             kinds[i] = uint8(r.kind);
         }
