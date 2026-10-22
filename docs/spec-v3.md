@@ -280,4 +280,4 @@ The review's own bottom line was "don't redeploy for this; bundle these when som
 
 **More than needed?** — The document itself is not. Anything in it beyond what was ruled is the proofer's to strike.
 
-**Done when** — this file is merged in ospex-contracts-v2 after proof, and the body of the spec's card is the same text. The merge is the freeze. After that, scope changes need a new milestone, not a PR. Until the first v3 deploy, a ruling recorded on OSP-8 may correct the frozen text by PR, and the PR names the ruling; after the first deploy, a change needs a new milestone.
+**Done when** — this file is merged in ospex-contracts-v2 after proof, and the body of the spec's card is the same text. The merge is the freeze. After that, scope changes need a new milestone, not a PR. Until the first v3 deploy, a recorded ruling may correct the frozen text by PR, and the PR quotes the ruling; after the first deploy, a change needs a new milestone.
