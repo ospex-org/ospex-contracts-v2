@@ -13,6 +13,8 @@ auto_detect_remappings = false
 
 fs_permissions = [
     { access = "read", path = "chainlink-functions" },
+    # The games tests pin the frozen interface from its build artifact.
+    { access = "read", path = "out" },
     { access = "read-write", path = "deployments" },
     { access = "read", path = "lib/openzeppelin-contracts/package.json" },
 ]

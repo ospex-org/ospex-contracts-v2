@@ -234,6 +234,33 @@ abstract contract GamesBase is Test {
         list[0] = k;
     }
 
+    // ──────────────────────────── The compiled interface ────────────────
+
+    /// @dev A contract's build artifact, as forge wrote it for this run.
+    function _artifact(string memory name) internal view returns (string memory) {
+        return vm.readFile(string.concat(vm.projectRoot(), "/out/", name, ".sol/", name, ".json"));
+    }
+
+    /// @dev Asserts the ABI parameter list at `path` holds exactly these names and types, in this order, and
+    ///      nothing after them. `names` and `types` are ";"-separated.
+    function _assertParams(string memory json, string memory path, string memory names, string memory types)
+        internal
+        view
+    {
+        string[] memory n = vm.split(names, ";");
+        string[] memory t = vm.split(types, ";");
+        assertEq(n.length, t.length, "the expected lists differ in length");
+        for (uint256 i; i < n.length; ++i) {
+            string memory at = string.concat(path, "[", vm.toString(i), "]");
+            assertEq(vm.parseJsonString(json, string.concat(at, ".name")), n[i], string.concat(at, " name"));
+            assertEq(vm.parseJsonString(json, string.concat(at, ".type")), t[i], string.concat(at, " type"));
+        }
+        assertFalse(
+            vm.keyExistsJson(json, string.concat(path, "[", vm.toString(n.length), "]")),
+            string.concat(path, " has a parameter past the last")
+        );
+    }
+
     function _selector(bytes memory err) internal pure returns (bytes4 s) {
         if (err.length < 4) return bytes4(0);
         assembly ("memory-safe") {

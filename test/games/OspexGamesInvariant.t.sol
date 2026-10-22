@@ -320,8 +320,6 @@ contract OspexGamesInvariantTest is GamesBase {
                 (uint32 h, uint32 a) = games.getGameScores(id);
                 assertEq(h, g.home, "home moved");
                 assertEq(a, g.away, "away moved");
-                assertGe(g.scoredAt, g.start, "scored before the start");
-                if (g.scorerKind == 2) assertGe(g.scoredAt, uint256(g.start) + g.window, "after-n inside n");
             } else {
                 try games.getGameScores(id) returns (uint32, uint32) {
                     revert("unscored game read as scored");

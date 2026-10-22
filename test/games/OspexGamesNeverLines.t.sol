@@ -17,6 +17,26 @@ import {
 } from "../../src/games/IOspexGames.sol";
 import {GamesBase, MockReporter, OspexGamesHarness} from "./GamesBase.sol";
 
+/// @dev A reading as the spec's text orders it, declared here and not taken from the repository's types.
+struct SpecReading {
+    uint8 seat;
+    uint8 kind;
+    uint32 homeScore;
+    uint32 awayScore;
+}
+
+/// @dev A report as the spec's text orders it: the game; what it is; the start; the home team's and the away
+///      team's scores; the readings; the payout address.
+struct SpecReport {
+    uint256 gameId;
+    uint8 kind;
+    uint64 start;
+    uint32 homeScore;
+    uint32 awayScore;
+    SpecReading[] readings;
+    address payout;
+}
+
 /// @dev A contract with code and nothing else.
 contract Plain {
     function ping() external pure returns (uint256) {
@@ -33,8 +53,8 @@ contract OspexGamesNeverLinesTest is GamesBase {
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// Break: in report(), delete `if (kind == ReporterKind.None) revert OspexGames__NotAReporter(r.gameId,
-    /// msg.sender);`. Every outsider's score is then taken. (An outsider's start would still be refused, by
-    /// the first-n check; the score case is the one this gate alone guards.)
+    /// msg.sender);`. Every outsider's score is then taken. (An outsider's start is still refused, by the
+    /// first-n check, under another name; the starts' names are checked last so the red shows the score.)
     function test_neverLine_onlyRecordedReportersWrite() public {
         uint256 game = _create();
 
@@ -66,13 +86,14 @@ contract OspexGamesNeverLinesTest is GamesBase {
         outsiders[8] = address(games);
         outsiders[9] = payout;
 
-        // Starts: every outsider refused, nothing changes.
+        // Starts: every outsider refused, nothing changes. The refusals' names are checked at the end.
+        bytes[] memory startErrors = new bytes[](outsiders.length);
         for (uint256 i; i < outsiders.length; ++i) {
             bytes32 before = _viewAll();
             (bool ok, bytes memory err) = _send(outsiders[i], _startReport(game, START));
             assertFalse(ok, string.concat("start taken from outsider ", vm.toString(i)));
             assertEq(_viewAll(), before, "a refused start changed state");
-            assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__NotAReporter.selector, game, outsiders[i]));
+            startErrors[i] = err;
         }
 
         // A recorded reporter writes the start; past start + n every kind of recorded reporter could score.
@@ -88,6 +109,13 @@ contract OspexGamesNeverLinesTest is GamesBase {
             assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__NotAReporter.selector, game, outsiders[i]));
         }
         assertEq(uint8(_status(game)), uint8(GameStatus.Verified), "still unscored");
+        for (uint256 i; i < outsiders.length; ++i) {
+            assertEq(
+                startErrors[i],
+                abi.encodeWithSelector(OspexGames.OspexGames__NotAReporter.selector, game, outsiders[i]),
+                "an outsider's start was refused for another reason"
+            );
+        }
 
         // Controls: the game's own after-n reporter scores it; the late reporters write to the game made after.
         _scoreBy(later, game, HOME, AWAY);
@@ -292,10 +320,6 @@ contract OspexGamesNeverLinesTest is GamesBase {
             }
         }
 
-        // A void is a status of its own, never the scored status.
-        assertTrue(uint8(GameStatus.Voided) != uint8(GameStatus.Scored), "void is not scored");
-        assertTrue(uint8(GameStatus.Released) != uint8(GameStatus.Scored), "release is not scored");
-
         // Controls: a written 0-0 reads as scored 0-0, and a written score reads home then away.
         uint256 nil = _create();
         _startBy(first, nil, START);
@@ -346,8 +370,8 @@ contract OspexGamesNeverLinesTest is GamesBase {
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// Every refusal the report call makes, each against games in each state the call can see. A refused
-    /// report reverts, changes no read of any game, and emits nothing. This contract holds no money; the
-    /// games set's dollar comes with the fee, and its half of this line with it.
+    /// report reverts, changes no read of any game, and emits nothing. This contract holds no money yet: the
+    /// money half of this line comes with the fee, which is where it can first fail.
     /// Break: in report(), replace `revert OspexGames__ReportKindNotTaken(r.kind);` with nothing. A void is
     /// then "taken" without a revert, and an event announcing a void is emitted for a game that was not voided.
     function test_neverLine_rejectedReportChangesNothing() public {
@@ -425,7 +449,6 @@ contract OspexGamesNeverLinesTest is GamesBase {
             else if (i == 18) vm.warp(DATE - 1 hours);
             else vm.warp(START + 10);
             bytes32 before = _viewAll();
-            uint256 payoutBalance = payout.balance;
             vm.recordLogs();
             (bool ok, bytes memory err) = _send(from[i], bad[i]);
             Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -433,8 +456,6 @@ contract OspexGamesNeverLinesTest is GamesBase {
             assertEq(err, why[i], string.concat("refusal reason, case ", vm.toString(i)));
             assertEq(logs.length, 0, string.concat("a rejected report emitted, case ", vm.toString(i)));
             assertEq(_viewAll(), before, string.concat("a rejected report changed state, case ", vm.toString(i)));
-            assertEq(address(games).balance, 0, "the games contract holds no money");
-            assertEq(payout.balance, payoutBalance, "money moved");
         }
     }
 
@@ -513,14 +534,80 @@ contract OspexGamesNeverLinesTest is GamesBase {
         assertEq(uint8(_status(other)), uint8(GameStatus.Scored), "first-n scored inside n");
     }
 
-    /// The one call's selector is the canonical signature of the one shape: the game, the kind, the start,
-    /// the two scores, the readings (seat, kind, two scores) and the payout. A shape that differed by reporter
-    /// would need a second call or a different tuple.
-    /// Break: in IOspexGames.sol, swap the lines `uint64 start;` and `uint32 homeScore;` in Report.
-    function test_neverLine_theReportShapeIsPinned() public pure {
+    /// The one call's selector is the canonical signature of the one shape, and every field of it is pinned by
+    /// position, name and type from the compiled artifact: the game, the kind, the start, the home score, the
+    /// away score, the readings (seat, kind, home score, away score) and the payout. The signature alone
+    /// cannot see two fields of one type swapped; the names can.
+    /// Break: in IOspexGames.sol, swap the lines `uint32 homeScore;` and `uint32 awayScore;` in Reading.
+    function test_neverLine_theReportShapeIsPinned() public view {
         bytes4 expected =
             bytes4(keccak256("report((uint256,uint8,uint64,uint32,uint32,(uint8,uint8,uint32,uint32)[],address))"));
-        assertEq(IOspexGames.report.selector, expected, "the report call's shape moved");
+        assertEq(IOspexGames.report.selector, expected, "the report call's signature moved");
+
+        string memory iface = _artifact("IOspexGames");
+        string memory shape = "$.abi[?(@.name == 'report')].inputs[0].components";
+        _assertParams(
+            iface,
+            shape,
+            "gameId;kind;start;homeScore;awayScore;readings;payout",
+            "uint256;uint8;uint64;uint32;uint32;tuple[];address"
+        );
+        _assertParams(
+            iface, string.concat(shape, "[5].components"), "seat;kind;homeScore;awayScore", "uint8;uint8;uint32;uint32"
+        );
+        assertEq(vm.parseJsonString(iface, string.concat(shape, "[1].internalType")), "enum ReportKind");
+        assertEq(vm.parseJsonString(iface, string.concat(shape, "[5].components[1].internalType")), "enum ReadingKind");
+    }
+
+    /// A reporter built from the spec's text, not from this repository's types, sends a start and a score as
+    /// raw calldata in the spec's order. The contract reads the home score as the home score, and takes a seat
+    /// above the reading kinds' range where the seat goes. (A seat of 4 in the kind's place would not decode.)
+    /// Break: in IOspexGames.sol, swap the lines `uint32 homeScore;` and `uint32 awayScore;` in Report.
+    function test_neverLine_aReportInTheSpecsOrderReadsBack() public {
+        uint256 game = _create();
+        bytes4 call =
+            bytes4(keccak256("report((uint256,uint8,uint64,uint32,uint32,(uint8,uint8,uint32,uint32)[],address))"));
+        SpecReading[] memory readings = new SpecReading[](2);
+        readings[0] = SpecReading({seat: 4, kind: 2, homeScore: 104, awayScore: 97});
+        readings[1] = SpecReading({seat: 3, kind: 0, homeScore: 0, awayScore: 0});
+
+        bytes memory start = abi.encodeWithSelector(
+            call,
+            SpecReport({
+                gameId: game, kind: 1, start: START, homeScore: 0, awayScore: 0, readings: readings, payout: payout
+            })
+        );
+        vm.prank(address(first), address(first));
+        (bool ok, bytes memory err) = address(games).call(start);
+        assertTrue(ok, string.concat("the spec-order start was refused: ", vm.toString(err)));
+        assertEq(games.getGameStart(game), START);
+
+        vm.warp(START + 1);
+        bytes memory score = abi.encodeWithSelector(
+            call,
+            SpecReport({
+                gameId: game, kind: 2, start: 0, homeScore: 104, awayScore: 97, readings: readings, payout: payout
+            })
+        );
+        vm.recordLogs();
+        vm.prank(address(first), address(first));
+        (ok, err) = address(games).call(score);
+        assertTrue(ok, string.concat("the spec-order score was refused: ", vm.toString(err)));
+        (uint32 home, uint32 away) = games.getGameScores(game);
+        assertEq(home, 104, "the home score read back as another field");
+        assertEq(away, 97, "the away score read back as another field");
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        (uint64 s, uint32 h, uint32 a, SpecReading[] memory got, address pay) =
+            abi.decode(logs[0].data, (uint64, uint32, uint32, SpecReading[], address));
+        assertEq(s, 0);
+        assertEq(h, 104);
+        assertEq(a, 97);
+        assertEq(pay, payout);
+        assertEq(got.length, 2);
+        assertEq(got[0].seat, 4);
+        assertEq(got[0].kind, 2);
+        assertEq(got[1].seat, 3);
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────

@@ -47,19 +47,20 @@ contract OspexGamesTest is GamesBase {
     }
 
     function test_constructor_oneFirstNReporterIsEnough() public {
-        OspexGames g = new OspexGames(_one(address(0xA11CE)), _kinds1(ReporterKind.FirstN), 1);
+        address only = address(new MockReporter(IOspexGames(address(0))));
+        OspexGames g = new OspexGames(_one(only), _kinds1(ReporterKind.FirstN), 1);
         vm.prank(creator);
         uint256 game = g.createGame("mlb", "Home", "Away", DATE, new Hint[](0));
         (address[] memory r, uint8[] memory k) = g.getGameReporters(game);
         assertEq(r.length, 1);
-        assertEq(r[0], address(0xA11CE));
+        assertEq(r[0], only);
         assertEq(k[0], 1);
         assertEq(g.getGameWindow(game), 1, "a window of one second is legal");
     }
 
     function test_constructor_refusals() public {
-        address a = address(0xA);
-        address b = address(0xB);
+        address a = address(new MockReporter(IOspexGames(address(0))));
+        address b = address(new MockReporter(IOspexGames(address(0))));
 
         vm.expectRevert(OspexGames.OspexGames__NoReporters.selector);
         new OspexGames(new address[](0), new ReporterKind[](0), WINDOW);
@@ -92,14 +93,25 @@ contract OspexGamesTest is GamesBase {
         vm.expectRevert(OspexGames.OspexGames__NoFirstNReporter.selector);
         new OspexGames(two, afterOnly, WINDOW);
 
-        // Control: a first-n reporter last in the list is found.
+        // A duplicate next to its twin, and one at the end.
+        (dup[0], dup[1], dup[2]) = (a, a, b);
+        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__DuplicateReporter.selector, a));
+        new OspexGames(dup, dupKinds, WINDOW);
+        (dup[0], dup[1], dup[2]) = (a, b, b);
+        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__DuplicateReporter.selector, b));
+        new OspexGames(dup, dupKinds, WINDOW);
+
+        // Controls: a first-n reporter is found last in the list, and first in it, ahead of an after-n one.
         (afterOnly[0], afterOnly[1]) = (ReporterKind.AfterN, ReporterKind.FirstN);
+        new OspexGames(two, afterOnly, WINDOW);
+        (afterOnly[0], afterOnly[1]) = (ReporterKind.FirstN, ReporterKind.AfterN);
         new OspexGames(two, afterOnly, WINDOW);
     }
 
     /// A kind outside the enum is refused by the decoder, before the constructor's body runs.
     function test_constructor_kindOutOfRangeIsRefused() public {
-        bytes memory args = abi.encode(_one(address(0xA)), _uint8s1(3), uint64(WINDOW));
+        address a = address(new MockReporter(IOspexGames(address(0))));
+        bytes memory args = abi.encode(_one(a), _uint8s1(3), uint64(WINDOW));
         bytes memory code = abi.encodePacked(type(OspexGames).creationCode, args);
         address made;
         assembly ("memory-safe") {
@@ -107,7 +119,7 @@ contract OspexGamesTest is GamesBase {
         }
         assertEq(made, address(0), "a kind of 3 was taken");
         // Control: the same bytes with kind 1 deploy.
-        args = abi.encode(_one(address(0xA)), _uint8s1(1), uint64(WINDOW));
+        args = abi.encode(_one(a), _uint8s1(1), uint64(WINDOW));
         code = abi.encodePacked(type(OspexGames).creationCode, args);
         assembly ("memory-safe") {
             made := create(0, add(code, 0x20), mload(code))
@@ -205,7 +217,20 @@ contract OspexGamesTest is GamesBase {
         games.createGame("nba", max, "y", DATE, new Hint[](0));
         games.createGame("nba", "y", max, DATE, new Hint[](0));
 
-        string[5] memory bad = ["", over, "a\x1fb", "a\x7fb", string(hex"4dc3a9")];
+        // Empty, too long, and a control byte, DEL or a non-ASCII byte first, inside and last.
+        string[11] memory bad = [
+            "",
+            over,
+            "\x1fab",
+            "a\x1fb",
+            "ab\x1f",
+            "\x7fab",
+            "ab\x7f",
+            string(hex"c3a96162"),
+            string(hex"4dc3a9"),
+            "\x00",
+            "ab\x0a"
+        ];
         for (uint256 i; i < bad.length; ++i) {
             vm.expectRevert(OspexGames.OspexGames__TeamNotValid.selector);
             games.createGame("nba", bad[i], "Away", DATE, new Hint[](0));
@@ -241,15 +266,18 @@ contract OspexGamesTest is GamesBase {
         vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__TooManyHints.selector, 9));
         games.createGame("nba", "H", "A", DATE, nine);
 
-        string[4] memory bad = ["", _repeat("9", 65), "a\nb", string(hex"c3a9")];
+        string[6] memory bad = ["", _repeat("9", 65), "a\nb", "\x1fab", "ab\x7f", string(hex"c3a9")];
+        uint256[3] memory at = [uint256(0), 3, 7];
         for (uint256 i; i < bad.length; ++i) {
-            Hint[] memory h = new Hint[](4);
-            for (uint256 j; j < 4; ++j) {
-                h[j] = Hint({seat: 2, id: "ok"});
+            for (uint256 p; p < at.length; ++p) {
+                Hint[] memory h = new Hint[](8);
+                for (uint256 j; j < 8; ++j) {
+                    h[j] = Hint({seat: 2, id: "ok"});
+                }
+                h[at[p]].id = bad[i];
+                vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__HintNotValid.selector, at[p]));
+                games.createGame("nba", "H", "A", DATE, h);
             }
-            h[3].id = bad[i];
-            vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__HintNotValid.selector, 3));
-            games.createGame("nba", "H", "A", DATE, h);
         }
     }
 
@@ -386,6 +414,31 @@ contract OspexGamesTest is GamesBase {
         assertEq(uint8(_status(other)), uint8(GameStatus.Scored));
     }
 
+    /// The after-n clock is the game's own n, copied at creation: a later change to n for new games moves it
+    /// neither way.
+    function test_score_afterNClockIsTheGamesOwnN() public {
+        uint256 wide = _verified(); // n = WINDOW
+        games.harnessSetWindow(10 minutes);
+        uint256 narrow = _create();
+        uint64 narrowStart = DATE + 300; // within the narrow game's n of its date
+        _startBy(first, narrow, narrowStart);
+        games.harnessSetWindow(3 days);
+
+        vm.warp(uint256(narrowStart) + 10 minutes - 1);
+        (bool early,) = _send(address(later), _scoreReport(narrow, HOME, AWAY));
+        assertFalse(early, "the narrow game took an after-n score inside its own n");
+        vm.warp(uint256(narrowStart) + 10 minutes);
+        _scoreBy(later, narrow, HOME, AWAY);
+        (bool ok, bytes memory err) = _send(address(later), _scoreReport(wide, HOME, AWAY));
+        assertFalse(ok, "the wide game took an after-n score at the narrow game's n");
+        assertEq(
+            err, abi.encodeWithSelector(OspexGames.OspexGames__InsideWindow.selector, wide, uint256(START) + WINDOW)
+        );
+        vm.warp(uint256(START) + WINDOW);
+        _scoreBy(later, wide, HOME, AWAY);
+        assertEq(uint8(_status(wide)), uint8(GameStatus.Scored));
+    }
+
     /// An after-n reporter before the start is refused by the start, the earlier rule.
     function test_score_afterNBeforeTheStart() public {
         uint256 game = _verified();
@@ -488,6 +541,7 @@ contract OspexGamesTest is GamesBase {
 
     function test_report_eventCarriesTheWholeReport() public {
         uint256 game = _create();
+        _create(); // so the reported game is not the newest one
         Report memory r = _startReport(game, START);
         vm.recordLogs();
         _take(address(first), r);
