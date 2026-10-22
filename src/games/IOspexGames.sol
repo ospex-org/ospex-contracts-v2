@@ -63,8 +63,8 @@ enum ReadingKind {
 /// @notice One feed's reading, as a report gives it. The games set emits readings and stores none.
 /// @param seat The feed's seat: its number in the scoring program's feed table. A feed is never named here.
 /// @param kind Silent, answered without a final, or answered with a final.
-/// @param homeScore For a feed that answered, the home team's score as it gave it.
-/// @param awayScore For a feed that answered, the away team's score as it gave it.
+/// @param homeScore For a feed that answered, the home team's score as it gave it. Zero for a silent feed.
+/// @param awayScore For a feed that answered, the away team's score as it gave it. Zero for a silent feed.
 struct Reading {
     uint8 seat;
     ReadingKind kind;
@@ -79,7 +79,8 @@ struct Reading {
 /// @param homeScore For a score: the home team's score. Zero for any other kind.
 /// @param awayScore For a score: the away team's score. Zero for any other kind.
 /// @param readings The readings the report rests on, one per feed asked.
-/// @param payout The payout address. The games set never puts the sender in its place.
+/// @param payout The payout address. The games set never puts the sender in its place. Zero for a start, which
+///        pays nothing.
 struct Report {
     uint256 gameId;
     ReportKind kind;
@@ -154,10 +155,12 @@ interface IOspexGames is IGameReporters {
     /// @notice Creates a game. Anyone may, the same real game twice included: each creation is its own
     ///         game, with its own id and its own copy of the reporters.
     /// @param league The league's short text id: 1 to 16 characters, each a-z or 0-9.
-    /// @param homeTeam The home team: 1 to 64 printable ASCII characters.
-    /// @param awayTeam The away team: 1 to 64 printable ASCII characters, not the same text as the home team.
-    /// @param date The scheduled start, in seconds since 1970. Not zero.
-    /// @param hints Up to 8 seat and id pairs, each id 1 to 64 printable ASCII characters.
+    /// @param homeTeam The home team: 1 to 64 printable ASCII characters, not all spaces.
+    /// @param awayTeam The away team: 1 to 64 printable ASCII characters, not all spaces, and not the same text
+    ///        as the home team.
+    /// @param date The scheduled start, in seconds since 1970. Not zero, and at most 365 days after the creation.
+    /// @param hints Up to 8 seat and id pairs, no seat twice, each id 1 to 64 printable ASCII characters, not all
+    ///        spaces.
     /// @return gameId The new game's id. Ids start at 1 and count up.
     function createGame(
         string calldata league,
@@ -176,7 +179,8 @@ interface IOspexGames is IGameReporters {
     /// @notice A game's status. Refuses an id that is not a game.
     function getGameStatus(uint256 gameId) external view returns (GameStatus);
 
-    /// @notice A game's start, in seconds since 1970. Refuses a game whose start is not written.
+    /// @notice A game's start, in seconds since 1970. Refuses a game whose start is not written, whatever its
+    ///         status. A written start is never 0 and lies within a day of the date the game was created with.
     function getGameStart(uint256 gameId) external view returns (uint64);
 
     /// @notice A game's two scores. Refuses unless the game's status is Scored, so no game reads as scored,

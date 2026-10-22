@@ -389,9 +389,9 @@ contract OspexGamesNeverLinesTest is GamesBase {
         _scoreBy(first, scored, HOME, AWAY);
         uint256 unknown = games.gameCount() + 1;
 
-        Report[] memory bad = new Report[](19);
-        address[] memory from = new address[](19);
-        bytes[] memory why = new bytes[](19);
+        Report[] memory bad = new Report[](21);
+        address[] memory from = new address[](21);
+        bytes[] memory why = new bytes[](21);
         uint256 n;
         (bad[n], from[n], why[n]) = (_startReport(0, START), address(first), _err1(OspexGames.OspexGames__UnknownGame.selector, 0));
         n++;
@@ -427,9 +427,9 @@ contract OspexGamesNeverLinesTest is GamesBase {
         n++;
         (bad[n], from[n], why[n]) = (_startReport(open, START), address(later), abi.encodeWithSelector(OspexGames.OspexGames__NotFirstN.selector, open, address(later)));
         n++;
-        (bad[n], from[n], why[n]) = (_startReport(open, DATE + WINDOW + 1), address(first), abi.encodeWithSelector(OspexGames.OspexGames__StartOutOfRange.selector, open, DATE + WINDOW + 1));
+        (bad[n], from[n], why[n]) = (_startReport(open, DATE + DAY + 1), address(first), abi.encodeWithSelector(OspexGames.OspexGames__StartOutOfRange.selector, open, DATE + DAY + 1));
         n++;
-        (bad[n], from[n], why[n]) = (_startReport(open, DATE - WINDOW - 1), address(first), abi.encodeWithSelector(OspexGames.OspexGames__StartOutOfRange.selector, open, DATE - WINDOW - 1));
+        (bad[n], from[n], why[n]) = (_startReport(open, DATE - DAY - 1), address(first), abi.encodeWithSelector(OspexGames.OspexGames__StartOutOfRange.selector, open, DATE - DAY - 1));
         n++;
         (bad[n], from[n], why[n]) = (_scoreReport(open, HOME, AWAY), address(first), _err1(OspexGames.OspexGames__StartNotWritten.selector, open));
         n++;
@@ -440,6 +440,14 @@ contract OspexGamesNeverLinesTest is GamesBase {
         (bad[n], from[n], why[n]) = (_scoreReport(verified, HOME, games.MAX_SCORE() + 1), address(first), abi.encodeWithSelector(OspexGames.OspexGames__ScoreOutOfRange.selector, HOME, games.MAX_SCORE() + 1));
         n++;
         (bad[n], from[n], why[n]) = (_scoreReport(ahead, HOME, AWAY), address(first), abi.encodeWithSelector(OspexGames.OspexGames__BeforeStart.selector, ahead, START));
+        n++;
+        r = _startReport(open, START);
+        r.payout = payout;
+        (bad[n], from[n], why[n]) = (r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Start));
+        n++;
+        r = _startReport(open, START);
+        r.readings[3] = Reading({seat: 4, kind: ReadingKind.Silent, homeScore: 1, awayScore: 0});
+        (bad[n], from[n], why[n]) = (r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__SilentReadingNotEmpty.selector, 3));
         n++;
         assertEq(n, bad.length, "every case filled");
 
@@ -544,19 +552,28 @@ contract OspexGamesNeverLinesTest is GamesBase {
             bytes4(keccak256("report((uint256,uint8,uint64,uint32,uint32,(uint8,uint8,uint32,uint32)[],address))"));
         assertEq(IOspexGames.report.selector, expected, "the report call's signature moved");
 
-        string memory iface = _artifact("IOspexGames");
+        // The interface and the contract that deploys, since a reader may decode by either.
+        string[2] memory artifacts = [_artifact("IOspexGames"), _artifact("OspexGames")];
         string memory shape = "$.abi[?(@.name == 'report')].inputs[0].components";
-        _assertParams(
-            iface,
-            shape,
-            "gameId;kind;start;homeScore;awayScore;readings;payout",
-            "uint256;uint8;uint64;uint32;uint32;tuple[];address"
-        );
-        _assertParams(
-            iface, string.concat(shape, "[5].components"), "seat;kind;homeScore;awayScore", "uint8;uint8;uint32;uint32"
-        );
-        assertEq(vm.parseJsonString(iface, string.concat(shape, "[1].internalType")), "enum ReportKind");
-        assertEq(vm.parseJsonString(iface, string.concat(shape, "[5].components[1].internalType")), "enum ReadingKind");
+        for (uint256 i; i < artifacts.length; ++i) {
+            _assertParams(
+                artifacts[i],
+                shape,
+                "gameId;kind;start;homeScore;awayScore;readings;payout",
+                "uint256;uint8;uint64;uint32;uint32;tuple[];address"
+            );
+            _assertParams(
+                artifacts[i],
+                string.concat(shape, "[5].components"),
+                "seat;kind;homeScore;awayScore",
+                "uint8;uint8;uint32;uint32"
+            );
+            assertEq(vm.parseJsonString(artifacts[i], string.concat(shape, "[1].internalType")), "enum ReportKind");
+            assertEq(
+                vm.parseJsonString(artifacts[i], string.concat(shape, "[5].components[1].internalType")),
+                "enum ReadingKind"
+            );
+        }
     }
 
     /// A reporter built from the spec's text, not from this repository's types, sends a start and a score as
@@ -574,7 +591,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
         bytes memory start = abi.encodeWithSelector(
             call,
             SpecReport({
-                gameId: game, kind: 1, start: START, homeScore: 0, awayScore: 0, readings: readings, payout: payout
+                gameId: game, kind: 1, start: START, homeScore: 0, awayScore: 0, readings: readings, payout: address(0)
             })
         );
         vm.prank(address(first), address(first));

@@ -80,6 +80,8 @@ abstract contract GamesBase is Test {
     uint64 internal constant START = DATE + 613;
     uint32 internal constant HOME = 104;
     uint32 internal constant AWAY = 97;
+    /// @dev The start bound, written out rather than read from the contract, so a change to it is seen.
+    uint64 internal constant DAY = 86_400;
 
     OspexGamesHarness internal games;
     /// @dev First-n reporter, first on the list.
@@ -143,12 +145,12 @@ abstract contract GamesBase is Test {
         readings[3] = Reading({seat: 4, kind: ReadingKind.Silent, homeScore: 0, awayScore: 0});
     }
 
-    function _startReport(uint256 gameId, uint64 start) internal view returns (Report memory r) {
+    /// @dev A start pays nothing, so its payout is empty.
+    function _startReport(uint256 gameId, uint64 start) internal pure returns (Report memory r) {
         r.gameId = gameId;
         r.kind = ReportKind.Start;
         r.start = start;
         r.readings = _readings();
-        r.payout = payout;
     }
 
     function _scoreReport(uint256 gameId, uint32 home, uint32 away) internal view returns (Report memory r) {

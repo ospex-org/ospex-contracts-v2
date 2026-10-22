@@ -14,9 +14,11 @@ import {
 import {GamesBase, MockReporter, OspexGamesHarness} from "./GamesBase.sol";
 
 /// @dev Drives the games contract at random and keeps its own model of what each call should do. The model
-///      is written from the spec's rules, never read back from the contract: a game copies the list the
-///      handler last set; only a game's recorded reporters write; a start once, by a first-n reporter, within
-///      the window of the date; a score once, after the start, and for an after-n reporter from start + n.
+///      is written from the spec's rules and the rulings, never read back from the contract: a game's date is
+///      at most a year ahead; a game copies the list the handler last set; only a game's recorded reporters
+///      write; a start once, by a first-n reporter, within a day of the date whatever the game's n, with no
+///      payout; a score once, after the start, and for an after-n reporter from start + n; and no report takes
+///      a silent reading that carries a score.
 contract GamesHandler is Test {
     struct Ghost {
         address[] reporters;
@@ -34,6 +36,8 @@ contract GamesHandler is Test {
 
     uint32 internal constant MAX_SCORE = 1_000_000;
     uint64 internal constant BASE = 1_800_000_037;
+    uint64 internal constant DAY = 86_400;
+    uint64 internal constant YEAR = 31_536_000;
 
     OspexGamesHarness public immutable games;
     MockReporter[] internal pool;
@@ -53,6 +57,7 @@ contract GamesHandler is Test {
     uint256 public listChanges;
     uint256 public startsTaken;
     uint256 public scoresTaken;
+    uint256 public createsRefused;
 
     constructor(
         OspexGamesHarness games_,
@@ -74,17 +79,29 @@ contract GamesHandler is Test {
 
     // ──────────────────────────── Actions ──────────────────────────────
 
+    /// @dev Mostly a date near the base; one time in thirteen a date past a year ahead, and one time in thirteen
+    ///      a date exactly a year ahead.
     function create(uint256 dateSeed) external {
-        uint64 date = uint64(bound(dateSeed, BASE - 10 days, BASE + 10 days));
+        uint256 nowTs = vm.getBlockTimestamp();
+        uint64 date;
+        if (dateSeed % 13 == 5) date = uint64(nowTs + YEAR + 1 + (dateSeed % 1000));
+        else if (dateSeed % 13 == 6) date = uint64(nowTs + YEAR);
+        else date = uint64(bound(dateSeed, BASE - 10 days, BASE + 10 days));
+        bool expected = date != 0 && uint256(date) <= nowTs + YEAR;
+
         vm.prank(address(0xC0FFEE), address(0xC0FFEE));
-        uint256 id = games.createGame("nba", "Home Team", "Away Team", date, new Hint[](0));
-        if (id != created + 1) ++mismatches;
-        created = id;
-        Ghost storage g = ghosts[id];
-        g.reporters = curList;
-        g.kinds = curKinds;
-        g.date = date;
-        g.window = curWindow;
+        try games.createGame("nba", "Home Team", "Away Team", date, new Hint[](0)) returns (uint256 id) {
+            if (!expected || id != created + 1) ++mismatches;
+            created = id;
+            Ghost storage g = ghosts[id];
+            g.reporters = curList;
+            g.kinds = curKinds;
+            g.date = date;
+            g.window = curWindow;
+        } catch {
+            if (expected) ++mismatches;
+            ++createsRefused;
+        }
     }
 
     /// @dev A new approved list, drawn from the pool with random kinds and at least one first-n reporter,
@@ -119,21 +136,25 @@ contract GamesHandler is Test {
         vm.warp(vm.getBlockTimestamp() + bound(secs, 0, 2 days));
     }
 
-    function reportStart(uint256 gameSeed, uint256 whoSeed, uint256 offsetSeed) external {
+    /// @dev shapeSeed: one time in seven the start carries a payout, one time in nine a silent reading carries
+    ///      a score.
+    function reportStart(uint256 gameSeed, uint256 whoSeed, uint256 offsetSeed, uint256 shapeSeed) external {
         uint256 id = _pickGame(gameSeed);
         Ghost storage g = ghosts[id];
         address who = _pickSenderFor(g, whoSeed);
-        // Mostly inside the window of the date, sometimes just outside it, sometimes 0.
+        // Mostly within a day of the date, whatever the game's n; sometimes just outside it; sometimes 0.
         uint64 start;
-        if (offsetSeed % 11 != 0 && g.window != 0) {
-            uint256 span = uint256(g.window) * 2 + 3;
-            uint256 low = uint256(g.date) > uint256(g.window) + 1 ? uint256(g.date) - g.window - 1 : 0;
+        if (offsetSeed % 11 != 0 && g.date != 0) {
+            uint256 span = uint256(DAY) * 2 + 3;
+            uint256 low = uint256(g.date) > uint256(DAY) + 1 ? uint256(g.date) - DAY - 1 : 0;
             start = uint64(low + (offsetSeed % span));
         }
 
-        Report memory r = _report(id, ReportKind.Start, start, 0, 0);
+        Report memory r = _report(id, ReportKind.Start, start, 0, 0, shapeSeed);
+        if (shapeSeed % 7 == 1) r.payout = address(0xFEE);
         bool expected = _exists(id) && _kindOf(g, who) == 1 && !g.started && !g.scored && start != 0
-            && uint256(start) + g.window >= g.date && uint256(start) <= uint256(g.date) + g.window;
+            && uint256(start) + DAY >= g.date && uint256(start) <= uint256(g.date) + DAY && shapeSeed % 7 != 1
+            && shapeSeed % 9 != 1;
         bool ok = _send(who, r);
         _check(ok, expected);
         if (ok && expected) {
@@ -143,7 +164,8 @@ contract GamesHandler is Test {
         }
     }
 
-    function reportScore(uint256 gameSeed, uint256 whoSeed, uint32 home, uint32 away) external {
+    /// @dev shapeSeed: one time in nine a silent reading carries a score.
+    function reportScore(uint256 gameSeed, uint256 whoSeed, uint32 home, uint32 away, uint256 shapeSeed) external {
         uint256 id = _pickGame(gameSeed);
         Ghost storage g = ghosts[id];
         address who = _pickSenderFor(g, whoSeed);
@@ -154,8 +176,9 @@ contract GamesHandler is Test {
         uint8 kind = _kindOf(g, who);
         uint256 nowTs = vm.getBlockTimestamp();
         bool expected = _exists(id) && kind != 0 && g.started && !g.scored && home <= MAX_SCORE
-            && away <= MAX_SCORE && nowTs >= g.start && (kind != 2 || nowTs >= uint256(g.start) + g.window);
-        bool ok = _send(who, _report(id, ReportKind.Score, 0, home, away));
+            && away <= MAX_SCORE && nowTs >= g.start && (kind != 2 || nowTs >= uint256(g.start) + g.window)
+            && shapeSeed % 9 != 1;
+        bool ok = _send(who, _report(id, ReportKind.Score, 0, home, away, shapeSeed));
         _check(ok, expected);
         if (ok && expected) {
             g.scored = true;
@@ -172,7 +195,7 @@ contract GamesHandler is Test {
         uint256 id = _pickGame(gameSeed);
         address who = _pickSender(whoSeed);
         ReportKind kind = [ReportKind.None, ReportKind.Void, ReportKind.Dispute][kindSeed % 3];
-        bool ok = _send(who, _report(id, kind, 0, 0, 0));
+        bool ok = _send(who, _report(id, kind, 0, 0, 0, 0));
         _check(ok, false);
     }
 
@@ -219,7 +242,9 @@ contract GamesHandler is Test {
         return 0;
     }
 
-    function _report(uint256 id, ReportKind kind, uint64 start, uint32 home, uint32 away)
+    /// @dev One silent reading, at 0-0 unless shapeSeed says otherwise. A start pays nothing; any other kind
+    ///      names a payout.
+    function _report(uint256 id, ReportKind kind, uint64 start, uint32 home, uint32 away, uint256 shapeSeed)
         internal
         pure
         returns (Report memory r)
@@ -230,7 +255,8 @@ contract GamesHandler is Test {
         r.homeScore = home;
         r.awayScore = away;
         r.readings = new Reading[](1);
-        r.payout = address(0xFEE);
+        if (shapeSeed % 9 == 1) r.readings[0].homeScore = 1;
+        if (kind != ReportKind.Start) r.payout = address(0xFEE);
     }
 
     function _send(address who, Report memory r) internal returns (bool ok) {
@@ -336,24 +362,32 @@ contract OspexGamesInvariantTest is GamesBase {
         handler.create(date); // game 2, the same list
         // seed 3 -> game reporter 0 (first); 1 -> reporter 1 (later); 8 -> an outsider (the deployer).
         uint256 inRange = 86_401; // start = date
-        handler.reportStart(1, 1, inRange); // after-n start: refused
-        handler.reportStart(1, 8, inRange); // outsider: refused
-        handler.reportStart(1, 3, 0); // start 0: refused
-        handler.reportStart(1, 3, inRange); // taken
-        handler.reportStart(1, 3, inRange); // second start: refused
-        handler.reportStart(2, 3, inRange); // taken
-        handler.reportScore(1, 1, 3, 5); // after-n inside n: refused
-        handler.reportScore(2, 3, 7, 9); // first-n at the start: taken
-        handler.reportScore(2, 3, 7, 9); // second score: refused
+        // shape 0: clean; 8: a payout on a start; 10: a silent reading with a score.
+        handler.reportStart(1, 1, inRange, 0); // after-n start: refused
+        handler.reportStart(1, 8, inRange, 0); // outsider: refused
+        handler.reportStart(1, 3, 0, 0); // start 0: refused
+        handler.reportStart(1, 3, inRange, 8); // a payout on a start: refused
+        handler.reportStart(1, 3, inRange, 10); // a silent reading with a score: refused
+        handler.reportStart(1, 3, inRange, 0); // taken
+        handler.reportStart(1, 3, inRange, 0); // second start: refused
+        handler.reportStart(2, 3, inRange, 0); // taken
+        handler.reportScore(1, 1, 3, 5, 0); // after-n inside n: refused
+        handler.reportScore(2, 3, 7, 9, 10); // a silent reading with a score: refused
+        handler.reportScore(2, 3, 7, 9, 0); // first-n at the start: taken
+        handler.reportScore(2, 3, 7, 9, 0); // second score: refused
         handler.warp(1 days); // to start + n
-        handler.reportScore(1, 1, 3, 5); // after-n from start + n: taken
+        handler.reportScore(1, 1, 3, 5, 0); // after-n from start + n: taken
         handler.changeList(1, 3); // a new list and window for games made from now
-        handler.create(date);
+        handler.create(date); // game 3
+        handler.create(5); // a date past a year ahead: refused
+        handler.create(6); // a date exactly a year ahead: game 4
         handler.reportOther(1, 3, 1); // a void: not taken here
         assertEq(handler.mismatches(), 0, "the contract and the model disagreed");
         assertEq(handler.startsTaken(), 2, "starts taken");
         assertEq(handler.scoresTaken(), 2, "scores taken");
-        assertEq(handler.refused(), 7, "reports refused");
+        assertEq(handler.refused(), 10, "reports refused");
+        assertEq(handler.createsRefused(), 1, "creations refused");
+        assertEq(handler.created(), 4, "games made");
         assertEq(handler.listChanges(), 1, "list changes");
         invariant_everyGameReadsAsItsModel();
     }

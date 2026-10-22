@@ -1,19 +1,43 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.26;
 
-import {IOspexGames, GameStatus, ReporterKind, ReportKind, Report, Hint} from "./IOspexGames.sol";
+import {
+    IOspexGames,
+    GameStatus,
+    ReporterKind,
+    ReportKind,
+    ReadingKind,
+    Reading,
+    Report,
+    Hint
+} from "./IOspexGames.sol";
 
 /**
  * @title OspexGames
  * @author ospex.org
- * @notice The games set's games contract. Anyone creates a game. When it is created, a game copies the
- *         approved list of reporters as it stands, each with its kind, and nothing changes that copy
- *         afterwards. Only the game's recorded reporters write to it, all through one report call in one
- *         report shape. The start is written once, by a first-n reporter. The score is written once, never
- *         before the start, and is final. Five reads, open to any address, tell any contract what happened.
+ * @notice The games contract of Ospex v3's games piece. The design it is built to is docs/spec-v3.md in this
+ *         repository, which controls where the two differ.
  *
- *         The contract has no owner, no setter, no pause and no way to correct a start or a score. It
- *         refuses no league.
+ *         Anyone creates a game. When it is created, a game copies the approved list of reporters as it
+ *         stands, each with its kind, and nothing changes that copy afterwards. Only the game's recorded
+ *         reporters write to it, all through one report call in one report shape. The start is written once,
+ *         by a first-n reporter. The score is written once, never before the start, and is final. Five reads,
+ *         open to any address, tell any contract what happened.
+ *
+ *         Three things a reader may look for here belong to other parts of the games piece, by design:
+ *         - Who may report. This contract only checks that a sender is one of the game's recorded reporters.
+ *           Admission to the approved list (its code hash checked, never a wallet, a proxy or a delegated
+ *           wallet) and retirement from it are the approved list's, through the timelock. Spec: "The approved
+ *           list" and "Retiring a reporter".
+ *         - How a game ends other than by a score. The hour-24 void, the dispute record and day 7, and the
+ *           day-30 release that gives every stake back are the ends. Spec: "How a game ends".
+ *         - Correcting a start or a score. There is none: each is written once. Feeds that disagree lead to a
+ *           dispute record, never to a correction. Spec: "The start is written once" and "A score is written
+ *           once and is final".
+ *         The games piece deploys once, with all of them. Spec: "Launch: one reporter, and the hooks".
+ *
+ *         As built here, the contract has no owner, no setter, no pause and no way to correct a start or a
+ *         score. It refuses no league.
  */
 contract OspexGames is IOspexGames {
     // ──────────────────────────── Constants ────────────────────────────
@@ -23,6 +47,18 @@ contract OspexGames is IOspexGames {
     ///         signed 32-bit integer, cannot overflow: 1,000,000 x 10 is under 2^31. A score that overflowed
     ///         there would leave a market that can never settle.
     uint32 public constant MAX_SCORE = 1_000_000;
+
+    /// @notice How far a written start may lie from the date given at creation, either way, inclusive. A day is
+    ///         a game's identity: a start further from its date than this is another game. The day-30 release
+    ///         counts from the start, so writing a start moves it by at most this much. It is fixed, and is
+    ///         not the game's n, so a league's n never changes which starts a game takes.
+    uint64 public constant START_BOUND = 24 hours;
+
+    /// @notice How far ahead of its creation a game's date may be. A date further ahead is refused: it is far
+    ///         more likely a mistake than a game, the likeliest being a time in milliseconds, which reads as
+    ///         tens of thousands of years ahead. It also keeps every clock counted from the date or the start
+    ///         far inside 64 bits. A game with a later date can be created nearer to it.
+    uint64 public constant MAX_DATE_AHEAD = 365 days;
 
     /// @notice The longest league id, in bytes. A league id is lowercase letters and digits only, so one
     ///         league has one spelling.
@@ -43,7 +79,7 @@ contract OspexGames is IOspexGames {
     /// @param status Where the game stands
     /// @param date The scheduled start the creator gave
     /// @param window n, copied at creation
-    /// @param start The start, once written. A written start is never 0.
+    /// @param start The start, once written. A written start is never 0 and is within START_BOUND of the date.
     /// @param homeScore The home team's score, once written
     /// @param awayScore The away team's score, once written
     struct Game {
@@ -80,16 +116,20 @@ contract OspexGames is IOspexGames {
 
     /// @notice Thrown when a league id is empty, too long, or holds a character other than a-z and 0-9
     error OspexGames__LeagueNotValid();
-    /// @notice Thrown when a team name is empty, too long, or holds a character outside printable ASCII
+    /// @notice Thrown when a team name is too long, holds a character outside printable ASCII, or holds no
+    ///         character but spaces (so an empty name too)
     error OspexGames__TeamNotValid();
     /// @notice Thrown when the home team and the away team are the same text
     error OspexGames__SameTeams();
-    /// @notice Thrown when a creation's date is 0
-    error OspexGames__NoDate();
+    /// @notice Thrown when a creation's date is 0, or more than MAX_DATE_AHEAD after the creation
+    error OspexGames__DateNotValid(uint64 date);
     /// @notice Thrown when a creation gives more than MAX_HINTS hints
     error OspexGames__TooManyHints(uint256 count);
-    /// @notice Thrown when a hint's id is empty, too long, or holds a character outside printable ASCII
+    /// @notice Thrown when a hint's id is too long, holds a character outside printable ASCII, or holds no
+    ///         character but spaces (so an empty id too)
     error OspexGames__HintNotValid(uint256 index);
+    /// @notice Thrown when a creation gives two hints for one seat. The index is the second of the two.
+    error OspexGames__HintSeatRepeated(uint256 index);
 
     /// @notice Thrown when an id is not a game
     error OspexGames__UnknownGame(uint256 gameId);
@@ -97,15 +137,18 @@ contract OspexGames is IOspexGames {
     error OspexGames__NotAReporter(uint256 gameId, address sender);
     /// @notice Thrown for a report kind this contract does not take: no kind, a void or a dispute record
     error OspexGames__ReportKindNotTaken(ReportKind kind);
-    /// @notice Thrown when a report sets a field its kind does not use
+    /// @notice Thrown when a report sets a field its kind does not use: a score or a payout on a start, a start
+    ///         on a score
     error OspexGames__FieldNotEmpty(ReportKind kind);
+    /// @notice Thrown when a reading marked silent carries a score: a feed that did not answer gave none
+    error OspexGames__SilentReadingNotEmpty(uint256 index);
     /// @notice Thrown for any report to a game that has ended: scored, voided or released
     error OspexGames__GameEnded(uint256 gameId, GameStatus status);
     /// @notice Thrown when a start is reported for a game whose start is already written
     error OspexGames__StartAlreadyWritten(uint256 gameId);
     /// @notice Thrown when a start is reported by a reporter that is not first-n for the game
     error OspexGames__NotFirstN(uint256 gameId, address reporter);
-    /// @notice Thrown when a reported start is 0, or more than the game's window from the date it was given
+    /// @notice Thrown when a reported start is 0, or more than START_BOUND from the date given at creation
     error OspexGames__StartOutOfRange(uint256 gameId, uint64 start);
     /// @notice Thrown when a score is reported, or a start read, for a game whose start is not written
     error OspexGames__StartNotWritten(uint256 gameId);
@@ -178,11 +221,15 @@ contract OspexGames is IOspexGames {
             revert OspexGames__TeamNotValid();
         }
         if (keccak256(bytes(homeTeam)) == keccak256(bytes(awayTeam))) revert OspexGames__SameTeams();
-        if (date == 0) revert OspexGames__NoDate();
+        if (date == 0 || date > block.timestamp + MAX_DATE_AHEAD) revert OspexGames__DateNotValid(date);
         uint256 hintCount = hints.length;
         if (hintCount > MAX_HINTS) revert OspexGames__TooManyHints(hintCount);
+        uint256 seats = 0;
         for (uint256 i; i < hintCount; ++i) {
             if (!_isText(hints[i].id, MAX_HINT_ID_LENGTH)) revert OspexGames__HintNotValid(i);
+            uint256 seat = uint256(1) << hints[i].seat;
+            if (seats & seat != 0) revert OspexGames__HintSeatRepeated(i);
+            seats |= seat;
         }
 
         gameId = ++s_gameCount;
@@ -214,6 +261,7 @@ contract OspexGames is IOspexGames {
         Game storage g = _game(r.gameId);
         ReporterKind kind = _recordedKind(r.gameId, msg.sender);
         if (kind == ReporterKind.None) revert OspexGames__NotAReporter(r.gameId, msg.sender);
+        _checkReadings(r.readings);
 
         if (r.kind == ReportKind.Start) {
             _writeStart(g, r, kind);
@@ -278,16 +326,18 @@ contract OspexGames is IOspexGames {
     // ──────────────────────────── Internal ─────────────────────────────
 
     /// @dev Writes a start. The game must have no start written yet, the sender must be a first-n reporter,
-    ///      the scores must be empty, and the start must be within the game's window of the date it was given.
+    ///      the scores and the payout must be empty (a start pays nothing), and the start must be within
+    ///      START_BOUND of the date given at creation, either way.
     function _writeStart(Game storage g, Report calldata r, ReporterKind kind) private {
         GameStatus status = g.status;
         if (status != GameStatus.Unverified) _refuseStart(r.gameId, status);
         if (kind != ReporterKind.FirstN) revert OspexGames__NotFirstN(r.gameId, msg.sender);
-        if (r.homeScore != 0 || r.awayScore != 0) revert OspexGames__FieldNotEmpty(ReportKind.Start);
+        if (r.homeScore != 0 || r.awayScore != 0 || r.payout != address(0)) {
+            revert OspexGames__FieldNotEmpty(ReportKind.Start);
+        }
         uint256 start = r.start;
         uint256 date = g.date;
-        uint256 window = g.window;
-        if (start == 0 || start + window < date || start > date + window) {
+        if (start == 0 || start + START_BOUND < date || start > date + START_BOUND) {
             revert OspexGames__StartOutOfRange(r.gameId, r.start);
         }
         g.start = r.start;
@@ -330,6 +380,18 @@ contract OspexGames is IOspexGames {
         revert OspexGames__GameEnded(gameId, status);
     }
 
+    /// @dev Refuses a reading marked silent that carries a score, in a report of any kind. Nothing else in a
+    ///      reading is checked: the readings are emitted, not stored.
+    function _checkReadings(Reading[] calldata readings) private pure {
+        uint256 count = readings.length;
+        for (uint256 i; i < count; ++i) {
+            Reading calldata reading = readings[i];
+            if (reading.kind == ReadingKind.Silent && (reading.homeScore != 0 || reading.awayScore != 0)) {
+                revert OspexGames__SilentReadingNotEmpty(i);
+            }
+        }
+    }
+
     /// @dev The game, or a refusal if the id is not a game.
     function _game(uint256 gameId) private view returns (Game storage g) {
         g = s_games[gameId];
@@ -358,15 +420,18 @@ contract OspexGames is IOspexGames {
         return true;
     }
 
-    /// @dev True for 1 to `max` bytes, each printable ASCII (0x20 to 0x7e).
+    /// @dev True for at most `max` bytes, each printable ASCII (0x20 to 0x7e), at least one of them not a
+    ///      space. Empty text has no such byte, so it is refused too.
     function _isText(string calldata s, uint256 max) private pure returns (bool) {
         bytes calldata b = bytes(s);
         uint256 length = b.length;
-        if (length == 0 || length > max) return false;
+        if (length > max) return false;
+        bool printed = false;
         for (uint256 i; i < length; ++i) {
             bytes1 c = b[i];
             if (c < 0x20 || c > 0x7e) return false;
+            if (c != 0x20) printed = true;
         }
-        return true;
+        return printed;
     }
 }
