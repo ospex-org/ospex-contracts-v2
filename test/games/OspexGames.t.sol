@@ -15,6 +15,19 @@ import {
 } from "../../src/games/IOspexGames.sol";
 import {GamesBase, MockReporter, OspexGamesHarness} from "./GamesBase.sol";
 
+/// @dev A contract that creates a game, as a program acting for someone would.
+contract Creator {
+    IOspexGames internal immutable i_games;
+
+    constructor(IOspexGames games) {
+        i_games = games;
+    }
+
+    function create() external returns (uint256) {
+        return i_games.createGame("nhl", "Home", "Away", 1_800_000_037, new Hint[](0));
+    }
+}
+
 /// @notice The games contract's behaviour beyond the never-lines: what creation accepts, what each report
 ///         kind needs, how each refusal is named, and what the events carry.
 contract OspexGamesTest is GamesBase {
@@ -144,6 +157,19 @@ contract OspexGamesTest is GamesBase {
             assertEq(kinds[i], k[i]);
         }
         assertEq(uint8(_status(game)), uint8(GameStatus.Unverified));
+    }
+
+    /// The creator the event names is the sender, not the transaction's origin: a contract that creates a game
+    /// on someone's behalf is the creator.
+    function test_create_creatorIsTheSenderNotTheOrigin() public {
+        Creator c = new Creator(games);
+        vm.recordLogs();
+        vm.prank(creator, creator);
+        uint256 game = c.create();
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1);
+        assertEq(uint256(logs[0].topics[1]), game);
+        assertEq(logs[0].topics[2], bytes32(uint256(uint160(address(c)))), "the creator is the sender");
     }
 
     function test_create_idsCountUpFromOne() public {
