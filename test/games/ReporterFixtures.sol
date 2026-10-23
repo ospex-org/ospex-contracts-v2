@@ -159,6 +159,13 @@ contract EmptyValuesReporter is IOspexReporter {
     }
 }
 
+/// @dev A reporter whose fixed-values read answers with one byte: the shortest answer that is not empty.
+contract OneByteValuesReporter is IOspexReporter {
+    function fixedValues() external pure returns (bytes memory) {
+        return hex"01";
+    }
+}
+
 /// @dev A reporter whose read answers by its own standing: one set of values until its whole entry is written
 ///      (its kind, its code hash and its place on the list), and another once it is. It has no owner, no setter
 ///      and no storage of its own. Its answer at approval, the one emitted, holds afterwards only if the

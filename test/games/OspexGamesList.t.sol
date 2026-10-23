@@ -17,6 +17,7 @@ import {
     RevertingReadReporter,
     SilentReporter,
     EmptyValuesReporter,
+    OneByteValuesReporter,
     ChameleonReporter,
     WritingReadReporter,
     ReenteringReporter
@@ -263,6 +264,14 @@ contract OspexGamesListTest is GamesBase {
         // A read that answers with no values, well formed but empty, has nothing to emit: refused by name.
         address empty = address(new EmptyValuesReporter());
         _refused(_approval(empty, ReporterKind.AfterN, empty.codehash), _err(OspexGames.OspexGames__NoFixedValues.selector, empty));
+        // Control: the shortest answer that is not empty, one byte, is taken and emitted as read.
+        address oneByte = address(new OneByteValuesReporter());
+        vm.recordLogs();
+        _approve(oneByte, ReporterKind.AfterN);
+        Vm.Log[] memory approvedLogs = _from(vm.getRecordedLogs(), address(games));
+        assertEq(approvedLogs.length, 1);
+        (,, bytes memory oneByteValues) = abi.decode(approvedLogs[0].data, (uint8, bytes32, bytes));
+        assertEq(oneByteValues, hex"01", "a one-byte answer is emitted as read");
         // Approved already: the same kind, or the other kind, which would change its kind.
         _refused(
             _approval(address(first), ReporterKind.FirstN, address(first).codehash),

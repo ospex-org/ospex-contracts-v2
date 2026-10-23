@@ -1164,7 +1164,10 @@ contract OspexGamesNeverLinesTest is GamesBase {
     /// Break: in report(), delete `if (found != a.codeHash) revert OspexGames__CodeChanged(msg.sender,
     /// a.codeHash, found);`. The swapped code then writes the start.
     function test_neverLine_aReporterWhoseCodeChangedWritesNothing() public {
-        MockReporter lateAfter = new MockReporter(games);
+        // Code of its own, unlike `first`'s, so that a check against another reporter's stored hash is seen.
+        UnauthenticatedPlainReporter lateAfter =
+            new UnauthenticatedPlainReporter(games, address(1), address(2), bytes32("approved later"));
+        assertTrue(address(lateAfter).codehash != address(first).codehash, "two reporters, two codes");
         _approve(address(lateAfter), ReporterKind.AfterN);
         uint256 unstarted = _create();
         uint256 started = _create();
@@ -1199,7 +1202,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
         vm.warp(DATE - 1 hours);
         _startBy(first, unstarted, START);
         vm.warp(START + WINDOW);
-        _scoreBy(lateAfter, started, HOME, AWAY);
+        _take(address(lateAfter), _scoreReport(started, HOME, AWAY));
         assertEq(uint8(_status(started)), uint8(GameStatus.Scored));
     }
 
