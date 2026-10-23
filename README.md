@@ -98,6 +98,13 @@ forge coverage --ir-minimum
 
 Live on Polygon mainnet (chain ID 137). See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for contract addresses and the per-round deploy records under [docs/deployment/](docs/deployment/).
 
+## v3: being built, not deployed
+
+Everything above describes v2, the contracts live today. The next version is specified in [docs/spec-v3.md](docs/spec-v3.md), which controls wherever code and spec differ. It has two pieces: the games piece (games, the reporters that write them, and how each game ends) and a betting add-on deployed beside it. Each piece is built in stages, reviewed, and deployed once, as a whole.
+
+- `src/signpost/`: the signpost, the public list of each set of contracts and its state. Deployed.
+- `src/games/`: the games piece's games contract, built so far. Anyone creates a game; each game copies the approved reporters at its creation; one report call takes a start and a score, each written once; five reads say what happened. Not deployed. Still to come in the same piece, before it deploys: admission to the approved list and retirement from it, through the timelock; the per-league terms; the creation fee; and the ends (the hour-24 void, the dispute record and day 7, and the day-30 release).
+
 ## License
 
 [BUSL-1.1](LICENSE.md) — Business Source License 1.1. Converts to GPL-2.0-or-later on February 20, 2028.

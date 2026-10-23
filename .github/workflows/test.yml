@@ -8,6 +8,10 @@ on:
 env:
   FOUNDRY_PROFILE: ci
 
+# The job only reads the repository. This also bounds what any installed tool could do with the token.
+permissions:
+  contents: read
+
 jobs:
   check:
     strategy:
@@ -61,3 +65,35 @@ jobs:
         run: |
           forge test -vvv --via-ir --optimize
         id: test
+
+      # Slither is a report that never fails the build: each step below may fail without failing the job,
+      # and Slither itself exits 0 whatever it finds (--fail-none). Its findings are dispositioned on the PR.
+      - name: Install Slither (report only)
+        if: always()
+        continue-on-error: true
+        run: |
+          python3 -m venv "$RUNNER_TEMP/slither"
+          "$RUNNER_TEMP/slither/bin/pip" install --disable-pip-version-check --no-deps --only-binary=:all: \
+            -r .github/slither-requirements.txt
+          echo "$RUNNER_TEMP/slither/bin" >> "$GITHUB_PATH"
+
+      - name: Slither report (never fails the build)
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 20
+        run: |
+          slither --version || true
+          # Everything outside lib/, test/ and script/, in full, in this step's log.
+          slither . --filter-paths "lib/|test/|script/" --fail-none > slither.txt 2>&1 || true
+          cat slither.txt
+          # The job summary shows the contracts being built now: not v2's deployed contracts
+          # (src/core, src/modules, src/interfaces) or v2's Ethereum timelock (src/governance).
+          {
+            echo "## Slither: a report that never fails the build"
+            echo
+            echo "Scope: src/ outside v2's deployed contracts and v2's Ethereum timelock. The full report is in this step's log."
+            echo
+            slither . --foundry-ignore-compile \
+              --filter-paths "lib/|test/|script/|src/core/|src/modules/|src/interfaces/|src/governance/" \
+              --fail-none --checklist 2>/dev/null || echo "Slither did not run."
+          } >> "$GITHUB_STEP_SUMMARY" || true
