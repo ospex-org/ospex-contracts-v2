@@ -159,9 +159,10 @@ contract EmptyValuesReporter is IOspexReporter {
     }
 }
 
-/// @dev A reporter whose read answers by its own standing: one set of values while it is not yet approved, and
-///      another once it is. It has no owner, no setter and no storage of its own. Its answer at approval, the
-///      one emitted, holds afterwards only if the approval writes the reporter's entry before it reads.
+/// @dev A reporter whose read answers by its own standing: one set of values until its whole entry is written
+///      (its kind, its code hash and its place on the list), and another once it is. It has no owner, no setter
+///      and no storage of its own. Its answer at approval, the one emitted, holds afterwards only if the
+///      approval writes all of the reporter's entry before it reads.
 contract ChameleonReporter is IOspexReporter {
     IOspexGames public immutable i_games;
 
@@ -174,8 +175,15 @@ contract ChameleonReporter is IOspexReporter {
     }
 
     function fixedValues() external view returns (bytes memory) {
-        (ReporterKind kind,,) = i_games.getReporter(address(this));
-        if (kind == ReporterKind.None) return abi.encode(bytes32("values while not approved"));
+        (ReporterKind kind,, bytes32 hash) = i_games.getReporter(address(this));
+        (address[] memory listed,) = i_games.getApprovedReporters();
+        bool onList = false;
+        for (uint256 i; i < listed.length; ++i) {
+            if (listed[i] == address(this)) onList = true;
+        }
+        if (kind == ReporterKind.None || hash == bytes32(0) || !onList) {
+            return abi.encode(bytes32("values while not approved"));
+        }
         return abi.encode(bytes32("values once approved"));
     }
 }
