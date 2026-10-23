@@ -714,7 +714,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
     // "An after-n reporter writes to a game before its start + n." With the list and the terms changing
     // through the timelock: the clock is the game's own n, whatever its league's terms or the defaults become.
-    // (B2's start and score cases stay in OspexGames.t.sol: test_start_onlyFirstN,
+    // (#37's start and score cases stay in OspexGames.t.sol: test_start_onlyFirstN,
     // test_score_afterNOpensAtStartPlusN, test_score_afterNClockIsTheGamesOwnN.)
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -756,8 +756,8 @@ contract OspexGamesNeverLinesTest is GamesBase {
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
     // "A retirement scores, voids or settles anything; it only opens the release." Here, the first half: a
-    // retirement writes no game. The contract holds no money yet, so the money half comes with the fee (B4),
-    // and B6 carries the release.
+    // retirement writes no game. The contract holds no money yet, so the money half comes with the fee, and
+    // the release comes with the ends.
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// Games in every status, each reporter retired in turn, the last leaving every game with every reporter
