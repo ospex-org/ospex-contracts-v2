@@ -25,7 +25,8 @@ Each word below means one thing, here and in v3's code.
 - **hint** — a feed's id for the game, given at creation as a seat and id pair, and not a lock. It rides in the creation event and is not stored. Seat 3 is read by its creation hint.
 - **creation fee** — what a game's creator pays to create it, one of the four terms. Held until the game ends, then credited by the report that ends the game to the payout address in that report, or back to the creator by a release; the owner withdraws it later.
 - **reading** — what a report names for one feed asked: its seat, which of three it was (silent, answered without a final, or answered with a final) and, for a feed that answered, its two scores. A report carries one reading per feed asked.
-- **games set** — the frozen set that holds the games: the games contract, the reporter list with its kinds, the reporters, the per-league terms and the ends. One of v3's two pieces; the betting add-on is the other.
+- **games set** — the frozen set for games: the games contract, the reporter list with its kinds, the reporters, the per-league terms and the ends. One of v3's two pieces; the betting set is the other.
+- **betting set** — a frozen set of betting contracts deployed beside the games set, with that set's address fixed at deploy; more than one may sit beside the same games set over time; it settles only on the game's own status, read from the games set.
 
 ## v3 as ruled
 
@@ -33,7 +34,7 @@ Each word below means one thing, here and in v3's code.
 
 **Two pieces** *(ruled 10/15)*
 
-* v3 is two pieces. The games set is frozen on its own: games, the reporter list with its kinds, the Chainlink reporter, the per-league terms (n, the day-7 clock, the day-30 clock and the creation fee), and the ends: a score, a void or a release, with the dispute record beside them. Betting is a frozen add-on beside it, deployed after the games set with that set's address fixed at the add-on's deploy; more than one add-on may sit beside the same games set over time. The coin the bets are held in is a deploy parameter of the add-on, never hardcoded, and the signpost lists sets per coin, so leaving a frozen stablecoin is a new add-on, not a new protocol. Betting settles only on the game's own status, read from the games set. Kept on purpose: a fault in the games set is still a full restart.
+* v3 is two pieces. The games set is frozen on its own: games, the reporter list with its kinds, the Chainlink reporter, the per-league terms (n, the day-7 clock, the day-30 clock and the creation fee), and the ends: a score, a void or a release, with the dispute record beside them. The betting set is a frozen add-on beside it, deployed after the games set with that set's address fixed at deploy; more than one add-on may sit beside the same games set over time. The coin the bets are held in is a deploy parameter of the betting set, never hardcoded, and the signpost lists sets per coin, so leaving a frozen stablecoin is a new betting set, not a new protocol. Betting settles only on the game's own status, read from the games set. Kept on purpose: a fault in the games set is still a full restart.
 * The games set holds the creation fee from a game's creation until the game ends, plus what has been credited and not yet withdrawn, and nothing else. *(10/17, answer 6; 10/21, the creation fee is credited.)*
 * The courier arrives as a later betting contract, and no first betting set ships before the courier is live. The courier is required for v3, and no outside maker is shown Ospex before it is live *(10/9)*. The one bend is the signpost's listing of today's set.
 * The signpost is neither piece. It is the public list that says where each piece is and what state it is in. Its rules are under "The signpost" below.
