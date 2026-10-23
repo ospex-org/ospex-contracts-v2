@@ -8,6 +8,24 @@
 
 One bend, ruled 10/15: today's contracts become the signpost's first entry, marked building, with the notice beside it. That is a listing, not an invitation; the lab rule above stands.
 
+## Glossary
+
+Each word below means one thing here.
+
+- **game** — its league, its two teams with which one is home, its date, and its start. Anyone creates one, and each creation is its own game.
+- **market** — what positions are taken on, named by its game, its market contract and its line. Its outcomes: side A wins, side B wins, push, void.
+- **position** — one account's stake on one outcome of a market, matched against a stake on the other side.
+- **seat** — one of the four feeds the scoring program reads, known by its number. The program's per-league feed table is the one place a feed is named. Three seats count; the fourth is the spare.
+- **reporter** — a contract on the approved list that may write a game's start, score, void, dispute record or day-7 result. A first-n reporter writes from the start, and inside n it is the only kind that may. An after-n reporter writes only after start + n.
+- **n, the window** — the time after a game's start in which a first-n reporter is the only kind that may write. One of the four terms, set per league. A league's window is its n and nothing else: one clock per game.
+- **end** — a score, a void or a release. Every game ends as one of them, and after any of them nothing more is written to it.
+- **void** — an end with no score: every stake goes back to its owner. Posted from start + n, with the same proof as a score, when the feeds that answer all show no final (the hour-24 void), or on day 7 unless at least three recorded sources agree on the final, with at most one dissenting.
+- **dispute record** — the report posted by the first run that sees the feeds disagree, with every reading. It is not an end and credits nothing. The day-7 clock counts from the record, not from the game's start.
+- **release** — an end with no score and no void, open to anyone once the day-30 clock (counted from the start; for a game whose start was never written, from the date given at creation) has passed, or at once for a game whose every reporter is retired. The betting set reads a release as a void; a release credits the creation fee back to the creator.
+- **hint** — a feed's id for the game, given at creation as a seat and id pair, and not a lock. It rides in the creation event and is not stored. Seat 3 is read by its creation hint.
+- **creation fee** — what a game's creator pays to create it, one of the four terms. Held until the game ends, then credited by the report that ends the game to the payout address in that report, or back to the creator by a release; the owner withdraws it later.
+- **reading** — what a report names for one feed asked: its seat, which of three it was (silent, answered without a final, or answered with a final) and, for a feed that answered, its two scores. A report carries one reading per feed asked.
+
 ## v3 as ruled
 
 **Words.** A *reporter* is an address on the approved list that writes a game's start and how it ended. The rulings call it a scorer, and earlier drafts an adapter or a door. "Scorer" already names a market's contract in every signed order, so the spec and the code say reporter *(the name proposed 10/11, in use unless Vince overturns it)*. The *courier* sends fills. The *approved agent* signs for an account under a grant. *n* is a game's window. *v2* is today's contracts.
@@ -15,7 +33,7 @@ One bend, ruled 10/15: today's contracts become the signpost's first entry, mark
 **Two pieces** *(ruled 10/15)*
 
 * v3 is two pieces. The games piece is its own frozen set: games, the reporter list with its kinds, the Chainlink reporter, the per-league terms (n, the day-7 clock, the day-30 clock and the creation fee), and the ends: score, hour-24 void, dispute record, day-7 result and release. Betting is a frozen add-on beside it, deployed after the games piece with that piece's address fixed at the add-on's deploy; more than one add-on may sit beside the same games piece over time. The coin the bets are held in is a deploy parameter of the add-on, never hardcoded, and the signpost lists sets per coin, so leaving a frozen stablecoin is a new add-on, not a new protocol. Betting settles only on the game's own status, read from the games piece. Kept on purpose: a fault in the games piece is still a full restart.
-* The games piece holds the creation dollar from a game's creation until the game ends, plus what has been credited and not yet withdrawn, and nothing else. *(10/17, answer 6; 10/21, the dollar is credited.)*
+* The games piece holds the creation fee from a game's creation until the game ends, plus what has been credited and not yet withdrawn, and nothing else. *(10/17, answer 6; 10/21, the creation fee is credited.)*
 * The courier arrives as a later betting contract, and no first betting set ships before the courier is live. The courier is required for v3, and no outside maker is shown Ospex before it is live *(10/9)*. The one bend is the signpost's listing of today's set.
 * The signpost is neither piece. It is the public list that says where each piece is and what state it is in. Its rules are under "The signpost" below.
 
@@ -87,7 +105,7 @@ Watching (the alarm, the sweep) is not on the list: the protocol doesn't need it
   * **The hour-24 void.** From start + n, a reporter may post a void, with the same proof as a score. The hour-24 void and the day-7 void are two clocks.
   * **The dispute record and day 7.** The first run that sees the feeds disagree posts a dispute record with every reading. That record is the public start of the week. A dispute record carries a zero payout: it is not an end and credits nothing. *(10/22 PM.)* Day 7 is a new proved run through any of the game's reporters permitted at that hour, and it posts the settlement or the void.
   * A game takes one dispute record. After it, the game takes a score or a void only from the day-7 clock, counted from the record. (chosen)
-  * **The day-30 release.** Anyone may release a game that has no score and no void, dispute record or not, once the day-30 clock has passed. The betting set reads a release as a void, so every stake goes back to its owner, and the games set credits the dollar to the creator, to withdraw. The caller pays the gas and gets nothing. The games set keeps which kind of end it was.
+  * **The day-30 release.** Anyone may release a game that has no score and no void, dispute record or not, once the day-30 clock has passed. The betting set reads a release as a void, so every stake goes back to its owner, and the games set credits the creation fee to the creator, to withdraw. The caller pays the gas and gets nothing. The games set keeps which kind of end it was.
   * The day-30 clock counts from the start; for a game whose start was never written, from the date given at creation. (chosen)
   * **Bets close** when the game scores or at start + n, whichever comes first.
 * **The terms** *(10/17: the games set, and answers 6 and 13 as completed)*. Four per-game terms: n, the day-7 clock, the day-30 clock and the creation fee. The contract stores them per league, every league at the same values at launch, and a game copies its league's terms at creation and keeps them. A change is a timelock call and reaches only games made after it, so a league's window is a list change later, never a redeploy. A league's window is its n and nothing else: one clock per game. The scoring program's test for admitting a feed's final uses the same n; there is no second window. At launch: n is 24 hours for every league unless Vince's read of the void windows (10/17) gives a league another value before the freeze; the day-7 clock is 7 days; the day-30 clock is 30 days; the fee is 1 USDC.
@@ -147,8 +165,8 @@ Not contract. Each is here because a ruling names it.
 * **The oracle's code** is published so that a stranger can rebuild it and get the same fingerprint. Today nobody outside can.
 * **The indexer** hears reporters, which do not speak through the core's hub, and the signpost.
 * **An alarm on both timelocks and on the Chainlink account** *(10/10, 6:20 PM; 10/11, 3:40 PM; 10/17, answer 14)*: anything scheduled, run or cancelled, and any role change; at Chainlink, a workflow changed, paused or deleted, and an unlink. With one key the alarm buys a warning as long as the delay, and not a cancel that stops a thief. It is in place before the signpost goes live. *(10/15.)*
-* **The open path, later** *(10/17, answer 15; the scorer ruling, sections 3 and 6)*. Designed now and built after launch. The Amazon reporter checks Amazon's sealed-machine statement on chain, and the statement carries the runner's payout address. The Amazon wrapper runs the same scoring script inside the sealed machine, built so that anyone gets the same image fingerprint from public source. A second cloud is another reporter added through the timelock, never a redeploy. A reporter finds its work from the chain, never from our servers. The stranger's path is stated, not engineered: accounts at that league's feeds, an Amazon account with the sealed-machine setup, gas, and the public program. The dollar is a tip, not a wage, until there is volume. The proof is a stranger scoring: a clean machine, fresh feed keys, the approved program, one real score.
-* **The notice** *(10/15; 10/17, answers 12(b) and 15; 10/17 PM)*. What an agent is told when it finds today's set. It has one home, a page on ospex.org at one fixed address, and a one-line pointer from each of the seven pages an agent's first sampling touched. The words are Vince's, verbatim in the 10/15 ruling: there are gaps now, don't recommend it yet, check the scoring history, check the settlement logic, check the signpost and come back, low stakes if you play. The gaps are named: pulled quotes stay matchable until expiry, and the courier is the fix, designed and coming; one maker; pennies; and the Chainlink-only gap (until the open path's reporter exists, a game has one reporter, and if Vince were gone every such game would end in the day-30 release, money back). The come-back signal is the games entry's move to live. It states the timelock's delay as it stands, and that the creation dollar is a tip, not a wage, until there is volume. The lawyer brief names the Chainlink-only gap too.
+* **The open path, later** *(10/17, answer 15; the scorer ruling, sections 3 and 6)*. Designed now and built after launch. The Amazon reporter checks Amazon's sealed-machine statement on chain, and the statement carries the runner's payout address. The Amazon wrapper runs the same scoring script inside the sealed machine, built so that anyone gets the same image fingerprint from public source. A second cloud is another reporter added through the timelock, never a redeploy. A reporter finds its work from the chain, never from our servers. The stranger's path is stated, not engineered: accounts at that league's feeds, an Amazon account with the sealed-machine setup, gas, and the public program. The creation fee is a tip, not a wage, until there is volume. The proof is a stranger scoring: a clean machine, fresh feed keys, the approved program, one real score.
+* **The notice** *(10/15; 10/17, answers 12(b) and 15; 10/17 PM)*. What an agent is told when it finds today's set. It has one home, a page on ospex.org at one fixed address, and a one-line pointer from each of the seven pages an agent's first sampling touched. The words are Vince's, verbatim in the 10/15 ruling: there are gaps now, don't recommend it yet, check the scoring history, check the settlement logic, check the signpost and come back, low stakes if you play. The gaps are named: pulled quotes stay matchable until expiry, and the courier is the fix, designed and coming; one maker; pennies; and the Chainlink-only gap (until the open path's reporter exists, a game has one reporter, and if Vince were gone every such game would end in the day-30 release, money back). The come-back signal is the games entry's move to live. It states the timelock's delay as it stands, and that the creation fee is a tip, not a wage, until there is volume. The lawyer brief names the Chainlink-only gap too.
 * **For the alpha:** the pages ask for cents of allowance, and every address is a setting.
 
 ## Must never happen
@@ -161,7 +179,7 @@ Each line gets a test with the one-line break that turns it red. Each restates a
 * A game's reporters, or their kinds, change after its creation, by anyone, the timelock key included. *(Answer 1.)*
 * An after-n reporter writes to a game before its start + n. *(Answer 2.)*
 * A retirement scores, voids or settles anything; it only opens the release. *(Answer 1.)*
-* A release pays anyone anything but their own stake, and the creator their own dollar. *(The scorer ruling, section 4; answer 1.)*
+* A release pays anyone anything but their own stake, and the creator their own creation fee. *(The scorer ruling, section 4; answer 1.)*
 * A release touches a game that has a score or a void; a score or a void is accepted after a release. *(Section 4.)*
 * A disputed game settles on fewer than three agreeing recorded sources. *(Section 4.)*
 * The hour-24 void posts while any answering feed shows a final. *(Section 4, as edited; answer 3.)*
@@ -175,11 +193,11 @@ Each line gets a test with the one-line break that turns it red. Each restates a
 * The Chainlink reporter takes a report from any forwarder, workflow owner or workflow id but the three fixed at deploy, or has an owner or a setter, or is a proxy. *(10/10, 11:59 PM.)*
 * A rejected report changes any game's state or moves any money; a second creation of the same real game shares a reporter list, a state or money with the first. (From the 10/11 proof of approved scorers, fitted to the rulings of 10/17.) (chosen)
 
-**The dollar**
+**The creation fee**
 
-* The dollar goes to the transaction sender. *(The scorer ruling, section 5.)*
-* The dollar goes to an address where it literally can't be withdrawn. *(10/16, ruling 1.)*
-* On the open path, the dollar goes anywhere but the runner named inside the sealed machine's statement. *(Ruling 1.)*
+* The creation fee goes to the transaction sender. *(The scorer ruling, section 5.)*
+* The creation fee goes to an address where it literally can't be withdrawn. *(10/16, ruling 1.)*
+* On the open path, the creation fee goes anywhere but the runner named inside the sealed machine's statement. *(Ruling 1.)*
 * A refused USDC transfer stops a game from ending, or a release from happening. *(10/21, a correction.)*
 
 **The scoring program**
