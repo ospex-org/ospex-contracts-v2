@@ -666,8 +666,9 @@ contract OspexGamesTest is GamesBase {
         _assertReadings(readings, _readings());
     }
 
-    /// A report with no readings is taken: the games set emits readings and checks none.
-    function test_report_readingsAreNotChecked() public {
+    /// A start with no readings is taken: a report need not carry any. What the games set does check in a
+    /// reading, that a silent one carries no score, is test_report_aSilentReadingCarriesNoScore.
+    function test_report_aStartWithNoReadingsIsTaken() public {
         uint256 game = _create();
         Report memory r = _startReport(game, START);
         r.readings = new Reading[](0);
