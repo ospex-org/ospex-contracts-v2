@@ -10,9 +10,9 @@ One bend, ruled 10/15: today's contracts become the signpost's first entry, mark
 
 ## Glossary
 
-Each word below means one thing here.
+Each word below means one thing, here and in v3's code.
 
-- **game** — its league, its two teams with which one is home, its date, and its start. Anyone creates one, and each creation is its own game.
+- **game** — its league, its two teams with which one is home, its date, and its start. A fight or a match is a game here. Anyone creates one, and each creation is its own game.
 - **market** — what positions are taken on, named by its game, its market contract and its line. Its outcomes: side A wins, side B wins, push, void.
 - **position** — one account's stake on one outcome of a market, matched against a stake on the other side.
 - **seat** — one of the four feeds the scoring program reads, known by its number. The program's per-league feed table is the one place a feed is named. Three seats count; the fourth is the spare.
