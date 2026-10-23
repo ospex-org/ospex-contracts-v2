@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.26;
 
+import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {IOspexGames, Report} from "../../src/games/IOspexGames.sol";
 import {IOspexReporter} from "../../src/games/IOspexReporter.sol";
 
 // Review fixtures for an approval: the reporters the spec names ("a plain reporter, an owner or setter, a proxy
-// and a delegated wallet"), and reporters that lack the fixed-values read. A delegated wallet is not a
-// contract; the tests make one with vm.etch.
+// and a delegated wallet"), reporters that lack the fixed-values read, and reporters whose read writes. A
+// delegated wallet is not a contract; the tests make one with vm.etch.
 
 /// @dev What an approved reporter should look like: everything fixed at deploy, no owner, no setter. Shaped like
 ///      the Chainlink reporter: its forwarder, its workflow owner and its workflow id, and the games address.
@@ -134,4 +135,41 @@ contract RevertingReadReporter {
 /// @dev A contract that answers every call, the read included, with nothing.
 contract SilentReporter {
     fallback() external {}
+}
+
+/// @dev A reporter whose fixed-values read writes: it counts its reads. It answers with a well-formed value,
+///      so only the read being made as a read (STATICCALL) can refuse it.
+contract WritingReadReporter {
+    uint256 public reads;
+
+    function fixedValues() external returns (bytes memory) {
+        ++reads;
+        return abi.encode(reads);
+    }
+}
+
+/// @dev A reporter whose fixed-values read, once armed, runs another ready call through the timelock before
+///      answering. It answers with a well-formed value either way.
+contract ReenteringReporter {
+    TimelockController public timelock;
+    address public target;
+    bytes public payload;
+    bytes32 public salt;
+    bool public armed;
+
+    function arm(TimelockController timelock_, address target_, bytes calldata payload_, bytes32 salt_) external {
+        (timelock, target, payload, salt, armed) = (timelock_, target_, payload_, salt_, true);
+    }
+
+    function disarm() external {
+        armed = false;
+    }
+
+    function fixedValues() external returns (bytes memory) {
+        if (armed) {
+            armed = false;
+            timelock.execute(target, 0, payload, bytes32(0), salt);
+        }
+        return abi.encode(address(this));
+    }
 }

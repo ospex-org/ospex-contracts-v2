@@ -151,7 +151,10 @@ contract OspexGamesTest is GamesBase {
 
     // ──────────────────────────── Creation ─────────────────────────────
 
+    /// The league has terms of its own, each of the four unlike the defaults, so an event carrying the defaults
+    /// in their place is seen.
     function test_create_eventCarriesTheIdentityAndTheCopy() public {
+        _setTerms("ncaab", _ownTerms());
         Hint[] memory hints = _hints();
         vm.recordLogs();
         vm.prank(creator, creator);
@@ -183,7 +186,7 @@ contract OspexGamesTest is GamesBase {
         assertEq(gotHints[0].id, "g-77120");
         assertEq(gotHints[1].seat, 1);
         assertEq(gotHints[1].id, "18432");
-        _assertTerms(terms, _launchTerms(), "the event's terms");
+        _assertTerms(terms, _ownTerms(), "the event's terms");
         _assertTerms(terms, games.getGameTerms(game), "the event's terms against the read");
         (address[] memory r, uint8[] memory k) = games.getGameReporters(game);
         assertEq(reporters, r);
@@ -776,6 +779,34 @@ contract OspexGamesTest is GamesBase {
         _assertTerms(games.getGameTerms(later_), changed, "the game made after");
     }
 
+    /// Several never-line tests compare each game's storage word for word (GamesBase._rawGame), since no read
+    /// returns a game's date. This pins where each field lies, with a value no other field holds, so a change
+    /// of layout turns this red rather than leaving those comparisons reading empty slots.
+    function test_storage_aGameLiesWhereTheSnapshotsReadIt() public {
+        Terms memory own = _ownTerms();
+        _setTerms("nba", own);
+        uint256 game = _create();
+        vm.warp(DATE - 1 hours);
+        _startBy(first, game, START);
+        vm.warp(START + 1);
+        _scoreBy(first, game, HOME, AWAY);
+
+        // Word 0: status, date, start, home, away. Word 1: n and the two clocks. Word 2: the fee.
+        bytes memory want = abi.encodePacked(
+            uint256(uint8(GameStatus.Scored)) | (uint256(DATE) << 8) | (uint256(START) << 72)
+                | (uint256(HOME) << 136) | (uint256(AWAY) << 168),
+            uint256(own.window) | (uint256(own.day7Clock) << 64) | (uint256(own.day30Clock) << 128),
+            uint256(own.fee)
+        );
+        // Then the reporters' copy: its length, and each entry as address and kind.
+        uint256 firstKind = uint256(uint8(ReporterKind.FirstN)) << 160;
+        want = abi.encodePacked(want, uint256(3), uint256(uint160(address(first))) | firstKind);
+        want = abi.encodePacked(want, uint256(uint160(address(later))) | (uint256(uint8(ReporterKind.AfterN)) << 160));
+        want = abi.encodePacked(want, uint256(uint160(address(second))) | firstKind);
+        assertEq(_rawGame(game), want, "a game's storage");
+        assertEq(_rawDate(game), DATE, "a game's date");
+    }
+
     /// The reads are open to any address.
     function test_reads_openToAnyAddress() public {
         uint256 game = _verified();
@@ -796,6 +827,11 @@ contract OspexGamesTest is GamesBase {
     }
 
     // ──────────────────────────── Helpers ──────────────────────────────
+
+    /// @dev A league's own terms, each of the four unlike the launch terms.
+    function _ownTerms() internal pure returns (Terms memory) {
+        return Terms({window: 3 hours, day7Clock: 5 days, day30Clock: 20 days, fee: 2_500_000});
+    }
 
     function _verified() internal returns (uint256 game) {
         game = _create();

@@ -156,7 +156,9 @@ contract OspexGames is IOspexGames {
     error OspexGames__Delegated(address reporter);
     /// @notice Thrown when the code at a reporter to be approved hashes otherwise than the approval named
     error OspexGames__CodeHashMismatch(address reporter, bytes32 named, bytes32 found);
-    /// @notice Thrown when a reporter to be approved does not answer the fixed-values read
+    /// @notice Thrown when a reporter to be approved has no fixed-values read, or its read reverts or tries to
+    ///         write. A read that answers with something that does not decode as one bytes value is refused
+    ///         too, by the decoder, which gives no reason.
     error OspexGames__NoFixedValues(address reporter);
     /// @notice Thrown when a reporter that is not on the approved list is retired
     error OspexGames__NotApproved(address reporter);
@@ -507,7 +509,9 @@ contract OspexGames is IOspexGames {
         emit ReporterApproved(reporter, kind, codeHash, values);
     }
 
-    /// @dev The reporter's answer to the fixed-values read, or a refusal naming it if it does not answer.
+    /// @dev The reporter's answer to the fixed-values read, made as a read (STATICCALL: the interface marks it
+    ///      view), so the read can change nothing, here or anywhere else. A read that is missing, reverts or tries
+    ///      to write is refused by name; an answer that does not decode as bytes is refused by the decoder.
     function _fixedValues(address reporter) private view returns (bytes memory) {
         try IOspexReporter(reporter).fixedValues() returns (bytes memory values) {
             return values;

@@ -499,6 +499,7 @@ contract OspexGamesInvariantTest is GamesBase {
             }
             _assertTerms(games.getGameTerms(id), g.terms, "a game's terms moved");
             assertEq(games.getGameWindow(id), g.terms.window, "window moved");
+            assertEq(_rawDate(id), g.date, "a game's date moved"); // no read returns it: from storage
             assertEq(games.isEveryReporterRetired(id), handler.everyRetired(id), "every reporter retired");
 
             GameStatus want = g.scored ? GameStatus.Scored : g.started ? GameStatus.Verified : GameStatus.Unverified;

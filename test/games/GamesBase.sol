@@ -277,6 +277,37 @@ abstract contract GamesBase is Test {
         return keccak256(out);
     }
 
+    // ──────────────────────────── What lies in storage ──────────────────
+
+    /// @dev Where OspexGames keeps its games and their reporter copies, from `forge inspect OspexGames
+    ///      storageLayout`. test_storage_aGameLiesWhereTheSnapshotsReadIt pins it, so a layout change turns that
+    ///      test red instead of leaving these reads looking at empty slots.
+    uint256 internal constant GAMES_SLOT = 6;
+    uint256 internal constant GAME_REPORTERS_SLOT = 7;
+
+    /// @dev One game's storage, word for word: its three words (status, date, start and scores; then its terms)
+    ///      and its reporters' copy. The reads show what a game says; this shows every field a write could
+    ///      touch, the date included, which no read returns.
+    function _rawGame(uint256 gameId) internal view returns (bytes memory out) {
+        uint256 base = uint256(keccak256(abi.encode(gameId, GAMES_SLOT)));
+        for (uint256 i; i < 3; ++i) {
+            out = abi.encodePacked(out, vm.load(address(games), bytes32(base + i)));
+        }
+        bytes32 lengthSlot = keccak256(abi.encode(gameId, GAME_REPORTERS_SLOT));
+        uint256 length = uint256(vm.load(address(games), lengthSlot));
+        out = abi.encodePacked(out, length);
+        uint256 firstEntry = uint256(keccak256(abi.encode(lengthSlot)));
+        for (uint256 i; i < length; ++i) {
+            out = abi.encodePacked(out, vm.load(address(games), bytes32(firstEntry + i)));
+        }
+    }
+
+    /// @dev A game's date as stored: the eight bytes after the status byte in its first word.
+    function _rawDate(uint256 gameId) internal view returns (uint64) {
+        bytes32 word = vm.load(address(games), keccak256(abi.encode(gameId, GAMES_SLOT)));
+        return uint64(uint256(word) >> 8);
+    }
+
     /// @dev The approved list and the default terms as they read now.
     function _viewList() internal view returns (bytes32) {
         (address[] memory r, uint8[] memory k) = games.getApprovedReporters();

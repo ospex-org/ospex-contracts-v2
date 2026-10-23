@@ -170,6 +170,9 @@ contract OspexGamesNeverLinesTest is GamesBase {
         uint256[] memory made = new uint256[](4);
         made[0] = g1;
         for (uint256 step; step < 3; ++step) {
+            // Every game made so far, those made by _everyCallFromEveryone included, word for word: the
+            // newest game is not always one this test made.
+            bytes32 everyGame = _gameStates();
             if (step == 0) {
                 _approve(address(extra), ReporterKind.AfterN);
             } else if (step == 1) {
@@ -181,6 +184,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
                 _retire(address(extra));
             }
             _setTerms("nba", _terms(uint64(1 hours * (step + 2))));
+            assertEq(_gameStates(), everyGame, "a change of the list or the terms wrote a game");
             (address[] memory approved, uint8[] memory approvedKinds) = games.getApprovedReporters();
             _assertList(approved, approvedKinds, lists[step], kindLists[step], "the approved list");
             made[step + 1] = _create();
@@ -752,13 +756,14 @@ contract OspexGamesNeverLinesTest is GamesBase {
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
     // "A retirement scores, voids or settles anything; it only opens the release." Here, the first half: a
-    // retirement changes no game's status and moves no money. B6 carries the release.
+    // retirement writes no game. The contract holds no money yet, so the money half comes with the fee (B4),
+    // and B6 carries the release.
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// Games in every status, each reporter retired in turn, the last leaving every game with every reporter
     /// retired: after each retirement every game's status, start, scores, reporters and terms read as before,
-    /// the contract holds no more than before, and the only event is the retirement. What moves is the one
-    /// thing a retirement opens: whether every reporter of a game is retired.
+    /// its storage is unchanged word for word, the date included, and the only event is the retirement. What
+    /// moves is the one thing a retirement opens: whether every reporter of a game is retired.
     /// Break: in retireReporter(), add `s_games[s_gameCount].status = GameStatus.Released;` before the emit.
     /// The newest game is then released by the retirement itself.
     function test_neverLine_aRetirementWritesNoGame() public {
@@ -788,12 +793,10 @@ contract OspexGamesNeverLinesTest is GamesBase {
         address[3] memory retiring = [address(later), address(second), address(first)];
         for (uint256 r; r < retiring.length; ++r) {
             bytes32 before = _gameStates();
-            uint256 balance = address(games).balance;
             vm.recordLogs();
             _retire(retiring[r]);
             Vm.Log[] memory logs = vm.getRecordedLogs();
             assertEq(_gameStates(), before, "a retirement changed a game");
-            assertEq(address(games).balance, balance, "a retirement moved money");
             uint256 fromGames;
             for (uint256 l; l < logs.length; ++l) {
                 if (logs[l].emitter != address(games)) continue;
@@ -812,15 +815,18 @@ contract OspexGamesNeverLinesTest is GamesBase {
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// Reporters approved after a game is made, of both kinds, write nothing to it at any hour, though they
-    /// write to the game made after; the earlier game's list never gains them.
+    /// write to the game made after; the earlier game's list never gains them, and the approvals leave its
+    /// storage unchanged word for word, the date included.
     /// Break: in _recordedKind(), change `Reporter[] storage list = s_gameReporters[gameId];` to
     /// `Reporter[] storage list = s_approved;`. The reporter approved later then writes the earlier game.
     function test_neverLine_noApprovalReachesAGameAlreadyMade() public {
         uint256 game = _create();
         MockReporter lateFirst = new MockReporter(games);
         MockReporter lateAfter = new MockReporter(games);
+        bytes32 games0 = _gameStates();
         _approve(address(lateFirst), ReporterKind.FirstN);
         _approve(address(lateAfter), ReporterKind.AfterN);
+        assertEq(_gameStates(), games0, "an approval wrote a game already made");
         uint256 made = _create();
 
         vm.warp(DATE - 1 hours);
@@ -853,15 +859,20 @@ contract OspexGamesNeverLinesTest is GamesBase {
     }
 
     /// A game keeps the four terms it copied: a change to its league's terms, and to the defaults, reaches only
-    /// games made after, in each of the four.
+    /// games made after, in each of the four, and leaves the storage of every game already made unchanged word
+    /// for word, the date included.
     /// Break: in getGameWindow(), change `return _game(gameId).terms.window;` to `return s_defaultTerms.window;`.
     function test_neverLine_noTermChangeReachesAGameAlreadyMade() public {
         uint256 game = _create(); // nba, on the defaults
         Terms memory own = Terms({window: 2 hours, day7Clock: 2 days, day30Clock: 10 days, fee: 7});
         Terms memory defaults2 = Terms({window: 3 hours, day7Clock: 3 days, day30Clock: 11 days, fee: 0});
+        bytes32 before = _gameStates();
         _setTerms("", defaults2);
+        assertEq(_gameStates(), before, "a change to the defaults wrote a game already made");
         uint256 onNewDefaults = _create();
+        before = _gameStates();
         _setTerms("nba", own);
+        assertEq(_gameStates(), before, "a change to a league's terms wrote a game already made");
         uint256 onOwn = _create();
 
         assertEq(games.getGameWindow(game), WINDOW, "n moved");
@@ -896,19 +907,21 @@ contract OspexGamesNeverLinesTest is GamesBase {
         vm.warp(queuedAt + DELAY - 1);
         uint256 duringWait = _create();
         vm.prank(stranger);
-        vm.expectRevert();
+        vm.expectRevert(_notReady(call, bytes32("q")));
         timelock.execute(address(games), 0, call, bytes32(0), bytes32("q"));
         (ReporterKind k,) = games.getReporter(a);
         assertEq(uint8(k), 0, "approved before the delay");
-        (bool ok,) = _send(a, _startReport(duringWait, START));
+        (bool ok, bytes memory why) = _send(a, _startReport(duringWait, START));
         assertFalse(ok, "the queued reporter wrote before the delay was up");
+        assertEq(why, abi.encodeWithSelector(OspexGames.OspexGames__NotAReporter.selector, duringWait, a));
 
         vm.warp(queuedAt + DELAY);
         vm.prank(stranger);
         timelock.execute(address(games), 0, call, bytes32(0), bytes32("q"));
         uint256 afterIt = _create();
-        (ok,) = _send(a, _startReport(duringWait, START));
+        (ok, why) = _send(a, _startReport(duringWait, START));
         assertFalse(ok, "the approval reached a game made while it waited");
+        assertEq(why, abi.encodeWithSelector(OspexGames.OspexGames__NotAReporter.selector, duringWait, a));
         _take(a, _startReport(afterIt, START));
     }
 
@@ -938,6 +951,21 @@ contract OspexGamesNeverLinesTest is GamesBase {
         assertEq(_viewList(), list, "other code was approved");
         (ReporterKind k,) = games.getReporter(at);
         assertEq(uint8(k), 0);
+
+        // A call that names a zero hash announces no code, so it approves none: refused, though the code at the
+        // address is a fit reporter. A zero hash must not read as "any code".
+        address atZero = makeAddr("named with a zero hash");
+        bytes memory zeroCall = abi.encodeCall(IOspexGames.approveReporter, (atZero, ReporterKind.FirstN, bytes32(0)));
+        vm.prank(timelockKey);
+        timelock.schedule(address(games), 0, zeroCall, bytes32(0), bytes32("0"), DELAY);
+        vm.etch(atZero, address(announcedCode).code);
+        vm.warp(vm.getBlockTimestamp() + DELAY);
+        vm.prank(stranger);
+        vm.expectRevert(
+            abi.encodeWithSelector(OspexGames.OspexGames__CodeHashMismatch.selector, atZero, bytes32(0), announced)
+        );
+        timelock.execute(address(games), 0, zeroCall, bytes32(0), bytes32("0"));
+        assertEq(_viewList(), list, "a zero hash approved the code that was there");
 
         // The announced code arrives instead: the same call, queued again, runs.
         vm.etch(at, address(announcedCode).code);
@@ -1114,12 +1142,14 @@ contract OspexGamesNeverLinesTest is GamesBase {
 
     // ──────────────────────────── Helpers ──────────────────────────────
 
-    /// @dev Every game's status, start, scores, reporters and terms, each read as (taken, answer): what a game
-    ///      is, without the one read a retirement is meant to move.
+    /// @dev Every game's status, start, scores, reporters and terms, each read as (taken, answer), and its
+    ///      storage word for word, which holds the date no read returns: what a game is, without the one read a
+    ///      retirement is meant to move.
     function _gameStates() internal view returns (bytes32) {
         uint256 count = games.gameCount();
         bytes memory out = abi.encode(count);
         for (uint256 id = 1; id <= count; ++id) {
+            out = abi.encodePacked(out, keccak256(_rawGame(id)));
             bytes[5] memory calls = [
                 abi.encodeCall(IOspexGames.getGameStatus, (id)),
                 abi.encodeCall(IOspexGames.getGameStart, (id)),
@@ -1133,6 +1163,15 @@ contract OspexGamesNeverLinesTest is GamesBase {
             }
         }
         return keccak256(out);
+    }
+
+    /// @dev The stock timelock's refusal of a call to the games set that is not ready yet.
+    function _notReady(bytes memory call, bytes32 callSalt) internal view returns (bytes memory) {
+        return abi.encodeWithSelector(
+            TimelockController.TimelockUnexpectedOperationState.selector,
+            timelock.hashOperation(address(games), 0, call, bytes32(0), callSalt),
+            bytes32(uint256(1) << uint8(TimelockController.OperationState.Ready))
+        );
     }
 
     /// @dev The storage slots `account` wrote, each once, are exactly `want`.
