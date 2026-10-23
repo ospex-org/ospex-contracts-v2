@@ -18,7 +18,8 @@ import {
 import {IOspexReporter} from "../../src/games/IOspexReporter.sol";
 
 /// @dev A reporter as the games set sees one: a contract that sends reports, with the fixed-values read every
-///      reporter has. It relays what it is given. Its fixed values are its games address and a tag.
+///      reporter has. It relays what it is given, from anyone: an unauthenticated test double, not a model for
+///      a reporter. Its fixed values are its games address and a tag.
 contract MockReporter is IOspexReporter {
     IOspexGames public immutable i_games;
 

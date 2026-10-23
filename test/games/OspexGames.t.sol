@@ -357,8 +357,8 @@ contract OspexGamesTest is GamesBase {
     // ──────────────────────────── The start ────────────────────────────
 
     /// The start must be within a day of the date given at creation, either way, both edges taken, whatever
-    /// the game's n: a short n, the launch n of a day, a day either side of it, and a long n. (Ruled 10/22:
-    /// a fixed, inclusive 24 hours, replacing n.)
+    /// the game's n: a short n, the launch n of a day, a day either side of it, and a long n. The bound is a
+    /// fixed, inclusive 24 hours, and n plays no part in it.
     function test_start_boundIsADayWhateverTheGamesN() public {
         uint64[7] memory ns = [uint64(1), 10 minutes, 6 hours, DAY - 1, DAY, DAY + 1, 3 days];
         for (uint256 w; w < ns.length; ++w) {
@@ -423,8 +423,8 @@ contract OspexGamesTest is GamesBase {
         assertEq(uint8(_status(game)), uint8(GameStatus.Verified));
     }
 
-    /// A start written late is taken: no rule refuses a start written after date + n (not taken, 10/22). The
-    /// bound above keeps it within a day of the date, so it moves the day-30 release by at most a day.
+    /// A start written late is taken: no rule refuses a start written after date + n. The bound above keeps it
+    /// within a day of the date, so it moves the day-30 release by at most a day.
     function test_start_canBeWrittenAnyTimeBeforeAnEnd() public {
         uint64[3] memory times = [uint64(DATE - 30 days), START + 1, DATE + 60 days];
         for (uint256 i; i < times.length; ++i) {
@@ -465,6 +465,35 @@ contract OspexGamesTest is GamesBase {
         (bool ok, bytes memory err) = _send(address(first), r);
         assertFalse(ok);
         assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Score));
+    }
+
+    /// A score names a payout address that is not 0: address 0 can never withdraw what a score credits it, and
+    /// a scored game can never be scored again, so the refusal must come before the score is written. From
+    /// either kind of reporter, inside n and after it. Any other address is taken, the sender's own included.
+    /// Break: in _writeScore(), delete `if (r.payout == address(0)) revert OspexGames__NoPayout(ReportKind.Score);`.
+    function test_score_aZeroPayoutIsRefused() public {
+        uint256 game = _verified();
+        uint64[2] memory times = [START + 1, START + WINDOW];
+        address[2] memory who = [address(first), address(later)];
+        for (uint256 t; t < times.length; ++t) {
+            vm.warp(times[t]);
+            for (uint256 w; w < who.length; ++w) {
+                Report memory r = _scoreReport(game, HOME, AWAY);
+                r.payout = address(0);
+                bytes32 before = _viewAll();
+                vm.recordLogs();
+                (bool ok, bytes memory err) = _send(who[w], r);
+                assertFalse(ok, "a score with no payout address was taken");
+                assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__NoPayout.selector, ReportKind.Score));
+                assertEq(vm.getRecordedLogs().length, 0);
+                assertEq(_viewAll(), before, "a refused score changed state");
+            }
+        }
+        // Control: the same score with a payout address is taken; the sender's own address is one like any other.
+        Report memory paid = _scoreReport(game, HOME, AWAY);
+        paid.payout = address(first);
+        _take(address(first), paid);
+        assertEq(uint8(_status(game)), uint8(GameStatus.Scored));
     }
 
     /// An after-n reporter scores from start + n, not a second before. A first-n reporter scores from the start.
@@ -563,7 +592,7 @@ contract OspexGamesTest is GamesBase {
         assertEq(games.getGameStart(game), START);
     }
 
-    /// The July list's split of the old "already scored" refusal: each status names its own reason, for a
+    /// Each status names its own reason for refusing a report, rather than one "already scored" for all, for a
     /// start and for a score, from a first-n reporter and from an after-n reporter past start + n. The status
     /// is checked before the reporter's kind, so an after-n reporter's start on a game whose start is written
     /// is refused as written, not as the wrong kind.

@@ -1,5 +1,7 @@
 # Ospex Matched Pairs
 
+**Status.** This README describes v2, the contracts deployed on Polygon mainnet today, except its last section. v2 is run as a lab and is not yet open to outside users (see "Why this way" in [docs/spec-v3.md](docs/spec-v3.md)). v3, the next version, is being built and is not deployed: see [v3: being built, not deployed](#v3-being-built-not-deployed).
+
 Peer-to-peer sports event speculation on Polygon. Makers sign EIP-712 commitments off-chain; takers match them on-chain via the MatchingModule. Positions are then settled against oracle-verified scores. Zero vigorish, no custody beyond escrow, fully permissionless.
 
 ## Architecture
@@ -105,7 +107,7 @@ Everything above describes v2, the contracts live today. The next version is spe
 v3 says game where v2 said contest, and market where v2 said speculation; a position is a position in both.
 
 - `src/signpost/`: the signpost, the public list of each set of contracts and its state. Deployed.
-- `src/games/`: the games piece's games contract, built so far. Anyone creates a game; each game copies the approved reporters and its league's terms at its creation; one report call takes a start and a score, each written once; five reads say what happened. The approved list and the per-league terms change only through the timelock, after its delay, and a retired reporter writes to no game. Not deployed. Still to come in the same piece, before it deploys: the creation fee changing hands, and the ends (the hour-24 void, the dispute record and day 7, and the day-30 release).
+- `src/games/`: the games piece's games contract, built so far. Anyone creates a game; each game copies the approved reporters and its league's terms at its creation; one report call takes a start and a score, each written once; five reads say what happened. The approved list and the per-league terms change only through the timelock, after its delay. A retired reporter writes to no game, and neither does one whose code no longer hashes as it did when it was approved. An approval checks on chain that a reporter has the code its queued call named, and records what the reporter reports of itself; that its behaviour is fixed and its values true is for review, before the call is queued. Not deployed. Still to come in the same piece, before it deploys: the creation fee changing hands, and the ends (the hour-24 void, the dispute record and day 7, and the day-30 release).
 
 ## License
 

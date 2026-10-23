@@ -2,16 +2,20 @@
 pragma solidity ^0.8.26;
 
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
-import {IOspexGames, Report} from "../../src/games/IOspexGames.sol";
+import {IOspexGames, ReporterKind, Report} from "../../src/games/IOspexGames.sol";
 import {IOspexReporter} from "../../src/games/IOspexReporter.sol";
 
 // Review fixtures for an approval: the reporters the spec names ("a plain reporter, an owner or setter, a proxy
 // and a delegated wallet"), reporters that lack the fixed-values read, and reporters whose read writes. A
-// delegated wallet is not a contract; the tests make one with vm.etch.
+// delegated wallet is not a contract; the tests make one with vm.etch. Every fixture here is a test double for
+// the games set: none authenticates who sends through it.
 
-/// @dev What an approved reporter should look like: everything fixed at deploy, no owner, no setter. Shaped like
-///      the Chainlink reporter: its forwarder, its workflow owner and its workflow id, and the games address.
-contract PlainReporter is IOspexReporter {
+/// @dev The spec's plain reporter, as a test fixture: everything fixed at deploy, no owner, no setter, and its
+///      fixed values shaped like the launch reporter's (a forwarder, a workflow owner and a workflow id).
+///      UNAUTHENTICATED: send() relays a report from anyone, and nothing it holds constrains what it relays,
+///      because the games set is what is under test. A real reporter takes a report only from its forwarder,
+///      for its workflow owner and its workflow id. Do not copy this one.
+contract UnauthenticatedPlainReporter is IOspexReporter {
     IOspexGames public immutable i_games;
     address public immutable i_forwarder;
     address public immutable i_workflowOwner;
@@ -145,6 +149,56 @@ contract WritingReadReporter {
     function fixedValues() external returns (bytes memory) {
         ++reads;
         return abi.encode(reads);
+    }
+}
+
+/// @dev A reporter whose fixed-values read answers with no values: a well-formed, empty bytes value.
+contract EmptyValuesReporter is IOspexReporter {
+    function fixedValues() external pure returns (bytes memory) {
+        return "";
+    }
+}
+
+/// @dev A reporter whose read answers by its own standing: one set of values while it is not yet approved, and
+///      another once it is. It has no owner, no setter and no storage of its own. Its answer at approval, the
+///      one emitted, holds afterwards only if the approval writes the reporter's entry before it reads.
+contract ChameleonReporter is IOspexReporter {
+    IOspexGames public immutable i_games;
+
+    constructor(IOspexGames games) {
+        i_games = games;
+    }
+
+    function send(Report calldata r) external {
+        i_games.report(r);
+    }
+
+    function fixedValues() external view returns (bytes memory) {
+        (ReporterKind kind,,) = i_games.getReporter(address(this));
+        if (kind == ReporterKind.None) return abi.encode(bytes32("values while not approved"));
+        return abi.encode(bytes32("values once approved"));
+    }
+}
+
+/// @dev Other code that relays reports as a MockReporter does: what an approved reporter's address holds once
+///      its code is swapped. Its extra read only makes its code differ.
+contract SwappedRelay is IOspexReporter {
+    IOspexGames public immutable i_games;
+
+    constructor(IOspexGames games) {
+        i_games = games;
+    }
+
+    function send(Report calldata r) external {
+        i_games.report(r);
+    }
+
+    function fixedValues() external pure returns (bytes memory) {
+        return abi.encode(bytes32("swapped in"));
+    }
+
+    function swapped() external pure returns (bool) {
+        return true;
     }
 }
 

@@ -14,6 +14,7 @@ import {
     Terms
 } from "../../src/games/IOspexGames.sol";
 import {GamesBase, MockReporter, OspexGamesHarness} from "./GamesBase.sol";
+import {SwappedRelay} from "./ReporterFixtures.sol";
 
 /// @dev A contract with code and no fixed-values read: refused by an approval.
 contract NoRead {
@@ -23,15 +24,17 @@ contract NoRead {
 }
 
 /// @dev Drives the games contract at random and keeps its own model of what each call should do. The model
-///      is written from the spec's rules and the rulings, never read back from the contract:
+///      is written from the spec's rules, never read back from the contract:
 ///      - the list changes only by the timelock's calls, each run through the stock timelock after its delay:
 ///        an approval needs a kind, an address with code that answers the fixed-values read, the code hash it
 ///        names, an address never approved, and room on the list; a retirement needs an approved reporter not
 ///        yet retired, and is for good; a league's terms need a valid league (or none, for the defaults) and
-///        each clock from 1 second to a year;
+///        clocks in order: n at least a second, the day-7 clock longer than n, the day-30 clock longer than
+///        both together and at most a year;
 ///      - a game's date is at most a year ahead, and a game is made only while the list holds a first-n
 ///        reporter; it copies the list and its league's terms as they stand;
-///      - only a game's recorded reporters write, never one retired since; a start once, by a first-n reporter,
+///      - only a game's recorded reporters write, never one retired since, and never one whose code now hashes
+///        otherwise than at its approval; a start once, by a first-n reporter,
 ///        within a day of the date, with no payout; a score once, after the start, and for an after-n reporter
 ///        from start + n of the game's own n; and no report takes a silent reading that carries a score.
 contract GamesHandler is Test {
@@ -71,6 +74,13 @@ contract GamesHandler is Test {
     mapping(address => bool) internal retired;
     mapping(bytes32 => Terms) internal ownTerms;
     Terms internal defaults;
+    /// @dev The code a pool reporter has now, its own or the other code, and the one it had when approved.
+    bytes internal ownCode;
+    bytes internal otherCode;
+    bytes32 internal ownHash;
+    bytes32 internal otherHash;
+    mapping(address => bool) internal swapped;
+    mapping(address => bool) internal swappedAtApproval;
 
     mapping(uint256 => Ghost) internal ghosts;
     uint256 internal salt;
@@ -88,6 +98,7 @@ contract GamesHandler is Test {
     uint256 public retirementsRefused;
     uint256 public termChanges;
     uint256 public termChangesRefused;
+    uint256 public swaps;
 
     constructor(
         OspexGamesHarness games_,
@@ -96,7 +107,8 @@ contract GamesHandler is Test {
         MockReporter[] memory pool_,
         address[] memory unfit_,
         address[] memory outsiders_,
-        Terms memory launch
+        Terms memory launch,
+        bytes memory otherCode_
     ) {
         games = games_;
         timelock = timelock_;
@@ -114,6 +126,10 @@ contract GamesHandler is Test {
             kindOf[address(pool_[i])] = k[i];
         }
         defaults = launch;
+        ownCode = address(pool_[0]).code;
+        ownHash = address(pool_[0]).codehash;
+        otherCode = otherCode_;
+        otherHash = keccak256(otherCode_);
     }
 
     // ──────────────────────────── The timelock's calls ─────────────────
@@ -134,6 +150,7 @@ contract GamesHandler is Test {
         if (ok != expected) ++mismatches;
         if (ok) {
             kindOf[who] = kind;
+            swappedAtApproval[who] = swapped[who];
             curList.push(who);
             curKinds.push(kind);
             ++approvals;
@@ -178,7 +195,8 @@ contract GamesHandler is Test {
         if (seed % 7 == 3) t.window = 0;
         if (seed % 7 == 4) t.day30Clock = YEAR + 1;
         if (seed % 7 == 5) t.day7Clock = 0;
-        bool expected = seed % 13 != 0 && seed % 7 != 3 && seed % 7 != 4 && seed % 7 != 5;
+        bool expected = seed % 13 != 0 && t.window != 0 && t.day7Clock > t.window
+            && uint256(t.window) + t.day7Clock < t.day30Clock && t.day30Clock <= YEAR;
         bool ok = _run(abi.encodeCall(IOspexGames.setTerms, (league, t)));
         if (ok != expected) ++mismatches;
         if (ok) {
@@ -188,6 +206,15 @@ contract GamesHandler is Test {
         } else {
             ++termChangesRefused;
         }
+    }
+
+    /// @dev Swaps a pool reporter's code for the other code, or back: what a self-destruct and a redeploy at
+    ///      the same address would leave. A reporter writes only while its code is what it was approved with.
+    function swapCode(uint256 seed) external {
+        address who = address(pool[seed % pool.length]);
+        swapped[who] = !swapped[who];
+        vm.etch(who, swapped[who] ? otherCode : ownCode);
+        ++swaps;
     }
 
     // ──────────────────────────── Anyone's calls ───────────────────────
@@ -238,7 +265,8 @@ contract GamesHandler is Test {
 
         Report memory r = _report(id, ReportKind.Start, start, 0, 0, shapeSeed);
         if (shapeSeed % 7 == 1) r.payout = address(0xFEE);
-        bool expected = _exists(id) && _kindIn(g, who) == 1 && !retired[who] && !g.started && !g.scored
+        bool expected = _exists(id) && _kindIn(g, who) == 1 && !retired[who] && _codeAsApproved(who)
+            && !g.started && !g.scored
             && start != 0 && uint256(start) + DAY >= g.date && uint256(start) <= uint256(g.date) + DAY
             && shapeSeed % 7 != 1 && shapeSeed % 9 != 1;
         bool ok = _send(who, r);
@@ -261,7 +289,8 @@ contract GamesHandler is Test {
 
         uint8 kind = _kindIn(g, who);
         uint256 nowTs = vm.getBlockTimestamp();
-        bool expected = _exists(id) && kind != 0 && !retired[who] && g.started && !g.scored && home <= MAX_SCORE
+        bool expected = _exists(id) && kind != 0 && !retired[who] && _codeAsApproved(who) && g.started
+            && !g.scored && home <= MAX_SCORE
             && away <= MAX_SCORE && nowTs >= g.start && (kind != 2 || nowTs >= uint256(g.start) + g.terms.window)
             && shapeSeed % 9 != 1;
         bool ok = _send(who, _report(id, ReportKind.Score, 0, home, away, shapeSeed));
@@ -297,8 +326,9 @@ contract GamesHandler is Test {
         return pool;
     }
 
-    function admission(address who) external view returns (uint8, bool) {
-        return (kindOf[who], retired[who]);
+    function admission(address who) external view returns (uint8, bool, bytes32) {
+        bytes32 hash = kindOf[who] == 0 ? bytes32(0) : swappedAtApproval[who] ? otherHash : ownHash;
+        return (kindOf[who], retired[who], hash);
     }
 
     function everyRetired(uint256 id) external view returns (bool) {
@@ -333,6 +363,11 @@ contract GamesHandler is Test {
         } catch {
             ok = false;
         }
+    }
+
+    /// @dev Whether `who` has the code it was approved with. Only pool reporters ever have their code swapped.
+    function _codeAsApproved(address who) internal view returns (bool) {
+        return swapped[who] == swappedAtApproval[who];
     }
 
     function _listHasFirstN() internal view returns (bool) {
@@ -437,10 +472,12 @@ contract OspexGamesInvariantTest is GamesBase {
         outsiders[2] = deployer;
         outsiders[3] = address(0xC0FFEE); // the creator the handler uses
         outsiders[4] = address(timelock);
-        handler = new GamesHandler(games, timelock, timelockKey, pool, unfit, outsiders, _launchTerms());
+        bytes memory otherCode = address(new SwappedRelay(games)).code;
+        handler =
+            new GamesHandler(games, timelock, timelockKey, pool, unfit, outsiders, _launchTerms(), otherCode);
         vm.warp(1_800_000_037 - 2 days);
 
-        bytes4[] memory selectors = new bytes4[](9);
+        bytes4[] memory selectors = new bytes4[](10);
         selectors[0] = GamesHandler.create.selector;
         selectors[1] = GamesHandler.approve.selector;
         selectors[2] = GamesHandler.retire.selector;
@@ -450,6 +487,7 @@ contract OspexGamesInvariantTest is GamesBase {
         selectors[6] = GamesHandler.reportScore.selector;
         selectors[7] = GamesHandler.reportOther.selector;
         selectors[8] = GamesHandler.create.selector; // creation twice as often
+        selectors[9] = GamesHandler.swapCode.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
         targetContract(address(handler));
     }
@@ -473,10 +511,11 @@ contract OspexGamesInvariantTest is GamesBase {
         }
         MockReporter[] memory pool = handler.poolMembers();
         for (uint256 i; i < pool.length; ++i) {
-            (uint8 kind, bool isRetired) = handler.admission(address(pool[i]));
-            (ReporterKind gotKind, bool gotRetired) = games.getReporter(address(pool[i]));
+            (uint8 kind, bool isRetired, bytes32 hash) = handler.admission(address(pool[i]));
+            (ReporterKind gotKind, bool gotRetired, bytes32 gotHash) = games.getReporter(address(pool[i]));
             assertEq(uint8(gotKind), kind, "a reporter's kind");
             assertEq(gotRetired, isRetired, "a reporter's retirement");
+            assertEq(gotHash, hash, "a reporter's stored code hash");
         }
         for (uint256 i; i < 4; ++i) {
             string memory league = handler.leagueAt(i);
@@ -570,6 +609,14 @@ contract OspexGamesInvariantTest is GamesBase {
         handler.create(date, 0); // game 4, nba: the new defaults
         handler.create(5, 2); // a date past a year ahead: refused
         handler.create(6, 2); // a date exactly a year ahead: game 5
+        // A code swap: game 3's first reporter (first) is refused while its code is other, and writes once it
+        // is back. A reporter never approved, given the other code, is approved with that code's hash.
+        handler.swapCode(0); // first takes the other code
+        handler.reportStart(3, 3, inRange, 0); // first on game 3, its code changed: refused
+        handler.swapCode(0); // first's own code back
+        handler.reportStart(3, 3, inRange, 0); // first on game 3: taken
+        handler.swapCode(7); // pool 7, never approved, takes the other code
+        handler.approve(260); // pool 7 (260 % 11), after-n (bit 8 set), with its code's hash: taken
         handler.reportOther(1, 3, 1); // a void: not taken here
 
         // Every reporter of game 1 retired: it reads so at once, and its first-n reporter writes nothing more.
@@ -582,17 +629,18 @@ contract OspexGamesInvariantTest is GamesBase {
         handler.create(date, 0); // refused: no start could be written
 
         assertEq(handler.mismatches(), 0, "the contract and the model disagreed");
-        assertEq(handler.startsTaken(), 2, "starts taken");
+        assertEq(handler.startsTaken(), 3, "starts taken");
         assertEq(handler.scoresTaken(), 2, "scores taken");
-        assertEq(handler.refused(), 11, "reports refused");
+        assertEq(handler.refused(), 12, "reports refused");
         assertEq(handler.createsRefused(), 2, "creations refused");
         assertEq(handler.created(), 5, "games made");
-        assertEq(handler.approvals(), 1, "approvals");
+        assertEq(handler.approvals(), 2, "approvals");
         assertEq(handler.approvalsRefused(), 6, "approvals refused");
         assertEq(handler.retirements(), 4, "retirements");
         assertEq(handler.retirementsRefused(), 2, "retirements refused");
         assertEq(handler.termChanges(), 2, "term changes");
         assertEq(handler.termChangesRefused(), 2, "term changes refused");
+        assertEq(handler.swaps(), 3, "code swaps");
         assertTrue(games.isEveryReporterRetired(3), "game 3's reporters are all retired");
         invariant_everyGameReadsAsItsModel();
         invariant_theListAndTheTermsReadAsTheModel();

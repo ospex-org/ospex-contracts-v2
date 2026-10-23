@@ -22,10 +22,11 @@ import {IOspexReporter} from "./IOspexReporter.sol";
  *
  *         Anyone creates a game. When it is created, a game copies the approved list of reporters as it
  *         stands, each with its kind, and its league's four terms, and nothing changes either copy afterwards.
- *         Only the game's recorded reporters write to it, all through one report call in one report shape, and
- *         a retired reporter writes to no game. The start is written once, by a first-n reporter. The score is
- *         written once, never before the start, and is final. Five reads, open to any address, tell any
- *         contract what happened.
+ *         Only the game's recorded reporters write to it, all through one report call in one report shape. A
+ *         retired reporter writes to no game, and neither does a reporter whose code no longer hashes as it did
+ *         when it was approved. The start is written once, by a first-n reporter. The score is written once,
+ *         never before the start, and is final. Five reads, open to any address, tell any contract what
+ *         happened.
  *
  *         The approved list and the terms change only by the Polygon timelock, after its delay, through three
  *         calls: set a league's terms (or the default terms), approve a reporter, and retire a reporter. The
@@ -34,8 +35,10 @@ import {IOspexReporter} from "./IOspexReporter.sol";
  *         calls" and "What is written without a wait".
  *
  *         An approval checks on chain what it can: the reporter has code, the code is not a wallet's delegation
- *         (EIP-7702), and it hashes as the call named. That a reporter has no owner and no setter and is not a
- *         proxy is for review, before the call is queued. Spec: "The approved list".
+ *         (EIP-7702), and it hashes as the call named. The hash is stored with the reporter, and every report
+ *         the reporter sends is checked against it. An approval does not show that a reporter's behaviour is
+ *         fixed, that the values it reports are true, or that it scores correctly: that it has no owner and no
+ *         setter and is not a proxy is for review, before the call is queued. Spec: "The approved list".
  *
  *         Two things a reader may look for here belong to other parts of the games piece, by design:
  *         - How a game ends other than by a score, and the creation fee changing hands. The hour-24 void, the
@@ -50,6 +53,46 @@ import {IOspexReporter} from "./IOspexReporter.sol";
  *
  *         It has no owner, no pause, no setter but the timelock's three calls, and no way to correct a start or
  *         a score. It refuses no league.
+ *
+ * @dev    What the report call reads, by whether it can change between a game's creation and its score. Each
+ *         thing that could change and must not is either never written again or compared with what was
+ *         recorded:
+ *         - Pinned when written, and never written again: the game's reporters and their kinds, its four terms
+ *           and its date, from its creation; its start, once written; and this contract's own limits, which
+ *           are constants.
+ *         - Checked at the door against a stored value: the sender's code. Its live hash must equal the hash
+ *           recorded at its approval, or the report is refused (CodeChanged).
+ *         - Live by design: the sender's retired flag, because a retirement is meant to reach games already
+ *           made; the clock, because when a report may land is what the gate decides; and the game's status,
+ *           because it is what the reports themselves write, each step once.
+ *         - Not read, so not checked here: what a reporter's own storage holds, such as a proxy's logic or an
+ *           owner's setting. A reporter whose behaviour can change while its code stays the same keeps its
+ *           hash; the public delay before its approval is for finding that. Values a reporter holds as
+ *           immutables are written into its code, so its hash covers them.
+ *
+ *         n counts from the start as written. A first-n reporter writes from the start; an after-n reporter
+ *         writes from start + n, that second included, so n's window is [start, start + n), the window the
+ *         scoring program uses. A start written at or after start + n opens the after-n score at once.
+ *
+ *         A tradeoff kept: if every first-n reporter a game recorded is retired before its start is written,
+ *         nothing can write that start. An after-n reporter writes no start, and a reporter approved later is
+ *         not on the game's copy. While an after-n reporter on the copy is not retired, the game is not one
+ *         whose every reporter is retired, so it waits for the day-30 release, counted from its date. The
+ *         release is the recovery.
+ *
+ *         Operating rules for the timelock's calls, kept outside the code:
+ *         - The stock timelock lets anyone run a ready call, in any order and at any later time. Chain calls
+ *           that depend on each other through `predecessor`, and cancel a call that another replaces before it
+ *           is ready.
+ *         - Approve a new first-n reporter before retiring the last one, chained, or creation is refused in
+ *           between.
+ *         - A raised delay applies to calls scheduled after it: a call queued under the shorter delay runs once
+ *           that delay is up. Read the queue, not only the delay.
+ *         - The signpost checks only that this contract records each game's reporters. Before moving a games
+ *           entry to live, check that the list holds a first-n reporter and that the named game's reporters are
+ *           not all retired.
+ *         - A reporter whose code changed writes nothing, but it is not retired, so no game counts it as
+ *           retired. Retire it, so that a game left with no other reporter can be released at once.
  */
 contract OspexGames is IOspexGames {
     // ──────────────────────────── Constants ────────────────────────────
@@ -72,8 +115,9 @@ contract OspexGames is IOspexGames {
     ///         far inside 64 bits. A game with a later date can be created nearer to it.
     uint64 public constant MAX_DATE_AHEAD = 365 days;
 
-    /// @notice The longest any of a game's three clocks may be: n, the day-7 clock and the day-30 clock. A
-    ///         clock longer than a year is far more likely a mistake, such as milliseconds, than a term.
+    /// @notice The longest the day-30 clock may be, and so the longest of a game's three clocks, which run in
+    ///         order (see setTerms). A clock longer than a year is far more likely a mistake, such as
+    ///         milliseconds, than a term.
     uint64 public constant MAX_CLOCK = 365 days;
 
     /// @notice The most reporters the approved list holds at once. A game copies the whole list when it is
@@ -81,8 +125,8 @@ contract OspexGames is IOspexGames {
     ///         reporter leaves the list and frees its place.
     uint256 public constant MAX_REPORTERS = 8;
 
-    /// @notice The longest league id, in bytes. A league id is lowercase letters and digits only, so one
-    ///         league has one spelling.
+    /// @notice The longest league id, in bytes. A league id is lowercase letters and digits only, so two ids
+    ///         never differ by case alone. Which id names which league is a convention outside this contract.
     uint256 public constant MAX_LEAGUE_LENGTH = 16;
 
     /// @notice The longest team name, in bytes of printable ASCII.
@@ -119,10 +163,13 @@ contract OspexGames is IOspexGames {
     }
 
     /// @dev What the games set knows of an address as a reporter. A kind of None means never approved. A
-    ///      retired reporter keeps its kind and stays retired for good.
+    ///      retired reporter keeps its kind and its code hash, and stays retired for good. The code hash is the
+    ///      one its approval named and the chain confirmed; every report the reporter sends is checked against
+    ///      it. Nothing writes an admission again once it is approved, but its retirement.
     struct Admission {
         ReporterKind kind;
         bool retired;
+        bytes32 codeHash;
     }
 
     // ──────────────────────────── Errors ───────────────────────────────
@@ -156,13 +203,15 @@ contract OspexGames is IOspexGames {
     error OspexGames__Delegated(address reporter);
     /// @notice Thrown when the code at a reporter to be approved hashes otherwise than the approval named
     error OspexGames__CodeHashMismatch(address reporter, bytes32 named, bytes32 found);
-    /// @notice Thrown when a reporter to be approved has no fixed-values read, or its read reverts or tries to
-    ///         write. A read that answers with something that does not decode as one bytes value is refused
-    ///         too, by the decoder, which gives no reason.
+    /// @notice Thrown when a reporter to be approved has no fixed-values read, or its read reverts, tries to
+    ///         write, or answers with no values. A read that answers with something that does not decode as
+    ///         one bytes value is refused too, by the decoder, which gives no reason.
     error OspexGames__NoFixedValues(address reporter);
     /// @notice Thrown when a reporter that is not on the approved list is retired
     error OspexGames__NotApproved(address reporter);
-    /// @notice Thrown when a clock in a set of terms is 0 or more than MAX_CLOCK
+    /// @notice Thrown when a set of terms does not run in order: n is 0, the day-7 clock is not longer than n,
+    ///         n and the day-7 clock together are not shorter than the day-30 clock, or the day-30 clock is
+    ///         longer than MAX_CLOCK
     error OspexGames__TermsNotValid();
 
     /// @notice Thrown when a league id is empty, too long, or holds a character other than a-z and 0-9
@@ -186,11 +235,16 @@ contract OspexGames is IOspexGames {
     error OspexGames__UnknownGame(uint256 gameId);
     /// @notice Thrown when the sender is not among the game's recorded reporters
     error OspexGames__NotAReporter(uint256 gameId, address sender);
+    /// @notice Thrown when a report's sender has code that hashes otherwise than the hash recorded at its
+    ///         approval, no code at all included
+    error OspexGames__CodeChanged(address reporter, bytes32 approved, bytes32 found);
     /// @notice Thrown for a report kind this contract does not take: no kind, a void or a dispute record
     error OspexGames__ReportKindNotTaken(ReportKind kind);
     /// @notice Thrown when a report sets a field its kind does not use: a score or a payout on a start, a start
     ///         on a score
     error OspexGames__FieldNotEmpty(ReportKind kind);
+    /// @notice Thrown when a report that ends a game names no payout address: address 0 can never withdraw
+    error OspexGames__NoPayout(ReportKind kind);
     /// @notice Thrown when a reading marked silent carries a score: a feed that did not answer gave none
     error OspexGames__SilentReadingNotEmpty(uint256 index);
     /// @notice Thrown for any report to a game that has ended: scored, voided or released
@@ -226,7 +280,7 @@ contract OspexGames is IOspexGames {
     ///      list at its creation. A retired reporter leaves it.
     Reporter[] internal s_approved;
 
-    /// @dev Every address ever approved, with its kind and whether it is retired.
+    /// @dev Every address ever approved, with its kind, whether it is retired, and its code hash.
     mapping(address => Admission) internal s_admissions;
 
     /// @dev The terms of a league with terms of its own, by the hash of its id. A league's own terms always
@@ -249,9 +303,9 @@ contract OspexGames is IOspexGames {
         _;
     }
 
-    /// @notice Writes the first state, the one write that waits for no timelock: the default terms, and the
-    ///         first reporters, each admitted as an approval admits one, with its code hash checked and its
-    ///         fixed values read and emitted.
+    /// @notice Writes the first state, the one write that waits for no timelock: the timelock it answers to,
+    ///         the default terms, and the first reporters, each admitted as an approval admits one, with its
+    ///         code hash checked and stored and its fixed values read and emitted.
     /// @param timelock The Polygon timelock. A contract, and not the deployer.
     /// @param defaultTerms The terms of every league with none of its own. At launch: n 24 hours, the day-7
     ///        clock 7 days, the day-30 clock 30 days and the fee 1 USDC.
@@ -268,6 +322,7 @@ contract OspexGames is IOspexGames {
         if (timelock.code.length == 0 || _isDelegated(timelock)) revert OspexGames__TimelockNotAContract(timelock);
         if (timelock == msg.sender) revert OspexGames__TimelockIsTheDeployer(timelock);
         i_timelock = timelock;
+        emit TimelockSet(timelock);
 
         _checkTerms(defaultTerms);
         s_defaultTerms = defaultTerms;
@@ -375,12 +430,17 @@ contract OspexGames is IOspexGames {
 
     /// @inheritdoc IOspexGames
     /// @dev A refused report reverts, so it changes nothing. A report this contract takes changes one game
-    ///      and emits GameReported, naming the sender as the reporter that wrote it.
+    ///      and emits GameReported, naming the sender as the reporter that wrote it. The sender's standing is
+    ///      checked before the report's kind is read, so every kind, those the ends add included, is refused
+    ///      the same way: not the game's reporter, retired, or code changed.
     function report(Report calldata r) external {
         Game storage g = _game(r.gameId);
         ReporterKind kind = _recordedKind(r.gameId, msg.sender);
         if (kind == ReporterKind.None) revert OspexGames__NotAReporter(r.gameId, msg.sender);
-        if (s_admissions[msg.sender].retired) revert OspexGames__ReporterRetired(msg.sender);
+        Admission storage a = s_admissions[msg.sender];
+        if (a.retired) revert OspexGames__ReporterRetired(msg.sender);
+        bytes32 found = msg.sender.codehash;
+        if (found != a.codeHash) revert OspexGames__CodeChanged(msg.sender, a.codeHash, found);
         _checkReadings(r.readings);
 
         if (r.kind == ReportKind.Start) {
@@ -474,9 +534,9 @@ contract OspexGames is IOspexGames {
     }
 
     /// @inheritdoc IOspexGames
-    function getReporter(address reporter) external view returns (ReporterKind kind, bool retired) {
+    function getReporter(address reporter) external view returns (ReporterKind kind, bool retired, bytes32 codeHash) {
         Admission storage a = s_admissions[reporter];
-        return (a.kind, a.retired);
+        return (a.kind, a.retired, a.codeHash);
     }
 
     /// @inheritdoc IOspexGames
@@ -490,8 +550,10 @@ contract OspexGames is IOspexGames {
 
     /// @dev Admits a reporter to the approved list: the constructor's first reporters, and every approval. It
     ///      checks on chain what it can. The reporter has a kind, is not on the list and was never retired, and
-    ///      the list has room; it has code, the code is not a wallet's delegation, and it hashes as named; and it
-    ///      answers the fixed-values read, whose answer is emitted as read.
+    ///      the list has room; it has code, the code is not a wallet's delegation, and it hashes as named. Then
+    ///      it writes the reporter's entry, and only then makes the fixed-values read, so the read sees the
+    ///      reporter as it will stand: no answer can turn on the reporter not being approved yet. The answer
+    ///      must not be empty, and is emitted as read.
     function _admit(address reporter, ReporterKind kind, bytes32 codeHash) private {
         if (kind == ReporterKind.None) revert OspexGames__NoKind(reporter);
         Admission storage a = s_admissions[reporter];
@@ -502,10 +564,13 @@ contract OspexGames is IOspexGames {
         if (_isDelegated(reporter)) revert OspexGames__Delegated(reporter);
         bytes32 found = reporter.codehash;
         if (found != codeHash) revert OspexGames__CodeHashMismatch(reporter, codeHash, found);
-        bytes memory values = _fixedValues(reporter);
 
         a.kind = kind;
+        a.codeHash = codeHash;
         s_approved.push(Reporter({account: reporter, kind: kind}));
+
+        bytes memory values = _fixedValues(reporter);
+        if (values.length == 0) revert OspexGames__NoFixedValues(reporter);
         emit ReporterApproved(reporter, kind, codeHash, values);
     }
 
@@ -525,11 +590,13 @@ contract OspexGames is IOspexGames {
         return account.code.length == 23 && bytes3(account.code) == 0xef0100;
     }
 
-    /// @dev Refuses a set of terms with a clock of 0 or more than MAX_CLOCK. Any fee is legal, 0 included.
+    /// @dev Refuses a set of terms whose clocks do not run in order: n at least a second, the day-7 clock longer
+    ///      than n, the day-30 clock longer than n and the day-7 clock together, and the day-30 clock at most
+    ///      MAX_CLOCK. That bounds n and the day-7 clock too. Any fee is legal, 0 included.
     function _checkTerms(Terms memory terms) private pure {
         if (
-            terms.window == 0 || terms.window > MAX_CLOCK || terms.day7Clock == 0 || terms.day7Clock > MAX_CLOCK
-                || terms.day30Clock == 0 || terms.day30Clock > MAX_CLOCK
+            terms.window == 0 || terms.day7Clock <= terms.window
+                || uint256(terms.window) + terms.day7Clock >= terms.day30Clock || terms.day30Clock > MAX_CLOCK
         ) revert OspexGames__TermsNotValid();
     }
 
@@ -559,12 +626,13 @@ contract OspexGames is IOspexGames {
     }
 
     /// @dev Writes a score. The game's start must be written and no end written, the start field must be
-    ///      empty, both scores at most MAX_SCORE, the time at or after the start, and, for an after-n
-    ///      reporter, at or after start + n.
+    ///      empty, the payout address must not be 0, both scores at most MAX_SCORE, the time at or after the
+    ///      start, and, for an after-n reporter, at or after start + n: from start + n, that second included.
     function _writeScore(Game storage g, Report calldata r, ReporterKind kind) private {
         GameStatus status = g.status;
         if (status != GameStatus.Verified) _refuseScore(r.gameId, status);
         if (r.start != 0) revert OspexGames__FieldNotEmpty(ReportKind.Score);
+        if (r.payout == address(0)) revert OspexGames__NoPayout(ReportKind.Score);
         if (r.homeScore > MAX_SCORE || r.awayScore > MAX_SCORE) {
             revert OspexGames__ScoreOutOfRange(r.homeScore, r.awayScore);
         }
@@ -595,7 +663,7 @@ contract OspexGames is IOspexGames {
     }
 
     /// @dev Refuses a reading marked silent that carries a score, in a report of any kind. Nothing else in a
-    ///      reading is checked: the readings are emitted, not stored.
+    ///      reading is checked: the readings are emitted as the feeds gave them, not stored.
     function _checkReadings(Reading[] calldata readings) private pure {
         uint256 count = readings.length;
         for (uint256 i; i < count; ++i) {

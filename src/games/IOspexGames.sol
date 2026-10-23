@@ -29,9 +29,10 @@ enum GameStatus {
 enum ReporterKind {
     /// @dev 0: not a reporter. Never recorded.
     None,
-    /// @dev 1: writes from the start. Inside n it is the only kind that may write.
+    /// @dev 1: writes from the start, inside n and after it. Inside n, [start, start + n), it is the only kind
+    ///      that may write.
     FirstN,
-    /// @dev 2: writes only from start + n.
+    /// @dev 2: writes from start + n, that second included. It writes no start.
     AfterN
 }
 
@@ -80,7 +81,7 @@ struct Reading {
 /// @param awayScore For a score: the away team's score. Zero for any other kind.
 /// @param readings The readings the report rests on, one per feed asked.
 /// @param payout The payout address. The games set never puts the sender in its place. Zero for a start, which
-///        pays nothing.
+///        pays nothing; never zero for a score, since address 0 can never withdraw.
 struct Report {
     uint256 gameId;
     ReportKind kind;
@@ -101,12 +102,15 @@ struct Hint {
 }
 
 /// @notice A game's four terms. The games set keeps them per league, and a game copies its league's terms when
-///         it is created and keeps them. A change reaches only games made after it.
-/// @param window n, in seconds: the game's window. Inside it only a first-n reporter writes; an after-n reporter
-///        writes from start + n, and the hour-24 void can post from start + n.
-/// @param day7Clock In seconds: how long after a dispute record the game takes its day-7 result.
+///         it is created and keeps them. A change reaches only games made after it. The clocks are named for
+///         their launch values (7 days, 30 days); a league's may be others, so read a game's own terms.
+/// @param window n, in seconds: the game's window, [start, start + n), the same n the scoring program uses.
+///        Inside it only a first-n reporter writes; an after-n reporter writes from start + n, that second
+///        included, and the hour-24 void can post from then. n counts from the start as written.
+/// @param day7Clock In seconds: how long after a dispute record the game takes its day-7 result. Longer than n.
 /// @param day30Clock In seconds: how long after the start, or after the date for a game never started, anyone
-///        may release a game that has not ended.
+///        may release a game that has not ended. Longer than n and the day-7 clock together, so a dispute
+///        recorded by start + n has its whole day-7 clock before the release opens.
 /// @param fee The creation fee, in the smallest unit of the coin the games set takes it in. Zero is legal.
 struct Terms {
     uint64 window;
@@ -124,6 +128,11 @@ struct Terms {
  *         written once. The approved list and the terms change only by the Polygon timelock's three calls.
  */
 interface IOspexGames is IGameReporters {
+    /// @notice Emitted once, by the constructor: the timelock that alone makes the three calls. It never
+    ///         changes, so an indexer reading events alone can check it against the timelock it expects.
+    /// @param timelock The timelock's address
+    event TimelockSet(address indexed timelock);
+
     /// @notice Emitted when a game is created. It carries the game's identity, which is not stored.
     /// @param gameId The new game's id
     /// @param creator The address that created it
@@ -170,12 +179,16 @@ interface IOspexGames is IGameReporters {
     /// @notice Sets a league's four terms, or the default terms when `league` is empty. Only the timelock calls
     ///         it. Games made after it copy the new terms; games already made keep theirs.
     /// @param league The league's short text id, as a creation gives it, or empty for the default terms
-    /// @param terms The four terms. Each clock is at least one second and at most MAX_CLOCK.
+    /// @param terms The four terms. The clocks run in order: n at least one second, the day-7 clock longer than
+    ///        n, the day-30 clock longer than n and the day-7 clock together, and at most MAX_CLOCK. This
+    ///        orders the clocks' lengths; a dispute recorded after start + n can still have its day-7 result
+    ///        fall due after the release opens, and the first end to land wins.
     function setTerms(string calldata league, Terms calldata terms) external;
 
     /// @notice Approves a reporter. Only the timelock calls it. The code at the address must hash as named, so
-    ///         what is approved is what the queued call announced. Games made after it copy it; games already
-    ///         made never gain it.
+    ///         what is approved is what the queued call announced. The hash is stored with the reporter, and a
+    ///         report it sends is taken only while its code still hashes the same. Games made after it copy
+    ///         it; games already made never gain it.
     /// @param reporter A contract: not a wallet, and not a wallet with delegated code
     /// @param kind Its kind: first-n or after-n
     /// @param codeHash The hash of the code the reporter must have when the approval runs
@@ -226,7 +239,8 @@ interface IOspexGames is IGameReporters {
         Hint[] calldata hints
     ) external returns (uint256 gameId);
 
-    /// @notice The one report call. Only the game's recorded reporters may send it, and none that is retired.
+    /// @notice The one report call. Only the game's recorded reporters may send it, none that is retired, and
+    ///         none whose code hashes otherwise than the hash recorded at its approval.
     function report(Report calldata r) external;
 
     /// @notice How many games exist. Game ids run from 1 to this number.
@@ -250,14 +264,18 @@ interface IOspexGames is IGameReporters {
     function getGameTerms(uint256 gameId) external view returns (Terms memory);
 
     /// @notice True when every one of the game's recorded reporters is retired. Nothing can write to such a
-    ///         game again, so it can be released at once, ahead of its day-30 clock.
+    ///         game again, so it can be released at once, ahead of its day-30 clock. A game whose first-n
+    ///         reporters are all retired before its start is written, while an after-n one is not, reads false:
+    ///         nothing can write its start, and it waits for the day-30 release.
     function isEveryReporterRetired(uint256 gameId) external view returns (bool);
 
     /// @notice The approved list as it stands: what a game made now copies, in the order it copies it.
     function getApprovedReporters() external view returns (address[] memory reporters, uint8[] memory kinds);
 
-    /// @notice A reporter's kind and whether it is retired. A kind of None means it was never approved.
-    function getReporter(address reporter) external view returns (ReporterKind kind, bool retired);
+    /// @notice A reporter's kind, whether it is retired, and the code hash recorded at its approval, which
+    ///         every report it sends is checked against. A kind of None and a hash of 0 mean it was never
+    ///         approved.
+    function getReporter(address reporter) external view returns (ReporterKind kind, bool retired, bytes32 codeHash);
 
     /// @notice The terms a game in `league` made now would copy: the league's own, or the default terms if it
     ///         has none. An empty `league` reads the default terms.

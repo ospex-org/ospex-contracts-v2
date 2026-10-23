@@ -8,7 +8,7 @@ import {OspexGames} from "../../src/games/OspexGames.sol";
 import {IOspexGames, GameStatus, ReporterKind, ReportKind, Report, Hint, Terms} from "../../src/games/IOspexGames.sol";
 import {GamesBase, MockReporter} from "./GamesBase.sol";
 import {
-    PlainReporter,
+    UnauthenticatedPlainReporter,
     OwnedReporter,
     ProxyReporter,
     ReporterLogicA,
@@ -16,6 +16,8 @@ import {
     NoReadReporter,
     RevertingReadReporter,
     SilentReporter,
+    EmptyValuesReporter,
+    ChameleonReporter,
     WritingReadReporter,
     ReenteringReporter
 } from "./ReporterFixtures.sol";
@@ -29,10 +31,12 @@ contract OspexGamesListTest is GamesBase {
 
     // ──────────────────────────── The constructor's first state ────────
 
-    /// The deploy emits the default terms and each first reporter's approval, in order, with each reporter's
-    /// own fixed values, exactly as a timelock approval does.
+    /// The deploy emits the timelock once, then the default terms and each first reporter's approval, in
+    /// order, with each reporter's own fixed values, exactly as a timelock approval does. Each first reporter's
+    /// code hash is stored, as an approval stores one.
     function test_constructor_emitsTheFirstStateAsAnApprovalWould() public {
-        PlainReporter a = new PlainReporter(IOspexGames(address(0)), address(1), address(2), bytes32("w1"));
+        UnauthenticatedPlainReporter a =
+            new UnauthenticatedPlainReporter(IOspexGames(address(0)), address(1), address(2), bytes32("w1"));
         MockReporter b = new MockReporter(IOspexGames(address(0)));
         address[] memory list = new address[](2);
         (list[0], list[1]) = (address(a), address(b));
@@ -44,13 +48,17 @@ contract OspexGamesListTest is GamesBase {
         OspexGames g = new OspexGames(address(timelock), _launchTerms(), list, kinds, _hashes(list));
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        assertEq(logs.length, 3, "the terms and two approvals");
-        assertEq(logs[0].topics[0], IOspexGames.TermsSet.selector);
-        (string memory league, Terms memory t) = abi.decode(logs[0].data, (string, Terms));
+        assertEq(logs.length, 4, "the timelock, the terms and two approvals");
+        assertEq(logs[0].emitter, address(g));
+        assertEq(logs[0].topics[0], IOspexGames.TimelockSet.selector);
+        assertEq(logs[0].topics[1], bytes32(uint256(uint160(address(timelock)))), "the timelock given");
+        assertEq(logs[0].data.length, 0);
+        assertEq(logs[1].topics[0], IOspexGames.TermsSet.selector);
+        (string memory league, Terms memory t) = abi.decode(logs[1].data, (string, Terms));
         assertEq(league, "", "the default terms");
         _assertTerms(t, _launchTerms(), "the default terms emitted");
         for (uint256 i; i < 2; ++i) {
-            Vm.Log memory l = logs[i + 1];
+            Vm.Log memory l = logs[i + 2];
             assertEq(l.emitter, address(g));
             assertEq(l.topics[0], IOspexGames.ReporterApproved.selector);
             assertEq(l.topics[1], bytes32(uint256(uint160(list[i]))), "the reporter, in order");
@@ -60,8 +68,11 @@ contract OspexGamesListTest is GamesBase {
             (bool ok, bytes memory read) = list[i].staticcall(abi.encodeWithSignature("fixedValues()"));
             assertTrue(ok);
             assertEq(values, abi.decode(read, (bytes)), "the reporter's own values");
+            (,, bytes32 stored) = g.getReporter(list[i]);
+            assertEq(stored, list[i].codehash, "the code hash stored at deploy");
         }
-        (,, bytes memory plainValues) = abi.decode(logs[1].data, (uint8, bytes32, bytes));
+        assertTrue(address(a).codehash != address(b).codehash, "two reporters, two hashes");
+        (,, bytes memory plainValues) = abi.decode(logs[2].data, (uint8, bytes32, bytes));
         assertEq(
             plainValues,
             abi.encode(address(1), address(2), bytes32("w1")),
@@ -103,8 +114,11 @@ contract OspexGamesListTest is GamesBase {
         }
     }
 
-    /// The timelock must be a contract, not a wallet or a delegated one, and not the deployer.
-    function test_constructor_refusesATimelockThatIsNotOne() public {
+    /// The constructor's checks on its timelock address, all of them: a contract, not a wallet or a delegated
+    /// one, and not the deployer. They are the checks the chain can make, and any contract passes them, one that
+    /// is no timelock at all included (the control below). That the address is the stock timelock, with its
+    /// roles and its delay, is for the deploy to check, against its code and its role events.
+    function test_constructor_theTimelockIsAContractAndNotTheDeployer() public {
         address wallet = makeAddr("a wallet");
         address delegated = makeAddr("a delegated wallet");
         vm.etch(delegated, abi.encodePacked(hex"ef0100", address(timelock)));
@@ -118,7 +132,7 @@ contract OspexGamesListTest is GamesBase {
         // A contract that deploys it cannot name itself.
         vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__TimelockIsTheDeployer.selector, address(this)));
         new OspexGames(address(this), _launchTerms(), list, _kinds1(ReporterKind.FirstN), _hashes(list));
-        // Control: 23 bytes of code that is not a delegation is a contract.
+        // Control: 23 bytes of code that is not a delegation is a contract, and is taken, though it is no timelock.
         address short = makeAddr("short");
         vm.etch(short, abi.encodePacked(hex"ef0000", address(1)));
         OspexGames g = new OspexGames(short, _launchTerms(), list, _kinds1(ReporterKind.FirstN), _hashes(list));
@@ -126,8 +140,8 @@ contract OspexGamesListTest is GamesBase {
     }
 
     /// The constructor holds its first state to the same limits as the timelock's calls: at most eight
-    /// reporters, and each default clock at most a year (365 days, 31,536,000 seconds). Each edge deploys; one
-    /// past it is refused.
+    /// reporters, and default clocks that run in order, the day-30 clock at most a year (365 days, 31,536,000
+    /// seconds). Each edge deploys; one past it is refused.
     function test_constructor_holdsTheSameLimits() public {
         for (uint256 n = 8; n <= 9; ++n) {
             address[] memory list = new address[](n);
@@ -144,16 +158,21 @@ contract OspexGamesListTest is GamesBase {
             }
         }
 
+        // The longest legal defaults: the day-30 clock at a year, n and the day-7 clock as long as the order
+        // allows (n + day-7 = 31,535,999). Each refusal below breaks one rule of the order and no other.
         address a = address(new MockReporter(IOspexGames(address(0))));
-        for (uint256 i; i < 3; ++i) {
-            Terms memory past = _launchTerms();
-            if (i == 0) past.window = 31_536_001;
-            if (i == 1) past.day7Clock = 31_536_001;
-            if (i == 2) past.day30Clock = 31_536_001;
+        Terms memory edge =
+            Terms({window: 15_767_999, day7Clock: 15_768_000, day30Clock: 31_536_000, fee: type(uint96).max});
+        for (uint256 i; i < 4; ++i) {
+            // A copy of the values: `past = edge` would alias the one struct in memory.
+            Terms memory past = Terms(edge.window, edge.day7Clock, edge.day30Clock, edge.fee);
+            if (i == 0) past.day30Clock = 31_536_001; // past a year
+            if (i == 1) (past.window, past.day7Clock) = (1000, 1000); // a day-7 clock no longer than n
+            if (i == 2) past.day7Clock = 15_768_001; // n and the day-7 clock reach the day-30 clock
+            if (i == 3) past.window = 0;
             vm.expectRevert(OspexGames.OspexGames__TermsNotValid.selector);
             new OspexGames(address(timelock), past, _one(a), _kinds1(ReporterKind.FirstN), _hashes(_one(a)));
         }
-        Terms memory edge = Terms({window: 31_536_000, day7Clock: 31_536_000, day30Clock: 31_536_000, fee: type(uint96).max});
         OspexGames atEdge =
             new OspexGames(address(timelock), edge, _one(a), _kinds1(ReporterKind.FirstN), _hashes(_one(a)));
         _assertTerms(atEdge.getTerms(""), edge, "the defaults at the edge");
@@ -166,9 +185,11 @@ contract OspexGamesListTest is GamesBase {
     /// event carries its own reporter's, none the approver's. Games made after it copy it; games before never.
     function test_approve_addsTheReporterAndEmitsItsOwnValues() public {
         uint256 before = _create();
-        PlainReporter p1 = new PlainReporter(games, makeAddr("forwarder 1"), makeAddr("owner 1"), bytes32("id 1"));
-        PlainReporter p2 = new PlainReporter(games, makeAddr("forwarder 2"), makeAddr("owner 2"), bytes32("id 2"));
-        PlainReporter[2] memory ps = [p1, p2];
+        UnauthenticatedPlainReporter p1 =
+            new UnauthenticatedPlainReporter(games, makeAddr("forwarder 1"), makeAddr("owner 1"), bytes32("id 1"));
+        UnauthenticatedPlainReporter p2 =
+            new UnauthenticatedPlainReporter(games, makeAddr("forwarder 2"), makeAddr("owner 2"), bytes32("id 2"));
+        UnauthenticatedPlainReporter[2] memory ps = [p1, p2];
         ReporterKind[2] memory kinds = [ReporterKind.AfterN, ReporterKind.FirstN];
         for (uint256 i; i < 2; ++i) {
             vm.recordLogs();
@@ -181,10 +202,13 @@ contract OspexGamesListTest is GamesBase {
             assertEq(kind, uint8(kinds[i]));
             assertEq(hash, address(ps[i]).codehash);
             assertEq(values, abi.encode(ps[i].i_forwarder(), ps[i].i_workflowOwner(), ps[i].i_workflowId()));
-            (ReporterKind k, bool retired) = games.getReporter(address(ps[i]));
+            (ReporterKind k, bool retired, bytes32 stored) = games.getReporter(address(ps[i]));
             assertEq(uint8(k), uint8(kinds[i]));
             assertFalse(retired);
+            assertEq(stored, address(ps[i]).codehash, "the code hash stored with the reporter");
         }
+        // The two differ only in their immutables, which are part of their code: two hashes.
+        assertTrue(address(p1).codehash != address(p2).codehash, "immutables are part of the hash");
         (address[] memory list, uint8[] memory listKinds) = games.getApprovedReporters();
         assertEq(list.length, 5);
         assertEq(list[3], address(p1));
@@ -236,6 +260,9 @@ contract OspexGamesListTest is GamesBase {
             _approval(reverting, ReporterKind.AfterN, reverting.codehash),
             _err(OspexGames.OspexGames__NoFixedValues.selector, reverting)
         );
+        // A read that answers with no values, well formed but empty, has nothing to emit: refused by name.
+        address empty = address(new EmptyValuesReporter());
+        _refused(_approval(empty, ReporterKind.AfterN, empty.codehash), _err(OspexGames.OspexGames__NoFixedValues.selector, empty));
         // Approved already: the same kind, or the other kind, which would change its kind.
         _refused(
             _approval(address(first), ReporterKind.FirstN, address(first).codehash),
@@ -262,14 +289,13 @@ contract OspexGamesListTest is GamesBase {
         );
         // And the reporter refused for a wrong hash is approved with its own.
         _approve(f, ReporterKind.AfterN);
-        (ReporterKind k,) = games.getReporter(f);
+        (ReporterKind k,,) = games.getReporter(f);
         assertEq(uint8(k), uint8(ReporterKind.AfterN));
     }
 
     /// The fixed-values read is made as a read (STATICCALL), so a reporter's read can change nothing. A reporter
-    /// whose read writes is refused. A read that tries to run another ready timelock call, here a second
-    /// approval of the same reporter under the other kind, runs nothing: were the read a CALL, the second
-    /// approval would land inside the first and the reporter would be listed twice, under both kinds.
+    /// whose read writes is refused. A read that tries to run another ready timelock call, here the approval of
+    /// another reporter, runs nothing: were the read a CALL, that approval would land inside this one's read.
     function test_approve_theReadIsOnlyARead() public {
         WritingReadReporter writing = new WritingReadReporter();
         _refused(
@@ -280,34 +306,53 @@ contract OspexGamesListTest is GamesBase {
 
         ReenteringReporter r = new ReenteringReporter();
         address a = address(r);
-        bytes memory asFirst = _approval(a, ReporterKind.FirstN, a.codehash);
-        bytes memory asAfter = _approval(a, ReporterKind.AfterN, a.codehash);
+        address other = address(new MockReporter(games));
+        bytes memory approveR = _approval(a, ReporterKind.FirstN, a.codehash);
+        bytes memory approveOther = _approval(other, ReporterKind.AfterN, other.codehash);
         vm.startPrank(timelockKey);
-        timelock.schedule(address(games), 0, asFirst, bytes32(0), bytes32("first"), DELAY);
-        timelock.schedule(address(games), 0, asAfter, bytes32(0), bytes32("after"), DELAY);
+        timelock.schedule(address(games), 0, approveR, bytes32(0), bytes32("r"), DELAY);
+        timelock.schedule(address(games), 0, approveOther, bytes32(0), bytes32("other"), DELAY);
         vm.stopPrank();
-        r.arm(timelock, address(games), asAfter, bytes32("after"));
+        r.arm(timelock, address(games), approveOther, bytes32("other"));
         vm.warp(vm.getBlockTimestamp() + DELAY);
         bytes32 list = _viewList();
-        bytes32 afterId = timelock.hashOperation(address(games), 0, asAfter, bytes32(0), bytes32("after"));
+        bytes32 otherId = timelock.hashOperation(address(games), 0, approveOther, bytes32(0), bytes32("other"));
         vm.prank(stranger);
         vm.expectRevert(_err(OspexGames.OspexGames__NoFixedValues.selector, a));
-        timelock.execute(address(games), 0, asFirst, bytes32(0), bytes32("first"));
+        timelock.execute(address(games), 0, approveR, bytes32(0), bytes32("r"));
         assertEq(_viewList(), list, "a read that ran another call changed the list");
-        assertTrue(timelock.isOperationReady(afterId), "the second approval ran inside the first's read");
+        assertTrue(timelock.isOperationReady(otherId), "the other approval ran inside the read");
 
-        // Control: disarmed, the read only reads (its code, and so its hash, is the same). The first call
-        // approves the reporter once, as first-n; the second is then refused as an approval already made.
+        // Control: disarmed, the read only reads (its code, and so its hash, is the same). The reporter is
+        // approved once, as first-n, and the other approval then runs on its own.
         r.disarm();
         vm.prank(stranger);
-        timelock.execute(address(games), 0, asFirst, bytes32(0), bytes32("first"));
+        timelock.execute(address(games), 0, approveR, bytes32(0), bytes32("r"));
         vm.prank(stranger);
-        vm.expectRevert(_err(OspexGames.OspexGames__AlreadyApproved.selector, a));
-        timelock.execute(address(games), 0, asAfter, bytes32(0), bytes32("after"));
+        timelock.execute(address(games), 0, approveOther, bytes32(0), bytes32("other"));
         (address[] memory approved, uint8[] memory kinds) = games.getApprovedReporters();
-        assertEq(approved.length, 4);
+        assertEq(approved.length, 5);
         assertEq(approved[3], a);
         assertEq(kinds[3], uint8(ReporterKind.FirstN));
+        assertEq(approved[4], other);
+        assertEq(kinds[4], uint8(ReporterKind.AfterN));
+    }
+
+    /// An approval writes the reporter's entry before it makes the fixed-values read, so the read sees the
+    /// reporter as it will stand. A reporter whose answer turns on its own standing then emits, at approval,
+    /// the values it gives afterwards. (One whose answer turns on anything else still can differ: that the
+    /// values are fixed is for review.)
+    /// Break: in _admit(), move `bytes memory values = _fixedValues(reporter);` and the empty check above
+    /// `a.kind = kind;`. The event then carries the values it gave while not yet approved.
+    function test_approve_theEntryIsWrittenBeforeTheRead() public {
+        ChameleonReporter c = new ChameleonReporter(games);
+        vm.recordLogs();
+        _approve(address(c), ReporterKind.FirstN);
+        Vm.Log[] memory logs = _from(vm.getRecordedLogs(), address(games));
+        assertEq(logs.length, 1);
+        (,, bytes memory emitted) = abi.decode(logs[0].data, (uint8, bytes32, bytes));
+        assertEq(emitted, c.fixedValues(), "the values emitted at approval are not the ones it gives after");
+        assertEq(emitted, abi.encode(bytes32("values once approved")));
     }
 
     /// The list holds at most eight. A retirement frees a place.
@@ -347,9 +392,10 @@ contract OspexGamesListTest is GamesBase {
         assertEq(logs[0].topics[1], bytes32(uint256(uint160(address(later)))));
         assertEq(logs[0].data.length, 0);
 
-        (ReporterKind k, bool retired) = games.getReporter(address(later));
+        (ReporterKind k, bool retired, bytes32 hash) = games.getReporter(address(later));
         assertEq(uint8(k), uint8(ReporterKind.AfterN), "a retired reporter keeps its kind");
         assertTrue(retired);
+        assertEq(hash, address(later).codehash, "a retired reporter keeps its code hash");
         (address[] memory list,) = games.getApprovedReporters();
         assertEq(list.length, 2);
 
@@ -362,9 +408,10 @@ contract OspexGamesListTest is GamesBase {
         );
         address fresh = address(new MockReporter(games));
         _refused(abi.encodeCall(IOspexGames.retireReporter, (fresh)), _err(OspexGames.OspexGames__NotApproved.selector, fresh));
-        (ReporterKind none, bool notRetired) = games.getReporter(stranger);
+        (ReporterKind none, bool notRetired, bytes32 noHash) = games.getReporter(stranger);
         assertEq(uint8(none), 0, "never approved");
         assertFalse(notRetired);
+        assertEq(noHash, bytes32(0), "never approved, no hash");
     }
 
     /// A retirement closes the gap: the others keep their order, wherever the retired one stood.
@@ -499,28 +546,51 @@ contract OspexGamesListTest is GamesBase {
         assertEq(games.getGameWindow(games.gameCount()), 3 hours, "the window read is the game's n");
     }
 
-    /// Each clock runs from 1 second to MAX_CLOCK, both edges taken; 0 and one past are refused, each alone.
-    /// The fee takes any value, 0 and the largest included. A league id must be one a creation would take.
-    function test_terms_limits() public {
+    /// The clocks run in order: n at least a second, the day-7 clock longer than n, the day-30 clock longer
+    /// than n and the day-7 clock together, and at most MAX_CLOCK. Each refused set below breaks one of those
+    /// four and no other, for a league and for the defaults; each edge just inside is taken. The fee takes any
+    /// value, 0 and the largest included.
+    /// Break: in _checkTerms(), change `uint256(terms.window) + terms.day7Clock >= terms.day30Clock` to
+    /// `terms.day7Clock >= terms.day30Clock`. The chain n < day-7 < day-30 then admits the set marked below.
+    function test_terms_theClocksRunInOrder() public {
         uint64 max = 31_536_000;
-        for (uint256 field; field < 3; ++field) {
-            uint64[2] memory bad = [uint64(0), max + 1];
-            for (uint256 b; b < 2; ++b) {
-                Terms memory t = _launchTerms();
-                if (field == 0) t.window = bad[b];
-                if (field == 1) t.day7Clock = bad[b];
-                if (field == 2) t.day30Clock = bad[b];
-                _refused(abi.encodeCall(IOspexGames.setTerms, ("nba", t)), _sel(OspexGames.OspexGames__TermsNotValid.selector));
-                _refused(abi.encodeCall(IOspexGames.setTerms, ("", t)), _sel(OspexGames.OspexGames__TermsNotValid.selector));
-            }
+        uint64 big = uint64(1) << 63;
+        Terms[9] memory refused = [
+            Terms({window: 0, day7Clock: 2, day30Clock: 4, fee: 0}), // n is 0
+            Terms({window: 5, day7Clock: 5, day30Clock: 100, fee: 0}), // the day-7 clock equals n
+            Terms({window: 6, day7Clock: 5, day30Clock: 100, fee: 0}), // the day-7 clock shorter than n
+            Terms({window: 1, day7Clock: 0, day30Clock: 4, fee: 0}), // the day-7 clock is 0
+            Terms({window: 1, day7Clock: 2, day30Clock: 3, fee: 0}), // n + day-7 reaches the day-30 clock
+            // n < day-7 < day-30 holds, but a dispute recorded 12 hours after the start would see the release
+            // open before its day-7 result: the set the chain alone would admit.
+            Terms({window: 1 days, day7Clock: 20 days, day30Clock: 20 days + 1, fee: 0}),
+            Terms({window: 1, day7Clock: 2, day30Clock: 0, fee: 0}), // the day-30 clock is 0
+            Terms({window: 1, day7Clock: 2, day30Clock: max + 1, fee: 0}), // the day-30 clock past a year
+            // Clocks far past a year, whose sum passes 64 bits: refused by name, not by an overflow.
+            Terms({window: big, day7Clock: big + 1, day30Clock: max, fee: 0})
+        ];
+        for (uint256 i; i < refused.length; ++i) {
+            _refused(abi.encodeCall(IOspexGames.setTerms, ("nba", refused[i])), _sel(OspexGames.OspexGames__TermsNotValid.selector));
+            _refused(abi.encodeCall(IOspexGames.setTerms, ("", refused[i])), _sel(OspexGames.OspexGames__TermsNotValid.selector));
         }
-        Terms memory low = Terms({window: 1, day7Clock: 1, day30Clock: 1, fee: 0});
-        Terms memory high = Terms({window: max, day7Clock: max, day30Clock: max, fee: type(uint96).max});
-        _setTerms("nba", low);
-        _assertTerms(_gameIn("nba"), low, "the lowest terms");
-        _setTerms("nba", high);
-        _assertTerms(_gameIn("nba"), high, "the highest terms");
+        Terms[5] memory taken = [
+            Terms({window: 1, day7Clock: 2, day30Clock: 4, fee: 0}), // the lowest
+            Terms({window: 5, day7Clock: 6, day30Clock: 100, fee: 7}),
+            Terms({window: 1 days, day7Clock: 20 days, day30Clock: 21 days + 1, fee: 1}),
+            Terms({window: 15_767_999, day7Clock: 15_768_000, day30Clock: max, fee: type(uint96).max}), // the highest
+            _launchTerms()
+        ];
+        for (uint256 i; i < taken.length; ++i) {
+            _setTerms("nba", taken[i]);
+            _assertTerms(_gameIn("nba"), taken[i], "terms in order");
+            _setTerms("", taken[i]);
+            _assertTerms(games.getTerms(""), taken[i], "defaults in order");
+        }
+    }
 
+    /// A league id must be one a creation would take, for setTerms and for getTerms.
+    function test_terms_leagueIds() public {
+        Terms memory low = Terms({window: 1, day7Clock: 2, day30Clock: 4, fee: 0});
         string[6] memory badLeagues = ["NBA", "n-b", "n b", "abcdefghijklmnopq", "nba\x00", string(hex"6e62c3a9")];
         for (uint256 i; i < badLeagues.length; ++i) {
             _refused(
@@ -558,7 +628,7 @@ contract OspexGamesListTest is GamesBase {
         vm.warp(vm.getBlockTimestamp() + 1);
         vm.prank(creator);
         timelock.execute(address(games), 0, call, bytes32(0), bytes32(0));
-        (ReporterKind k,) = games.getReporter(address(fresh));
+        (ReporterKind k,,) = games.getReporter(address(fresh));
         assertEq(uint8(k), uint8(ReporterKind.AfterN), "anyone ran the ready call");
     }
 
@@ -578,7 +648,7 @@ contract OspexGamesListTest is GamesBase {
         vm.warp(vm.getBlockTimestamp() + DELAY);
         vm.expectRevert();
         timelock.execute(address(games), 0, call, bytes32(0), bytes32(0));
-        (, bool retired) = games.getReporter(address(second));
+        (, bool retired,) = games.getReporter(address(second));
         assertFalse(retired, "a cancelled retirement ran");
     }
 
@@ -616,7 +686,7 @@ contract OspexGamesListTest is GamesBase {
         timelock.execute(address(games), 0, call, bytes32(0), bytes32(0));
         vm.warp(at + 7 days);
         timelock.execute(address(games), 0, call, bytes32(0), bytes32(0));
-        (ReporterKind k,) = games.getReporter(address(fresh));
+        (ReporterKind k,,) = games.getReporter(address(fresh));
         assertEq(uint8(k), uint8(ReporterKind.FirstN));
 
         // Shortening it back waits the seven days.
@@ -635,7 +705,8 @@ contract OspexGamesListTest is GamesBase {
 
     /// A plain reporter: everything fixed at deploy. Approved, and what its read returns never moves.
     function test_fixture_aPlainReporterIsApprovedAndItsValuesHold() public {
-        PlainReporter p = new PlainReporter(games, makeAddr("forwarder"), makeAddr("owner"), bytes32("id"));
+        UnauthenticatedPlainReporter p =
+            new UnauthenticatedPlainReporter(games, makeAddr("forwarder"), makeAddr("owner"), bytes32("id"));
         bytes memory before = p.fixedValues();
         _approve(address(p), ReporterKind.FirstN);
         vm.warp(vm.getBlockTimestamp() + 30 days);
@@ -678,7 +749,8 @@ contract OspexGamesListTest is GamesBase {
 
     /// A wallet that has delegated code counts as a wallet: the chain refuses it, as it refuses a wallet.
     function test_fixture_aDelegatedWalletIsRefused() public {
-        PlainReporter target = new PlainReporter(games, address(1), address(2), bytes32("id"));
+        UnauthenticatedPlainReporter target =
+            new UnauthenticatedPlainReporter(games, address(1), address(2), bytes32("id"));
         address wallet = makeAddr("a wallet that delegated to a reporter");
         _refused(_approval(wallet, ReporterKind.FirstN, wallet.codehash), _err(OspexGames.OspexGames__NoCode.selector, wallet));
         vm.etch(wallet, abi.encodePacked(hex"ef0100", address(target)));

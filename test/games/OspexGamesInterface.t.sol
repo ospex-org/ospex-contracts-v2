@@ -70,7 +70,8 @@ contract OspexGamesInterfaceTest is GamesBase {
             "OspexGames__SameTeams();OspexGames__DateNotValid(uint64);OspexGames__TooManyHints(uint256);"
             "OspexGames__HintNotValid(uint256);OspexGames__HintSeatRepeated(uint256);"
             "OspexGames__UnknownGame(uint256);OspexGames__NotAReporter(uint256,address);"
-            "OspexGames__ReportKindNotTaken(uint8);OspexGames__FieldNotEmpty(uint8);"
+            "OspexGames__CodeChanged(address,bytes32,bytes32);"
+            "OspexGames__ReportKindNotTaken(uint8);OspexGames__FieldNotEmpty(uint8);OspexGames__NoPayout(uint8);"
             "OspexGames__SilentReadingNotEmpty(uint256);OspexGames__GameEnded(uint256,uint8);"
             "OspexGames__StartAlreadyWritten(uint256);OspexGames__NotFirstN(uint256,address);"
             "OspexGames__StartOutOfRange(uint256,uint64);OspexGames__StartNotWritten(uint256);"
@@ -79,7 +80,7 @@ contract OspexGamesInterfaceTest is GamesBase {
             "OspexGames__NotScored(uint256,uint8)",
             ";"
         );
-        _assertSameSet(_errorSignatures(impl), want, "error");
+        _assertSameSet(_errorSignatures(impl, false), want, "error");
         // Spot checks that the selector the tests use is the hash of the signature written out.
         assertEq(
             OspexGames.OspexGames__StartOutOfRange.selector,
@@ -90,6 +91,43 @@ contract OspexGamesInterfaceTest is GamesBase {
             OspexGames.OspexGames__CodeHashMismatch.selector,
             bytes4(keccak256("OspexGames__CodeHashMismatch(address,bytes32,bytes32)"))
         );
+        assertEq(
+            OspexGames.OspexGames__CodeChanged.selector,
+            bytes4(keccak256("OspexGames__CodeChanged(address,bytes32,bytes32)"))
+        );
+    }
+
+    /// Every error's arguments by name as well as type: a reader decoding a refusal by the contract's own ABI
+    /// reads the fields by these names, and a selector cannot see two arguments of one type swapped.
+    /// Break: in OspexGames.sol, change `error OspexGames__CodeHashMismatch(address reporter, bytes32 named,
+    /// bytes32 found);` to `error OspexGames__CodeHashMismatch(address reporter, bytes32 found, bytes32 named);`.
+    function test_theErrorsNameTheirArguments() public view {
+        string[] memory want = vm.split(
+            "OspexGames__TimelockNotAContract(address timelock);OspexGames__TimelockIsTheDeployer(address timelock);"
+            "OspexGames__NotTheTimelock(address caller);OspexGames__NoReporters();"
+            "OspexGames__LengthsDiffer(uint256 reporters,uint256 kinds,uint256 codeHashes);"
+            "OspexGames__NoFirstNReporter();OspexGames__NoKind(address reporter);"
+            "OspexGames__AlreadyApproved(address reporter);OspexGames__ReporterRetired(address reporter);"
+            "OspexGames__ListFull();OspexGames__NoCode(address reporter);OspexGames__Delegated(address reporter);"
+            "OspexGames__CodeHashMismatch(address reporter,bytes32 named,bytes32 found);"
+            "OspexGames__NoFixedValues(address reporter);OspexGames__NotApproved(address reporter);"
+            "OspexGames__TermsNotValid();OspexGames__LeagueNotValid();OspexGames__TeamNotValid();"
+            "OspexGames__SameTeams();OspexGames__DateNotValid(uint64 date);OspexGames__TooManyHints(uint256 count);"
+            "OspexGames__HintNotValid(uint256 index);OspexGames__HintSeatRepeated(uint256 index);"
+            "OspexGames__UnknownGame(uint256 gameId);OspexGames__NotAReporter(uint256 gameId,address sender);"
+            "OspexGames__CodeChanged(address reporter,bytes32 approved,bytes32 found);"
+            "OspexGames__ReportKindNotTaken(uint8 kind);OspexGames__FieldNotEmpty(uint8 kind);"
+            "OspexGames__NoPayout(uint8 kind);OspexGames__SilentReadingNotEmpty(uint256 index);"
+            "OspexGames__GameEnded(uint256 gameId,uint8 status);OspexGames__StartAlreadyWritten(uint256 gameId);"
+            "OspexGames__NotFirstN(uint256 gameId,address reporter);"
+            "OspexGames__StartOutOfRange(uint256 gameId,uint64 start);OspexGames__StartNotWritten(uint256 gameId);"
+            "OspexGames__Disputed(uint256 gameId);OspexGames__BeforeStart(uint256 gameId,uint64 start);"
+            "OspexGames__InsideWindow(uint256 gameId,uint256 opensAt);"
+            "OspexGames__ScoreOutOfRange(uint32 homeScore,uint32 awayScore);"
+            "OspexGames__NotScored(uint256 gameId,uint8 status)",
+            ";"
+        );
+        _assertSameSet(_errorSignatures(impl, true), want, "named error");
     }
 
     /// The limits a creator, a reporter and the timelock meet, by value and by type, each written out here.
@@ -157,6 +195,7 @@ contract OspexGamesInterfaceTest is GamesBase {
         assertEq(IOspexGames.ReporterApproved.selector, keccak256("ReporterApproved(address,uint8,bytes32,bytes)"));
         assertEq(IOspexGames.ReporterRetired.selector, keccak256("ReporterRetired(address)"));
         assertEq(IOspexGames.TermsSet.selector, keccak256("TermsSet(string,(uint64,uint64,uint64,uint96))"));
+        assertEq(IOspexGames.TimelockSet.selector, keccak256("TimelockSet(address)"));
 
         string[2] memory artifacts = [iface, impl];
         for (uint256 a; a < artifacts.length; ++a) {
@@ -201,7 +240,29 @@ contract OspexGamesInterfaceTest is GamesBase {
             _assertParams(json, termsSet, "league;terms", "string;tuple");
             _assertParams(json, string.concat(termsSet, "[1].components"), TERMS_NAMES, TERMS_TYPES);
             _assertIndexed(json, termsSet, "false;false");
+
+            string memory timelockSet = "$.abi[?(@.name == 'TimelockSet')].inputs";
+            _assertParams(json, timelockSet, "timelock", "address");
+            _assertIndexed(json, timelockSet, "true");
         }
+        // The events are exactly these six, in the deploying contract's ABI.
+        string[] memory events = vm.split(
+            "GameCreated;GameReported;ReporterApproved;ReporterRetired;TermsSet;TimelockSet", ";"
+        );
+        string[] memory found = new string[](16);
+        uint256 n;
+        for (uint256 i; vm.keyExistsJson(impl, string.concat("$.abi[", vm.toString(i), "]")); ++i) {
+            string memory entry = string.concat("$.abi[", vm.toString(i), "]");
+            if (keccak256(bytes(vm.parseJsonString(impl, string.concat(entry, ".type")))) != keccak256("event")) {
+                continue;
+            }
+            found[n++] = vm.parseJsonString(impl, string.concat(entry, ".name"));
+        }
+        string[] memory got = new string[](n);
+        for (uint256 i; i < n; ++i) {
+            got[i] = found[i];
+        }
+        _assertSameSet(got, events, "event");
     }
 
     /// Break: in IOspexGames.sol, swap the lines `uint8 seat;` and `string id;` in Hint.
@@ -244,15 +305,32 @@ contract OspexGamesInterfaceTest is GamesBase {
         assertEq(vm.parseJsonString(reporter, "$.abi[?(@.name == 'fixedValues')].stateMutability"), "view");
     }
 
-    /// Each read's answer, by name and type: the scores home then away, the reporters with their kinds, the
-    /// terms in their order.
+    /// Each read's question and answer, by name and type: every game read takes `gameId`, the scores come home
+    /// then away, the reporters with their kinds, the terms in their order, a reporter with its code hash.
     /// Break: in OspexGames.sol, change getGameScores's `returns (uint32 homeScore, uint32 awayScore)` to
     /// `returns (uint32 awayScore, uint32 homeScore)`. The values still come back home first, under each
     /// other's names, for anyone who decodes the contract's own ABI by name.
     function test_theReadsAnswerThese() public view {
         string[2] memory artifacts = [iface, impl];
+        string[7] memory gameReads = [
+            "getGameStatus",
+            "getGameStart",
+            "getGameReporters",
+            "getGameScores",
+            "getGameWindow",
+            "getGameTerms",
+            "isEveryReporterRetired"
+        ];
         for (uint256 a; a < artifacts.length; ++a) {
             string memory json = artifacts[a];
+            for (uint256 i; i < gameReads.length; ++i) {
+                _assertParams(json, string.concat("$.abi[?(@.name == '", gameReads[i], "')].inputs"), "gameId", "uint256");
+            }
+            assertFalse(vm.keyExistsJson(json, "$.abi[?(@.name == 'gameCount')].inputs[0]"), "gameCount takes nothing");
+            assertFalse(
+                vm.keyExistsJson(json, "$.abi[?(@.name == 'getApprovedReporters')].inputs[0]"),
+                "getApprovedReporters takes nothing"
+            );
             _assertParams(json, "$.abi[?(@.name == 'getGameScores')].outputs", "homeScore;awayScore", "uint32;uint32");
             _assertParams(
                 json, "$.abi[?(@.name == 'getGameReporters')].outputs", "reporters;kinds", "address[];uint8[]"
@@ -275,7 +353,9 @@ contract OspexGamesInterfaceTest is GamesBase {
                 json, "$.abi[?(@.name == 'getApprovedReporters')].outputs", "reporters;kinds", "address[];uint8[]"
             );
             _assertParams(json, "$.abi[?(@.name == 'getReporter')].inputs", "reporter", "address");
-            _assertParams(json, "$.abi[?(@.name == 'getReporter')].outputs", "kind;retired", "uint8;bool");
+            _assertParams(
+                json, "$.abi[?(@.name == 'getReporter')].outputs", "kind;retired;codeHash", "uint8;bool;bytes32"
+            );
             assertEq(
                 vm.parseJsonString(json, "$.abi[?(@.name == 'getReporter')].outputs[0].internalType"),
                 "enum ReporterKind"
@@ -297,8 +377,9 @@ contract OspexGamesInterfaceTest is GamesBase {
         );
     }
 
-    /// @dev Every error in an artifact's ABI as its canonical signature, read entry by entry.
-    function _errorSignatures(string memory json) internal view returns (string[] memory out) {
+    /// @dev Every error in an artifact's ABI as its canonical signature, read entry by entry; with `withNames`,
+    ///      each type followed by a space and the argument's name.
+    function _errorSignatures(string memory json, bool withNames) internal view returns (string[] memory out) {
         string[] memory found = new string[](128);
         uint256 n;
         for (uint256 i; vm.keyExistsJson(json, string.concat("$.abi[", vm.toString(i), "]")); ++i) {
@@ -308,8 +389,9 @@ contract OspexGamesInterfaceTest is GamesBase {
             }
             string memory sig = string.concat(vm.parseJsonString(json, string.concat(entry, ".name")), "(");
             for (uint256 j; vm.keyExistsJson(json, string.concat(entry, ".inputs[", vm.toString(j), "]")); ++j) {
-                string memory t =
-                    vm.parseJsonString(json, string.concat(entry, ".inputs[", vm.toString(j), "].type"));
+                string memory input = string.concat(entry, ".inputs[", vm.toString(j), "]");
+                string memory t = vm.parseJsonString(json, string.concat(input, ".type"));
+                if (withNames) t = string.concat(t, " ", vm.parseJsonString(json, string.concat(input, ".name")));
                 sig = string.concat(sig, j == 0 ? "" : ",", t);
             }
             found[n++] = string.concat(sig, ")");
