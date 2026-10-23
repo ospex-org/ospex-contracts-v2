@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {OspexGames} from "../../src/games/OspexGames.sol";
 import {IOspexGames} from "../../src/games/IOspexGames.sol";
+import {IOspexReporter} from "../../src/games/IOspexReporter.sol";
 import {IGameReporters} from "../../src/signpost/IGameReporters.sol";
 import {GamesBase} from "./GamesBase.sol";
 
@@ -15,21 +16,31 @@ contract OspexGamesInterfaceTest is GamesBase {
     string internal iface;
     string internal impl;
 
+    /// @dev The four terms, in order, wherever they appear.
+    string internal constant TERMS_NAMES = "window;day7Clock;day30Clock;fee";
+    string internal constant TERMS_TYPES = "uint64;uint64;uint64;uint96";
+
     function setUp() public override {
         super.setUp();
         iface = _artifact("IOspexGames");
         impl = _artifact("OspexGames");
     }
 
-    /// The contract has exactly these functions: the two writes, the five reads, the count and seven
-    /// constants. So it has no owner, no setter and no pause, and nothing else writes a game.
+    /// The contract has exactly these functions: the two writes anyone may send, the timelock's three calls,
+    /// the five reads, the other reads and nine constants. So it has no owner, no pause and no setter but the
+    /// timelock's three, and nothing else writes a game or the list.
     /// Break: add any external function to OspexGames, such as one that pushes onto a game's reporters.
     function test_theFunctionsAreExactlyThese() public view {
         string[] memory want = vm.split(
-            "MAX_DATE_AHEAD();MAX_HINTS();MAX_HINT_ID_LENGTH();MAX_LEAGUE_LENGTH();MAX_SCORE();MAX_TEAM_LENGTH();"
-            "START_BOUND();createGame(string,string,string,uint64,(uint8,string)[]);gameCount();"
-            "getGameReporters(uint256);getGameScores(uint256);getGameStart(uint256);getGameStatus(uint256);"
-            "getGameWindow(uint256);report((uint256,uint8,uint64,uint32,uint32,(uint8,uint8,uint32,uint32)[],address))",
+            "MAX_CLOCK();MAX_DATE_AHEAD();MAX_HINTS();MAX_HINT_ID_LENGTH();MAX_LEAGUE_LENGTH();MAX_REPORTERS();"
+            "MAX_SCORE();MAX_TEAM_LENGTH();START_BOUND();i_timelock();"
+            "approveReporter(address,uint8,bytes32);retireReporter(address);"
+            "setTerms(string,(uint64,uint64,uint64,uint96));"
+            "createGame(string,string,string,uint64,(uint8,string)[]);"
+            "report((uint256,uint8,uint64,uint32,uint32,(uint8,uint8,uint32,uint32)[],address));"
+            "gameCount();getGameReporters(uint256);getGameScores(uint256);getGameStart(uint256);"
+            "getGameStatus(uint256);getGameWindow(uint256);getGameTerms(uint256);isEveryReporterRetired(uint256);"
+            "getApprovedReporters();getReporter(address);getTerms(string)",
             ";"
         );
         string[] memory got = vm.parseJsonKeys(impl, "$.methodIdentifiers");
@@ -48,9 +59,14 @@ contract OspexGamesInterfaceTest is GamesBase {
     /// `error OspexGames__StartOutOfRange(uint256 gameId, uint256 start);`.
     function test_theErrorsAreExactlyThese() public view {
         string[] memory want = vm.split(
-            "OspexGames__NoReporters();OspexGames__KindsLengthMismatch(uint256,uint256);OspexGames__ZeroReporter();"
-            "OspexGames__NoKind(address);OspexGames__DuplicateReporter(address);OspexGames__NoFirstNReporter();"
-            "OspexGames__WindowZero();OspexGames__LeagueNotValid();OspexGames__TeamNotValid();"
+            "OspexGames__TimelockNotAContract(address);OspexGames__TimelockIsTheDeployer(address);"
+            "OspexGames__NotTheTimelock(address);OspexGames__NoReporters();"
+            "OspexGames__LengthsDiffer(uint256,uint256,uint256);OspexGames__NoFirstNReporter();"
+            "OspexGames__NoKind(address);OspexGames__AlreadyApproved(address);OspexGames__ReporterRetired(address);"
+            "OspexGames__ListFull();OspexGames__NoCode(address);OspexGames__Delegated(address);"
+            "OspexGames__CodeHashMismatch(address,bytes32,bytes32);OspexGames__NoFixedValues(address);"
+            "OspexGames__NotApproved(address);OspexGames__TermsNotValid();"
+            "OspexGames__LeagueNotValid();OspexGames__TeamNotValid();"
             "OspexGames__SameTeams();OspexGames__DateNotValid(uint64);OspexGames__TooManyHints(uint256);"
             "OspexGames__HintNotValid(uint256);OspexGames__HintSeatRepeated(uint256);"
             "OspexGames__UnknownGame(uint256);OspexGames__NotAReporter(uint256,address);"
@@ -64,40 +80,50 @@ contract OspexGamesInterfaceTest is GamesBase {
             ";"
         );
         _assertSameSet(_errorSignatures(impl), want, "error");
-        // Two spot checks that the selector the tests use is the hash of the signature written out.
+        // Spot checks that the selector the tests use is the hash of the signature written out.
         assertEq(
             OspexGames.OspexGames__StartOutOfRange.selector,
             bytes4(keccak256("OspexGames__StartOutOfRange(uint256,uint64)"))
         );
         assertEq(OspexGames.OspexGames__GameEnded.selector, bytes4(keccak256("OspexGames__GameEnded(uint256,uint8)")));
+        assertEq(
+            OspexGames.OspexGames__CodeHashMismatch.selector,
+            bytes4(keccak256("OspexGames__CodeHashMismatch(address,bytes32,bytes32)"))
+        );
     }
 
-    /// The limits a creator and a reporter meet, by value and by type, each written out here.
-    /// Break: in OspexGames.sol, change `uint256 public constant MAX_HINTS = 8;` to
-    /// `uint8 public constant MAX_HINTS = 8;`.
+    /// The limits a creator, a reporter and the timelock meet, by value and by type, each written out here.
+    /// Break: in OspexGames.sol, change `uint256 public constant MAX_REPORTERS = 8;` to
+    /// `uint8 public constant MAX_REPORTERS = 8;`.
     function test_theLimitsAreThese() public view {
         assertEq(games.MAX_SCORE(), 1_000_000);
         assertEq(games.START_BOUND(), 86_400);
         assertEq(games.MAX_DATE_AHEAD(), 31_536_000);
+        assertEq(games.MAX_CLOCK(), 31_536_000);
+        assertEq(games.MAX_REPORTERS(), 8);
         assertEq(games.MAX_LEAGUE_LENGTH(), 16);
         assertEq(games.MAX_TEAM_LENGTH(), 64);
         assertEq(games.MAX_HINTS(), 8);
         assertEq(games.MAX_HINT_ID_LENGTH(), 64);
-        string[7] memory names = [
+        string[9] memory names = [
             "MAX_SCORE",
             "START_BOUND",
             "MAX_DATE_AHEAD",
+            "MAX_CLOCK",
+            "MAX_REPORTERS",
             "MAX_LEAGUE_LENGTH",
             "MAX_TEAM_LENGTH",
             "MAX_HINTS",
             "MAX_HINT_ID_LENGTH"
         ];
-        string[7] memory types = ["uint32", "uint64", "uint64", "uint256", "uint256", "uint256", "uint256"];
+        string[9] memory types =
+            ["uint32", "uint64", "uint64", "uint64", "uint256", "uint256", "uint256", "uint256", "uint256"];
         for (uint256 i; i < names.length; ++i) {
             string memory at = string.concat("$.abi[?(@.name == '", names[i], "')]");
             _assertParams(impl, string.concat(at, ".outputs"), "", types[i]);
             assertFalse(vm.keyExistsJson(impl, string.concat(at, ".inputs[0]")), names[i]);
         }
+        _assertParams(impl, "$.abi[?(@.name == 'i_timelock')].outputs", "", "address");
     }
 
     function test_theSelectorsAreThese() public pure {
@@ -110,18 +136,27 @@ contract OspexGamesInterfaceTest is GamesBase {
         assertEq(IOspexGames.getGameScores.selector, bytes4(keccak256("getGameScores(uint256)")));
         assertEq(IOspexGames.getGameWindow.selector, bytes4(keccak256("getGameWindow(uint256)")));
         assertEq(IOspexGames.gameCount.selector, bytes4(keccak256("gameCount()")));
+        assertEq(IOspexGames.setTerms.selector, bytes4(keccak256("setTerms(string,(uint64,uint64,uint64,uint96))")));
+        assertEq(IOspexGames.approveReporter.selector, bytes4(keccak256("approveReporter(address,uint8,bytes32)")));
+        assertEq(IOspexGames.retireReporter.selector, bytes4(keccak256("retireReporter(address)")));
+        assertEq(IOspexReporter.fixedValues.selector, bytes4(keccak256("fixedValues()")));
     }
 
     /// Break: in IOspexGames.sol, change GameCreated's `uint64 date,` to `uint256 date,`.
     function test_theEventsAreThese() public view {
         assertEq(
             IOspexGames.GameCreated.selector,
-            keccak256("GameCreated(uint256,address,string,string,string,uint64,(uint8,string)[],uint64,address[],uint8[])")
+            keccak256(
+                "GameCreated(uint256,address,string,string,string,uint64,(uint8,string)[],(uint64,uint64,uint64,uint96),address[],uint8[])"
+            )
         );
         assertEq(
             IOspexGames.GameReported.selector,
             keccak256("GameReported(uint256,address,uint8,uint64,uint32,uint32,(uint8,uint8,uint32,uint32)[],address)")
         );
+        assertEq(IOspexGames.ReporterApproved.selector, keccak256("ReporterApproved(address,uint8,bytes32,bytes)"));
+        assertEq(IOspexGames.ReporterRetired.selector, keccak256("ReporterRetired(address)"));
+        assertEq(IOspexGames.TermsSet.selector, keccak256("TermsSet(string,(uint64,uint64,uint64,uint96))"));
 
         string[2] memory artifacts = [iface, impl];
         for (uint256 a; a < artifacts.length; ++a) {
@@ -130,10 +165,11 @@ contract OspexGamesInterfaceTest is GamesBase {
             _assertParams(
                 json,
                 created,
-                "gameId;creator;league;homeTeam;awayTeam;date;hints;window;reporters;kinds",
-                "uint256;address;string;string;string;uint64;tuple[];uint64;address[];uint8[]"
+                "gameId;creator;league;homeTeam;awayTeam;date;hints;terms;reporters;kinds",
+                "uint256;address;string;string;string;uint64;tuple[];tuple;address[];uint8[]"
             );
             _assertParams(json, string.concat(created, "[6].components"), "seat;id", "uint8;string");
+            _assertParams(json, string.concat(created, "[7].components"), TERMS_NAMES, TERMS_TYPES);
             _assertIndexed(json, created, "true;true;false;false;false;false;false;false;false;false");
 
             string memory reported = "$.abi[?(@.name == 'GameReported')].inputs";
@@ -151,6 +187,20 @@ contract OspexGamesInterfaceTest is GamesBase {
             );
             _assertIndexed(json, reported, "true;true;true;false;false;false;false;false");
             assertEq(vm.parseJsonString(json, string.concat(reported, "[2].internalType")), "enum ReportKind");
+
+            string memory approved = "$.abi[?(@.name == 'ReporterApproved')].inputs";
+            _assertParams(json, approved, "reporter;kind;codeHash;fixedValues", "address;uint8;bytes32;bytes");
+            _assertIndexed(json, approved, "true;false;false;false");
+            assertEq(vm.parseJsonString(json, string.concat(approved, "[1].internalType")), "enum ReporterKind");
+
+            string memory retired = "$.abi[?(@.name == 'ReporterRetired')].inputs";
+            _assertParams(json, retired, "reporter", "address");
+            _assertIndexed(json, retired, "true");
+
+            string memory termsSet = "$.abi[?(@.name == 'TermsSet')].inputs";
+            _assertParams(json, termsSet, "league;terms", "string;tuple");
+            _assertParams(json, string.concat(termsSet, "[1].components"), TERMS_NAMES, TERMS_TYPES);
+            _assertIndexed(json, termsSet, "false;false");
         }
     }
 
@@ -167,7 +217,35 @@ contract OspexGamesInterfaceTest is GamesBase {
         }
     }
 
-    /// Each read's answer, by name and type: the scores home then away, the reporters with their kinds.
+    /// The timelock's three calls, by name and type: the terms in their order, the kind as the enum, the code
+    /// hash as 32 bytes.
+    /// Break: in IOspexGames.sol, swap the lines `uint64 day7Clock;` and `uint64 day30Clock;` in Terms.
+    function test_theTimelocksCallsAreThese() public view {
+        string[2] memory artifacts = [iface, impl];
+        for (uint256 a; a < artifacts.length; ++a) {
+            string memory json = artifacts[a];
+            string memory set = "$.abi[?(@.name == 'setTerms')].inputs";
+            _assertParams(json, set, "league;terms", "string;tuple");
+            _assertParams(json, string.concat(set, "[1].components"), TERMS_NAMES, TERMS_TYPES);
+            string memory approve = "$.abi[?(@.name == 'approveReporter')].inputs";
+            _assertParams(json, approve, "reporter;kind;codeHash", "address;uint8;bytes32");
+            assertEq(vm.parseJsonString(json, string.concat(approve, "[1].internalType")), "enum ReporterKind");
+            _assertParams(json, "$.abi[?(@.name == 'retireReporter')].inputs", "reporter", "address");
+            string[3] memory calls = ["setTerms", "approveReporter", "retireReporter"];
+            for (uint256 c; c < calls.length; ++c) {
+                string memory at = string.concat("$.abi[?(@.name == '", calls[c], "')]");
+                assertFalse(vm.keyExistsJson(json, string.concat(at, ".outputs[0]")), calls[c]);
+            }
+        }
+        // The one read every reporter has.
+        string memory reporter = _artifact("IOspexReporter");
+        assertFalse(vm.keyExistsJson(reporter, "$.abi[?(@.name == 'fixedValues')].inputs[0]"), "the read takes nothing");
+        _assertParams(reporter, "$.abi[?(@.name == 'fixedValues')].outputs", "values", "bytes");
+        assertEq(vm.parseJsonString(reporter, "$.abi[?(@.name == 'fixedValues')].stateMutability"), "view");
+    }
+
+    /// Each read's answer, by name and type: the scores home then away, the reporters with their kinds, the
+    /// terms in their order.
     /// Break: in OspexGames.sol, change getGameScores's `returns (uint32 homeScore, uint32 awayScore)` to
     /// `returns (uint32 awayScore, uint32 homeScore)`. The values still come back home first, under each
     /// other's names, for anyone who decodes the contract's own ABI by name.
@@ -187,6 +265,21 @@ contract OspexGamesInterfaceTest is GamesBase {
                 vm.parseJsonString(json, "$.abi[?(@.name == 'getGameStatus')].outputs[0].internalType"),
                 "enum GameStatus"
             );
+            _assertParams(json, "$.abi[?(@.name == 'getGameTerms')].outputs", "", "tuple");
+            _assertParams(json, "$.abi[?(@.name == 'getGameTerms')].outputs[0].components", TERMS_NAMES, TERMS_TYPES);
+            _assertParams(json, "$.abi[?(@.name == 'getTerms')].inputs", "league", "string");
+            _assertParams(json, "$.abi[?(@.name == 'getTerms')].outputs", "", "tuple");
+            _assertParams(json, "$.abi[?(@.name == 'getTerms')].outputs[0].components", TERMS_NAMES, TERMS_TYPES);
+            _assertParams(json, "$.abi[?(@.name == 'isEveryReporterRetired')].outputs", "", "bool");
+            _assertParams(
+                json, "$.abi[?(@.name == 'getApprovedReporters')].outputs", "reporters;kinds", "address[];uint8[]"
+            );
+            _assertParams(json, "$.abi[?(@.name == 'getReporter')].inputs", "reporter", "address");
+            _assertParams(json, "$.abi[?(@.name == 'getReporter')].outputs", "kind;retired", "uint8;bool");
+            assertEq(
+                vm.parseJsonString(json, "$.abi[?(@.name == 'getReporter')].outputs[0].internalType"),
+                "enum ReporterKind"
+            );
         }
     }
 
@@ -198,6 +291,10 @@ contract OspexGamesInterfaceTest is GamesBase {
             string memory at = string.concat(path, "[", vm.toString(i), "].indexed");
             assertEq(vm.parseJsonBool(json, at), keccak256(bytes(f[i])) == keccak256("true"), at);
         }
+        assertFalse(
+            vm.keyExistsJson(json, string.concat(path, "[", vm.toString(f.length), "]")),
+            string.concat(path, " has a parameter past the last flag")
+        );
     }
 
     /// @dev Every error in an artifact's ABI as its canonical signature, read entry by entry.

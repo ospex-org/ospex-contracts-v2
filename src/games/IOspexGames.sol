@@ -100,12 +100,28 @@ struct Hint {
     string id;
 }
 
+/// @notice A game's four terms. The games set keeps them per league, and a game copies its league's terms when
+///         it is created and keeps them. A change reaches only games made after it.
+/// @param window n, in seconds: the game's window. Inside it only a first-n reporter writes; an after-n reporter
+///        writes from start + n, and the hour-24 void can post from start + n.
+/// @param day7Clock In seconds: how long after a dispute record the game takes its day-7 result.
+/// @param day30Clock In seconds: how long after the start, or after the date for a game never started, anyone
+///        may release a game that has not ended.
+/// @param fee The creation fee, in the smallest unit of the coin the games set takes it in. Zero is legal.
+struct Terms {
+    uint64 window;
+    uint64 day7Clock;
+    uint64 day30Clock;
+    uint96 fee;
+}
+
 /**
  * @title IOspexGames
  * @author ospex.org
  * @notice The games set: games anyone creates, the reporters each game keeps, and the five reads that tell
- *         any contract what happened. A game copies the approved reporters, with their kinds, when it is
- *         created, and only those reporters ever write to it. Its start and its score are each written once.
+ *         any contract what happened. A game copies the approved reporters, with their kinds, and its league's
+ *         terms when it is created, and only those reporters ever write to it. Its start and its score are each
+ *         written once. The approved list and the terms change only by the Polygon timelock's three calls.
  */
 interface IOspexGames is IGameReporters {
     /// @notice Emitted when a game is created. It carries the game's identity, which is not stored.
@@ -116,7 +132,7 @@ interface IOspexGames is IGameReporters {
     /// @param awayTeam The away team, as text
     /// @param date The scheduled start, in seconds since 1970, as the creator gave it
     /// @param hints The creator's hints: seat and id pairs
-    /// @param window n, the game's window in seconds, copied at creation
+    /// @param terms The game's four terms, copied from its league's at creation
     /// @param reporters The game's reporters, copied from the approved list at creation
     /// @param kinds Each reporter's kind, in the same order
     event GameCreated(
@@ -127,10 +143,49 @@ interface IOspexGames is IGameReporters {
         string awayTeam,
         uint64 date,
         Hint[] hints,
-        uint64 window,
+        Terms terms,
         address[] reporters,
         uint8[] kinds
     );
+
+    /// @notice Emitted when a reporter is approved: by the constructor for the first reporters, by the timelock
+    ///         after that. A game made from now on copies it.
+    /// @param reporter The reporter's address
+    /// @param kind Its kind
+    /// @param codeHash The hash of its code, as the approval named it and the chain confirmed it
+    /// @param fixedValues What the reporter's own fixed-values read returned at the moment of approval
+    event ReporterApproved(address indexed reporter, ReporterKind kind, bytes32 codeHash, bytes fixedValues);
+
+    /// @notice Emitted when the timelock retires a reporter. It writes nothing more to any game, and leaves the
+    ///         approved list for good.
+    /// @param reporter The reporter retired
+    event ReporterRetired(address indexed reporter);
+
+    /// @notice Emitted when a league's terms are set: by the constructor for the default terms, by the timelock
+    ///         after that. Games made from now on copy them.
+    /// @param league The league's short text id, or empty for the default terms
+    /// @param terms The four terms
+    event TermsSet(string league, Terms terms);
+
+    /// @notice Sets a league's four terms, or the default terms when `league` is empty. Only the timelock calls
+    ///         it. Games made after it copy the new terms; games already made keep theirs.
+    /// @param league The league's short text id, as a creation gives it, or empty for the default terms
+    /// @param terms The four terms. Each clock is at least one second and at most MAX_CLOCK.
+    function setTerms(string calldata league, Terms calldata terms) external;
+
+    /// @notice Approves a reporter. Only the timelock calls it. The code at the address must hash as named, so
+    ///         what is approved is what the queued call announced. Games made after it copy it; games already
+    ///         made never gain it.
+    /// @param reporter A contract: not a wallet, and not a wallet with delegated code
+    /// @param kind Its kind: first-n or after-n
+    /// @param codeHash The hash of the code the reporter must have when the approval runs
+    function approveReporter(address reporter, ReporterKind kind, bytes32 codeHash) external;
+
+    /// @notice Retires a reporter, for good. Only the timelock calls it. The reporter writes nothing more to any
+    ///         game, made before or after, and no game made from now on copies it. A retirement writes no game's
+    ///         status and moves no money.
+    /// @param reporter An approved reporter not yet retired
+    function retireReporter(address reporter) external;
 
     /// @notice Emitted for every report the games set takes. It names the reporter that wrote it.
     /// @param gameId The game
@@ -153,7 +208,8 @@ interface IOspexGames is IGameReporters {
     );
 
     /// @notice Creates a game. Anyone may, the same real game twice included: each creation is its own
-    ///         game, with its own id and its own copy of the reporters.
+    ///         game, with its own id and its own copy of the reporters and the terms. Refused while the approved
+    ///         list holds no first-n reporter, since nothing could write such a game's start.
     /// @param league The league's short text id: 1 to 16 characters, each a-z or 0-9.
     /// @param homeTeam The home team: 1 to 64 printable ASCII characters, not all spaces.
     /// @param awayTeam The away team: 1 to 64 printable ASCII characters, not all spaces, and not the same text
@@ -170,7 +226,7 @@ interface IOspexGames is IGameReporters {
         Hint[] calldata hints
     ) external returns (uint256 gameId);
 
-    /// @notice The one report call. Only the game's recorded reporters may send it.
+    /// @notice The one report call. Only the game's recorded reporters may send it, and none that is retired.
     function report(Report calldata r) external;
 
     /// @notice How many games exist. Game ids run from 1 to this number.
@@ -189,4 +245,21 @@ interface IOspexGames is IGameReporters {
 
     /// @notice A game's n: its window, in seconds, copied when the game was created.
     function getGameWindow(uint256 gameId) external view returns (uint64);
+
+    /// @notice A game's four terms, copied from its league's when the game was created.
+    function getGameTerms(uint256 gameId) external view returns (Terms memory);
+
+    /// @notice True when every one of the game's recorded reporters is retired. Nothing can write to such a
+    ///         game again, so it can be released at once, ahead of its day-30 clock.
+    function isEveryReporterRetired(uint256 gameId) external view returns (bool);
+
+    /// @notice The approved list as it stands: what a game made now copies, in the order it copies it.
+    function getApprovedReporters() external view returns (address[] memory reporters, uint8[] memory kinds);
+
+    /// @notice A reporter's kind and whether it is retired. A kind of None means it was never approved.
+    function getReporter(address reporter) external view returns (ReporterKind kind, bool retired);
+
+    /// @notice The terms a game in `league` made now would copy: the league's own, or the default terms if it
+    ///         has none. An empty `league` reads the default terms.
+    function getTerms(string calldata league) external view returns (Terms memory);
 }

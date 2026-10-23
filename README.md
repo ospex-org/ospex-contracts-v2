@@ -102,8 +102,10 @@ Live on Polygon mainnet (chain ID 137). See [docs/DEPLOYMENT.md](docs/DEPLOYMENT
 
 Everything above describes v2, the contracts live today. The next version is specified in [docs/spec-v3.md](docs/spec-v3.md), which controls wherever code and spec differ. It has two pieces: the games piece (games, the reporters that write them, and how each game ends) and a betting add-on deployed beside it. Each piece is built in stages, reviewed, and deployed once, as a whole.
 
+v3 says game where v2 said contest, and market where v2 said speculation; a position is a position in both.
+
 - `src/signpost/`: the signpost, the public list of each set of contracts and its state. Deployed.
-- `src/games/`: the games piece's games contract, built so far. Anyone creates a game; each game copies the approved reporters at its creation; one report call takes a start and a score, each written once; five reads say what happened. Not deployed. Still to come in the same piece, before it deploys: admission to the approved list and retirement from it, through the timelock; the per-league terms; the creation fee; and the ends (the hour-24 void, the dispute record and day 7, and the day-30 release).
+- `src/games/`: the games piece's games contract, built so far. Anyone creates a game; each game copies the approved reporters and its league's terms at its creation; one report call takes a start and a score, each written once; five reads say what happened. The approved list and the per-league terms change only through the timelock, after its delay, and a retired reporter writes to no game. Not deployed. Still to come in the same piece, before it deploys: the creation fee changing hands, and the ends (the hour-24 void, the dispute record and day 7, and the day-30 release).
 
 ## License
 
