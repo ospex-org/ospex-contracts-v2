@@ -1239,7 +1239,8 @@ contract OspexGamesNeverLinesTest is GamesBase {
     /// the report. A score credits that payout address: not the courier, who is the transaction's sender and
     /// origin, not the reporter, and not the creator. Both kinds of reporter, each at an hour it may write. A
     /// payout address that happens to be the transaction's sender, as on the open path when a runner sends its
-    /// own report, is credited as named: what never happens is the sender taking the payout address's place.
+    /// own report, is credited as named (the open path's test below sends that way): what never happens is the
+    /// sender taking the payout address's place.
     /// Break: in _writeScore(), change `_end(g, r.gameId, GameStatus.Scored, r.payout);` to
     /// `_end(g, r.gameId, GameStatus.Scored, tx.origin);`. The courier is credited instead.
     function test_neverLine_theSenderNeverTakesThePayoutAddressesPlace() public {
@@ -1364,14 +1365,19 @@ contract OspexGamesNeverLinesTest is GamesBase {
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// An after-n reporter, the open path's kind, scores from start + n naming any address the chain does not
-    /// refuse, under any fee: that address is credited the game's fee, once, and no other address's credit
-    /// moves.
+    /// refuse, under any fee. The runner sends its own report, through the reporter, so the address named is
+    /// also the transaction's sender and origin. That address is credited the game's fee, once, and no other
+    /// address's credit moves.
     /// Break: in _end(), change `s_credits[account] += fee;` to `s_credits[msg.sender] += fee;`. The reporter
-    /// that sent the report is credited instead of the address it named.
+    /// that sent the report is credited instead of the address it named. And a payout check that refused the
+    /// transaction's origin, `if (payout == address(i_token) || payout == tx.origin) revert ...`, would refuse
+    /// the runner's own report here.
     function testFuzz_neverLine_theFeeGoesToThePayoutInsideTheReport(address runner, uint96 fee) public {
-        // Not an address the chain refuses as payout: 0, the games set, the coin, or a reporter.
+        // Not an address the chain refuses as payout: 0, the games set, the coin, or a reporter. Nor the
+        // cheatcode address, which cannot send.
         vm.assume(runner != address(0) && runner != address(games) && runner != address(token));
         vm.assume(runner != address(first) && runner != address(later) && runner != address(second));
+        vm.assume(runner != address(vm));
         fee = uint96(bound(fee, 1, PURSE));
         _setTerms("", _feeTerms(fee));
         uint256 game = _create();
@@ -1387,7 +1393,8 @@ contract OspexGamesNeverLinesTest is GamesBase {
         }
         uint256 runnerBefore = games.getCredit(runner);
         vm.recordLogs();
-        _take(address(later), _scoreReportTo(game, runner));
+        (bool ok, bytes memory err) = _sendAs(runner, later, _scoreReportTo(game, runner));
+        assertTrue(ok, string.concat("the runner's own report, naming itself, was refused: ", vm.toString(err)));
         _assertOneCredit(vm.getRecordedLogs(), game, runner, fee);
 
         assertEq(games.getCredit(runner), runnerBefore + fee, "the runner named in the report");

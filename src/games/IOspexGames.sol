@@ -81,9 +81,10 @@ struct Reading {
 /// @param awayScore For a score: the away team's score. Zero for any other kind.
 /// @param readings The readings the report rests on, one per feed asked.
 /// @param payout The payout address: where the report that ends a game credits its creation fee. The games set
-///        never puts the sender in its place. Zero for a start, which pays nothing. For a score, not zero, the
-///        games set's own address or the coin's, none of which withdraws; and not any address ever approved as a
-///        reporter, retired ones included and the sender among them, since a reporter is never the one paid.
+///        never puts the sender in its place. Zero for a start, which pays nothing. A score refuses as payout:
+///        zero, the games set's own address and the coin's, none of which withdraws; and any address ever
+///        approved as a reporter, retired ones included and the sender among them, since a reporter relays a
+///        report and is never the one it pays.
 struct Report {
     uint256 gameId;
     ReportKind kind;

@@ -490,8 +490,8 @@ contract OspexGamesTest is GamesBase {
 
     /// A score names a payout address that is not 0: address 0 can never withdraw what a score credits it, and
     /// a scored game can never be scored again, so the refusal must come before the score is written. From
-    /// either kind of reporter, inside n and after it. The games set's own address and the sender's are refused
-    /// too, each by its own never-line test.
+    /// either kind of reporter, inside n and after it. The games set's own address, the coin's and every
+    /// reporter's are refused too, each by its own never-line test.
     /// Break: in _checkPayout(), delete `if (payout == address(0)) revert OspexGames__NoPayout(kind);`.
     function test_score_aZeroPayoutIsRefused() public {
         uint256 game = _verified();
