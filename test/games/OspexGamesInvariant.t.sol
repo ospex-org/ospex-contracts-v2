@@ -475,6 +475,10 @@ contract OspexGamesInvariantTest is GamesBase {
         bytes memory otherCode = address(new SwappedRelay(games)).code;
         handler =
             new GamesHandler(games, timelock, timelockKey, pool, unfit, outsiders, _launchTerms(), otherCode);
+        // The handler's creator pays any fee the run sets, up to the largest a term can name, every game of a run.
+        token.mint(address(0xC0FFEE), type(uint128).max);
+        vm.prank(address(0xC0FFEE));
+        token.approve(address(games), type(uint256).max);
         vm.warp(1_800_000_037 - 2 days);
 
         bytes4[] memory selectors = new bytes4[](10);

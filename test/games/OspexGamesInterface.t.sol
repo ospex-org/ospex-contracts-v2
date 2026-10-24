@@ -26,21 +26,22 @@ contract OspexGamesInterfaceTest is GamesBase {
         impl = _artifact("OspexGames");
     }
 
-    /// The contract has exactly these functions: the two writes anyone may send, the timelock's three calls,
-    /// the five reads, the other reads and nine constants. So it has no owner, no pause and no setter but the
-    /// timelock's three, and nothing else writes a game or the list.
+    /// The contract has exactly these functions: the three writes anyone may send (create, report, withdraw),
+    /// the timelock's three calls, the five reads, the other reads, nine constants and the two addresses fixed
+    /// at deploy. So it has no owner, no pause, no setter but the timelock's three, no fee receiver and no
+    /// setter for one, and nothing else writes a game, the list or a credit.
     /// Break: add any external function to OspexGames, such as one that pushes onto a game's reporters.
     function test_theFunctionsAreExactlyThese() public view {
         string[] memory want = vm.split(
             "MAX_CLOCK();MAX_DATE_AHEAD();MAX_HINTS();MAX_HINT_ID_LENGTH();MAX_LEAGUE_LENGTH();MAX_REPORTERS();"
-            "MAX_SCORE();MAX_TEAM_LENGTH();START_BOUND();i_timelock();"
+            "MAX_SCORE();MAX_TEAM_LENGTH();START_BOUND();i_timelock();i_token();"
             "approveReporter(address,uint8,bytes32);retireReporter(address);"
             "setTerms(string,(uint64,uint64,uint64,uint96));"
             "createGame(string,string,string,uint64,(uint8,string)[]);"
-            "report((uint256,uint8,uint64,uint32,uint32,(uint8,uint8,uint32,uint32)[],address));"
+            "report((uint256,uint8,uint64,uint32,uint32,(uint8,uint8,uint32,uint32)[],address));withdraw();"
             "gameCount();getGameReporters(uint256);getGameScores(uint256);getGameStart(uint256);"
             "getGameStatus(uint256);getGameWindow(uint256);getGameTerms(uint256);isEveryReporterRetired(uint256);"
-            "getApprovedReporters();getReporter(address);getTerms(string)",
+            "getApprovedReporters();getReporter(address);getTerms(string);getCredit(address);getGameFee(uint256)",
             ";"
         );
         string[] memory got = vm.parseJsonKeys(impl, "$.methodIdentifiers");
@@ -60,6 +61,9 @@ contract OspexGamesInterfaceTest is GamesBase {
     function test_theErrorsAreExactlyThese() public view {
         string[] memory want = vm.split(
             "OspexGames__TimelockNotAContract(address);OspexGames__TimelockIsTheDeployer(address);"
+            "OspexGames__TokenNotAContract(address);OspexGames__PayoutIsTheGamesSet(uint8);"
+            "OspexGames__PayoutIsTheReporter(uint8,address);OspexGames__NothingToWithdraw(address);"
+            "SafeERC20FailedOperation(address);"
             "OspexGames__NotTheTimelock(address);OspexGames__NoReporters();"
             "OspexGames__LengthsDiffer(uint256,uint256,uint256);OspexGames__NoFirstNReporter();"
             "OspexGames__NoKind(address);OspexGames__AlreadyApproved(address);OspexGames__ReporterRetired(address);"
@@ -104,6 +108,9 @@ contract OspexGamesInterfaceTest is GamesBase {
     function test_theErrorsNameTheirArguments() public view {
         string[] memory want = vm.split(
             "OspexGames__TimelockNotAContract(address timelock);OspexGames__TimelockIsTheDeployer(address timelock);"
+            "OspexGames__TokenNotAContract(address token);OspexGames__PayoutIsTheGamesSet(uint8 kind);"
+            "OspexGames__PayoutIsTheReporter(uint8 kind,address reporter);"
+            "OspexGames__NothingToWithdraw(address account);SafeERC20FailedOperation(address token);"
             "OspexGames__NotTheTimelock(address caller);OspexGames__NoReporters();"
             "OspexGames__LengthsDiffer(uint256 reporters,uint256 kinds,uint256 codeHashes);"
             "OspexGames__NoFirstNReporter();OspexGames__NoKind(address reporter);"
@@ -162,6 +169,8 @@ contract OspexGamesInterfaceTest is GamesBase {
             assertFalse(vm.keyExistsJson(impl, string.concat(at, ".inputs[0]")), names[i]);
         }
         _assertParams(impl, "$.abi[?(@.name == 'i_timelock')].outputs", "", "address");
+        _assertParams(impl, "$.abi[?(@.name == 'i_token')].outputs", "", "address");
+        assertEq(vm.parseJsonString(impl, "$.abi[?(@.name == 'i_token')].outputs[0].internalType"), "contract IERC20");
     }
 
     function test_theSelectorsAreThese() public pure {
@@ -178,6 +187,9 @@ contract OspexGamesInterfaceTest is GamesBase {
         assertEq(IOspexGames.approveReporter.selector, bytes4(keccak256("approveReporter(address,uint8,bytes32)")));
         assertEq(IOspexGames.retireReporter.selector, bytes4(keccak256("retireReporter(address)")));
         assertEq(IOspexReporter.fixedValues.selector, bytes4(keccak256("fixedValues()")));
+        assertEq(IOspexGames.withdraw.selector, bytes4(keccak256("withdraw()")));
+        assertEq(IOspexGames.getCredit.selector, bytes4(keccak256("getCredit(address)")));
+        assertEq(IOspexGames.getGameFee.selector, bytes4(keccak256("getGameFee(uint256)")));
     }
 
     /// Break: in IOspexGames.sol, change GameCreated's `uint64 date,` to `uint256 date,`.
@@ -196,6 +208,9 @@ contract OspexGamesInterfaceTest is GamesBase {
         assertEq(IOspexGames.ReporterRetired.selector, keccak256("ReporterRetired(address)"));
         assertEq(IOspexGames.TermsSet.selector, keccak256("TermsSet(string,(uint64,uint64,uint64,uint96))"));
         assertEq(IOspexGames.TimelockSet.selector, keccak256("TimelockSet(address)"));
+        assertEq(IOspexGames.TokenSet.selector, keccak256("TokenSet(address)"));
+        assertEq(IOspexGames.FeeCredited.selector, keccak256("FeeCredited(uint256,address,uint256)"));
+        assertEq(IOspexGames.Withdrawn.selector, keccak256("Withdrawn(address,uint256)"));
 
         string[2] memory artifacts = [iface, impl];
         for (uint256 a; a < artifacts.length; ++a) {
@@ -244,10 +259,24 @@ contract OspexGamesInterfaceTest is GamesBase {
             string memory timelockSet = "$.abi[?(@.name == 'TimelockSet')].inputs";
             _assertParams(json, timelockSet, "timelock", "address");
             _assertIndexed(json, timelockSet, "true");
+
+            string memory tokenSet = "$.abi[?(@.name == 'TokenSet')].inputs";
+            _assertParams(json, tokenSet, "token", "address");
+            _assertIndexed(json, tokenSet, "true");
+
+            string memory credited = "$.abi[?(@.name == 'FeeCredited')].inputs";
+            _assertParams(json, credited, "gameId;account;amount", "uint256;address;uint256");
+            _assertIndexed(json, credited, "true;true;false");
+
+            string memory withdrawn = "$.abi[?(@.name == 'Withdrawn')].inputs";
+            _assertParams(json, withdrawn, "account;amount", "address;uint256");
+            _assertIndexed(json, withdrawn, "true;false");
         }
-        // The events are exactly these six, in the deploying contract's ABI.
+        // The events are exactly these nine, in the deploying contract's ABI.
         string[] memory events = vm.split(
-            "GameCreated;GameReported;ReporterApproved;ReporterRetired;TermsSet;TimelockSet", ";"
+            "GameCreated;GameReported;ReporterApproved;ReporterRetired;TermsSet;TimelockSet;TokenSet;FeeCredited;"
+            "Withdrawn",
+            ";"
         );
         string[] memory found = new string[](16);
         uint256 n;
@@ -360,6 +389,14 @@ contract OspexGamesInterfaceTest is GamesBase {
                 vm.parseJsonString(json, "$.abi[?(@.name == 'getReporter')].outputs[0].internalType"),
                 "enum ReporterKind"
             );
+            // The creation fee's reads and its one write.
+            _assertParams(json, "$.abi[?(@.name == 'getGameFee')].inputs", "gameId", "uint256");
+            _assertParams(json, "$.abi[?(@.name == 'getGameFee')].outputs", "held;creator", "uint96;address");
+            _assertParams(json, "$.abi[?(@.name == 'getCredit')].inputs", "account", "address");
+            _assertParams(json, "$.abi[?(@.name == 'getCredit')].outputs", "", "uint256");
+            assertFalse(vm.keyExistsJson(json, "$.abi[?(@.name == 'withdraw')].inputs[0]"), "withdraw takes nothing");
+            _assertParams(json, "$.abi[?(@.name == 'withdraw')].outputs", "amount", "uint256");
+            assertEq(vm.parseJsonString(json, "$.abi[?(@.name == 'withdraw')].stateMutability"), "nonpayable");
         }
     }
 

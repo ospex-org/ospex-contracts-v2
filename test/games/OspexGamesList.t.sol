@@ -46,20 +46,25 @@ contract OspexGamesListTest is GamesBase {
 
         vm.recordLogs();
         vm.prank(deployer, deployer);
-        OspexGames g = new OspexGames(address(timelock), _launchTerms(), list, kinds, _hashes(list));
+        OspexGames g = new OspexGames(address(timelock), token, _launchTerms(), list, kinds, _hashes(list));
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        assertEq(logs.length, 4, "the timelock, the terms and two approvals");
+        assertEq(logs.length, 5, "the timelock, the coin, the terms and two approvals");
         assertEq(logs[0].emitter, address(g));
         assertEq(logs[0].topics[0], IOspexGames.TimelockSet.selector);
         assertEq(logs[0].topics[1], bytes32(uint256(uint160(address(timelock)))), "the timelock given");
         assertEq(logs[0].data.length, 0);
-        assertEq(logs[1].topics[0], IOspexGames.TermsSet.selector);
-        (string memory league, Terms memory t) = abi.decode(logs[1].data, (string, Terms));
+        assertEq(logs[1].emitter, address(g));
+        assertEq(logs[1].topics[0], IOspexGames.TokenSet.selector);
+        assertEq(logs[1].topics[1], bytes32(uint256(uint160(address(token)))), "the coin given");
+        assertEq(logs[1].data.length, 0);
+        assertEq(address(g.i_token()), address(token), "the coin read");
+        assertEq(logs[2].topics[0], IOspexGames.TermsSet.selector);
+        (string memory league, Terms memory t) = abi.decode(logs[2].data, (string, Terms));
         assertEq(league, "", "the default terms");
         _assertTerms(t, _launchTerms(), "the default terms emitted");
         for (uint256 i; i < 2; ++i) {
-            Vm.Log memory l = logs[i + 2];
+            Vm.Log memory l = logs[i + 3];
             assertEq(l.emitter, address(g));
             assertEq(l.topics[0], IOspexGames.ReporterApproved.selector);
             assertEq(l.topics[1], bytes32(uint256(uint160(list[i]))), "the reporter, in order");
@@ -73,7 +78,7 @@ contract OspexGamesListTest is GamesBase {
             assertEq(stored, list[i].codehash, "the code hash stored at deploy");
         }
         assertTrue(address(a).codehash != address(b).codehash, "two reporters, two hashes");
-        (,, bytes memory plainValues) = abi.decode(logs[2].data, (uint8, bytes32, bytes));
+        (,, bytes memory plainValues) = abi.decode(logs[3].data, (uint8, bytes32, bytes));
         assertEq(
             plainValues,
             abi.encode(address(1), address(2), bytes32("w1")),
@@ -111,7 +116,7 @@ contract OspexGamesListTest is GamesBase {
             bytes32[] memory hashes = new bytes32[](2);
             (hashes[0], hashes[1]) = (list[0].codehash, named[i]);
             vm.expectRevert(why[i]);
-            new OspexGames(address(timelock), _launchTerms(), list, kinds, hashes);
+            new OspexGames(address(timelock), token, _launchTerms(), list, kinds, hashes);
         }
     }
 
@@ -128,15 +133,15 @@ contract OspexGamesListTest is GamesBase {
         for (uint256 i; i < bad.length; ++i) {
             vm.prank(deployer, deployer);
             vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__TimelockNotAContract.selector, bad[i]));
-            new OspexGames(bad[i], _launchTerms(), list, _kinds1(ReporterKind.FirstN), _hashes(list));
+            new OspexGames(bad[i], token, _launchTerms(), list, _kinds1(ReporterKind.FirstN), _hashes(list));
         }
         // A contract that deploys it cannot name itself.
         vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__TimelockIsTheDeployer.selector, address(this)));
-        new OspexGames(address(this), _launchTerms(), list, _kinds1(ReporterKind.FirstN), _hashes(list));
+        new OspexGames(address(this), token, _launchTerms(), list, _kinds1(ReporterKind.FirstN), _hashes(list));
         // Control: 23 bytes of code that is not a delegation is a contract, and is taken, though it is no timelock.
         address short = makeAddr("short");
         vm.etch(short, abi.encodePacked(hex"ef0000", address(1)));
-        OspexGames g = new OspexGames(short, _launchTerms(), list, _kinds1(ReporterKind.FirstN), _hashes(list));
+        OspexGames g = new OspexGames(short, token, _launchTerms(), list, _kinds1(ReporterKind.FirstN), _hashes(list));
         assertEq(g.i_timelock(), short);
     }
 
@@ -152,7 +157,7 @@ contract OspexGamesListTest is GamesBase {
                 kinds[i] = ReporterKind.FirstN;
             }
             if (n == 9) vm.expectRevert(OspexGames.OspexGames__ListFull.selector);
-            OspexGames g = new OspexGames(address(timelock), _launchTerms(), list, kinds, _hashes(list));
+            OspexGames g = new OspexGames(address(timelock), token, _launchTerms(), list, kinds, _hashes(list));
             if (n == 8) {
                 (address[] memory got,) = g.getApprovedReporters();
                 assertEq(got, list, "eight deploy");
@@ -172,10 +177,10 @@ contract OspexGamesListTest is GamesBase {
             if (i == 2) past.day7Clock = 15_768_001; // n and the day-7 clock reach the day-30 clock
             if (i == 3) past.window = 0;
             vm.expectRevert(OspexGames.OspexGames__TermsNotValid.selector);
-            new OspexGames(address(timelock), past, _one(a), _kinds1(ReporterKind.FirstN), _hashes(_one(a)));
+            new OspexGames(address(timelock), token, past, _one(a), _kinds1(ReporterKind.FirstN), _hashes(_one(a)));
         }
         OspexGames atEdge =
-            new OspexGames(address(timelock), edge, _one(a), _kinds1(ReporterKind.FirstN), _hashes(_one(a)));
+            new OspexGames(address(timelock), token, edge, _one(a), _kinds1(ReporterKind.FirstN), _hashes(_one(a)));
         _assertTerms(atEdge.getTerms(""), edge, "the defaults at the edge");
     }
 
@@ -589,6 +594,8 @@ contract OspexGamesListTest is GamesBase {
             Terms({window: 15_767_999, day7Clock: 15_768_000, day30Clock: max, fee: type(uint96).max}), // the highest
             _launchTerms()
         ];
+        // The highest fee is a real fee: the creator can pay it, so the game made under it is made.
+        token.mint(creator, type(uint96).max);
         for (uint256 i; i < taken.length; ++i) {
             _setTerms("nba", taken[i]);
             _assertTerms(_gameIn("nba"), taken[i], "terms in order");
