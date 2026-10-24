@@ -231,7 +231,7 @@ contract GamesHandler is Test {
         bool expected = date != 0 && uint256(date) <= nowTs + YEAR && _listHasFirstN();
 
         vm.prank(address(0xC0FFEE), address(0xC0FFEE));
-        try games.createGame(league, "Home Team", "Away Team", date, new Hint[](0)) returns (uint256 id) {
+        try games.createGame(league, "Home Team", "Away Team", date, new Hint[](0), type(uint256).max) returns (uint256 id) {
             if (!expected || id != created + 1) ++mismatches;
             created = id;
             Ghost storage g = ghosts[id];
@@ -264,7 +264,7 @@ contract GamesHandler is Test {
         }
 
         Report memory r = _report(id, ReportKind.Start, start, 0, 0, shapeSeed);
-        if (shapeSeed % 7 == 1) r.payout = address(0xFEE);
+        if (shapeSeed % 7 == 1) r.payout = address(0xFEE00);
         bool expected = _exists(id) && _kindIn(g, who) == 1 && !retired[who] && _codeAsApproved(who)
             && !g.started && !g.scored
             && start != 0 && uint256(start) + DAY >= g.date && uint256(start) <= uint256(g.date) + DAY
@@ -426,7 +426,7 @@ contract GamesHandler is Test {
         r.awayScore = away;
         r.readings = new Reading[](1);
         if (shapeSeed % 9 == 1) r.readings[0].homeScore = 1;
-        if (kind != ReportKind.Start) r.payout = address(0xFEE);
+        if (kind != ReportKind.Start) r.payout = address(0xFEE00);
     }
 
     function _send(address who, Report memory r) internal returns (bool ok) {
@@ -475,6 +475,10 @@ contract OspexGamesInvariantTest is GamesBase {
         bytes memory otherCode = address(new SwappedRelay(games)).code;
         handler =
             new GamesHandler(games, timelock, timelockKey, pool, unfit, outsiders, _launchTerms(), otherCode);
+        // The handler's creator pays any fee the run sets, up to the largest a term can name, every game of a run.
+        token.mint(address(0xC0FFEE), type(uint128).max);
+        vm.prank(address(0xC0FFEE));
+        token.approve(address(games), type(uint256).max);
         vm.warp(1_800_000_037 - 2 days);
 
         bytes4[] memory selectors = new bytes4[](10);

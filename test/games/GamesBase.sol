@@ -16,6 +16,8 @@ import {
     Terms
 } from "../../src/games/IOspexGames.sol";
 import {IOspexReporter} from "../../src/games/IOspexReporter.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {RefusingCoin} from "./CoinFixtures.sol";
 
 /// @dev A reporter as the games set sees one: a contract that sends reports, with the fixed-values read every
 ///      reporter has. It relays what it is given, from anyone: an unauthenticated test double, not a model for
@@ -42,15 +44,25 @@ contract MockReporter is IOspexReporter {
 contract OspexGamesHarness is OspexGames {
     constructor(
         address timelock,
+        IERC20 token,
         Terms memory defaultTerms,
         address[] memory reporters,
         ReporterKind[] memory kinds,
         bytes32[] memory codeHashes
-    ) OspexGames(timelock, defaultTerms, reporters, kinds, codeHashes) {}
+    ) OspexGames(timelock, token, defaultTerms, reporters, kinds, codeHashes) {}
 
-    /// @dev Puts a game in a status, as the ends will.
+    /// @dev Puts a game in a status, as the ends will. It credits nothing: a test that plants an end this way
+    ///      is not about the fee.
     function harnessSetStatus(uint256 gameId, GameStatus status) external {
         s_games[gameId].status = status;
+    }
+
+    /// @dev Releases a game through the production code's release credit, `_release`, as the release call will.
+    ///      The release call's own rules, who may release and from when, are not built yet and are not modelled.
+    ///      Nothing is checked here: the gate every end shares, that the game exists and has not ended, is the
+    ///      production code's (`_end`).
+    function harnessRelease(uint256 gameId) external {
+        _release(s_games[gameId], gameId);
     }
 
     /// @dev Plants score fields without the status, to show the read does not trust them.
@@ -73,8 +85,17 @@ abstract contract GamesBase is Test {
     uint32 internal constant AWAY = 97;
     /// @dev The start bound, written out rather than read from the contract, so a change to it is seen.
     uint64 internal constant DAY = 86_400;
+    /// @dev The launch creation fee: 1 USDC, in six decimals.
+    uint96 internal constant FEE = 1_000_000;
+    /// @dev What each funded creator starts with.
+    uint256 internal constant PURSE = 1_000_000_000_000;
+    /// @dev A creation's maxFee in a test that is not about it: any fee. The helpers below name the fee they
+    ///      read instead, as a careful caller does.
+    uint256 internal constant ANY_FEE = type(uint256).max;
 
     TimelockController internal timelock;
+    /// @dev The coin the creation fee is paid in. It takes transfers until a test pauses it or blocks an address.
+    RefusingCoin internal token;
     OspexGamesHarness internal games;
     /// @dev First-n reporter, first on the list.
     MockReporter internal first;
@@ -94,6 +115,7 @@ abstract contract GamesBase is Test {
     function setUp() public virtual {
         vm.warp(DATE - 3 days);
         timelock = new TimelockController(DELAY, _one(timelockKey), _one(address(0)), address(0));
+        token = new RefusingCoin();
         // The reporters need the games address at their own deploy, and the games contract needs theirs:
         // predict the games address from the deployer's nonce, as the deploy script will.
         address predicted = vm.computeCreateAddress(deployer, vm.getNonce(deployer) + 3);
@@ -109,9 +131,20 @@ abstract contract GamesBase is Test {
         kinds[0] = ReporterKind.FirstN;
         kinds[1] = ReporterKind.AfterN;
         kinds[2] = ReporterKind.FirstN;
-        games = new OspexGamesHarness(address(timelock), _launchTerms(), reporters, kinds, _hashes(reporters));
+        games =
+            new OspexGamesHarness(address(timelock), token, _launchTerms(), reporters, kinds, _hashes(reporters));
         vm.stopPrank();
         assertEq(address(games), predicted, "games address as predicted");
+        // The two addresses most tests create from can pay the fee.
+        _fund(creator, address(games));
+        _fund(address(this), address(games));
+    }
+
+    /// @dev Gives `who` a purse of the coin and lets `spender` take from it.
+    function _fund(address who, address spender) internal {
+        token.mint(who, PURSE);
+        vm.prank(who);
+        token.approve(spender, type(uint256).max);
     }
 
     // ──────────────────────────── Terms ────────────────────────────────
@@ -184,9 +217,11 @@ abstract contract GamesBase is Test {
         return _createAt(DATE);
     }
 
+    /// @dev Reads the league's fee and names exactly that as the most the creator pays, as a careful caller does.
     function _createAt(uint64 date) internal returns (uint256 gameId) {
+        uint256 fee = games.getTerms("nba").fee;
         vm.prank(creator, creator);
-        gameId = games.createGame("nba", "Denver Nuggets", "Utah Jazz", date, _hints());
+        gameId = games.createGame("nba", "Denver Nuggets", "Utah Jazz", date, _hints(), fee);
     }
 
     // ──────────────────────────── Reports ──────────────────────────────
@@ -247,19 +282,60 @@ abstract contract GamesBase is Test {
         _take(address(who), _scoreReport(gameId, home, away));
     }
 
+    // ──────────────────────────── The creation fee ─────────────────────
+
+    /// @dev A score whose payout address is `to`.
+    function _scoreReportTo(uint256 gameId, address to) internal view returns (Report memory r) {
+        r = _scoreReport(gameId, HOME, AWAY);
+        r.payout = to;
+    }
+
+    /// @dev The launch terms with another fee.
+    function _feeTerms(uint96 fee) internal pure returns (Terms memory t) {
+        t = _launchTerms();
+        t.fee = fee;
+    }
+
+    /// @dev The amount the games set holds for a game, as its read says.
+    function _held(uint256 gameId) internal view returns (uint96 held) {
+        (held,) = games.getGameFee(gameId);
+    }
+
+    /// @dev A courier sends a report through a reporter: the courier is the transaction's sender and origin, the
+    ///      reporter is what calls the games set.
+    function _sendAs(address courier, MockReporter through, Report memory r) internal returns (bool ok, bytes memory err) {
+        vm.prank(courier, courier);
+        (ok, err) = address(through).call(abi.encodeCall(MockReporter.send, (r)));
+    }
+
+    /// @dev Everything about the money a reader can see: the coin the games set holds, each account's credit
+    ///      and coin, and each game's held amount.
+    function _money(address[] memory accounts) internal view returns (bytes32) {
+        bytes memory out = abi.encode(token.balanceOf(address(games)));
+        for (uint256 i; i < accounts.length; ++i) {
+            out = abi.encodePacked(out, games.getCredit(accounts[i]), token.balanceOf(accounts[i]));
+        }
+        uint256 count = games.gameCount();
+        for (uint256 id = 1; id <= count; ++id) {
+            out = abi.encodePacked(out, _held(id));
+        }
+        return keccak256(out);
+    }
+
     // ──────────────────────────── What any reader sees ─────────────────
 
     /// @dev Every read of one game, each as (taken, answer or refusal): what any contract or agent can see.
     function _view(uint256 gameId) internal view returns (bytes memory) {
         bytes memory out;
-        bytes[7] memory calls = [
+        bytes[8] memory calls = [
             abi.encodeCall(IOspexGames.getGameStatus, (gameId)),
             abi.encodeCall(IOspexGames.getGameStart, (gameId)),
             abi.encodeCall(games.getGameReporters, (gameId)),
             abi.encodeCall(IOspexGames.getGameScores, (gameId)),
             abi.encodeCall(IOspexGames.getGameWindow, (gameId)),
             abi.encodeCall(IOspexGames.getGameTerms, (gameId)),
-            abi.encodeCall(IOspexGames.isEveryReporterRetired, (gameId))
+            abi.encodeCall(IOspexGames.isEveryReporterRetired, (gameId)),
+            abi.encodeCall(IOspexGames.getGameFee, (gameId))
         ];
         for (uint256 i; i < calls.length; ++i) {
             (bool ok, bytes memory answer) = address(games).staticcall(calls[i]);
@@ -286,12 +362,12 @@ abstract contract GamesBase is Test {
     uint256 internal constant GAMES_SLOT = 6;
     uint256 internal constant GAME_REPORTERS_SLOT = 7;
 
-    /// @dev One game's storage, word for word: its three words (status, date, start and scores; then its terms)
-    ///      and its reporters' copy. The reads show what a game says; this shows every field a write could
-    ///      touch, the date included, which no read returns.
+    /// @dev One game's storage, word for word: its four words (status, date, start and scores; then its terms,
+    ///      two words; then its creator) and its reporters' copy. The reads show what a game says; this shows
+    ///      every field a write could touch, the date included, which no read returns.
     function _rawGame(uint256 gameId) internal view returns (bytes memory out) {
         uint256 base = uint256(keccak256(abi.encode(gameId, GAMES_SLOT)));
-        for (uint256 i; i < 3; ++i) {
+        for (uint256 i; i < 4; ++i) {
             out = abi.encodePacked(out, vm.load(address(games), bytes32(base + i)));
         }
         bytes32 lengthSlot = keccak256(abi.encode(gameId, GAME_REPORTERS_SLOT));

@@ -1,0 +1,1019 @@
+{
+  "about": "One-line breaks of the games contract, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; line is where it starts), run the named test alone and see it fail, restore the file byte for byte and see it pass. The whole games suite fails on each too. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis; one ending in $ matches nothing and passes with no test run. Check that exactly one test ran.",
+  "command": "FOUNDRY_SRC=src/games FOUNDRY_TEST=test/games FOUNDRY_SCRIPT=none forge test --via-ir --optimize --match-path <testPath> --match-test '^<test>\\('",
+  "breaks": [
+    {
+      "id": "N1-txorigin",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 781,
+          "find": "_end(g, r.gameId, GameStatus.Scored, r.payout);",
+          "replace": "_end(g, r.gameId, GameStatus.Scored, tx.origin);"
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_theSenderNeverTakesThePayoutAddressesPlace",
+      "breaks": "a score credits the transaction's origin"
+    },
+    {
+      "id": "N2a-zero",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 791,
+          "find": "        if (payout == address(0)) revert OspexGames__NoPayout(kind);\n",
+          "replace": ""
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_aPayoutOfZeroIsRefused",
+      "breaks": "a payout of 0 is taken"
+    },
+    {
+      "id": "N2g-reserved",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 792,
+          "find": "        if (uint160(payout) <= uint160(MAX_RESERVED_ADDRESS)) revert OspexGames__PayoutIsReserved(kind, payout);\n",
+          "replace": ""
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_aPayoutOfAReservedAddressIsRefused",
+      "breaks": "a payout in the reserved range is taken"
+    },
+    {
+      "id": "N2b-self",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 793,
+          "find": "        if (payout == address(this)) revert OspexGames__PayoutIsTheGamesSet(kind);\n",
+          "replace": ""
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_aPayoutOfTheGamesSetIsRefused",
+      "breaks": "a payout of the games set is taken"
+    },
+    {
+      "id": "N2d-coin",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 794,
+          "find": "        if (payout == address(i_token)) revert OspexGames__PayoutIsTheCoin(kind);\n",
+          "replace": ""
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_aPayoutOfTheCoinIsRefused",
+      "breaks": "a payout of the coin is taken"
+    },
+    {
+      "id": "N2c-sender",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 795,
+          "find": "        if (s_admissions[payout].kind != ReporterKind.None) revert OspexGames__PayoutIsAReporter(kind, payout);\n",
+          "replace": ""
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_aPayoutOfTheSendingReporterIsRefused",
+      "breaks": "a payout of a reporter is taken"
+    },
+    {
+      "id": "N2e-anyreporter",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 795,
+          "find": "        if (s_admissions[payout].kind != ReporterKind.None) revert",
+          "replace": "        if (payout == msg.sender) revert"
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_aPayoutOfAnyReporterIsRefused",
+      "breaks": "only the sending reporter is refused as payout"
+    },
+    {
+      "id": "N2f-retired",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 795,
+          "find": "        if (s_admissions[payout].kind != ReporterKind.None) revert",
+          "replace": "        if (s_admissions[payout].kind != ReporterKind.None && !s_admissions[payout].retired) revert"
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_aPayoutOfARetiredReporterIsRefused",
+      "breaks": "a retired reporter is taken as payout"
+    },
+    {
+      "id": "N3-msgsender",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 824,
+          "find": "            s_credits[account] += fee;",
+          "replace": "            s_credits[msg.sender] += fee;"
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "testFuzz_neverLine_theFeeGoesToThePayoutInsideTheReport",
+      "breaks": "an end credits the reporter that sent it"
+    },
+    {
+      "id": "N4-releaser",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 833,
+          "find": "_end(g, gameId, GameStatus.Released, g.creator);",
+          "replace": "_end(g, gameId, GameStatus.Released, msg.sender);"
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_aReleaseCreditsTheCreatorItsOwnFee",
+      "breaks": "a release credits its caller"
+    },
+    {
+      "id": "N5-secondscore",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 767,
+          "find": "        if (status != GameStatus.Verified) _refuseScore(r.gameId, status);\n",
+          "replace": ""
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_aRefusedReportMovesNoFeeAndTheSameRealGameHoldsItsOwn",
+      "breaks": "a score of an unstarted game is taken"
+    },
+    {
+      "id": "N6-livefee",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 822,
+          "find": "        uint96 fee = g.terms.fee;",
+          "replace": "        uint96 fee = s_defaultTerms.fee;"
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_aFeeChangeReachesNoGameAlreadyMade",
+      "breaks": "an end credits the fee as it stands now"
+    },
+    {
+      "id": "N7-payinside",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 824,
+          "find": "            s_credits[account] += fee;",
+          "replace": "            i_token.safeTransfer(account, fee);"
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_aRefusedTransferStopsNoEnd",
+      "breaks": "an end pays the coin inside itself"
+    },
+    {
+      "id": "N8-nomax",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 499,
+          "find": "        if (terms.fee > maxFee) revert OspexGames__FeeAboveMax(terms.fee, maxFee);\n",
+          "replace": ""
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_aCreationPullsNoMoreThanTheFeeItsCallerNamed",
+      "breaks": "a creation takes a fee above the most named"
+    },
+    {
+      "id": "F1-coincheck",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 413,
+          "find": "        if (coin.code.length == 0 || _isDelegated(coin)) revert OspexGames__TokenNotAContract(coin);\n",
+          "replace": ""
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_constructor_refusesACoinThatIsNotAContract",
+      "breaks": "the constructor takes a coin with no code"
+    },
+    {
+      "id": "F9-coinlength",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 413,
+          "find": "if (coin.code.length == 0 || _isDelegated(coin)) revert",
+          "replace": "if (coin.code.length <= 23) revert"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_constructor_takesACoinOfAnyLengthThatIsNotADelegation",
+      "breaks": "the constructor refuses 23-byte code that is no delegation"
+    },
+    {
+      "id": "F2-zerofeecall",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 525,
+          "find": "        if (terms.fee != 0) _takeFee(terms.fee);",
+          "replace": "        _takeFee(terms.fee);"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_create_atAFeeOfZeroTakesNothingAndCallsNoCoin",
+      "breaks": "a creation at 0 calls the coin"
+    },
+    {
+      "id": "F3-unsafepull",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 806,
+          "find": "i_token.safeTransferFrom(msg.sender, address(this), fee);",
+          "replace": "i_token.transferFrom(msg.sender, address(this), fee);"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_create_aCoinThatAnswersFalseIsRefused",
+      "breaks": "the pull reads no answer"
+    },
+    {
+      "id": "F7-cut",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 808,
+          "find": "        if (balanceAfter != balanceBefore + fee) revert OspexGames__FeeNotReceived(fee, balanceBefore, balanceAfter);\n",
+          "replace": ""
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_create_aCoinThatKeepsACutIsRefused",
+      "breaks": "a creation is made on less than its fee"
+    },
+    {
+      "id": "F8-bonus",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 808,
+          "find": "if (balanceAfter != balanceBefore + fee) revert",
+          "replace": "if (balanceAfter < balanceBefore + fee) revert"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_create_aCoinThatAddsToATransferIsRefused",
+      "breaks": "a creation is made on more than its fee"
+    },
+    {
+      "id": "F10-maxequal",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 499,
+          "find": "if (terms.fee > maxFee) revert",
+          "replace": "if (terms.fee >= maxFee) revert"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_create_paysTheFeeAsItRunsNeverTheMostNamed",
+      "breaks": "naming the fee exactly is refused"
+    },
+    {
+      "id": "F16-zeroisany",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 499,
+          "find": "if (terms.fee > maxFee) revert",
+          "replace": "if (terms.fee > maxFee && maxFee != 0) revert"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_create_paysTheFeeAsItRunsNeverTheMostNamed",
+      "breaks": "a most of 0 is taken as no limit"
+    },
+    {
+      "id": "F11-pullmax",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 525,
+          "find": "        if (terms.fee != 0) _takeFee(terms.fee);",
+          "replace": "        if (terms.fee != 0) _takeFee(maxFee);"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_create_paysTheFeeAsItRunsNeverTheMostNamed",
+      "breaks": "a creation takes the most named instead of the fee"
+    },
+    {
+      "id": "F12-maxargs",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 499,
+          "find": "OspexGames__FeeAboveMax(terms.fee, maxFee);",
+          "replace": "OspexGames__FeeAboveMax(maxFee, terms.fee);"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_create_paysTheFeeAsItRunsNeverTheMostNamed",
+      "breaks": "the refusal names its two amounts the wrong way round"
+    },
+    {
+      "id": "F13-maxafterpull",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 499,
+          "find": "        if (terms.fee > maxFee) revert OspexGames__FeeAboveMax(terms.fee, maxFee);\n",
+          "replace": ""
+        },
+        {
+          "line": 525,
+          "find": "        if (terms.fee != 0) _takeFee(terms.fee);",
+          "replace": "        if (terms.fee != 0) _takeFee(terms.fee);\n        if (terms.fee > maxFee) revert OspexGames__FeeAboveMax(terms.fee, maxFee);"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_create_aFeeAboveTheMostNamedIsRefusedBeforeTheCoinIsCalled",
+      "breaks": "the coin is called before the most named is checked"
+    },
+    {
+      "id": "F14-payoutorder",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 769,
+          "find": "        _checkPayout(ReportKind.Score, r.payout);\n        if (r.homeScore > MAX_SCORE || r.awayScore > MAX_SCORE) {\n            revert OspexGames__ScoreOutOfRange(r.homeScore, r.awayScore);\n        }\n        uint256 start = g.start;\n        if (block.timestamp < start) revert OspexGames__BeforeStart(r.gameId, g.start);\n",
+          "replace": "        if (r.homeScore > MAX_SCORE || r.awayScore > MAX_SCORE) {\n            revert OspexGames__ScoreOutOfRange(r.homeScore, r.awayScore);\n        }\n        uint256 start = g.start;\n        if (block.timestamp < start) revert OspexGames__BeforeStart(r.gameId, g.start);\n        _checkPayout(ReportKind.Score, r.payout);\n"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_score_namesAPayoutFaultBeforeTheScoreAndTheClock",
+      "breaks": "the payout is checked after the score's range and the start's hour"
+    },
+    {
+      "id": "F15-payoutfirst",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 768,
+          "find": "        if (r.start != 0) revert OspexGames__FieldNotEmpty(ReportKind.Score);\n        _checkPayout(ReportKind.Score, r.payout);\n",
+          "replace": "        _checkPayout(ReportKind.Score, r.payout);\n        if (r.start != 0) revert OspexGames__FieldNotEmpty(ReportKind.Score);\n"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_score_namesAPayoutFaultBeforeTheScoreAndTheClock",
+      "breaks": "the payout is checked before the start field"
+    },
+    {
+      "id": "F4-paysorigin",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 568,
+          "find": "        i_token.safeTransfer(msg.sender, amount);",
+          "replace": "        i_token.safeTransfer(tx.origin, amount);"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_withdraw_paysTheCallerItsOwnCreditAndNoOneElses",
+      "breaks": "a withdrawal pays the transaction's origin"
+    },
+    {
+      "id": "F5-zerolate",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 565,
+          "find": "        s_credits[msg.sender] = 0;\n        emit Withdrawn(msg.sender, amount);\n        uint256 balanceBefore = i_token.balanceOf(address(this));\n        i_token.safeTransfer(msg.sender, amount);\n",
+          "replace": "        emit Withdrawn(msg.sender, amount);\n        uint256 balanceBefore = i_token.balanceOf(address(this));\n        i_token.safeTransfer(msg.sender, amount);\n        s_credits[msg.sender] = 0;\n"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFeeCallbacks.t.sol",
+      "test": "test_fee_aPaymentThatCallsBackScoresAnotherGameAndTheRestWaitsForIt",
+      "breaks": "a withdrawal spends the credit after paying"
+    },
+    {
+      "id": "G1-endedgate",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 820,
+          "find": "        if (status >= GameStatus.Scored) revert OspexGames__GameEnded(gameId, status);\n",
+          "replace": ""
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_end_refusesAGameAlreadyEnded",
+      "breaks": "an ended game ends again"
+    },
+    {
+      "id": "G2-nonegate",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 819,
+          "find": "        if (status == GameStatus.None) revert OspexGames__UnknownGame(gameId);\n",
+          "replace": ""
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_end_refusesAnIdThatIsNotAGame",
+      "breaks": "an id that is not a game ends"
+    },
+    {
+      "id": "F6-narrowcredits",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 379,
+          "find": "    mapping(address => uint256) internal s_credits;",
+          "replace": "    mapping(address => uint96) internal s_credits;"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_fee_theLargestFeeAddsUp",
+      "breaks": "credits overflow past one fee's width"
+    },
+    {
+      "id": "L1-nolockcreate",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 480,
+          "find": ") external nonReentrant returns (uint256 gameId) {",
+          "replace": ") external returns (uint256 gameId) {"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFeeCallbacks.t.sol",
+      "test": "test_create_aCreationInsideAFeePullIsRefused",
+      "breaks": "a creation runs inside another's fee pull"
+    },
+    {
+      "id": "L2-nolockwithdraw",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 562,
+          "find": "function withdraw() external nonReentrant returns (uint256 amount) {",
+          "replace": "function withdraw() external returns (uint256 amount) {"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFeeCallbacks.t.sol",
+      "test": "test_withdraw_aCreationInsideAPaymentIsRefused",
+      "breaks": "a creation runs inside a withdrawal's payment"
+    },
+    {
+      "id": "W1-nocheck",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 570,
+          "find": "        if (balanceAfter + amount != balanceBefore) {\n            revert OspexGames__WithdrawalNotExact(amount, balanceBefore, balanceAfter);\n        }\n",
+          "replace": ""
+        }
+      ],
+      "testPath": "test/games/OspexGamesFeeCallbacks.t.sol",
+      "test": "test_withdraw_aCoinThatTakesMoreOrLessThanItPaysIsRefused",
+      "breaks": "a withdrawal is paid however the balance moved"
+    },
+    {
+      "id": "W2-onlymore",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 570,
+          "find": "if (balanceAfter + amount != balanceBefore) {",
+          "replace": "if (balanceAfter + amount < balanceBefore) {"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFeeCallbacks.t.sol",
+      "test": "test_withdraw_aCoinThatTakesMoreOrLessThanItPaysIsRefused",
+      "breaks": "a withdrawal that lowers the balance by less is paid"
+    },
+    {
+      "id": "W3-onlyless",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 570,
+          "find": "if (balanceAfter + amount != balanceBefore) {",
+          "replace": "if (balanceAfter + amount > balanceBefore) {"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFeeCallbacks.t.sol",
+      "test": "test_withdraw_aCoinThatTakesMoreOrLessThanItPaysIsRefused",
+      "breaks": "a withdrawal that lowers the balance by more is paid"
+    },
+    {
+      "id": "W4-args",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 571,
+          "find": "OspexGames__WithdrawalNotExact(amount, balanceBefore, balanceAfter);",
+          "replace": "OspexGames__WithdrawalNotExact(amount, balanceAfter, balanceBefore);"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFeeCallbacks.t.sol",
+      "test": "test_withdraw_aCoinThatTakesMoreOrLessThanItPaysIsRefused",
+      "breaks": "the refusal names the two balances the wrong way round"
+    },
+    {
+      "id": "W5-beforeafter",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 567,
+          "find": "        uint256 balanceBefore = i_token.balanceOf(address(this));\n        i_token.safeTransfer(msg.sender, amount);\n",
+          "replace": "        i_token.safeTransfer(msg.sender, amount);\n        uint256 balanceBefore = i_token.balanceOf(address(this));\n"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_score_creditsTheFeeOnceAndItIsWithdrawnOnce",
+      "breaks": "the balance before the payment is read after it"
+    },
+    {
+      "id": "R2-reservedlt",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 792,
+          "find": "uint160(payout) <= uint160(MAX_RESERVED_ADDRESS)",
+          "replace": "uint160(payout) < uint160(MAX_RESERVED_ADDRESS)"
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_aPayoutOfAReservedAddressIsRefused",
+      "breaks": "the range's last address is taken"
+    },
+    {
+      "id": "R3-reservedvalue",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 184,
+          "find": "address public constant MAX_RESERVED_ADDRESS = address(0xffff);",
+          "replace": "address public constant MAX_RESERVED_ADDRESS = address(0xff);"
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_aPayoutOfAReservedAddressIsRefused",
+      "breaks": "the range ends at 0xff"
+    },
+    {
+      "id": "R4-reservedargs",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 792,
+          "find": "revert OspexGames__PayoutIsReserved(kind, payout);",
+          "replace": "revert OspexGames__PayoutIsReserved(kind, address(0));"
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_aPayoutOfAReservedAddressIsRefused",
+      "breaks": "the refusal does not name the address"
+    },
+    {
+      "id": "M1-nozerocheck",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 564,
+          "find": "        if (amount == 0) revert OspexGames__NothingToWithdraw(msg.sender);\n",
+          "replace": ""
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_withdraw_paysTheCallerItsOwnCreditAndNoOneElses",
+      "breaks": "a withdrawal of nothing is taken"
+    },
+    {
+      "id": "M2-nozeroing",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 565,
+          "find": "        s_credits[msg.sender] = 0;\n",
+          "replace": ""
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_score_creditsTheFeeOnceAndItIsWithdrawnOnce",
+      "breaks": "a withdrawal does not spend the credit"
+    },
+    {
+      "id": "M3-nowithdrawnevent",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 566,
+          "find": "        emit Withdrawn(msg.sender, amount);\n",
+          "replace": ""
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_score_creditsTheFeeOnceAndItIsWithdrawnOnce",
+      "breaks": "a withdrawal emits nothing"
+    },
+    {
+      "id": "M4-nocreditevent",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 825,
+          "find": "            emit FeeCredited(gameId, account, fee);\n",
+          "replace": ""
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_aReleaseCreditsTheCreatorItsOwnFee",
+      "breaks": "an end emits no credit"
+    },
+    {
+      "id": "M5-creditzero",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 823,
+          "find": "        if (fee != 0) {",
+          "replace": "        if (true) {"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_create_atAFeeOfZeroTakesNothingAndCallsNoCoin",
+      "breaks": "an end at 0 emits a credit"
+    },
+    {
+      "id": "M6-nostatus",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 821,
+          "find": "        g.status = end;\n",
+          "replace": ""
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_end_refusesAGameAlreadyEnded",
+      "breaks": "an end writes no status"
+    },
+    {
+      "id": "M7-heldalways",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 678,
+          "find": "        held = g.status >= GameStatus.Scored ? 0 : g.terms.fee;",
+          "replace": "        held = g.terms.fee;"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_getGameFee_readsWhatAGameHolds",
+      "breaks": "an ended game reads as holding its fee"
+    },
+    {
+      "id": "M8-heldboundary",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 678,
+          "find": "        held = g.status >= GameStatus.Scored ? 0 : g.terms.fee;",
+          "replace": "        held = g.status > GameStatus.Scored ? 0 : g.terms.fee;"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_getGameFee_readsWhatAGameHolds",
+      "breaks": "a scored game reads as holding its fee"
+    },
+    {
+      "id": "M9-nocreatorread",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 679,
+          "find": "        creator = g.creator;\n",
+          "replace": ""
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_getGameFee_readsWhatAGameHolds",
+      "breaks": "the read names no creator"
+    },
+    {
+      "id": "M10-nocreator",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 506,
+          "find": "        g.creator = msg.sender;\n",
+          "replace": ""
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_create_takesTheFeeFromTheCreator",
+      "breaks": "a creation stores no creator"
+    },
+    {
+      "id": "M11-creatororigin",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 506,
+          "find": "        g.creator = msg.sender;",
+          "replace": "        g.creator = tx.origin;"
+        }
+      ],
+      "testPath": "test/games/OspexGames.t.sol",
+      "test": "test_create_creatorIsTheSenderNotTheOrigin",
+      "breaks": "the creator stored is the origin"
+    },
+    {
+      "id": "M12-notokenevent",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 415,
+          "find": "        emit TokenSet(coin);\n",
+          "replace": ""
+        }
+      ],
+      "testPath": "test/games/OspexGamesList.t.sol",
+      "test": "test_constructor_emitsTheFirstStateAsAnApprovalWould",
+      "breaks": "the constructor does not name the coin"
+    },
+    {
+      "id": "M13-admissionofsender",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 795,
+          "find": "        if (s_admissions[payout].kind != ReporterKind.None) revert",
+          "replace": "        if (s_admissions[msg.sender].kind != ReporterKind.None) revert"
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_aPayoutOfAnyReporterIsRefused",
+      "breaks": "the sender's admission is read instead of the payout's"
+    },
+    {
+      "id": "M14-pullorigin",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 806,
+          "find": "i_token.safeTransferFrom(msg.sender, address(this), fee);",
+          "replace": "i_token.safeTransferFrom(tx.origin, address(this), fee);"
+        }
+      ],
+      "testPath": "test/games/OspexGames.t.sol",
+      "test": "test_create_creatorIsTheSenderNotTheOrigin",
+      "breaks": "the fee is taken from the origin"
+    },
+    {
+      "id": "M15-pullone",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 806,
+          "find": "i_token.safeTransferFrom(msg.sender, address(this), fee);",
+          "replace": "i_token.safeTransferFrom(msg.sender, address(this), 1);"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_create_takesTheFeeFromTheCreator",
+      "breaks": "the pull takes one unit"
+    },
+    {
+      "id": "M16-creditoverwrite",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 824,
+          "find": "            s_credits[account] += fee;",
+          "replace": "            s_credits[account] = fee;"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_withdraw_paysTheCallerItsOwnCreditAndNoOneElses",
+      "breaks": "a credit overwrites the last"
+    },
+    {
+      "id": "M17-releasevoids",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 833,
+          "find": "_end(g, gameId, GameStatus.Released, g.creator);",
+          "replace": "_end(g, gameId, GameStatus.Voided, g.creator);"
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_aReleaseCreditsTheCreatorItsOwnFee",
+      "breaks": "a release writes a void"
+    },
+    {
+      "id": "M18-scorevoids",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 781,
+          "find": "_end(g, r.gameId, GameStatus.Scored, r.payout);",
+          "replace": "_end(g, r.gameId, GameStatus.Voided, r.payout);"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_score_creditsTheFeeOnceAndItIsWithdrawnOnce",
+      "breaks": "a score writes a void"
+    },
+    {
+      "id": "M19-payoutcheckmoved",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 769,
+          "find": "        _checkPayout(ReportKind.Score, r.payout);\n",
+          "replace": ""
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_aPayoutOfZeroIsRefused",
+      "breaks": "a score checks no payout"
+    },
+    {
+      "id": "M20-beforeafterpull",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 805,
+          "find": "        uint256 balanceBefore = i_token.balanceOf(address(this));\n        i_token.safeTransferFrom(msg.sender, address(this), fee);\n",
+          "replace": "        i_token.safeTransferFrom(msg.sender, address(this), fee);\n        uint256 balanceBefore = i_token.balanceOf(address(this));\n"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_create_takesTheFeeFromTheCreator",
+      "breaks": "the balance before the pull is read after it"
+    },
+    {
+      "id": "M21-onlyover",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 808,
+          "find": "if (balanceAfter != balanceBefore + fee) revert",
+          "replace": "if (balanceAfter > balanceBefore + fee) revert"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_create_aCoinThatKeepsACutIsRefused",
+      "breaks": "a creation on less than its fee is made"
+    },
+    {
+      "id": "M22-tolerance",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 808,
+          "find": "if (balanceAfter != balanceBefore + fee) revert",
+          "replace": "if (balanceAfter + 1 < balanceBefore + fee) revert"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_create_aCoinThatKeepsACutIsRefused",
+      "breaks": "a unit short is let through"
+    },
+    {
+      "id": "M23-beforeofsender",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 805,
+          "find": "uint256 balanceBefore = i_token.balanceOf(address(this));\n        i_token.safeTransferFrom",
+          "replace": "uint256 balanceBefore = i_token.balanceOf(msg.sender);\n        i_token.safeTransferFrom"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_create_takesTheFeeFromTheCreator",
+      "breaks": "the balance before the pull is the creator's"
+    },
+    {
+      "id": "M24-afterofsender",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 806,
+          "find": "i_token.safeTransferFrom(msg.sender, address(this), fee);\n        uint256 balanceAfter = i_token.balanceOf(address(this));",
+          "replace": "i_token.safeTransferFrom(msg.sender, address(this), fee);\n        uint256 balanceAfter = i_token.balanceOf(msg.sender);"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_create_takesTheFeeFromTheCreator",
+      "breaks": "the balance after the pull is the creator's"
+    },
+    {
+      "id": "M25-takeone",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 525,
+          "find": "        if (terms.fee != 0) _takeFee(terms.fee);",
+          "replace": "        if (terms.fee != 0) _takeFee(1);"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_create_takesTheFeeFromTheCreator",
+      "breaks": "a creation takes one unit"
+    },
+    {
+      "id": "M26-errorargs",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 808,
+          "find": "OspexGames__FeeNotReceived(fee, balanceBefore, balanceAfter);",
+          "replace": "OspexGames__FeeNotReceived(fee, balanceAfter, balanceBefore);"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_create_aCoinThatKeepsACutIsRefused",
+      "breaks": "the refusal names the two balances the wrong way round"
+    },
+    {
+      "id": "M27-coinasself",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 794,
+          "find": "        if (payout == address(i_token)) revert",
+          "replace": "        if (payout == address(this)) revert"
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_aPayoutOfTheCoinIsRefused",
+      "breaks": "the coin's check reads the games set"
+    },
+    {
+      "id": "M28-noreporterarg",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 795,
+          "find": "revert OspexGames__PayoutIsAReporter(kind, payout);",
+          "replace": "revert OspexGames__PayoutIsAReporter(kind, msg.sender);"
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "test_neverLine_aPayoutOfAnyReporterIsRefused",
+      "breaks": "the refusal names the sender, not the payout"
+    },
+    {
+      "id": "M29-originrefused",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 794,
+          "find": "        if (payout == address(i_token)) revert",
+          "replace": "        if (payout == address(i_token) || payout == tx.origin) revert"
+        }
+      ],
+      "testPath": "test/games/OspexGamesNeverLines.t.sol",
+      "test": "testFuzz_neverLine_theFeeGoesToThePayoutInsideTheReport",
+      "breaks": "the runner's own report, naming itself, is refused"
+    },
+    {
+      "id": "M30-zerofeeread",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 525,
+          "find": "        if (terms.fee != 0) _takeFee(terms.fee);\n",
+          "replace": "        if (terms.fee != 0) _takeFee(terms.fee);\n        else i_token.balanceOf(address(this));\n"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_create_atAFeeOfZeroTakesNothingAndCallsNoCoin",
+      "breaks": "a creation at 0 reads the coin"
+    }
+  ]
+}

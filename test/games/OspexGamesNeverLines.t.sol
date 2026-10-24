@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {Vm, VmSafe} from "forge-std/Vm.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {UnauthenticatedPlainReporter, SwappedRelay} from "./ReporterFixtures.sol";
+import {RefusingCoin} from "./CoinFixtures.sol";
 import {OspexGames} from "../../src/games/OspexGames.sol";
 import {OspexSignpost} from "../../src/signpost/OspexSignpost.sol";
 import {
@@ -391,8 +392,8 @@ contract OspexGamesNeverLinesTest is GamesBase {
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// Every refusal the report call makes, each against games in each state the call can see. A refused
-    /// report reverts, changes no read of any game, and emits nothing. This contract holds no money yet: the
-    /// money half of this line comes with the fee, which is where it can first fail.
+    /// report reverts, changes no read of any game, emits nothing, and moves no money: the coin the games set
+    /// holds, every credit, every account's coin and every game's held fee read as before.
     /// Break: in report(), replace `revert OspexGames__ReportKindNotTaken(r.kind);` with nothing. A void is
     /// then "taken" without a revert, and an event announcing a void is emitted for a game that was not voided.
     function test_neverLine_rejectedReportChangesNothing() public {
@@ -410,9 +411,9 @@ contract OspexGamesNeverLinesTest is GamesBase {
         _scoreBy(first, scored, HOME, AWAY);
         uint256 unknown = games.gameCount() + 1;
 
-        Report[] memory bad = new Report[](21);
-        address[] memory from = new address[](21);
-        bytes[] memory why = new bytes[](21);
+        Report[] memory bad = new Report[](25);
+        address[] memory from = new address[](25);
+        bytes[] memory why = new bytes[](25);
         uint256 n;
         (bad[n], from[n], why[n]) = (_startReport(0, START), address(first), _err1(OspexGames.OspexGames__UnknownGame.selector, 0));
         n++;
@@ -470,14 +471,27 @@ contract OspexGamesNeverLinesTest is GamesBase {
         r.readings[3] = Reading({seat: 4, kind: ReadingKind.Silent, homeScore: 1, awayScore: 0});
         (bad[n], from[n], why[n]) = (r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__SilentReadingNotEmpty.selector, 3));
         n++;
+        (bad[n], from[n], why[n]) = (_scoreReportTo(verified, address(games)), address(first), abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsTheGamesSet.selector, ReportKind.Score));
+        n++;
+        (bad[n], from[n], why[n]) = (_scoreReportTo(verified, address(first)), address(first), _isAReporter(address(first)));
+        n++;
+        (bad[n], from[n], why[n]) = (_scoreReportTo(verified, address(second)), address(first), _isAReporter(address(second)));
+        n++;
+        (bad[n], from[n], why[n]) = (_scoreReportTo(verified, address(token)), address(first), abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsTheCoin.selector, ReportKind.Score));
+        n++;
         assertEq(n, bad.length, "every case filled");
 
+        address[] memory accounts = new address[](8);
+        (accounts[0], accounts[1], accounts[2], accounts[3]) = (address(first), address(later), address(second), creator);
+        (accounts[4], accounts[5], accounts[6], accounts[7]) = (payout, address(games), address(this), address(0));
+        assertEq(token.balanceOf(address(games)), 5 * uint256(FEE), "five games' fees, one of them credited");
         for (uint256 i; i < n; ++i) {
             // The window case and the before-start case need their own clocks.
             if (i == 15) vm.warp(START + WINDOW - 1);
             else if (i == 18) vm.warp(DATE - 1 hours);
             else vm.warp(START + 10);
             bytes32 before = _viewAll();
+            bytes32 money = _money(accounts);
             vm.recordLogs();
             (bool ok, bytes memory err) = _send(from[i], bad[i]);
             Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -485,6 +499,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
             assertEq(err, why[i], string.concat("refusal reason, case ", vm.toString(i)));
             assertEq(logs.length, 0, string.concat("a rejected report emitted, case ", vm.toString(i)));
             assertEq(_viewAll(), before, string.concat("a rejected report changed state, case ", vm.toString(i)));
+            assertEq(_money(accounts), money, string.concat("a rejected report moved money, case ", vm.toString(i)));
         }
     }
 
@@ -545,8 +560,13 @@ contract OspexGamesNeverLinesTest is GamesBase {
         _startBy(first, game, START);
         vm.warp(START + WINDOW);
         _scoreBy(later, game, HOME, AWAY);
-        Vm.Log[] memory logs = vm.getRecordedLogs();
+        Vm.Log[] memory all = vm.getRecordedLogs();
 
+        // The score's end credits its fee before its report's event; the two reports' events are compared here.
+        assertEq(all.length, 3, "two reports, two events, and the score's credit");
+        assertEq(all[1].topics[0], IOspexGames.FeeCredited.selector, "the score's credit");
+        Vm.Log[] memory logs = new Vm.Log[](2);
+        (logs[0], logs[1]) = (all[0], all[2]);
         assertEq(logs.length, 2, "two reports, two events");
         assertEq(logs[0].topics[0], logs[1].topics[0], "one event for every reporter");
         assertEq(logs[0].topics[2], bytes32(uint256(uint160(address(first)))), "the start names its reporter");
@@ -636,9 +656,12 @@ contract OspexGamesNeverLinesTest is GamesBase {
         assertEq(home, 104, "the home score read back as another field");
         assertEq(away, 97, "the away score read back as another field");
 
+        // The score's credit, then the report's event.
         Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 2, "the credit and the report");
+        assertEq(logs[1].topics[0], IOspexGames.GameReported.selector, "the report's event");
         (uint64 s, uint32 h, uint32 a, SpecReading[] memory got, address pay) =
-            abi.decode(logs[0].data, (uint64, uint32, uint32, SpecReading[], address));
+            abi.decode(logs[1].data, (uint64, uint32, uint32, SpecReading[], address));
         assertEq(s, 0);
         assertEq(h, 104);
         assertEq(a, 97);
@@ -996,7 +1019,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
         (kinds[0], kinds[1], kinds[2]) = (ReporterKind.FirstN, ReporterKind.AfterN, ReporterKind.FirstN);
         vm.startStateDiffRecording();
         vm.prank(deployer, deployer);
-        OspexGames g = new OspexGames(address(timelock), _launchTerms(), list, kinds, _hashes(list));
+        OspexGames g = new OspexGames(address(timelock), token, _launchTerms(), list, kinds, _hashes(list));
         VmSafe.AccountAccess[] memory diff = vm.stopAndReturnStateDiff();
 
         assertEq(g.i_timelock(), address(timelock), "the owner is the timelock given");
@@ -1072,7 +1095,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
             TimelockController t = new TimelockController(d, _one(timelockKey), _one(address(0)), address(0));
             MockReporter r1 = new MockReporter(IOspexGames(address(0)));
             address[] memory list = _one(address(r1));
-            OspexGames g = new OspexGames(address(t), _launchTerms(), list, _kinds1(ReporterKind.FirstN), _hashes(list));
+            OspexGames g = new OspexGames(address(t), token, _launchTerms(), list, _kinds1(ReporterKind.FirstN), _hashes(list));
             MockReporter r2 = new MockReporter(IOspexGames(address(g)));
             Terms memory changed = _terms(5 hours);
             bytes[3] memory calls = [
@@ -1090,8 +1113,10 @@ contract OspexGamesNeverLinesTest is GamesBase {
                 t.execute(address(g), 0, calls[c], bytes32(0), bytes32(c));
             }
             // The same second: a game made now has the new list and the new terms.
+            vm.prank(creator);
+            token.approve(address(g), FEE);
             vm.prank(creator, creator);
-            uint256 game = g.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+            uint256 game = g.createGame("nba", "Home", "Away", DATE, new Hint[](0), ANY_FEE);
             (address[] memory r,) = g.getGameReporters(game);
             assertEq(r.length, 1, "the changed list");
             assertEq(r[0], address(r2), "the approved reporter");
@@ -1206,7 +1231,548 @@ contract OspexGamesNeverLinesTest is GamesBase {
         assertEq(uint8(_status(started)), uint8(GameStatus.Scored));
     }
 
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // The creation fee. "The creation fee goes to the transaction sender."
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// A courier sends the transaction, the reporter calls the games set, and the payout address rides inside
+    /// the report. A score credits that payout address: not the courier, who is the transaction's sender and
+    /// origin, not the reporter, and not the creator. Both kinds of reporter, each at an hour it may write. A
+    /// payout address that happens to be the transaction's sender, as on the open path when a runner sends its
+    /// own report, is credited as named (the open path's test below sends that way): what never happens is the
+    /// sender taking the payout address's place.
+    /// Break: in _writeScore(), change `_end(g, r.gameId, GameStatus.Scored, r.payout);` to
+    /// `_end(g, r.gameId, GameStatus.Scored, tx.origin);`. The courier is credited instead.
+    function test_neverLine_theSenderNeverTakesThePayoutAddressesPlace() public {
+        address courier = makeAddr("courier");
+        address to = makeAddr("the payout address in the report");
+        uint256 a = _create();
+        uint256 b = _create();
+        vm.warp(DATE - 1 hours);
+        _startBy(first, a, START);
+        _startBy(first, b, START);
+
+        vm.warp(START + 10); // inside n: a first-n reporter
+        (bool ok, bytes memory err) = _sendAs(courier, first, _scoreReportTo(a, to));
+        assertTrue(ok, vm.toString(err));
+        vm.warp(START + WINDOW); // from start + n: an after-n reporter
+        (ok, err) = _sendAs(courier, later, _scoreReportTo(b, to));
+        assertTrue(ok, vm.toString(err));
+
+        assertEq(games.getCredit(to), 2 * uint256(FEE), "the payout address in the report");
+        address[5] memory never = [courier, address(first), address(later), creator, address(this)];
+        for (uint256 i; i < never.length; ++i) {
+            assertEq(games.getCredit(never[i]), 0, "credited an address the report did not name");
+        }
+        vm.prank(courier);
+        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__NothingToWithdraw.selector, courier));
+        games.withdraw();
+        vm.prank(to);
+        assertEq(games.withdraw(), 2 * uint256(FEE), "withdrawn");
+        assertEq(token.balanceOf(to), 2 * uint256(FEE), "paid to the payout address");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "The creation fee goes to an address where it literally can't be withdrawn." The chain refuses those it
+    //  can name: 0 and the rest of the reserved range up to 0xffff, the games set, the coin, and every address
+    //  ever approved as a reporter. That any other payout address can call withdraw is for review.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// A score naming address 0 as its payout is refused by name, and the game keeps its fee: nothing is
+    /// credited, no coin moves, the game does not end. Control: the same report naming another address is
+    /// taken, credits it, and that address withdraws.
+    /// Break: in _checkPayout(), delete `if (payout == address(0)) revert OspexGames__NoPayout(kind);`. The
+    /// score is then taken and the fee credited to address 0, which nothing can withdraw.
+    function test_neverLine_aPayoutOfZeroIsRefused() public {
+        _assertPayoutRefused(
+            first, address(0), abi.encodeWithSelector(OspexGames.OspexGames__NoPayout.selector, ReportKind.Score)
+        );
+    }
+
+    /// The same, naming an address from 1 to MAX_RESERVED_ADDRESS, the range set aside for precompiles and a
+    /// chain's own contracts: the first precompile, the last one Ethereum has today (0x11), Polygon's P-256
+    /// check (0x100), Polygon's native coin's contract (0x1010) and the range's last address. Each is refused
+    /// by name, with the address. Control, beside the helper's own: 0x10000, the first address past the range,
+    /// is credited and withdraws.
+    /// Break: in _checkPayout(), delete `if (uint160(payout) <= uint160(MAX_RESERVED_ADDRESS)) revert
+    /// OspexGames__PayoutIsReserved(kind, payout);`. The score is then taken and the fee credited to a
+    /// precompile, which never calls withdraw.
+    function test_neverLine_aPayoutOfAReservedAddressIsRefused() public {
+        assertEq(games.MAX_RESERVED_ADDRESS(), address(0xffff), "the range's last address");
+        address[5] memory reserved = [address(1), address(0x11), address(0x100), address(0x1010), address(0xffff)];
+        for (uint256 i; i < reserved.length; ++i) {
+            _assertPayoutRefused(
+                first,
+                reserved[i],
+                abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsReserved.selector, ReportKind.Score, reserved[i])
+            );
+        }
+        address past = address(0x10000);
+        uint256 game = _create();
+        vm.warp(DATE - 1 hours);
+        _startBy(first, game, START);
+        vm.warp(START + 10);
+        _take(address(first), _scoreReportTo(game, past));
+        assertEq(games.getCredit(past), FEE, "control: the first address past the range is credited");
+        vm.prank(past);
+        assertEq(games.withdraw(), FEE, "control: and withdraws");
+        assertEq(token.balanceOf(past), FEE);
+    }
+
+    /// The same, naming the games set's own address.
+    /// Break: in _checkPayout(), delete `if (payout == address(this)) revert
+    /// OspexGames__PayoutIsTheGamesSet(kind);`. The score is then taken and the fee credited to the games set,
+    /// which never calls its own withdraw.
+    function test_neverLine_aPayoutOfTheGamesSetIsRefused() public {
+        _assertPayoutRefused(
+            first,
+            address(games),
+            abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsTheGamesSet.selector, ReportKind.Score)
+        );
+    }
+
+    /// The same, naming the coin's own address.
+    /// Break: in _checkPayout(), delete `if (payout == address(i_token)) revert OspexGames__PayoutIsTheCoin(kind);`.
+    /// The score is then taken and the fee credited to the coin, which never calls withdraw.
+    function test_neverLine_aPayoutOfTheCoinIsRefused() public {
+        _assertPayoutRefused(
+            first, address(token), abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsTheCoin.selector, ReportKind.Score)
+        );
+    }
+
+    /// The same, naming the reporter that sends the report: a first-n reporter inside n, and an after-n reporter
+    /// from start + n.
+    /// Break: in _checkPayout(), delete `if (s_admissions[payout].kind != ReporterKind.None) revert
+    /// OspexGames__PayoutIsAReporter(kind, payout);`. The score is then taken and the fee credited to the
+    /// reporter, a contract with no call to withdraw.
+    function test_neverLine_aPayoutOfTheSendingReporterIsRefused() public {
+        _assertPayoutRefused(first, address(first), _isAReporter(address(first)));
+        _assertPayoutRefused(later, address(later), _isAReporter(address(later)));
+    }
+
+    /// The same, naming a reporter other than the sender: another of the game's reporters, of each kind, and a
+    /// reporter approved after the game was made, which is not on the game's copy.
+    /// Break: in _checkPayout(), change `if (s_admissions[payout].kind != ReporterKind.None)` to
+    /// `if (payout == msg.sender)`. Only the sender is then refused, and the score credits the other reporter.
+    function test_neverLine_aPayoutOfAnyReporterIsRefused() public {
+        _assertPayoutRefused(first, address(second), _isAReporter(address(second)));
+        _assertPayoutRefused(first, address(later), _isAReporter(address(later)));
+
+        uint256 game = _create();
+        MockReporter newer = new MockReporter(games);
+        _approve(address(newer), ReporterKind.FirstN);
+        (address[] memory copied,) = games.getGameReporters(game);
+        for (uint256 i; i < copied.length; ++i) {
+            assertTrue(copied[i] != address(newer), "the newer reporter is on the game's copy");
+        }
+        _assertPayoutRefusedOn(game, first, address(newer), _isAReporter(address(newer)));
+    }
+
+    /// The same, naming a retired reporter: one of the game's own reporters, retired after the game was made,
+    /// and one retired before the game was made, so never on its copy. A retired reporter keeps its admission,
+    /// and the refusal with it.
+    /// Break: in _checkPayout(), change `s_admissions[payout].kind != ReporterKind.None` to
+    /// `s_admissions[payout].kind != ReporterKind.None && !s_admissions[payout].retired`. The score then credits
+    /// the retired reporter.
+    function test_neverLine_aPayoutOfARetiredReporterIsRefused() public {
+        MockReporter gone = new MockReporter(games);
+        _approve(address(gone), ReporterKind.AfterN);
+        _retire(address(gone));
+        uint256 game = _create();
+        _retire(address(second));
+        (, bool goneRetired,) = games.getReporter(address(gone));
+        (, bool secondRetired,) = games.getReporter(address(second));
+        assertTrue(goneRetired && secondRetired, "both retired");
+
+        _assertPayoutRefusedOn(game, first, address(second), _isAReporter(address(second)));
+        _assertPayoutRefused(first, address(gone), _isAReporter(address(gone)));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "On the open path, the creation fee goes anywhere but the runner named inside the sealed machine's
+    //  statement." The games set's half: it credits the payout address inside the report, and no other. The
+    //  statement's half is the open path's reporter's.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// An after-n reporter, the open path's kind, scores from start + n naming any address the chain does not
+    /// refuse, under any fee. The runner sends its own report, through the reporter, so the address named is
+    /// also the transaction's sender and origin. That address is credited the game's fee, once, and no other
+    /// address's credit moves.
+    /// Break: in _end(), change `s_credits[account] += fee;` to `s_credits[msg.sender] += fee;`. The reporter
+    /// that sent the report is credited instead of the address it named. And a payout check that refused the
+    /// transaction's origin, `if (payout == address(i_token) || payout == tx.origin) revert ...`, would refuse
+    /// the runner's own report here.
+    function testFuzz_neverLine_theFeeGoesToThePayoutInsideTheReport(address runner, uint96 fee) public {
+        // Not an address the chain refuses as payout: the reserved range from 0, the games set, the coin, or a
+        // reporter. Nor the cheatcode address, which cannot send.
+        vm.assume(uint160(runner) > 0xffff && runner != address(games) && runner != address(token));
+        vm.assume(runner != address(first) && runner != address(later) && runner != address(second));
+        vm.assume(runner != address(vm));
+        fee = uint96(bound(fee, 1, PURSE));
+        _setTerms("", _feeTerms(fee));
+        uint256 game = _create();
+        vm.warp(DATE - 1 hours);
+        _startBy(first, game, START);
+        vm.warp(START + WINDOW);
+
+        address[7] memory others =
+            [address(later), address(first), address(second), creator, address(this), stranger, payout];
+        uint256[7] memory before;
+        for (uint256 i; i < others.length; ++i) {
+            before[i] = games.getCredit(others[i]);
+        }
+        uint256 runnerBefore = games.getCredit(runner);
+        vm.recordLogs();
+        (bool ok, bytes memory err) = _sendAs(runner, later, _scoreReportTo(game, runner));
+        assertTrue(ok, string.concat("the runner's own report, naming itself, was refused: ", vm.toString(err)));
+        _assertOneCredit(vm.getRecordedLogs(), game, runner, fee);
+
+        assertEq(games.getCredit(runner), runnerBefore + fee, "the runner named in the report");
+        for (uint256 i; i < others.length; ++i) {
+            if (others[i] != runner) assertEq(games.getCredit(others[i]), before[i], "another address was credited");
+        }
+        assertEq(token.balanceOf(address(games)), fee, "the games set holds the fee, now credited");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A release pays anyone anything but their own stake, and the creator their own creation fee." The fee's
+    //  half; the stakes are the betting set's.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// Two creators and two fees: a game made at 1 USDC before the fee rose to 3, one made at 3 by another
+    /// creator, one made at 3 whose start was written, and one at 3 with a dispute record. A stranger releases
+    /// three of them and their creator the fourth. Each creator is credited its own games' fees and the stranger
+    /// nothing; no other credit moves; each creator withdraws exactly what it paid. The releases go through the
+    /// test harness's hook, which calls the production code's release credit; who may release a game, and
+    /// when, is the release call's, not built yet.
+    /// Break: in _release(), change `_end(g, gameId, GameStatus.Released, g.creator);` to
+    /// `_end(g, gameId, GameStatus.Released, msg.sender);`. Whoever releases the game is credited.
+    function test_neverLine_aReleaseCreditsTheCreatorItsOwnFee() public {
+        address other = makeAddr("another creator");
+        _fund(other, address(games));
+        uint256 g1 = _create();
+        _setTerms("", _feeTerms(3 * FEE));
+        vm.prank(other, other);
+        uint256 g2 = games.createGame("nba", "Denver Nuggets", "Utah Jazz", DATE, _hints(), ANY_FEE);
+        uint256 g3 = _create();
+        uint256 g4 = _create();
+        vm.warp(DATE - 1 hours);
+        _startBy(first, g3, START);
+        games.harnessSetStatus(g4, GameStatus.Disputed); // a dispute record, as the ends will write it
+        assertEq(token.balanceOf(address(games)), 10 * uint256(FEE), "held: 1 + 3 + 3 + 3");
+
+        vm.recordLogs();
+        vm.prank(stranger);
+        games.harnessRelease(g1);
+        _assertOneCredit(vm.getRecordedLogs(), g1, creator, FEE);
+        vm.recordLogs();
+        vm.prank(stranger);
+        games.harnessRelease(g2);
+        _assertOneCredit(vm.getRecordedLogs(), g2, other, 3 * FEE);
+        vm.prank(creator);
+        games.harnessRelease(g3);
+        vm.prank(stranger);
+        games.harnessRelease(g4);
+
+        uint256[4] memory ids = [g1, g2, g3, g4];
+        for (uint256 i; i < ids.length; ++i) {
+            assertEq(uint8(_status(ids[i])), uint8(GameStatus.Released), "released");
+            assertEq(_held(ids[i]), 0, "a released game still holds its fee");
+        }
+        assertEq(games.getCredit(creator), 7 * uint256(FEE), "the creator: 1 + 3 + 3");
+        assertEq(games.getCredit(other), 3 * uint256(FEE), "the other creator: 3");
+        address[4] memory nobody = [stranger, payout, address(first), address(this)];
+        for (uint256 i; i < nobody.length; ++i) {
+            assertEq(games.getCredit(nobody[i]), 0, "a release credited someone else");
+        }
+        vm.prank(creator);
+        games.withdraw();
+        vm.prank(other);
+        games.withdraw();
+        assertEq(token.balanceOf(creator), PURSE, "the creator has back what it paid");
+        assertEq(token.balanceOf(other), PURSE, "the other creator has back what it paid");
+        assertEq(token.balanceOf(address(games)), 0, "the games set holds nothing");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A rejected report changes any game's state or moves any money; a second creation of the same real
+    //  game shares a reporter list, a state or money with the first." Here, the money.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// Two creations of the same real game each take and hold their own fee. The first ends by a score. Two
+    /// reports are refused and neither credits anything or moves coin: a second score to the first, and a
+    /// score to the second creation, whose start is not written. The second creation still holds its own fee,
+    /// and only its own end pays it, to its own creator. (Every other refusal is in
+    /// test_neverLine_rejectedReportChangesNothing, which checks the money too.) The second score is refused
+    /// twice over, by the score's status check and by `_end`; the score to an unstarted game only by the first,
+    /// which is what the break below reaches.
+    /// Break: in _writeScore(), delete `if (status != GameStatus.Verified) _refuseScore(r.gameId, status);`.
+    /// The score to the unstarted second creation is then taken and credits its fee to that report's payout
+    /// address.
+    function test_neverLine_aRefusedReportMovesNoFeeAndTheSameRealGameHoldsItsOwn() public {
+        address first2 = makeAddr("a second payout address");
+        uint256 a = _create();
+        uint256 b = _create(); // the same real game: same creator, league, teams, date and hints
+        assertEq(token.balanceOf(address(games)), 2 * uint256(FEE), "each creation took its own fee");
+        assertEq(_held(a), FEE, "a holds its fee");
+        assertEq(_held(b), FEE, "b holds its fee");
+
+        vm.warp(DATE - 1 hours);
+        _startBy(first, a, START);
+        vm.warp(START + 10);
+        _take(address(first), _scoreReportTo(a, payout));
+        assertEq(_held(b), FEE, "b's fee moved with a's score");
+
+        address[] memory accounts = new address[](4);
+        (accounts[0], accounts[1], accounts[2], accounts[3]) = (payout, first2, creator, address(first));
+        bytes32 money = _money(accounts);
+        vm.recordLogs();
+        (bool ok, bytes memory err) = _send(address(first), _scoreReportTo(a, first2));
+        assertFalse(ok, "a second score was taken");
+        assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__GameEnded.selector, a, GameStatus.Scored));
+        assertEq(vm.getRecordedLogs().length, 0, "a refused report emitted");
+        assertEq(_money(accounts), money, "a refused report moved money");
+
+        vm.recordLogs();
+        (ok, err) = _send(address(first), _scoreReportTo(b, first2));
+        assertFalse(ok, "a score to a game with no start was taken");
+        assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__StartNotWritten.selector, b));
+        assertEq(vm.getRecordedLogs().length, 0, "a refused report emitted");
+        assertEq(_money(accounts), money, "a refused report moved money");
+        assertEq(_held(b), FEE, "b holds its fee");
+
+        vm.prank(stranger);
+        games.harnessRelease(b);
+        assertEq(games.getCredit(creator), FEE, "b's end credits b's own creator");
+        vm.prank(payout);
+        assertEq(games.withdraw(), FEE, "a's payout address");
+        vm.prank(creator);
+        assertEq(games.withdraw(), FEE, "b's creator");
+        assertEq(token.balanceOf(address(games)), 0, "the games set holds nothing");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A term change or an approval reaches a game already made." For the fee: a game is credited what it
+    //  holds, whatever its league's fee is today.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// Games made at 1 USDC (the default), at 5 and at 0 as the default changes, and at 2 under its league's
+    /// own terms; then the default goes to 7. Each game's end credits the fee it copied at its creation: up,
+    /// down, to 0 and from 0, by the default terms and by a league's own. The coin the games set holds is what
+    /// the games paid, all along.
+    /// Break: in _end(), change `uint96 fee = g.terms.fee;` to `uint96 fee = s_defaultTerms.fee;`. Every end
+    /// then credits today's default fee.
+    function test_neverLine_aFeeChangeReachesNoGameAlreadyMade() public {
+        uint256 g1 = _create(); // nba takes the default: 1
+        _setTerms("", _feeTerms(5 * FEE));
+        uint256 g2 = _create(); // 5
+        _setTerms("", _feeTerms(0));
+        uint256 g3 = _create(); // 0
+        _setTerms("nba", _feeTerms(2 * FEE));
+        uint256 g4 = _create(); // nba's own: 2
+        _setTerms("", _feeTerms(7 * FEE));
+        assertEq(token.balanceOf(address(games)), 8 * uint256(FEE), "held: 1 + 5 + 0 + 2");
+        assertEq(games.getTerms("").fee, 7 * FEE, "the default today");
+
+        vm.warp(DATE - 1 hours);
+        _startBy(first, g1, START);
+        _startBy(first, g3, START);
+        vm.warp(START + 10);
+        _take(address(first), _scoreReportTo(g1, payout));
+        assertEq(games.getCredit(payout), FEE, "g1 credits the 1 it holds");
+        vm.recordLogs();
+        _take(address(first), _scoreReportTo(g3, payout));
+        assertEq(games.getCredit(payout), FEE, "g3, made at 0, credits nothing");
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; ++i) {
+            assertTrue(logs[i].topics[0] != IOspexGames.FeeCredited.selector, "a fee of 0 was credited");
+        }
+        vm.prank(stranger);
+        games.harnessRelease(g2);
+        assertEq(games.getCredit(creator), 5 * uint256(FEE), "g2 credits the 5 it holds");
+        vm.prank(stranger);
+        games.harnessRelease(g4);
+        assertEq(games.getCredit(creator), 7 * uint256(FEE), "g4 credits the 2 it holds");
+        assertEq(token.balanceOf(address(games)), 8 * uint256(FEE), "the coin held is what was paid");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A refused USDC transfer stops a game from ending, or a release from happening." (10/21, a correction to
+    //  the frozen text, carried into the spec since.)
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// The coin refuses every transfer (paused): a score and a release each go through and credit, and only
+    /// the withdrawals fail, until the coin takes transfers again. The coin blocks the payout address: the
+    /// score goes through, and only that address's withdrawal fails. The coin blocks the games set itself:
+    /// the release goes through, and only the withdrawal fails.
+    /// Break: in _end(), change `s_credits[account] += fee;` to `i_token.safeTransfer(account, fee);`. The fee
+    /// is then paid inside the end, and the paused coin refuses the score.
+    function test_neverLine_aRefusedTransferStopsNoEnd() public {
+        uint256 a = _create();
+        uint256 b = _create();
+        uint256 c = _create();
+        uint256 d = _create();
+        vm.warp(DATE - 1 hours);
+        _startBy(first, a, START);
+        _startBy(first, c, START);
+        vm.warp(START + 10);
+
+        // Paused.
+        token.setPaused(true);
+        _take(address(first), _scoreReportTo(a, payout));
+        assertEq(uint8(_status(a)), uint8(GameStatus.Scored), "the score was written");
+        vm.prank(stranger);
+        games.harnessRelease(b);
+        assertEq(uint8(_status(b)), uint8(GameStatus.Released), "the release was written");
+        assertEq(games.getCredit(payout), FEE, "the score credited");
+        assertEq(games.getCredit(creator), FEE, "the release credited");
+        vm.prank(payout);
+        vm.expectRevert(RefusingCoin.Paused.selector);
+        games.withdraw();
+        vm.prank(creator);
+        vm.expectRevert(RefusingCoin.Paused.selector);
+        games.withdraw();
+        assertEq(games.getCredit(payout), FEE, "a refused withdrawal kept the credit");
+        token.setPaused(false);
+        vm.prank(payout);
+        games.withdraw();
+        vm.prank(creator);
+        games.withdraw();
+        assertEq(token.balanceOf(payout), FEE, "paid once the coin took transfers");
+
+        // The payout address blocked.
+        address blocked = makeAddr("a payout address the coin blocks");
+        token.setBlocked(blocked, true);
+        _take(address(first), _scoreReportTo(c, blocked));
+        assertEq(uint8(_status(c)), uint8(GameStatus.Scored), "the score was written");
+        vm.prank(blocked);
+        vm.expectRevert(abi.encodeWithSelector(RefusingCoin.Blocked.selector, blocked));
+        games.withdraw();
+        token.setBlocked(blocked, false);
+        vm.prank(blocked);
+        assertEq(games.withdraw(), FEE, "paid once unblocked");
+
+        // The games set blocked.
+        token.setBlocked(address(games), true);
+        vm.prank(stranger);
+        games.harnessRelease(d);
+        assertEq(uint8(_status(d)), uint8(GameStatus.Released), "the release was written");
+        vm.prank(creator);
+        vm.expectRevert(abi.encodeWithSelector(RefusingCoin.Blocked.selector, address(games)));
+        games.withdraw();
+        token.setBlocked(address(games), false);
+        vm.prank(creator);
+        assertEq(games.withdraw(), FEE, "paid once the games set was unblocked");
+        assertEq(token.balanceOf(address(games)), 0, "the games set holds nothing");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A creation pulls more than the fee its caller named." Not in the spec's text: a line for this piece,
+    //  added in its review.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// A creator reads the fee, 1 USDC, and allows the games set far more than that, as a standing allowance
+    /// does. A raise to 100 USDC is queued in the timelock. While it waits, a creation naming the 1 it read
+    /// takes 1. Then the raise runs first, and the same creation, naming the same 1, is refused by name before
+    /// the coin is called: the call reaches no coin address, no game is made, and no coin moves. The creator
+    /// read 100 and named it: the creation takes 100.
+    /// Break: in createGame(), delete `if (terms.fee > maxFee) revert OspexGames__FeeAboveMax(terms.fee,
+    /// maxFee);`. The same creation then takes the 100.
+    function test_neverLine_aCreationPullsNoMoreThanTheFeeItsCallerNamed() public {
+        address who = makeAddr("a creator with a standing allowance");
+        token.mint(who, 1_000 * uint256(FEE));
+        vm.prank(who);
+        token.approve(address(games), type(uint256).max);
+        uint256 named = games.getTerms("nba").fee;
+        assertEq(named, FEE, "the fee the creator read");
+
+        bytes memory raise = abi.encodeCall(IOspexGames.setTerms, ("", _feeTerms(100 * FEE)));
+        vm.prank(timelockKey);
+        timelock.schedule(address(games), 0, raise, bytes32(0), bytes32("raise"), DELAY);
+        vm.prank(who, who);
+        games.createGame("nba", "Home", "Away", DATE, new Hint[](0), named);
+        assertEq(token.balanceOf(who), 999 * uint256(FEE), "while the raise waits, the fee read");
+
+        vm.warp(vm.getBlockTimestamp() + DELAY);
+        vm.prank(stranger);
+        timelock.execute(address(games), 0, raise, bytes32(0), bytes32("raise"));
+        assertEq(games.getTerms("nba").fee, 100 * FEE, "the raise ran first");
+        uint256 count = games.gameCount();
+        uint256 held = token.balanceOf(address(games));
+        vm.startStateDiffRecording();
+        vm.prank(who, who);
+        (bool ok, bytes memory err) = address(games).call(
+            abi.encodeCall(IOspexGames.createGame, ("nba", "Home", "Away", DATE, new Hint[](0), named))
+        );
+        VmSafe.AccountAccess[] memory accesses = vm.stopAndReturnStateDiff();
+        assertFalse(ok, "a creation took more than its caller named");
+        assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__FeeAboveMax.selector, 100 * uint256(FEE), named));
+        for (uint256 i; i < accesses.length; ++i) {
+            assertTrue(accesses[i].account != address(token), "the coin was called");
+        }
+        assertEq(games.gameCount(), count, "a game was made");
+        assertEq(token.balanceOf(who), 999 * uint256(FEE), "the creator's coin moved");
+        assertEq(token.balanceOf(address(games)), held, "the games set's coin moved");
+
+        vm.prank(who, who);
+        games.createGame("nba", "Home", "Away", DATE, new Hint[](0), 100 * uint256(FEE));
+        assertEq(token.balanceOf(who), 899 * uint256(FEE), "control: named the new fee, it is taken");
+    }
+
     // ──────────────────────────── Helpers ──────────────────────────────
+
+    /// @dev `by` scores a new game naming `bad` as the payout address: see _assertPayoutRefusedOn.
+    function _assertPayoutRefused(MockReporter by, address bad, bytes memory why) internal {
+        _assertPayoutRefusedOn(_create(), by, bad, why);
+    }
+
+    /// @dev `by` scores `game`, once started, naming `bad` as the payout address, at an hour it may write:
+    ///      refused with `why`, nothing emitted, no game read and no money moved, and the game keeps its fee.
+    ///      Then the same report naming `payout` is taken and credits it, and `payout` withdraws it.
+    function _assertPayoutRefusedOn(uint256 game, MockReporter by, address bad, bytes memory why) internal {
+        vm.warp(DATE - 1 hours);
+        _startBy(first, game, START);
+        vm.warp(by == later ? START + WINDOW : START + 10);
+
+        address[] memory accounts = new address[](5);
+        (accounts[0], accounts[1], accounts[2], accounts[3], accounts[4]) =
+            (bad, address(by), creator, payout, address(games));
+        bytes32 money = _money(accounts);
+        bytes32 state = _viewAll();
+        vm.recordLogs();
+        (bool ok, bytes memory err) = _send(address(by), _scoreReportTo(game, bad));
+        assertFalse(ok, "a payout address that can never withdraw was taken");
+        assertEq(err, why, "the refusal");
+        assertEq(vm.getRecordedLogs().length, 0, "a refused score emitted");
+        assertEq(_money(accounts), money, "a refused score moved money");
+        assertEq(_viewAll(), state, "a refused score changed a game");
+        assertEq(_held(game), FEE, "the game keeps its fee");
+
+        uint256 paid = token.balanceOf(payout);
+        _take(address(by), _scoreReportTo(game, payout));
+        assertEq(games.getCredit(payout), FEE, "control: the payout address is credited");
+        vm.prank(payout);
+        games.withdraw();
+        assertEq(token.balanceOf(payout) - paid, FEE, "control: the payout address withdraws");
+    }
+
+    /// @dev The refusal of a score naming `reporter`, an address ever approved as a reporter, as its payout.
+    function _isAReporter(address reporter) internal pure returns (bytes memory) {
+        return abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsAReporter.selector, ReportKind.Score, reporter);
+    }
+
+    /// @dev The logs hold exactly one FeeCredited, from the games set, for this game, account and amount.
+    function _assertOneCredit(Vm.Log[] memory logs, uint256 gameId, address account, uint256 amount) internal view {
+        uint256 found;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(games) || logs[i].topics[0] != IOspexGames.FeeCredited.selector) continue;
+            ++found;
+            assertEq(uint256(logs[i].topics[1]), gameId, "credited for another game");
+            assertEq(address(uint160(uint256(logs[i].topics[2]))), account, "credited another address");
+            assertEq(abi.decode(logs[i].data, (uint256)), amount, "credited another amount");
+        }
+        assertEq(found, 1, "not one credit");
+    }
 
     /// @dev Every report kind a reporter could send to two games, one unstarted and one started: a start, a
     ///      score, a report of each kind this contract does not take yet, and a start with a malformed reading.
@@ -1336,8 +1902,14 @@ contract OspexGamesNeverLinesTest is GamesBase {
                     _send(callers[c], r);
                 }
             }
+            // Anyone may create a game, a reporter or the key included, and pays the fee to.
+            if (token.allowance(callers[c], address(games)) == 0) _fund(callers[c], address(games));
             vm.prank(callers[c], callers[c]);
-            games.createGame("nhl", "A", "B", DATE, _hints());
+            games.createGame("nhl", "A", "B", DATE, _hints(), ANY_FEE);
+            // And anyone may withdraw what it has been credited, which touches no game.
+            vm.prank(callers[c], callers[c]);
+            (bool paid,) = address(games).call(abi.encodeCall(IOspexGames.withdraw, ()));
+            paid;
         }
     }
 

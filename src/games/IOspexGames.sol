@@ -80,8 +80,12 @@ struct Reading {
 /// @param homeScore For a score: the home team's score. Zero for any other kind.
 /// @param awayScore For a score: the away team's score. Zero for any other kind.
 /// @param readings The readings the report rests on, one per feed asked.
-/// @param payout The payout address. The games set never puts the sender in its place. Zero for a start, which
-///        pays nothing; never zero for a score, since address 0 can never withdraw.
+/// @param payout The payout address: where the report that ends a game credits its creation fee. The games set
+///        never puts the sender in its place. Zero for a start, which pays nothing. A score refuses as payout:
+///        zero and the rest of the reserved range up to 0xffff, where precompiles and a chain's own contracts
+///        lie, the games set's own address and the coin's, none of which withdraws; and any address ever
+///        approved as a reporter, retired ones included and the sender among them, since a reporter relays a
+///        report and is never the one it pays.
 struct Report {
     uint256 gameId;
     ReportKind kind;
@@ -111,7 +115,8 @@ struct Hint {
 /// @param day30Clock In seconds: how long after the start, or after the date for a game never started, anyone
 ///        may release a game that has not ended. Longer than n and the day-7 clock together, so a dispute
 ///        recorded by start + n has its whole day-7 clock before the release opens.
-/// @param fee The creation fee, in the smallest unit of the coin the games set takes it in. Zero is legal.
+/// @param fee The creation fee, in the smallest unit of the coin the games set takes it in. Zero is legal, and
+///        at zero nothing is taken. A game holds the fee it copied until it ends, whatever its league's is now.
 struct Terms {
     uint64 window;
     uint64 day7Clock;
@@ -126,12 +131,34 @@ struct Terms {
  *         any contract what happened. A game copies the approved reporters, with their kinds, and its league's
  *         terms when it is created, and only those reporters ever write to it. Its start and its score are each
  *         written once. The approved list and the terms change only by the Polygon timelock's three calls.
+ *
+ *         A game's creator pays its creation fee when it is created, and the games set holds it until the game
+ *         ends. The report that ends the game credits it to the payout address inside that report; a release
+ *         credits it back to the creator. Whoever is credited withdraws it later: no coin moves inside an end.
  */
 interface IOspexGames is IGameReporters {
     /// @notice Emitted once, by the constructor: the timelock that alone makes the three calls. It never
     ///         changes, so an indexer reading events alone can check it against the timelock it expects.
     /// @param timelock The timelock's address
     event TimelockSet(address indexed timelock);
+
+    /// @notice Emitted once, by the constructor: the coin the creation fee is paid in. It never changes.
+    /// @param token The coin's address
+    event TokenSet(address indexed token);
+
+    /// @notice Emitted when a game's end credits its creation fee: to the payout address in the report that
+    ///         ended it, or to its creator when it is released. A game's fee is credited once. A fee of 0
+    ///         credits nothing and emits nothing.
+    /// @param gameId The game
+    /// @param account The address credited, which withdraws it
+    /// @param amount The fee the game copied at its creation
+    event FeeCredited(uint256 indexed gameId, address indexed account, uint256 amount);
+
+    /// @notice Emitted when an address withdraws everything it has been credited.
+    /// @param account The address that withdrew, and was paid
+    /// @param amount Its whole credit, which is what the games set's coin balance fell by. A coin that keeps a
+    ///        cut on the way delivers the account less.
+    event Withdrawn(address indexed account, uint256 amount);
 
     /// @notice Emitted when a game is created. It carries the game's identity, which is not stored.
     /// @param gameId The new game's id
@@ -221,8 +248,14 @@ interface IOspexGames is IGameReporters {
     );
 
     /// @notice Creates a game. Anyone may, the same real game twice included: each creation is its own
-    ///         game, with its own id and its own copy of the reporters and the terms. Refused while the approved
-    ///         list holds no first-n reporter, since nothing could write such a game's start.
+    ///         game, with its own id, its own copy of the reporters and the terms, and its own creation fee.
+    ///         Refused while the approved list holds no first-n reporter, since nothing could write such a
+    ///         game's start. The creator pays the creation fee its league's terms name as the creation runs, in
+    ///         the coin fixed at deploy, so the creator first allows this contract to take it; at a fee of 0
+    ///         nothing is taken and the coin is not called. Refused, before the coin is called, when that fee is
+    ///         above `maxFee`, so a fee change that lands between the creator's look and its creation never takes
+    ///         more than the creator named. Refused unless taking the fee raises this contract's coin balance by
+    ///         exactly the fee. The games set holds the fee until the game ends.
     /// @param league The league's short text id: 1 to 16 characters, each a-z or 0-9.
     /// @param homeTeam The home team: 1 to 64 printable ASCII characters, not all spaces.
     /// @param awayTeam The away team: 1 to 64 printable ASCII characters, not all spaces, and not the same text
@@ -230,18 +263,36 @@ interface IOspexGames is IGameReporters {
     /// @param date The scheduled start, in seconds since 1970. Not zero, and at most 365 days after the creation.
     /// @param hints Up to 8 seat and id pairs, no seat twice, each id 1 to 64 printable ASCII characters, not all
     ///        spaces.
+    /// @param maxFee The most the creator will pay, in the coin's smallest unit: the fee read from getTerms
+    ///        before sending, or anything above it. The creation takes the fee as it runs, never this amount.
     /// @return gameId The new game's id. Ids start at 1 and count up.
     function createGame(
         string calldata league,
         string calldata homeTeam,
         string calldata awayTeam,
         uint64 date,
-        Hint[] calldata hints
+        Hint[] calldata hints,
+        uint256 maxFee
     ) external returns (uint256 gameId);
 
     /// @notice The one report call. Only the game's recorded reporters may send it, none that is retired, and
-    ///         none whose code hashes otherwise than the hash recorded at its approval.
+    ///         none whose code hashes otherwise than the hash recorded at its approval. A score ends the game and
+    ///         credits its creation fee to the payout address in the report; a start credits nothing.
     function report(Report calldata r) external;
+
+    /// @notice Pays the caller everything it has been credited, and sets its credit to 0. Only the address
+    ///         credited withdraws, and only to itself. When the coin refuses the transfer (the coin paused, or
+    ///         the caller or this contract blocked by it), or the payment lowers this contract's coin balance by
+    ///         other than the amount, this call alone fails and the credit stays.
+    /// @return amount The whole credit, which is what this contract's coin balance fell by
+    function withdraw() external returns (uint256 amount);
+
+    /// @notice What an address has been credited and not yet withdrawn.
+    function getCredit(address account) external view returns (uint256);
+
+    /// @notice A game's creation fee as the games set holds it: the amount held for the game, read from its
+    ///         status (its fee until it ends, 0 after), and the creator a release credits it back to.
+    function getGameFee(uint256 gameId) external view returns (uint96 held, address creator);
 
     /// @notice How many games exist. Game ids run from 1 to this number.
     function gameCount() external view returns (uint256);

@@ -25,7 +25,7 @@ contract Creator {
     }
 
     function create() external returns (uint256) {
-        return i_games.createGame("nhl", "Home", "Away", 1_800_000_037, new Hint[](0));
+        return i_games.createGame("nhl", "Home", "Away", 1_800_000_037, new Hint[](0), type(uint256).max);
     }
 }
 
@@ -58,10 +58,12 @@ contract OspexGamesTest is GamesBase {
     function test_constructor_oneFirstNReporterIsEnough() public {
         address only = address(new MockReporter(IOspexGames(address(0))));
         OspexGames g = new OspexGames(
-            address(timelock), _terms(1), _one(only), _kinds1(ReporterKind.FirstN), _hashes(_one(only))
+            address(timelock), token, _terms(1), _one(only), _kinds1(ReporterKind.FirstN), _hashes(_one(only))
         );
         vm.prank(creator);
-        uint256 game = g.createGame("mlb", "Home", "Away", DATE, new Hint[](0));
+        token.approve(address(g), FEE);
+        vm.prank(creator);
+        uint256 game = g.createGame("mlb", "Home", "Away", DATE, new Hint[](0), type(uint256).max);
         (address[] memory r, uint8[] memory k) = g.getGameReporters(game);
         assertEq(r.length, 1);
         assertEq(r[0], only);
@@ -76,18 +78,18 @@ contract OspexGamesTest is GamesBase {
         Terms memory terms = _launchTerms();
 
         vm.expectRevert(OspexGames.OspexGames__NoReporters.selector);
-        new OspexGames(t, terms, new address[](0), new ReporterKind[](0), new bytes32[](0));
+        new OspexGames(t, token, terms, new address[](0), new ReporterKind[](0), new bytes32[](0));
 
         vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__LengthsDiffer.selector, 1, 2, 1));
-        new OspexGames(t, terms, _one(a), new ReporterKind[](2), _hashes(_one(a)));
+        new OspexGames(t, token, terms, _one(a), new ReporterKind[](2), _hashes(_one(a)));
         vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__LengthsDiffer.selector, 1, 1, 0));
-        new OspexGames(t, terms, _one(a), _kinds1(ReporterKind.FirstN), new bytes32[](0));
+        new OspexGames(t, token, terms, _one(a), _kinds1(ReporterKind.FirstN), new bytes32[](0));
 
         vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__NoCode.selector, address(0)));
-        new OspexGames(t, terms, _one(address(0)), _kinds1(ReporterKind.FirstN), new bytes32[](1));
+        new OspexGames(t, token, terms, _one(address(0)), _kinds1(ReporterKind.FirstN), new bytes32[](1));
 
         vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__NoKind.selector, a));
-        new OspexGames(t, terms, _one(a), _kinds1(ReporterKind.None), _hashes(_one(a)));
+        new OspexGames(t, token, terms, _one(a), _kinds1(ReporterKind.None), _hashes(_one(a)));
 
         // A duplicate that is not next to its twin, with different kinds.
         address[] memory dup = new address[](3);
@@ -95,7 +97,7 @@ contract OspexGamesTest is GamesBase {
         ReporterKind[] memory dupKinds = new ReporterKind[](3);
         (dupKinds[0], dupKinds[1], dupKinds[2]) = (ReporterKind.FirstN, ReporterKind.FirstN, ReporterKind.AfterN);
         vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__AlreadyApproved.selector, a));
-        new OspexGames(t, terms, dup, dupKinds, _hashes(dup));
+        new OspexGames(t, token, terms, dup, dupKinds, _hashes(dup));
 
         // Only after-n reporters: no start could ever be written.
         address[] memory two = new address[](2);
@@ -103,15 +105,15 @@ contract OspexGamesTest is GamesBase {
         ReporterKind[] memory afterOnly = new ReporterKind[](2);
         (afterOnly[0], afterOnly[1]) = (ReporterKind.AfterN, ReporterKind.AfterN);
         vm.expectRevert(OspexGames.OspexGames__NoFirstNReporter.selector);
-        new OspexGames(t, terms, two, afterOnly, _hashes(two));
+        new OspexGames(t, token, terms, two, afterOnly, _hashes(two));
 
         // A duplicate next to its twin, and one at the end.
         (dup[0], dup[1], dup[2]) = (a, a, b);
         vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__AlreadyApproved.selector, a));
-        new OspexGames(t, terms, dup, dupKinds, _hashes(dup));
+        new OspexGames(t, token, terms, dup, dupKinds, _hashes(dup));
         (dup[0], dup[1], dup[2]) = (a, b, b);
         vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__AlreadyApproved.selector, b));
-        new OspexGames(t, terms, dup, dupKinds, _hashes(dup));
+        new OspexGames(t, token, terms, dup, dupKinds, _hashes(dup));
 
         // Each launch term at 0 is refused.
         for (uint256 i; i < 3; ++i) {
@@ -120,20 +122,20 @@ contract OspexGamesTest is GamesBase {
             if (i == 1) zero.day7Clock = 0;
             if (i == 2) zero.day30Clock = 0;
             vm.expectRevert(OspexGames.OspexGames__TermsNotValid.selector);
-            new OspexGames(t, zero, _one(a), _kinds1(ReporterKind.FirstN), _hashes(_one(a)));
+            new OspexGames(t, token, zero, _one(a), _kinds1(ReporterKind.FirstN), _hashes(_one(a)));
         }
 
         // Controls: a first-n reporter is found last in the list, and first in it, ahead of an after-n one.
         (afterOnly[0], afterOnly[1]) = (ReporterKind.AfterN, ReporterKind.FirstN);
-        new OspexGames(t, terms, two, afterOnly, _hashes(two));
+        new OspexGames(t, token, terms, two, afterOnly, _hashes(two));
         (afterOnly[0], afterOnly[1]) = (ReporterKind.FirstN, ReporterKind.AfterN);
-        new OspexGames(t, terms, two, afterOnly, _hashes(two));
+        new OspexGames(t, token, terms, two, afterOnly, _hashes(two));
     }
 
     /// A kind outside the enum is refused by the decoder, before the constructor's body runs.
     function test_constructor_kindOutOfRangeIsRefused() public {
         address a = address(new MockReporter(IOspexGames(address(0))));
-        bytes memory args = abi.encode(address(timelock), _launchTerms(), _one(a), _uint8s1(3), _hashes(_one(a)));
+        bytes memory args = _ctorArgs(a, 3);
         bytes memory code = abi.encodePacked(type(OspexGames).creationCode, args);
         address made;
         assembly ("memory-safe") {
@@ -141,7 +143,7 @@ contract OspexGamesTest is GamesBase {
         }
         assertEq(made, address(0), "a kind of 3 was taken");
         // Control: the same bytes with kind 1 deploy.
-        args = abi.encode(address(timelock), _launchTerms(), _one(a), _uint8s1(1), _hashes(_one(a)));
+        args = _ctorArgs(a, 1);
         code = abi.encodePacked(type(OspexGames).creationCode, args);
         assembly ("memory-safe") {
             made := create(0, add(code, 0x20), mload(code))
@@ -158,56 +160,75 @@ contract OspexGamesTest is GamesBase {
         Hint[] memory hints = _hints();
         vm.recordLogs();
         vm.prank(creator, creator);
-        uint256 game = games.createGame("ncaab", "Saint Mary's (CA)", "Gonzaga", DATE + 5, hints);
+        uint256 game = games.createGame("ncaab", "Saint Mary's (CA)", "Gonzaga", DATE + 5, hints, ANY_FEE);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        assertEq(logs.length, 1);
+        // The games set's one event, then the coin's: the creator pays the league's own fee to the games set.
+        assertEq(logs.length, 2);
+        _assertFeePaid(logs[1], creator, _ownTerms().fee);
         assertEq(logs[0].emitter, address(games));
         assertEq(logs[0].topics.length, 3);
         assertEq(logs[0].topics[0], IOspexGames.GameCreated.selector);
         assertEq(uint256(logs[0].topics[1]), game);
         assertEq(logs[0].topics[2], bytes32(uint256(uint160(creator))));
-        (
-            string memory league,
-            string memory home,
-            string memory away,
-            uint64 date,
-            Hint[] memory gotHints,
-            Terms memory terms,
-            address[] memory reporters,
-            uint8[] memory kinds
-        ) = abi.decode(logs[0].data, (string, string, string, uint64, Hint[], Terms, address[], uint8[]));
-        assertEq(league, "ncaab");
-        assertEq(home, "Saint Mary's (CA)");
-        assertEq(away, "Gonzaga");
-        assertEq(date, DATE + 5);
-        assertEq(gotHints.length, 2);
-        assertEq(gotHints[0].seat, 3);
-        assertEq(gotHints[0].id, "g-77120");
-        assertEq(gotHints[1].seat, 1);
-        assertEq(gotHints[1].id, "18432");
-        _assertTerms(terms, _ownTerms(), "the event's terms");
-        _assertTerms(terms, games.getGameTerms(game), "the event's terms against the read");
+        Created memory c = _decodeCreated(logs[0].data);
+        assertEq(c.league, "ncaab");
+        assertEq(c.home, "Saint Mary's (CA)");
+        assertEq(c.away, "Gonzaga");
+        assertEq(c.date, DATE + 5);
+        assertEq(c.hints.length, 2);
+        assertEq(c.hints[0].seat, 3);
+        assertEq(c.hints[0].id, "g-77120");
+        assertEq(c.hints[1].seat, 1);
+        assertEq(c.hints[1].id, "18432");
+        _assertTerms(c.terms, _ownTerms(), "the event's terms");
+        _assertTerms(c.terms, games.getGameTerms(game), "the event's terms against the read");
         (address[] memory r, uint8[] memory k) = games.getGameReporters(game);
-        assertEq(reporters, r);
-        assertEq(kinds.length, k.length);
+        assertEq(c.reporters, r);
+        assertEq(c.kinds.length, k.length);
         for (uint256 i; i < k.length; ++i) {
-            assertEq(kinds[i], k[i]);
+            assertEq(c.kinds[i], k[i]);
         }
         assertEq(uint8(_status(game)), uint8(GameStatus.Unverified));
     }
 
+    /// @dev GameCreated's data, field for field.
+    struct Created {
+        string league;
+        string home;
+        string away;
+        uint64 date;
+        Hint[] hints;
+        Terms terms;
+        address[] reporters;
+        uint8[] kinds;
+    }
+
+    /// @dev Decodes GameCreated's data as one struct: the event's fields are the struct's, and a struct's
+    ///      encoding is theirs behind one offset. One value back, where eight overran the stack.
+    function _decodeCreated(bytes memory data) internal pure returns (Created memory) {
+        return abi.decode(bytes.concat(abi.encode(uint256(32)), data), (Created));
+    }
+
     /// The creator the event names is the sender, not the transaction's origin: a contract that creates a game
-    /// on someone's behalf is the creator.
+    /// on someone's behalf is the creator. It pays the fee, and a release would credit it.
     function test_create_creatorIsTheSenderNotTheOrigin() public {
         Creator c = new Creator(games);
+        _fund(address(c), address(games));
+        uint256 originCoin = token.balanceOf(creator);
         vm.recordLogs();
         vm.prank(creator, creator);
         uint256 game = c.create();
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        assertEq(logs.length, 1);
+        // The games set's one event, and the coin's transfer of the fee.
+        assertEq(logs.length, 2);
+        assertEq(logs[0].emitter, address(games));
         assertEq(uint256(logs[0].topics[1]), game);
         assertEq(logs[0].topics[2], bytes32(uint256(uint160(address(c)))), "the creator is the sender");
+        assertEq(token.balanceOf(address(c)), PURSE - FEE, "the sender paid the fee");
+        assertEq(token.balanceOf(creator), originCoin, "the origin paid nothing");
+        (, address recorded) = games.getGameFee(game);
+        assertEq(recorded, address(c), "the creator a release credits");
     }
 
     function test_create_idsCountUpFromOne() public {
@@ -221,29 +242,29 @@ contract OspexGamesTest is GamesBase {
     function test_create_leagueId() public {
         string[8] memory good = ["a", "nfl", "ncaab", "f1", "0", "z9", "abcdefghijklmnop", "0123456789abcdef"];
         for (uint256 i; i < good.length; ++i) {
-            games.createGame(good[i], "H", "A", DATE, new Hint[](0));
+            games.createGame(good[i], "H", "A", DATE, new Hint[](0), ANY_FEE);
         }
         // Empty, one past the limit, and each neighbour of a-z and 0-9 in ASCII, plus the separators.
         string[12] memory bad =
             ["", "abcdefghijklmnopq", "NFL", "nFl", "n-fl", "n fl", "n_fl", "`", "{", "/", ":", "nfl\x00"];
         for (uint256 i; i < bad.length; ++i) {
             vm.expectRevert(OspexGames.OspexGames__LeagueNotValid.selector);
-            games.createGame(bad[i], "H", "A", DATE, new Hint[](0));
+            games.createGame(bad[i], "H", "A", DATE, new Hint[](0), ANY_FEE);
         }
         // A byte above 0x7f.
         vm.expectRevert(OspexGames.OspexGames__LeagueNotValid.selector);
-        games.createGame(string(hex"6e66c3a9"), "H", "A", DATE, new Hint[](0));
+        games.createGame(string(hex"6e66c3a9"), "H", "A", DATE, new Hint[](0), ANY_FEE);
     }
 
     function test_create_teams() public {
         string memory max = _repeat("x", 64);
         string memory over = _repeat("x", 65);
         // The printable edges, space and tilde: a space is taken first and last, beside one other character.
-        games.createGame("nba", " !", "~ ", DATE, new Hint[](0));
-        games.createGame("nba", "a b", "~", DATE, new Hint[](0));
-        games.createGame("nba", max, "y", DATE, new Hint[](0));
-        games.createGame("nba", "y", max, DATE, new Hint[](0));
-        games.createGame("nba", string.concat(_repeat(" ", 63), "z"), "y", DATE, new Hint[](0));
+        games.createGame("nba", " !", "~ ", DATE, new Hint[](0), ANY_FEE);
+        games.createGame("nba", "a b", "~", DATE, new Hint[](0), ANY_FEE);
+        games.createGame("nba", max, "y", DATE, new Hint[](0), ANY_FEE);
+        games.createGame("nba", "y", max, DATE, new Hint[](0), ANY_FEE);
+        games.createGame("nba", string.concat(_repeat(" ", 63), "z"), "y", DATE, new Hint[](0), ANY_FEE);
 
         // Empty, too long, only spaces, and a control byte, DEL or a non-ASCII byte first, inside and last.
         string[14] memory bad = [
@@ -264,15 +285,15 @@ contract OspexGamesTest is GamesBase {
         ];
         for (uint256 i; i < bad.length; ++i) {
             vm.expectRevert(OspexGames.OspexGames__TeamNotValid.selector);
-            games.createGame("nba", bad[i], "Away", DATE, new Hint[](0));
+            games.createGame("nba", bad[i], "Away", DATE, new Hint[](0), ANY_FEE);
             vm.expectRevert(OspexGames.OspexGames__TeamNotValid.selector);
-            games.createGame("nba", "Home", bad[i], DATE, new Hint[](0));
+            games.createGame("nba", "Home", bad[i], DATE, new Hint[](0), ANY_FEE);
         }
 
         vm.expectRevert(OspexGames.OspexGames__SameTeams.selector);
-        games.createGame("nba", "Utah Jazz", "Utah Jazz", DATE, new Hint[](0));
+        games.createGame("nba", "Utah Jazz", "Utah Jazz", DATE, new Hint[](0), ANY_FEE);
         // Control: text that differs only in case is two teams to the contract.
-        games.createGame("nba", "Utah Jazz", "utah jazz", DATE, new Hint[](0));
+        games.createGame("nba", "Utah Jazz", "utah jazz", DATE, new Hint[](0), ANY_FEE);
     }
 
     /// A date is not 0 and is at most a year after the creation. A date long past is taken: a late creation
@@ -282,18 +303,18 @@ contract OspexGamesTest is GamesBase {
         uint64[5] memory bad = [uint64(0), edge + 1, edge + 30 days, DATE * 1000, type(uint64).max];
         for (uint256 i; i < bad.length; ++i) {
             vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__DateNotValid.selector, bad[i]));
-            games.createGame("nba", "H", "A", bad[i], new Hint[](0));
+            games.createGame("nba", "H", "A", bad[i], new Hint[](0), ANY_FEE);
         }
         uint64[4] memory good = [uint64(1), DATE - 400 days, DATE, edge];
         for (uint256 i; i < good.length; ++i) {
-            uint256 game = games.createGame("nba", "H", "A", good[i], new Hint[](0));
+            uint256 game = games.createGame("nba", "H", "A", good[i], new Hint[](0), ANY_FEE);
             assertEq(game, i + 1, "a good date was refused");
         }
         // The cap counts from the creation's own time: a day later, a date a day further on is taken.
         vm.warp(vm.getBlockTimestamp() + 1 days);
-        games.createGame("nba", "H", "A", edge + 1 days, new Hint[](0));
+        games.createGame("nba", "H", "A", edge + 1 days, new Hint[](0), ANY_FEE);
         vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__DateNotValid.selector, edge + 1 days + 1));
-        games.createGame("nba", "H", "A", edge + 1 days + 1, new Hint[](0));
+        games.createGame("nba", "H", "A", edge + 1 days + 1, new Hint[](0), ANY_FEE);
     }
 
     function test_create_hints() public {
@@ -301,14 +322,14 @@ contract OspexGamesTest is GamesBase {
         for (uint256 i; i < 8; ++i) {
             eight[i] = Hint({seat: uint8(i), id: _repeat("9", 64)});
         }
-        games.createGame("nba", "H", "A", DATE, eight);
+        games.createGame("nba", "H", "A", DATE, eight, ANY_FEE);
 
         Hint[] memory nine = new Hint[](9);
         for (uint256 i; i < 9; ++i) {
             nine[i] = Hint({seat: 1, id: "1"});
         }
         vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__TooManyHints.selector, 9));
-        games.createGame("nba", "H", "A", DATE, nine);
+        games.createGame("nba", "H", "A", DATE, nine, ANY_FEE);
 
         string[8] memory bad = ["", _repeat("9", 65), " ", _repeat(" ", 64), "a\nb", "\x1fab", "ab\x7f", string(hex"c3a9")];
         uint256[3] memory at = [uint256(0), 3, 7];
@@ -317,13 +338,13 @@ contract OspexGamesTest is GamesBase {
                 Hint[] memory h = _eightSeats();
                 h[at[p]].id = bad[i];
                 vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__HintNotValid.selector, at[p]));
-                games.createGame("nba", "H", "A", DATE, h);
+                games.createGame("nba", "H", "A", DATE, h, ANY_FEE);
             }
         }
         // Control: an id with spaces and one other character is taken.
         Hint[] memory spaced = _eightSeats();
         spaced[7].id = string.concat(_repeat(" ", 63), "1");
-        games.createGame("nba", "H", "A", DATE, spaced);
+        games.createGame("nba", "H", "A", DATE, spaced, ANY_FEE);
     }
 
     /// No seat is hinted twice: the second hint for a seat is refused wherever the two sit, at both ends of
@@ -337,7 +358,7 @@ contract OspexGamesTest is GamesBase {
             h[twice[c][1]].seat = uint8(twice[c][2]);
             h[twice[c][1]].id = "another id";
             vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__HintSeatRepeated.selector, twice[c][1]));
-            games.createGame("nba", "H", "A", DATE, h);
+            games.createGame("nba", "H", "A", DATE, h, ANY_FEE);
         }
         // Controls: neighbouring seats and the two ends of the range together are taken.
         uint8[2][3] memory pairs = [[uint8(0), uint8(255)], [uint8(254), uint8(255)], [uint8(0), uint8(1)]];
@@ -345,13 +366,13 @@ contract OspexGamesTest is GamesBase {
             Hint[] memory h = new Hint[](2);
             h[0] = Hint({seat: pairs[c][0], id: "a"});
             h[1] = Hint({seat: pairs[c][1], id: "a"});
-            games.createGame("nba", "H", "A", DATE, h);
+            games.createGame("nba", "H", "A", DATE, h, ANY_FEE);
         }
         // And the same id under two seats is two hints.
         Hint[] memory sameId = new Hint[](2);
         sameId[0] = Hint({seat: 1, id: "18432"});
         sameId[1] = Hint({seat: 2, id: "18432"});
-        games.createGame("nba", "H", "A", DATE, sameId);
+        games.createGame("nba", "H", "A", DATE, sameId, ANY_FEE);
     }
 
     // ──────────────────────────── The start ────────────────────────────
@@ -469,8 +490,9 @@ contract OspexGamesTest is GamesBase {
 
     /// A score names a payout address that is not 0: address 0 can never withdraw what a score credits it, and
     /// a scored game can never be scored again, so the refusal must come before the score is written. From
-    /// either kind of reporter, inside n and after it. Any other address is taken, the sender's own included.
-    /// Break: in _writeScore(), delete `if (r.payout == address(0)) revert OspexGames__NoPayout(ReportKind.Score);`.
+    /// either kind of reporter, inside n and after it. The games set's own address, the coin's and every
+    /// reporter's are refused too, each by its own never-line test.
+    /// Break: in _checkPayout(), delete `if (payout == address(0)) revert OspexGames__NoPayout(kind);`.
     function test_score_aZeroPayoutIsRefused() public {
         uint256 game = _verified();
         uint64[2] memory times = [START + 1, START + WINDOW];
@@ -489,11 +511,10 @@ contract OspexGamesTest is GamesBase {
                 assertEq(_viewAll(), before, "a refused score changed state");
             }
         }
-        // Control: the same score with a payout address is taken; the sender's own address is one like any other.
-        Report memory paid = _scoreReport(game, HOME, AWAY);
-        paid.payout = address(first);
-        _take(address(first), paid);
+        // Control: the same score with a payout address is taken.
+        _take(address(first), _scoreReport(game, HOME, AWAY));
         assertEq(uint8(_status(game)), uint8(GameStatus.Scored));
+        assertEq(games.getCredit(payout), FEE, "the payout address named is credited");
     }
 
     /// An after-n reporter scores from start + n, not a second before. A first-n reporter scores from the start.
@@ -703,21 +724,32 @@ contract OspexGamesTest is GamesBase {
         assertEq(uint256(h) + uint256(a), 0);
         assertEq(pay, address(0), "a start pays nothing");
         _assertReadings(readings, _readings());
+        _assertScoreEvents(game);
+    }
 
+    /// @dev The second half of test_report_eventCarriesTheWholeReport: a score's two events, the fee's credit
+    ///      first and then the report's.
+    function _assertScoreEvents(uint256 game) internal {
         vm.warp(START + 1);
         Report memory s = _scoreReport(game, HOME, AWAY);
-        s.payout = address(0xBEE);
+        s.payout = address(0xBEE00);
         vm.recordLogs();
         _take(address(second), s);
-        logs = vm.getRecordedLogs();
-        assertEq(logs.length, 1);
-        assertEq(logs[0].topics[2], bytes32(uint256(uint160(address(second)))), "the reporter that wrote");
-        assertEq(uint256(logs[0].topics[3]), uint256(ReportKind.Score));
-        (start, h, a, readings, pay) = abi.decode(logs[0].data, (uint64, uint32, uint32, Reading[], address));
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 2);
+        assertEq(logs[0].topics[0], IOspexGames.FeeCredited.selector);
+        assertEq(uint256(logs[0].topics[1]), game);
+        assertEq(logs[0].topics[2], bytes32(uint256(uint160(address(0xBEE00)))), "the payout address credited");
+        assertEq(abi.decode(logs[0].data, (uint256)), FEE);
+        assertEq(logs[1].topics[0], IOspexGames.GameReported.selector);
+        assertEq(logs[1].topics[2], bytes32(uint256(uint160(address(second)))), "the reporter that wrote");
+        assertEq(uint256(logs[1].topics[3]), uint256(ReportKind.Score));
+        (uint64 start, uint32 h, uint32 a, Reading[] memory readings, address pay) =
+            abi.decode(logs[1].data, (uint64, uint32, uint32, Reading[], address));
         assertEq(start, 0);
         assertEq(h, HOME);
         assertEq(a, AWAY);
-        assertEq(pay, address(0xBEE));
+        assertEq(pay, address(0xBEE00));
         _assertReadings(readings, _readings());
     }
 
@@ -820,13 +852,15 @@ contract OspexGamesTest is GamesBase {
         vm.warp(START + 1);
         _scoreBy(first, game, HOME, AWAY);
 
-        // Word 0: status, date, start, home, away. Word 1: n and the two clocks. Word 2: the fee.
+        // Word 0: status, date, start, home, away. Word 1: n and the two clocks. Word 2: the fee. Word 3: the
+        // creator.
         bytes memory want = abi.encodePacked(
             uint256(uint8(GameStatus.Scored)) | (uint256(DATE) << 8) | (uint256(START) << 72)
                 | (uint256(HOME) << 136) | (uint256(AWAY) << 168),
             uint256(own.window) | (uint256(own.day7Clock) << 64) | (uint256(own.day30Clock) << 128),
             uint256(own.fee)
         );
+        want = abi.encodePacked(want, uint256(uint160(creator)));
         // Then the reporters' copy: its length, and each entry as address and kind.
         uint256 firstKind = uint256(uint8(ReporterKind.FirstN)) << 160;
         want = abi.encodePacked(want, uint256(3), uint256(uint160(address(first))) | firstKind);
@@ -913,6 +947,25 @@ contract OspexGamesTest is GamesBase {
     function _uint8s1(uint8 v) internal pure returns (uint8[] memory list) {
         list = new uint8[](1);
         list[0] = v;
+    }
+
+    /// @dev The log is the coin's transfer of `amount` from `from` to the games set.
+    function _assertFeePaid(Vm.Log memory l, address from, uint256 amount) internal view {
+        assertEq(l.emitter, address(token));
+        assertEq(l.topics[0], keccak256("Transfer(address,address,uint256)"));
+        assertEq(l.topics[1], bytes32(uint256(uint160(from))), "paid by the creator");
+        assertEq(l.topics[2], bytes32(uint256(uint160(address(games)))), "paid to the games set");
+        assertEq(abi.decode(l.data, (uint256)), amount, "the league's own fee");
+    }
+
+    /// @dev The constructor's arguments, ABI-encoded by hand, with one reporter of any kind number: for a kind
+    ///      the enum cannot hold, which no typed call can pass.
+    function _ctorArgs(address reporter, uint8 kind) internal view returns (bytes memory) {
+        Terms memory terms = _launchTerms();
+        address[] memory list = _one(reporter);
+        uint8[] memory kinds = _uint8s1(kind);
+        bytes32[] memory hashes = _hashes(list);
+        return abi.encode(address(timelock), address(token), terms, list, kinds, hashes);
     }
 
     function _assertReadings(Reading[] memory got, Reading[] memory want) internal pure {
