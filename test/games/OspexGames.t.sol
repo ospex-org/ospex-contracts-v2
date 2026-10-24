@@ -11,7 +11,8 @@ import {
     ReadingKind,
     Reading,
     Report,
-    Hint
+    Hint,
+    Terms
 } from "../../src/games/IOspexGames.sol";
 import {GamesBase, MockReporter, OspexGamesHarness} from "./GamesBase.sol";
 
@@ -34,6 +35,7 @@ contract OspexGamesTest is GamesBase {
     // ──────────────────────────── Constructor ──────────────────────────
 
     function test_constructor_writesTheListInOrder() public {
+        (address[] memory approved, uint8[] memory approvedKinds) = games.getApprovedReporters();
         uint256 game = _create();
         (address[] memory r, uint8[] memory k) = games.getGameReporters(game);
         assertEq(r.length, 3);
@@ -43,12 +45,21 @@ contract OspexGamesTest is GamesBase {
         assertEq(k[0], uint8(ReporterKind.FirstN));
         assertEq(k[1], uint8(ReporterKind.AfterN));
         assertEq(k[2], uint8(ReporterKind.FirstN));
+        assertEq(approved, r, "the approved list read");
+        for (uint256 i; i < 3; ++i) {
+            assertEq(approvedKinds[i], k[i], "the approved list's kinds");
+        }
         assertEq(games.getGameWindow(game), WINDOW);
+        _assertTerms(games.getGameTerms(game), _launchTerms(), "the launch terms");
+        _assertTerms(games.getTerms(""), _launchTerms(), "the default terms");
+        assertEq(games.i_timelock(), address(timelock), "the timelock");
     }
 
     function test_constructor_oneFirstNReporterIsEnough() public {
         address only = address(new MockReporter(IOspexGames(address(0))));
-        OspexGames g = new OspexGames(_one(only), _kinds1(ReporterKind.FirstN), 1);
+        OspexGames g = new OspexGames(
+            address(timelock), _terms(1), _one(only), _kinds1(ReporterKind.FirstN), _hashes(_one(only))
+        );
         vm.prank(creator);
         uint256 game = g.createGame("mlb", "Home", "Away", DATE, new Hint[](0));
         (address[] memory r, uint8[] memory k) = g.getGameReporters(game);
@@ -60,30 +71,31 @@ contract OspexGamesTest is GamesBase {
 
     function test_constructor_refusals() public {
         address a = address(new MockReporter(IOspexGames(address(0))));
-        address b = address(new MockReporter(IOspexGames(address(0))));
+        address b = address(new MockReporter(IOspexGames(address(1))));
+        address t = address(timelock);
+        Terms memory terms = _launchTerms();
 
         vm.expectRevert(OspexGames.OspexGames__NoReporters.selector);
-        new OspexGames(new address[](0), new ReporterKind[](0), WINDOW);
+        new OspexGames(t, terms, new address[](0), new ReporterKind[](0), new bytes32[](0));
 
-        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__KindsLengthMismatch.selector, 1, 2));
-        new OspexGames(_one(a), new ReporterKind[](2), WINDOW);
+        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__LengthsDiffer.selector, 1, 2, 1));
+        new OspexGames(t, terms, _one(a), new ReporterKind[](2), _hashes(_one(a)));
+        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__LengthsDiffer.selector, 1, 1, 0));
+        new OspexGames(t, terms, _one(a), _kinds1(ReporterKind.FirstN), new bytes32[](0));
 
-        vm.expectRevert(OspexGames.OspexGames__WindowZero.selector);
-        new OspexGames(_one(a), _kinds1(ReporterKind.FirstN), 0);
-
-        vm.expectRevert(OspexGames.OspexGames__ZeroReporter.selector);
-        new OspexGames(_one(address(0)), _kinds1(ReporterKind.FirstN), WINDOW);
+        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__NoCode.selector, address(0)));
+        new OspexGames(t, terms, _one(address(0)), _kinds1(ReporterKind.FirstN), new bytes32[](1));
 
         vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__NoKind.selector, a));
-        new OspexGames(_one(a), _kinds1(ReporterKind.None), WINDOW);
+        new OspexGames(t, terms, _one(a), _kinds1(ReporterKind.None), _hashes(_one(a)));
 
         // A duplicate that is not next to its twin, with different kinds.
         address[] memory dup = new address[](3);
         (dup[0], dup[1], dup[2]) = (a, b, a);
         ReporterKind[] memory dupKinds = new ReporterKind[](3);
         (dupKinds[0], dupKinds[1], dupKinds[2]) = (ReporterKind.FirstN, ReporterKind.FirstN, ReporterKind.AfterN);
-        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__DuplicateReporter.selector, a));
-        new OspexGames(dup, dupKinds, WINDOW);
+        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__AlreadyApproved.selector, a));
+        new OspexGames(t, terms, dup, dupKinds, _hashes(dup));
 
         // Only after-n reporters: no start could ever be written.
         address[] memory two = new address[](2);
@@ -91,27 +103,37 @@ contract OspexGamesTest is GamesBase {
         ReporterKind[] memory afterOnly = new ReporterKind[](2);
         (afterOnly[0], afterOnly[1]) = (ReporterKind.AfterN, ReporterKind.AfterN);
         vm.expectRevert(OspexGames.OspexGames__NoFirstNReporter.selector);
-        new OspexGames(two, afterOnly, WINDOW);
+        new OspexGames(t, terms, two, afterOnly, _hashes(two));
 
         // A duplicate next to its twin, and one at the end.
         (dup[0], dup[1], dup[2]) = (a, a, b);
-        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__DuplicateReporter.selector, a));
-        new OspexGames(dup, dupKinds, WINDOW);
+        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__AlreadyApproved.selector, a));
+        new OspexGames(t, terms, dup, dupKinds, _hashes(dup));
         (dup[0], dup[1], dup[2]) = (a, b, b);
-        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__DuplicateReporter.selector, b));
-        new OspexGames(dup, dupKinds, WINDOW);
+        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__AlreadyApproved.selector, b));
+        new OspexGames(t, terms, dup, dupKinds, _hashes(dup));
+
+        // Each launch term at 0 is refused.
+        for (uint256 i; i < 3; ++i) {
+            Terms memory zero = _launchTerms();
+            if (i == 0) zero.window = 0;
+            if (i == 1) zero.day7Clock = 0;
+            if (i == 2) zero.day30Clock = 0;
+            vm.expectRevert(OspexGames.OspexGames__TermsNotValid.selector);
+            new OspexGames(t, zero, _one(a), _kinds1(ReporterKind.FirstN), _hashes(_one(a)));
+        }
 
         // Controls: a first-n reporter is found last in the list, and first in it, ahead of an after-n one.
         (afterOnly[0], afterOnly[1]) = (ReporterKind.AfterN, ReporterKind.FirstN);
-        new OspexGames(two, afterOnly, WINDOW);
+        new OspexGames(t, terms, two, afterOnly, _hashes(two));
         (afterOnly[0], afterOnly[1]) = (ReporterKind.FirstN, ReporterKind.AfterN);
-        new OspexGames(two, afterOnly, WINDOW);
+        new OspexGames(t, terms, two, afterOnly, _hashes(two));
     }
 
     /// A kind outside the enum is refused by the decoder, before the constructor's body runs.
     function test_constructor_kindOutOfRangeIsRefused() public {
         address a = address(new MockReporter(IOspexGames(address(0))));
-        bytes memory args = abi.encode(_one(a), _uint8s1(3), uint64(WINDOW));
+        bytes memory args = abi.encode(address(timelock), _launchTerms(), _one(a), _uint8s1(3), _hashes(_one(a)));
         bytes memory code = abi.encodePacked(type(OspexGames).creationCode, args);
         address made;
         assembly ("memory-safe") {
@@ -119,7 +141,7 @@ contract OspexGamesTest is GamesBase {
         }
         assertEq(made, address(0), "a kind of 3 was taken");
         // Control: the same bytes with kind 1 deploy.
-        args = abi.encode(_one(a), _uint8s1(1), uint64(WINDOW));
+        args = abi.encode(address(timelock), _launchTerms(), _one(a), _uint8s1(1), _hashes(_one(a)));
         code = abi.encodePacked(type(OspexGames).creationCode, args);
         assembly ("memory-safe") {
             made := create(0, add(code, 0x20), mload(code))
@@ -129,7 +151,10 @@ contract OspexGamesTest is GamesBase {
 
     // ──────────────────────────── Creation ─────────────────────────────
 
+    /// The league has terms of its own, each of the four unlike the defaults, so an event carrying the defaults
+    /// in their place is seen.
     function test_create_eventCarriesTheIdentityAndTheCopy() public {
+        _setTerms("ncaab", _ownTerms());
         Hint[] memory hints = _hints();
         vm.recordLogs();
         vm.prank(creator, creator);
@@ -148,10 +173,10 @@ contract OspexGamesTest is GamesBase {
             string memory away,
             uint64 date,
             Hint[] memory gotHints,
-            uint64 window,
+            Terms memory terms,
             address[] memory reporters,
             uint8[] memory kinds
-        ) = abi.decode(logs[0].data, (string, string, string, uint64, Hint[], uint64, address[], uint8[]));
+        ) = abi.decode(logs[0].data, (string, string, string, uint64, Hint[], Terms, address[], uint8[]));
         assertEq(league, "ncaab");
         assertEq(home, "Saint Mary's (CA)");
         assertEq(away, "Gonzaga");
@@ -161,7 +186,8 @@ contract OspexGamesTest is GamesBase {
         assertEq(gotHints[0].id, "g-77120");
         assertEq(gotHints[1].seat, 1);
         assertEq(gotHints[1].id, "18432");
-        assertEq(window, WINDOW);
+        _assertTerms(terms, _ownTerms(), "the event's terms");
+        _assertTerms(terms, games.getGameTerms(game), "the event's terms against the read");
         (address[] memory r, uint8[] memory k) = games.getGameReporters(game);
         assertEq(reporters, r);
         assertEq(kinds.length, k.length);
@@ -331,12 +357,12 @@ contract OspexGamesTest is GamesBase {
     // ──────────────────────────── The start ────────────────────────────
 
     /// The start must be within a day of the date given at creation, either way, both edges taken, whatever
-    /// the game's n: a short n, the launch n of a day, a day either side of it, and a long n. (Ruled 10/22:
-    /// a fixed, inclusive 24 hours, replacing n.)
+    /// the game's n: a short n, the launch n of a day, a day either side of it, and a long n. The bound is a
+    /// fixed, inclusive 24 hours, and n plays no part in it.
     function test_start_boundIsADayWhateverTheGamesN() public {
         uint64[7] memory ns = [uint64(1), 10 minutes, 6 hours, DAY - 1, DAY, DAY + 1, 3 days];
         for (uint256 w; w < ns.length; ++w) {
-            games.harnessSetWindow(ns[w]);
+            _setTerms("nba", _terms(ns[w]));
             uint64[2] memory good = [DATE - DAY, DATE + DAY];
             for (uint256 i; i < good.length; ++i) {
                 uint256 game = _create();
@@ -397,8 +423,8 @@ contract OspexGamesTest is GamesBase {
         assertEq(uint8(_status(game)), uint8(GameStatus.Verified));
     }
 
-    /// A start written late is taken: no rule refuses a start written after date + n (not taken, 10/22). The
-    /// bound above keeps it within a day of the date, so it moves the day-30 release by at most a day.
+    /// A start written late is taken: no rule refuses a start written after date + n. The bound above keeps it
+    /// within a day of the date, so it moves the day-30 release by at most a day.
     function test_start_canBeWrittenAnyTimeBeforeAnEnd() public {
         uint64[3] memory times = [uint64(DATE - 30 days), START + 1, DATE + 60 days];
         for (uint256 i; i < times.length; ++i) {
@@ -441,6 +467,35 @@ contract OspexGamesTest is GamesBase {
         assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Score));
     }
 
+    /// A score names a payout address that is not 0: address 0 can never withdraw what a score credits it, and
+    /// a scored game can never be scored again, so the refusal must come before the score is written. From
+    /// either kind of reporter, inside n and after it. Any other address is taken, the sender's own included.
+    /// Break: in _writeScore(), delete `if (r.payout == address(0)) revert OspexGames__NoPayout(ReportKind.Score);`.
+    function test_score_aZeroPayoutIsRefused() public {
+        uint256 game = _verified();
+        uint64[2] memory times = [START + 1, START + WINDOW];
+        address[2] memory who = [address(first), address(later)];
+        for (uint256 t; t < times.length; ++t) {
+            vm.warp(times[t]);
+            for (uint256 w; w < who.length; ++w) {
+                Report memory r = _scoreReport(game, HOME, AWAY);
+                r.payout = address(0);
+                bytes32 before = _viewAll();
+                vm.recordLogs();
+                (bool ok, bytes memory err) = _send(who[w], r);
+                assertFalse(ok, "a score with no payout address was taken");
+                assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__NoPayout.selector, ReportKind.Score));
+                assertEq(vm.getRecordedLogs().length, 0);
+                assertEq(_viewAll(), before, "a refused score changed state");
+            }
+        }
+        // Control: the same score with a payout address is taken; the sender's own address is one like any other.
+        Report memory paid = _scoreReport(game, HOME, AWAY);
+        paid.payout = address(first);
+        _take(address(first), paid);
+        assertEq(uint8(_status(game)), uint8(GameStatus.Scored));
+    }
+
     /// An after-n reporter scores from start + n, not a second before. A first-n reporter scores from the start.
     function test_score_afterNOpensAtStartPlusN() public {
         uint256 game = _verified();
@@ -464,15 +519,15 @@ contract OspexGamesTest is GamesBase {
         assertEq(uint8(_status(other)), uint8(GameStatus.Scored));
     }
 
-    /// The after-n clock is the game's own n, copied at creation: a later change to n for new games moves it
-    /// neither way.
+    /// The after-n clock is the game's own n, copied at creation: a later change to its league's terms moves
+    /// it neither way.
     function test_score_afterNClockIsTheGamesOwnN() public {
         uint256 wide = _verified(); // n = WINDOW
-        games.harnessSetWindow(10 minutes);
+        _setTerms("nba", _terms(10 minutes));
         uint256 narrow = _create();
-        uint64 narrowStart = DATE + 300; // within the narrow game's n of its date
+        uint64 narrowStart = DATE + 300;
         _startBy(first, narrow, narrowStart);
-        games.harnessSetWindow(3 days);
+        _setTerms("nba", _terms(3 days));
 
         vm.warp(uint256(narrowStart) + 10 minutes - 1);
         (bool early,) = _send(address(later), _scoreReport(narrow, HOME, AWAY));
@@ -537,7 +592,7 @@ contract OspexGamesTest is GamesBase {
         assertEq(games.getGameStart(game), START);
     }
 
-    /// The July list's split of the old "already scored" refusal: each status names its own reason, for a
+    /// Each status names its own reason for refusing a report, rather than one "already scored" for all, for a
     /// start and for a score, from a first-n reporter and from an after-n reporter past start + n. The status
     /// is checked before the reporter's kind, so an after-n reporter's start on a game whose start is written
     /// is refused as written, not as the wrong kind.
@@ -693,6 +748,10 @@ contract OspexGamesTest is GamesBase {
             games.getGameScores(ids[i]);
             vm.expectRevert(err);
             games.getGameWindow(ids[i]);
+            vm.expectRevert(err);
+            games.getGameTerms(ids[i]);
+            vm.expectRevert(err);
+            games.isEveryReporterRetired(ids[i]);
         }
     }
 
@@ -737,13 +796,44 @@ contract OspexGamesTest is GamesBase {
         }
     }
 
-    /// A later change to n for new games does not reach a game already made.
-    function test_reads_windowIsTheCreationCopy() public {
+    /// A later change to a league's terms does not reach a game already made, in any of the four.
+    function test_reads_termsAreTheCreationCopy() public {
         uint256 game = _create();
-        games.harnessSetWindow(7 hours);
+        Terms memory changed = Terms({window: 7 hours, day7Clock: 3 days, day30Clock: 20 days, fee: 0});
+        _setTerms("nba", changed);
         uint256 later_ = _create();
         assertEq(games.getGameWindow(game), WINDOW);
         assertEq(games.getGameWindow(later_), 7 hours);
+        _assertTerms(games.getGameTerms(game), _launchTerms(), "the game made before");
+        _assertTerms(games.getGameTerms(later_), changed, "the game made after");
+    }
+
+    /// Several never-line tests compare each game's storage word for word (GamesBase._rawGame), since no read
+    /// returns a game's date. This pins where each field lies, with a value no other field holds, so a change
+    /// of layout turns this red rather than leaving those comparisons reading empty slots.
+    function test_storage_aGameLiesWhereTheSnapshotsReadIt() public {
+        Terms memory own = _ownTerms();
+        _setTerms("nba", own);
+        uint256 game = _create();
+        vm.warp(DATE - 1 hours);
+        _startBy(first, game, START);
+        vm.warp(START + 1);
+        _scoreBy(first, game, HOME, AWAY);
+
+        // Word 0: status, date, start, home, away. Word 1: n and the two clocks. Word 2: the fee.
+        bytes memory want = abi.encodePacked(
+            uint256(uint8(GameStatus.Scored)) | (uint256(DATE) << 8) | (uint256(START) << 72)
+                | (uint256(HOME) << 136) | (uint256(AWAY) << 168),
+            uint256(own.window) | (uint256(own.day7Clock) << 64) | (uint256(own.day30Clock) << 128),
+            uint256(own.fee)
+        );
+        // Then the reporters' copy: its length, and each entry as address and kind.
+        uint256 firstKind = uint256(uint8(ReporterKind.FirstN)) << 160;
+        want = abi.encodePacked(want, uint256(3), uint256(uint160(address(first))) | firstKind);
+        want = abi.encodePacked(want, uint256(uint160(address(later))) | (uint256(uint8(ReporterKind.AfterN)) << 160));
+        want = abi.encodePacked(want, uint256(uint160(address(second))) | firstKind);
+        assertEq(_rawGame(game), want, "a game's storage");
+        assertEq(_rawDate(game), DATE, "a game's date");
     }
 
     /// The reads are open to any address.
@@ -766,6 +856,11 @@ contract OspexGamesTest is GamesBase {
     }
 
     // ──────────────────────────── Helpers ──────────────────────────────
+
+    /// @dev A league's own terms, each of the four unlike the launch terms.
+    function _ownTerms() internal pure returns (Terms memory) {
+        return Terms({window: 3 hours, day7Clock: 5 days, day30Clock: 20 days, fee: 2_500_000});
+    }
 
     function _verified() internal returns (uint256 game) {
         game = _create();

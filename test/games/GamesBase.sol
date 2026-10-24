@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
+import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {OspexGames} from "../../src/games/OspexGames.sol";
 import {
     IOspexGames,
@@ -11,11 +12,15 @@ import {
     ReadingKind,
     Reading,
     Report,
-    Hint
+    Hint,
+    Terms
 } from "../../src/games/IOspexGames.sol";
+import {IOspexReporter} from "../../src/games/IOspexReporter.sol";
 
-/// @dev A reporter as the games set sees one: a contract that sends reports. It relays what it is given.
-contract MockReporter {
+/// @dev A reporter as the games set sees one: a contract that sends reports, with the fixed-values read every
+///      reporter has. It relays what it is given, from anyone: an unauthenticated test double, not a model for
+///      a reporter. Its fixed values are its games address and a tag.
+contract MockReporter is IOspexReporter {
     IOspexGames public immutable i_games;
 
     constructor(IOspexGames games) {
@@ -25,28 +30,23 @@ contract MockReporter {
     function send(Report calldata r) external {
         i_games.report(r);
     }
+
+    function fixedValues() external view returns (bytes memory) {
+        return abi.encode(address(i_games), bytes32("mock reporter"));
+    }
 }
 
 /// @dev The games contract with test-only hooks. It overrides nothing, so every inherited call runs the
-///      production code. The hooks stand in for what later work adds: the timelock's changes to the approved
-///      list and to n for new games, and the ends that write the statuses this contract cannot write yet.
+///      production code. The hooks stand in for what later work adds: the ends that write the statuses this
+///      contract cannot write yet.
 contract OspexGamesHarness is OspexGames {
-    constructor(address[] memory reporters, ReporterKind[] memory kinds, uint64 window)
-        OspexGames(reporters, kinds, window)
-    {}
-
-    /// @dev Replaces the approved list, as approvals and retirements will.
-    function harnessSetApproved(address[] memory reporters, ReporterKind[] memory kinds) external {
-        delete s_approved;
-        for (uint256 i; i < reporters.length; ++i) {
-            s_approved.push(Reporter({account: reporters[i], kind: kinds[i]}));
-        }
-    }
-
-    /// @dev Sets n for games created after this, as a term change will.
-    function harnessSetWindow(uint64 window) external {
-        s_window = window;
-    }
+    constructor(
+        address timelock,
+        Terms memory defaultTerms,
+        address[] memory reporters,
+        ReporterKind[] memory kinds,
+        bytes32[] memory codeHashes
+    ) OspexGames(timelock, defaultTerms, reporters, kinds, codeHashes) {}
 
     /// @dev Puts a game in a status, as the ends will.
     function harnessSetStatus(uint256 gameId, GameStatus status) external {
@@ -58,21 +58,12 @@ contract OspexGamesHarness is OspexGames {
         s_games[gameId].homeScore = homeScore;
         s_games[gameId].awayScore = awayScore;
     }
-
-    /// @dev The approved list as it stands.
-    function harnessApproved() external view returns (address[] memory reporters, uint8[] memory kinds) {
-        uint256 count = s_approved.length;
-        reporters = new address[](count);
-        kinds = new uint8[](count);
-        for (uint256 i; i < count; ++i) {
-            reporters[i] = s_approved[i].account;
-            kinds[i] = uint8(s_approved[i].kind);
-        }
-    }
 }
 
-/// @dev Shared setup: three reporters of mixed kinds, a date, a window, and helpers.
+/// @dev Shared setup: a stock timelock, three reporters of mixed kinds, a date, the launch terms, and helpers.
 abstract contract GamesBase is Test {
+    /// @dev The day-0 delay of the Polygon timelock.
+    uint256 internal constant DELAY = 60;
     uint64 internal constant WINDOW = 1 days;
     /// @dev A scheduled start that is not round, so a start equal to it cannot pass for a start written as given.
     uint64 internal constant DATE = 1_800_000_037;
@@ -83,6 +74,7 @@ abstract contract GamesBase is Test {
     /// @dev The start bound, written out rather than read from the contract, so a change to it is seen.
     uint64 internal constant DAY = 86_400;
 
+    TimelockController internal timelock;
     OspexGamesHarness internal games;
     /// @dev First-n reporter, first on the list.
     MockReporter internal first;
@@ -93,11 +85,15 @@ abstract contract GamesBase is Test {
 
     address internal deployer = makeAddr("deployer");
     address internal creator = makeAddr("creator");
-    address internal timelockKey = makeAddr("timelock");
+    /// @dev K: the one key that holds the timelock. It schedules and cancels; anyone runs a call once ready.
+    address internal timelockKey = makeAddr("K");
+    address internal stranger = makeAddr("stranger");
     address internal payout = makeAddr("payout");
+    uint256 internal salt;
 
     function setUp() public virtual {
         vm.warp(DATE - 3 days);
+        timelock = new TimelockController(DELAY, _one(timelockKey), _one(address(0)), address(0));
         // The reporters need the games address at their own deploy, and the games contract needs theirs:
         // predict the games address from the deployer's nonce, as the deploy script will.
         address predicted = vm.computeCreateAddress(deployer, vm.getNonce(deployer) + 3);
@@ -113,9 +109,67 @@ abstract contract GamesBase is Test {
         kinds[0] = ReporterKind.FirstN;
         kinds[1] = ReporterKind.AfterN;
         kinds[2] = ReporterKind.FirstN;
-        games = new OspexGamesHarness(reporters, kinds, WINDOW);
+        games = new OspexGamesHarness(address(timelock), _launchTerms(), reporters, kinds, _hashes(reporters));
         vm.stopPrank();
         assertEq(address(games), predicted, "games address as predicted");
+    }
+
+    // ──────────────────────────── Terms ────────────────────────────────
+
+    /// @dev The launch terms, written out: n 24 hours, the day-7 clock 7 days, the day-30 clock 30 days, 1 USDC.
+    function _launchTerms() internal pure returns (Terms memory) {
+        return Terms({window: WINDOW, day7Clock: 604_800, day30Clock: 2_592_000, fee: 1_000_000});
+    }
+
+    function _terms(uint64 window) internal pure returns (Terms memory t) {
+        t = _launchTerms();
+        t.window = window;
+    }
+
+    function _assertTerms(Terms memory got, Terms memory want, string memory what) internal pure {
+        assertEq(got.window, want.window, string.concat(what, ": n"));
+        assertEq(got.day7Clock, want.day7Clock, string.concat(what, ": day-7 clock"));
+        assertEq(got.day30Clock, want.day30Clock, string.concat(what, ": day-30 clock"));
+        assertEq(got.fee, want.fee, string.concat(what, ": fee"));
+    }
+
+    // ──────────────────────────── The timelock's calls ─────────────────
+
+    /// @dev Runs `call` on the games contract the way it runs live: K schedules it through the timelock, the
+    ///      delay passes, and a stranger runs it. Reverts with the call's own refusal if it is refused.
+    function _throughTimelock(bytes memory call) internal {
+        bytes32 s = bytes32(++salt);
+        vm.prank(timelockKey);
+        timelock.schedule(address(games), 0, call, bytes32(0), s, DELAY);
+        vm.warp(vm.getBlockTimestamp() + DELAY);
+        vm.prank(stranger);
+        timelock.execute(address(games), 0, call, bytes32(0), s);
+    }
+
+    /// @dev The same call, made by the timelock's address at once, with its result: for refusals whose name a
+    ///      test checks, and for tests where the delay is not the subject.
+    function _asTimelock(bytes memory call) internal returns (bool ok, bytes memory err) {
+        vm.prank(address(timelock));
+        (ok, err) = address(games).call(call);
+    }
+
+    function _approve(address reporter, ReporterKind kind) internal {
+        _throughTimelock(abi.encodeCall(IOspexGames.approveReporter, (reporter, kind, reporter.codehash)));
+    }
+
+    function _retire(address reporter) internal {
+        _throughTimelock(abi.encodeCall(IOspexGames.retireReporter, (reporter)));
+    }
+
+    function _setTerms(string memory league, Terms memory terms) internal {
+        _throughTimelock(abi.encodeCall(IOspexGames.setTerms, (league, terms)));
+    }
+
+    function _hashes(address[] memory reporters) internal view returns (bytes32[] memory h) {
+        h = new bytes32[](reporters.length);
+        for (uint256 i; i < reporters.length; ++i) {
+            h[i] = reporters[i].codehash;
+        }
     }
 
     // ──────────────────────────── Creation ─────────────────────────────
@@ -198,12 +252,14 @@ abstract contract GamesBase is Test {
     /// @dev Every read of one game, each as (taken, answer or refusal): what any contract or agent can see.
     function _view(uint256 gameId) internal view returns (bytes memory) {
         bytes memory out;
-        bytes[5] memory calls = [
+        bytes[7] memory calls = [
             abi.encodeCall(IOspexGames.getGameStatus, (gameId)),
             abi.encodeCall(IOspexGames.getGameStart, (gameId)),
             abi.encodeCall(games.getGameReporters, (gameId)),
             abi.encodeCall(IOspexGames.getGameScores, (gameId)),
-            abi.encodeCall(IOspexGames.getGameWindow, (gameId))
+            abi.encodeCall(IOspexGames.getGameWindow, (gameId)),
+            abi.encodeCall(IOspexGames.getGameTerms, (gameId)),
+            abi.encodeCall(IOspexGames.isEveryReporterRetired, (gameId))
         ];
         for (uint256 i; i < calls.length; ++i) {
             (bool ok, bytes memory answer) = address(games).staticcall(calls[i]);
@@ -212,7 +268,7 @@ abstract contract GamesBase is Test {
         return out;
     }
 
-    /// @dev Every read of every game, ids 0 to count + 1, and the count: the whole readable state.
+    /// @dev Every read of every game, ids 0 to count + 1, and the count: the whole readable state of the games.
     function _viewAll() internal view returns (bytes32) {
         uint256 count = games.gameCount();
         bytes memory out = abi.encode(count);
@@ -220,6 +276,43 @@ abstract contract GamesBase is Test {
             out = abi.encodePacked(out, _view(id));
         }
         return keccak256(out);
+    }
+
+    // ──────────────────────────── What lies in storage ──────────────────
+
+    /// @dev Where OspexGames keeps its games and their reporter copies, from `forge inspect OspexGames
+    ///      storageLayout`. test_storage_aGameLiesWhereTheSnapshotsReadIt pins it, so a layout change turns that
+    ///      test red instead of leaving these reads looking at empty slots.
+    uint256 internal constant GAMES_SLOT = 6;
+    uint256 internal constant GAME_REPORTERS_SLOT = 7;
+
+    /// @dev One game's storage, word for word: its three words (status, date, start and scores; then its terms)
+    ///      and its reporters' copy. The reads show what a game says; this shows every field a write could
+    ///      touch, the date included, which no read returns.
+    function _rawGame(uint256 gameId) internal view returns (bytes memory out) {
+        uint256 base = uint256(keccak256(abi.encode(gameId, GAMES_SLOT)));
+        for (uint256 i; i < 3; ++i) {
+            out = abi.encodePacked(out, vm.load(address(games), bytes32(base + i)));
+        }
+        bytes32 lengthSlot = keccak256(abi.encode(gameId, GAME_REPORTERS_SLOT));
+        uint256 length = uint256(vm.load(address(games), lengthSlot));
+        out = abi.encodePacked(out, length);
+        uint256 firstEntry = uint256(keccak256(abi.encode(lengthSlot)));
+        for (uint256 i; i < length; ++i) {
+            out = abi.encodePacked(out, vm.load(address(games), bytes32(firstEntry + i)));
+        }
+    }
+
+    /// @dev A game's date as stored: the eight bytes after the status byte in its first word.
+    function _rawDate(uint256 gameId) internal view returns (uint64) {
+        bytes32 word = vm.load(address(games), keccak256(abi.encode(gameId, GAMES_SLOT)));
+        return uint64(uint256(word) >> 8);
+    }
+
+    /// @dev The approved list and the default terms as they read now.
+    function _viewList() internal view returns (bytes32) {
+        (address[] memory r, uint8[] memory k) = games.getApprovedReporters();
+        return keccak256(abi.encode(r, k, games.getTerms("")));
     }
 
     function _status(uint256 gameId) internal view returns (GameStatus) {

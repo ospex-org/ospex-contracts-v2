@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.26;
 
-import {Vm} from "forge-std/Vm.sol";
+import {Vm, VmSafe} from "forge-std/Vm.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
+import {UnauthenticatedPlainReporter, SwappedRelay} from "./ReporterFixtures.sol";
 import {OspexGames} from "../../src/games/OspexGames.sol";
 import {OspexSignpost} from "../../src/signpost/OspexSignpost.sol";
 import {
@@ -13,7 +14,8 @@ import {
     ReadingKind,
     Reading,
     Report,
-    Hint
+    Hint,
+    Terms
 } from "../../src/games/IOspexGames.sol";
 import {GamesBase, MockReporter, OspexGamesHarness} from "./GamesBase.sol";
 
@@ -58,23 +60,14 @@ contract OspexGamesNeverLinesTest is GamesBase {
     function test_neverLine_onlyRecordedReportersWrite() public {
         uint256 game = _create();
 
-        // A later list, as approvals and retirements will make it: `first` stays, two reporters join.
+        // Two reporters join the list after the game is made, through the timelock.
         MockReporter lateFirst = new MockReporter(games);
         MockReporter lateAfter = new MockReporter(games);
-        {
-            address[] memory list = new address[](3);
-            list[0] = address(lateAfter);
-            list[1] = address(first);
-            list[2] = address(lateFirst);
-            ReporterKind[] memory kinds = new ReporterKind[](3);
-            kinds[0] = ReporterKind.AfterN;
-            kinds[1] = ReporterKind.FirstN;
-            kinds[2] = ReporterKind.FirstN;
-            games.harnessSetApproved(list, kinds);
-        }
+        _approve(address(lateAfter), ReporterKind.AfterN);
+        _approve(address(lateFirst), ReporterKind.FirstN);
         uint256 laterGame = _create();
 
-        address[] memory outsiders = new address[](10);
+        address[] memory outsiders = new address[](11);
         outsiders[0] = makeAddr("stranger");
         outsiders[1] = address(new MockReporter(games)); // a reporter contract never approved
         outsiders[2] = address(lateFirst); // approved after the game was made, first-n
@@ -85,6 +78,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
         outsiders[7] = address(this);
         outsiders[8] = address(games);
         outsiders[9] = payout;
+        outsiders[10] = address(timelock);
 
         // Starts: every outsider refused, nothing changes. The refusals' names are checked at the end.
         bytes[] memory startErrors = new bytes[](outsiders.length);
@@ -129,6 +123,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
         assertEq(a, 5, "later game's away score");
         // And a reporter recorded on the first game, but not on the list a later game copied, cannot write
         // that later game.
+        _retire(address(second));
         uint256 newest = _create();
         (bool okDropped, bytes memory errDropped) = _send(address(second), _startReport(newest, START));
         assertFalse(okDropped, "a reporter not on the newest list wrote a game made after");
@@ -141,6 +136,9 @@ contract OspexGamesNeverLinesTest is GamesBase {
     // "A game's reporters, or their kinds, change after its creation, by anyone, the timelock key included."
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
+    /// The list moves through the timelock's own calls: an approval, then a retirement and an approval, then
+    /// three retirements, with a change of terms each time. Every game keeps its copy, and every other call
+    /// from every other caller, the timelock key's included, changes no game's copy either.
     /// Break: in getGameReporters(), change `Reporter[] storage list = s_gameReporters[gameId];` to
     /// `Reporter[] storage list = s_approved;`. The first game's read then follows the list as it changes.
     function test_neverLine_reportersNeverChangeAfterCreation() public {
@@ -151,31 +149,54 @@ contract OspexGamesNeverLinesTest is GamesBase {
         _assertList(r1, k1, _setupList(), _setupKinds(), "g1 as created");
         _assertList(created, createdKinds, r1, k1, "creation event = read");
 
-        // Three later lists: an approval, a kind flipped on the same address, a removal and a reorder.
         MockReporter extra = new MockReporter(games);
+        MockReporter extra2 = new MockReporter(games);
         address[][] memory lists = new address[][](3);
         uint8[][] memory kindLists = new uint8[][](3);
-        lists[0] = _three(address(first), address(later), address(extra));
-        kindLists[0] = _kinds3(1, 2, 2);
-        lists[1] = _three(address(later), address(first), address(extra));
-        kindLists[1] = _kinds3(1, 2, 1); // `later` becomes first-n, `first` after-n
-        lists[2] = new address[](1);
-        lists[2][0] = address(extra);
+        lists[0] = new address[](4);
+        (lists[0][0], lists[0][1], lists[0][2], lists[0][3]) =
+            (address(first), address(later), address(second), address(extra));
+        kindLists[0] = new uint8[](4);
+        (kindLists[0][0], kindLists[0][1], kindLists[0][2], kindLists[0][3]) = (1, 2, 1, 2);
+        lists[1] = new address[](4);
+        (lists[1][0], lists[1][1], lists[1][2], lists[1][3]) =
+            (address(first), address(second), address(extra), address(extra2));
+        kindLists[1] = new uint8[](4);
+        (kindLists[1][0], kindLists[1][1], kindLists[1][2], kindLists[1][3]) = (1, 1, 2, 1);
+        lists[2] = _one(address(extra2));
         kindLists[2] = new uint8[](1);
         kindLists[2][0] = 1;
 
         uint256[] memory made = new uint256[](4);
         made[0] = g1;
         for (uint256 step; step < 3; ++step) {
-            games.harnessSetApproved(lists[step], _toKinds(kindLists[step]));
+            // Every game made so far, those made by _everyCallFromEveryone included, word for word: the
+            // newest game is not always one this test made.
+            bytes32 everyGame = _gameStates();
+            if (step == 0) {
+                _approve(address(extra), ReporterKind.AfterN);
+            } else if (step == 1) {
+                _retire(address(later));
+                _approve(address(extra2), ReporterKind.FirstN);
+            } else {
+                _retire(address(first));
+                _retire(address(second));
+                _retire(address(extra));
+            }
+            _setTerms("nba", _terms(uint64(1 hours * (step + 2))));
+            assertEq(_gameStates(), everyGame, "a change of the list or the terms wrote a game");
+            (address[] memory approved, uint8[] memory approvedKinds) = games.getApprovedReporters();
+            _assertList(approved, approvedKinds, lists[step], kindLists[step], "the approved list");
             made[step + 1] = _create();
             _everyCallFromEveryone(made);
 
             (address[] memory now1, uint8[] memory nowK1) = games.getGameReporters(g1);
             _assertList(now1, nowK1, r1, k1, "g1 moved after a list change");
+            _assertTerms(games.getGameTerms(g1), _launchTerms(), "g1's terms moved");
             for (uint256 j; j <= step; ++j) {
                 (address[] memory rj, uint8[] memory kj) = games.getGameReporters(made[j + 1]);
                 _assertList(rj, kj, lists[j], kindLists[j], "a later game moved");
+                assertEq(games.getGameWindow(made[j + 1]), uint64(1 hours * (j + 2)), "a later game's n moved");
             }
         }
     }
@@ -496,7 +517,8 @@ contract OspexGamesNeverLinesTest is GamesBase {
         assertEq(aa, AWAY, "a's away moved with b");
 
         // A third creation of the same game after the list changed holds the new list; the first two keep theirs.
-        games.harnessSetApproved(_one(address(second)), _kinds1(ReporterKind.FirstN));
+        _retire(address(first));
+        _retire(address(later));
         uint256 c = _create();
         (address[] memory rc,) = games.getGameReporters(c);
         assertEq(rc.length, 1, "c holds the list of its own creation");
@@ -650,7 +672,8 @@ contract OspexGamesNeverLinesTest is GamesBase {
             new OspexSignpost(address(timelock), OspexSignpost.Kind.Both, coin, v2, bytes20(keccak256("v2")), 900);
 
         uint256 game = _create();
-        games.harnessSetApproved(_one(address(later)), _kinds1(ReporterKind.FirstN));
+        _retire(address(first));
+        _approve(address(new MockReporter(games)), ReporterKind.FirstN);
         _create();
 
         address[] memory set = new address[](2);
@@ -688,14 +711,619 @@ contract OspexGamesNeverLinesTest is GamesBase {
         timelock.execute(address(signpost), 0, live2, bytes32(0), bytes32(uint256(3)));
     }
 
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "An after-n reporter writes to a game before its start + n." With the list and the terms changing
+    // through the timelock: the clock is the game's own n, whatever its league's terms or the defaults become.
+    // An after-n reporter scores from start + n, that second included. The start and score cases with the
+    // defaults fixed are in OspexGames.t.sol: test_start_onlyFirstN, test_score_afterNOpensAtStartPlusN,
+    // test_score_afterNClockIsTheGamesOwnN.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// An after-n reporter approved through the timelock writes no start, and scores only from start + n of
+    /// the game's own n: not when the defaults shrink to a second, not when its league gets terms of its own.
+    /// Break: in _writeScore(), change `uint256 opensAt = start + g.terms.window;` to
+    /// `uint256 opensAt = start + s_defaultTerms.window;`. The game then opens at the defaults' new n.
+    function test_neverLine_afterNWritesNothingBeforeItsGamesStartPlusN() public {
+        MockReporter lateAfter = new MockReporter(games);
+        _approve(address(lateAfter), ReporterKind.AfterN);
+        uint256 game = _create(); // n = WINDOW, from the defaults
+        (bool okStart, bytes memory errStart) = _send(address(lateAfter), _startReport(game, START));
+        assertFalse(okStart, "an after-n reporter wrote a start");
+        assertEq(errStart, abi.encodeWithSelector(OspexGames.OspexGames__NotFirstN.selector, game, address(lateAfter)));
+        vm.warp(DATE - 1 hours);
+        _startBy(first, game, START);
+
+        _setTerms("", _terms(1));
+        _setTerms("nba", _terms(2));
+        uint256 opensAt = uint256(START) + WINDOW;
+        uint64[4] memory early = [START, START + 1, START + 2, uint64(opensAt - 1)];
+        address[2] memory afterNs = [address(later), address(lateAfter)];
+        for (uint256 i; i < early.length; ++i) {
+            vm.warp(early[i]);
+            for (uint256 a; a < afterNs.length; ++a) {
+                bytes32 before = _viewAll();
+                (bool ok, bytes memory err) = _send(afterNs[a], _scoreReport(game, HOME, AWAY));
+                assertFalse(ok, "an after-n reporter scored before the game's start + n");
+                assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__InsideWindow.selector, game, opensAt));
+                assertEq(_viewAll(), before, "a refused score changed state");
+            }
+        }
+        // Control: at the game's own start + n, the after-n reporter approved through the timelock before the
+        // game was made scores it.
+        vm.warp(opensAt);
+        _scoreBy(lateAfter, game, HOME, AWAY);
+        assertEq(uint8(_status(game)), uint8(GameStatus.Scored));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A retirement scores, voids or settles anything; it only opens the release." Here, the first half: a
+    // retirement writes no game. The contract holds no money yet, so the money half comes with the fee, and
+    // the release comes with the ends.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// Games in every status, each reporter retired in turn, the last leaving every game with every reporter
+    /// retired: after each retirement every game's status, start, scores, reporters and terms read as before,
+    /// its storage is unchanged word for word, the date included, and the only event is the retirement. What
+    /// moves is the one thing a retirement opens: whether every reporter of a game is retired.
+    /// Break: in retireReporter(), add `s_games[s_gameCount].status = GameStatus.Released;` before the emit.
+    /// The newest game is then released by the retirement itself.
+    function test_neverLine_aRetirementWritesNoGame() public {
+        GameStatus[6] memory statuses = [
+            GameStatus.Unverified,
+            GameStatus.Verified,
+            GameStatus.Disputed,
+            GameStatus.Scored,
+            GameStatus.Voided,
+            GameStatus.Released
+        ];
+        for (uint256 i; i < statuses.length; ++i) {
+            vm.warp(DATE - 1 hours);
+            uint256 game = _create();
+            if (statuses[i] == GameStatus.Unverified) continue;
+            _startBy(first, game, START);
+            if (statuses[i] == GameStatus.Scored) {
+                vm.warp(START + 1);
+                _scoreBy(first, game, HOME, AWAY);
+            } else if (statuses[i] != GameStatus.Verified) {
+                games.harnessSetStatus(game, statuses[i]);
+            }
+        }
+        uint256 last = _create(); // the newest game: Unverified, so a release of it shows
+        assertEq(last, 7);
+
+        address[3] memory retiring = [address(later), address(second), address(first)];
+        for (uint256 r; r < retiring.length; ++r) {
+            bytes32 before = _gameStates();
+            vm.recordLogs();
+            _retire(retiring[r]);
+            Vm.Log[] memory logs = vm.getRecordedLogs();
+            assertEq(_gameStates(), before, "a retirement changed a game");
+            uint256 fromGames;
+            for (uint256 l; l < logs.length; ++l) {
+                if (logs[l].emitter != address(games)) continue;
+                ++fromGames;
+                assertEq(logs[l].topics[0], IOspexGames.ReporterRetired.selector, "a retirement emitted more");
+            }
+            assertEq(fromGames, 1, "one event from the games set");
+            for (uint256 id = 1; id <= last; ++id) {
+                assertEq(games.isEveryReporterRetired(id), r == 2, "every reporter retired, read at once");
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A term change or an approval reaches a game already made."
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// Reporters approved after a game is made, of both kinds, write nothing to it at any hour, though they
+    /// write to the game made after; the earlier game's list never gains them, and the approvals leave its
+    /// storage unchanged word for word, the date included.
+    /// Break: in _recordedKind(), change `Reporter[] storage list = s_gameReporters[gameId];` to
+    /// `Reporter[] storage list = s_approved;`. The reporter approved later then writes the earlier game.
+    function test_neverLine_noApprovalReachesAGameAlreadyMade() public {
+        uint256 game = _create();
+        MockReporter lateFirst = new MockReporter(games);
+        MockReporter lateAfter = new MockReporter(games);
+        bytes32 games0 = _gameStates();
+        _approve(address(lateFirst), ReporterKind.FirstN);
+        _approve(address(lateAfter), ReporterKind.AfterN);
+        assertEq(_gameStates(), games0, "an approval wrote a game already made");
+        uint256 made = _create();
+
+        vm.warp(DATE - 1 hours);
+        bytes32 before = _viewAll();
+        (bool ok, bytes memory err) = _send(address(lateFirst), _startReport(game, START));
+        assertFalse(ok, "a reporter approved later wrote the start of a game made before");
+        assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__NotAReporter.selector, game, address(lateFirst)));
+        assertEq(_viewAll(), before);
+        _startBy(first, game, START);
+        uint64[3] memory times = [START, START + WINDOW, START + 40 days];
+        MockReporter[2] memory late = [lateFirst, lateAfter];
+        for (uint256 t; t < times.length; ++t) {
+            vm.warp(times[t]);
+            for (uint256 l; l < late.length; ++l) {
+                before = _viewAll();
+                (ok, err) = _send(address(late[l]), _scoreReport(game, HOME, AWAY));
+                assertFalse(ok, "a reporter approved later scored a game made before");
+                assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__NotAReporter.selector, game, address(late[l])));
+                assertEq(_viewAll(), before);
+            }
+        }
+        (address[] memory r,) = games.getGameReporters(game);
+        assertEq(r, _setupList(), "the earlier game's list moved");
+        // Control: they write to the game made after them.
+        vm.warp(DATE - 1 hours);
+        _startBy(lateFirst, made, START);
+        vm.warp(START + WINDOW);
+        _scoreBy(lateAfter, made, HOME, AWAY);
+        assertEq(uint8(_status(made)), uint8(GameStatus.Scored));
+    }
+
+    /// A game keeps the four terms it copied: a change to its league's terms, and to the defaults, reaches only
+    /// games made after, in each of the four, and leaves the storage of every game already made unchanged word
+    /// for word, the date included.
+    /// Break: in getGameWindow(), change `return _game(gameId).terms.window;` to `return s_defaultTerms.window;`.
+    function test_neverLine_noTermChangeReachesAGameAlreadyMade() public {
+        uint256 game = _create(); // nba, on the defaults
+        Terms memory own = Terms({window: 2 hours, day7Clock: 2 days, day30Clock: 10 days, fee: 7});
+        Terms memory defaults2 = Terms({window: 3 hours, day7Clock: 3 days, day30Clock: 11 days, fee: 0});
+        bytes32 before = _gameStates();
+        _setTerms("", defaults2);
+        assertEq(_gameStates(), before, "a change to the defaults wrote a game already made");
+        uint256 onNewDefaults = _create();
+        before = _gameStates();
+        _setTerms("nba", own);
+        assertEq(_gameStates(), before, "a change to a league's terms wrote a game already made");
+        uint256 onOwn = _create();
+
+        assertEq(games.getGameWindow(game), WINDOW, "n moved");
+        _assertTerms(games.getGameTerms(game), _launchTerms(), "the first game's terms moved");
+        assertEq(games.getGameWindow(onNewDefaults), 3 hours);
+        _assertTerms(games.getGameTerms(onNewDefaults), defaults2, "the second game's terms moved");
+        assertEq(games.getGameWindow(onOwn), 2 hours);
+        _assertTerms(games.getGameTerms(onOwn), own, "the third game's terms");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "An approval takes effect before the timelock's delay, or approves code other than what the queued
+    //  call announced."
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// The key queues an approval. Until the delay is up nothing about the reporter changes: it is not on the
+    /// list, a game made while the call waits does not copy it, it writes nothing, and the call cannot run. The
+    /// key cannot make the call directly either. Once the delay is up it runs, and only games made after copy it.
+    /// Break: in approveReporter(), delete the `onlyTimelock` modifier. The key's direct call then lands at once.
+    function test_neverLine_anApprovalWaitsTheDelay() public {
+        MockReporter r = new MockReporter(games);
+        address a = address(r);
+        bytes memory call = abi.encodeCall(IOspexGames.approveReporter, (a, ReporterKind.FirstN, a.codehash));
+        vm.prank(timelockKey, timelockKey);
+        (bool direct, bytes memory err) = address(games).call(call);
+        assertFalse(direct, "the key approved without the timelock");
+        assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__NotTheTimelock.selector, timelockKey));
+
+        vm.prank(timelockKey);
+        timelock.schedule(address(games), 0, call, bytes32(0), bytes32("q"), DELAY);
+        uint256 queuedAt = vm.getBlockTimestamp();
+        vm.warp(queuedAt + DELAY - 1);
+        uint256 duringWait = _create();
+        vm.prank(stranger);
+        vm.expectRevert(_notReady(call, bytes32("q")));
+        timelock.execute(address(games), 0, call, bytes32(0), bytes32("q"));
+        (ReporterKind k,,) = games.getReporter(a);
+        assertEq(uint8(k), 0, "approved before the delay");
+        (bool ok, bytes memory why) = _send(a, _startReport(duringWait, START));
+        assertFalse(ok, "the queued reporter wrote before the delay was up");
+        assertEq(why, abi.encodeWithSelector(OspexGames.OspexGames__NotAReporter.selector, duringWait, a));
+
+        vm.warp(queuedAt + DELAY);
+        vm.prank(stranger);
+        timelock.execute(address(games), 0, call, bytes32(0), bytes32("q"));
+        uint256 afterIt = _create();
+        (ok, why) = _send(a, _startReport(duringWait, START));
+        assertFalse(ok, "the approval reached a game made while it waited");
+        assertEq(why, abi.encodeWithSelector(OspexGames.OspexGames__NotAReporter.selector, duringWait, a));
+        _take(a, _startReport(afterIt, START));
+    }
+
+    /// The queued call names an address and a code hash. If the code at the address when the call runs hashes
+    /// otherwise, whatever is there, the approval is refused and nothing changes; if it hashes as announced, it
+    /// runs. Here the address has no code when the call is queued, as a reporter deployed later would not.
+    /// Break: in _admit(), delete `if (found != codeHash) revert OspexGames__CodeHashMismatch(reporter,
+    /// codeHash, found);`. The other code is then approved.
+    function test_neverLine_anApprovalApprovesOnlyTheCodeAnnounced() public {
+        MockReporter announcedCode = new MockReporter(games);
+        UnauthenticatedPlainReporter otherCode =
+            new UnauthenticatedPlainReporter(games, address(1), address(2), bytes32("other"));
+        bytes32 announced = address(announcedCode).codehash;
+        address at = makeAddr("where the reporter will be deployed");
+        bytes memory call = abi.encodeCall(IOspexGames.approveReporter, (at, ReporterKind.FirstN, announced));
+
+        // Other code arrives at the address before the call runs: refused.
+        vm.prank(timelockKey);
+        timelock.schedule(address(games), 0, call, bytes32(0), bytes32("1"), DELAY);
+        vm.etch(at, address(otherCode).code);
+        vm.warp(vm.getBlockTimestamp() + DELAY);
+        bytes32 list = _viewList();
+        vm.prank(stranger);
+        vm.expectRevert(
+            abi.encodeWithSelector(OspexGames.OspexGames__CodeHashMismatch.selector, at, announced, at.codehash)
+        );
+        timelock.execute(address(games), 0, call, bytes32(0), bytes32("1"));
+        assertEq(_viewList(), list, "other code was approved");
+        (ReporterKind k,,) = games.getReporter(at);
+        assertEq(uint8(k), 0);
+
+        // A call that names a zero hash announces no code, so it approves none: refused, though the code at the
+        // address is a fit reporter. A zero hash must not read as "any code".
+        address atZero = makeAddr("named with a zero hash");
+        bytes memory zeroCall = abi.encodeCall(IOspexGames.approveReporter, (atZero, ReporterKind.FirstN, bytes32(0)));
+        vm.prank(timelockKey);
+        timelock.schedule(address(games), 0, zeroCall, bytes32(0), bytes32("0"), DELAY);
+        vm.etch(atZero, address(announcedCode).code);
+        vm.warp(vm.getBlockTimestamp() + DELAY);
+        vm.prank(stranger);
+        vm.expectRevert(
+            abi.encodeWithSelector(OspexGames.OspexGames__CodeHashMismatch.selector, atZero, bytes32(0), announced)
+        );
+        timelock.execute(address(games), 0, zeroCall, bytes32(0), bytes32("0"));
+        assertEq(_viewList(), list, "a zero hash approved the code that was there");
+
+        // The announced code arrives instead: the same call, queued again, runs.
+        vm.etch(at, address(announcedCode).code);
+        vm.prank(timelockKey);
+        timelock.schedule(address(games), 0, call, bytes32(0), bytes32("2"), DELAY);
+        vm.warp(vm.getBlockTimestamp() + DELAY);
+        vm.prank(stranger);
+        timelock.execute(address(games), 0, call, bytes32(0), bytes32("2"));
+        (k,,) = games.getReporter(at);
+        assertEq(uint8(k), uint8(ReporterKind.FirstN), "the announced code was refused");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A deployer keeps any power after deploy; an entry or a reporter is written after deploy by anything but
+    //  a timelock call that waited the timelock's delay."
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// The deploy writes exactly its first state, the list, each reporter's admission with its code hash and the
+    /// default terms, and nothing else; the owner is the timelock given; and the deployer, as its own
+    /// transaction, makes none of the timelock's three calls afterwards.
+    /// Break: in the constructor, change `i_timelock = timelock;` to `i_timelock = msg.sender;`. The deployer
+    /// then answers for the timelock and writes at once.
+    function test_neverLine_theDeployerKeepsNothing() public {
+        address[] memory list = _setupList();
+        ReporterKind[] memory kinds = new ReporterKind[](3);
+        (kinds[0], kinds[1], kinds[2]) = (ReporterKind.FirstN, ReporterKind.AfterN, ReporterKind.FirstN);
+        vm.startStateDiffRecording();
+        vm.prank(deployer, deployer);
+        OspexGames g = new OspexGames(address(timelock), _launchTerms(), list, kinds, _hashes(list));
+        VmSafe.AccountAccess[] memory diff = vm.stopAndReturnStateDiff();
+
+        assertEq(g.i_timelock(), address(timelock), "the owner is the timelock given");
+        // Slots: 1 the list's length, keccak(1) + i its entries, keccak(account . 2) each admission's kind and
+        // retired flag and the slot after it its code hash, 4 and 5 the default terms. Read from `forge inspect
+        // OspexGames storageLayout`.
+        bytes32[] memory want = new bytes32[](12);
+        want[0] = bytes32(uint256(1));
+        for (uint256 i; i < 3; ++i) {
+            want[1 + i] = bytes32(uint256(keccak256(abi.encode(uint256(1)))) + i);
+            want[4 + i] = keccak256(abi.encode(list[i], uint256(2)));
+            want[7 + i] = bytes32(uint256(keccak256(abi.encode(list[i], uint256(2)))) + 1);
+        }
+        want[10] = bytes32(uint256(4));
+        want[11] = bytes32(uint256(5));
+        _assertWritesExactly(diff, address(g), want);
+        for (uint256 i; i < 3; ++i) {
+            bytes32 hashSlot = bytes32(uint256(keccak256(abi.encode(list[i], uint256(2)))) + 1);
+            assertEq(vm.load(address(g), hashSlot), list[i].codehash, "each admission's code hash, where it lies");
+        }
+
+        address[3] memory callers = [deployer, timelockKey, creator];
+        for (uint256 i; i < callers.length; ++i) {
+            bytes[3] memory calls = [
+                abi.encodeCall(IOspexGames.approveReporter, (address(first), ReporterKind.FirstN, bytes32(0))),
+                abi.encodeCall(IOspexGames.retireReporter, (address(first))),
+                abi.encodeCall(IOspexGames.setTerms, ("nba", _terms(1)))
+            ];
+            for (uint256 c; c < calls.length; ++c) {
+                vm.prank(callers[i], callers[i]);
+                (bool ok, bytes memory err) = address(g).call(calls[c]);
+                assertFalse(ok, "a write after deploy by something other than the timelock");
+                assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__NotTheTimelock.selector, callers[i]));
+            }
+        }
+    }
+
+    /// The same three calls from any address but the timelock's: each refused, nothing changed.
+    /// Break: in setTerms(), delete the `onlyTimelock` modifier.
+    function testFuzz_neverLine_nothingButTheTimelockChangesTheListOrTheTerms(address caller) public {
+        vm.assume(caller != address(timelock));
+        MockReporter fresh = new MockReporter(games);
+        bytes[3] memory calls = [
+            abi.encodeCall(IOspexGames.approveReporter, (address(fresh), ReporterKind.FirstN, address(fresh).codehash)),
+            abi.encodeCall(IOspexGames.retireReporter, (address(first))),
+            abi.encodeCall(IOspexGames.setTerms, ("", _terms(1)))
+        ];
+        bytes32 list = _viewList();
+        for (uint256 c; c < calls.length; ++c) {
+            vm.prank(caller, caller);
+            (bool ok, bytes memory err) = address(games).call(calls[c]);
+            assertFalse(ok, "a caller other than the timelock changed the list or the terms");
+            assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__NotTheTimelock.selector, caller));
+        }
+        assertEq(_viewList(), list);
+        (, bool retired,) = games.getReporter(address(first));
+        assertFalse(retired);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A contract other than the timelock carries its own wait on a change."
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// With the timelock's delay at a minute, an hour and seven days, each of the three calls lands the moment
+    /// the timelock runs it, after exactly its delay: a game made in the same second copies the change. The
+    /// games set adds no wait of its own, and keeps no queue or pending change to read.
+    /// Break: in approveReporter(), add `if (block.timestamp < 1_900_000_000) revert
+    /// OspexGames__NotTheTimelock(msg.sender);`, a wait of its own until a fixed time.
+    function test_neverLine_noWaitButTheTimelocks() public {
+        uint256[3] memory delays = [DELAY, 1 hours, 7 days];
+        for (uint256 i; i < delays.length; ++i) {
+            uint256 d = delays[i];
+            TimelockController t = new TimelockController(d, _one(timelockKey), _one(address(0)), address(0));
+            MockReporter r1 = new MockReporter(IOspexGames(address(0)));
+            address[] memory list = _one(address(r1));
+            OspexGames g = new OspexGames(address(t), _launchTerms(), list, _kinds1(ReporterKind.FirstN), _hashes(list));
+            MockReporter r2 = new MockReporter(IOspexGames(address(g)));
+            Terms memory changed = _terms(5 hours);
+            bytes[3] memory calls = [
+                abi.encodeCall(IOspexGames.approveReporter, (address(r2), ReporterKind.FirstN, address(r2).codehash)),
+                abi.encodeCall(IOspexGames.retireReporter, (address(r1))),
+                abi.encodeCall(IOspexGames.setTerms, ("nba", changed))
+            ];
+            vm.startPrank(timelockKey);
+            for (uint256 c; c < 3; ++c) {
+                t.schedule(address(g), 0, calls[c], bytes32(0), bytes32(c), d);
+            }
+            vm.stopPrank();
+            vm.warp(vm.getBlockTimestamp() + d);
+            for (uint256 c; c < 3; ++c) {
+                t.execute(address(g), 0, calls[c], bytes32(0), bytes32(c));
+            }
+            // The same second: a game made now has the new list and the new terms.
+            vm.prank(creator, creator);
+            uint256 game = g.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+            (address[] memory r,) = g.getGameReporters(game);
+            assertEq(r.length, 1, "the changed list");
+            assertEq(r[0], address(r2), "the approved reporter");
+            assertEq(g.getGameWindow(game), 5 hours, "the changed terms");
+            (, bool retired,) = g.getReporter(address(r1));
+            assertTrue(retired, "the retirement");
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A retired reporter writes nothing more to any game." (The spec's chosen line under "Retiring a
+    //  reporter".)
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// A retired reporter is refused by name on every game that recorded it, for every report kind it could
+    /// send, at every hour; games made after its retirement never record it. The retirement is checked before
+    /// the report's kind or readings are read, so a kind this contract does not take yet, and a report with a
+    /// malformed reading, are refused as from a retired reporter too: the kinds the ends add inherit the check.
+    /// Break: in report(), delete `if (a.retired) revert OspexGames__ReporterRetired(msg.sender);`.
+    function test_neverLine_aRetiredReporterWritesNothingMore() public {
+        uint256 unstarted = _create();
+        uint256 started = _create();
+        vm.warp(DATE - 1 hours);
+        _startBy(second, started, START);
+        _retire(address(first));
+        _retire(address(later));
+        uint256 made = _create();
+
+        uint64[3] memory times = [DATE - 1 hours, START + 1, START + WINDOW + 1];
+        address[2] memory retiredOnes = [address(first), address(later)];
+        for (uint256 t; t < times.length; ++t) {
+            vm.warp(times[t]);
+            for (uint256 w; w < retiredOnes.length; ++w) {
+                Report[] memory reports = _everyKind(unstarted, started);
+                for (uint256 x; x < reports.length; ++x) {
+                    bytes32 before = _viewAll();
+                    (bool ok, bytes memory err) = _send(retiredOnes[w], reports[x]);
+                    assertFalse(ok, "a retired reporter wrote");
+                    assertEq(
+                        err, abi.encodeWithSelector(OspexGames.OspexGames__ReporterRetired.selector, retiredOnes[w])
+                    );
+                    assertEq(_viewAll(), before, "a refused report changed state");
+                }
+                (bool okMade, bytes memory errMade) = _send(retiredOnes[w], _startReport(made, START));
+                assertFalse(okMade, "a retired reporter wrote a game made after its retirement");
+                assertEq(
+                    errMade,
+                    abi.encodeWithSelector(OspexGames.OspexGames__NotAReporter.selector, made, retiredOnes[w])
+                );
+            }
+        }
+        // Control: the reporter not retired writes on.
+        vm.warp(START + 1);
+        _scoreBy(second, started, HOME, AWAY);
+        _startBy(second, unstarted, START);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A report from a reporter whose live code differs from the hash recorded at its approval is never
+    //  accepted."
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// After its approval a reporter's code is swapped, for other code that relays reports and for no code at
+    /// all. Every report it sends is refused by name, for every report kind, at every hour, on every game that
+    /// recorded it, and nothing changes; the hash it was approved with stays stored. With the approved code put
+    /// back it writes again, since the check is the live code against the stored hash. It covers a first
+    /// reporter the constructor admitted (first-n) and one the timelock approved (after-n). On a chain, code at
+    /// an address changes only by a self-destruct and a redeploy at the same address; vm.etch stands for where
+    /// that ends.
+    /// Break: in report(), delete `if (found != a.codeHash) revert OspexGames__CodeChanged(msg.sender,
+    /// a.codeHash, found);`. The swapped code then writes the start.
+    function test_neverLine_aReporterWhoseCodeChangedWritesNothing() public {
+        // Code of its own, unlike `first`'s, so that a check against another reporter's stored hash is seen.
+        UnauthenticatedPlainReporter lateAfter =
+            new UnauthenticatedPlainReporter(games, address(1), address(2), bytes32("approved later"));
+        assertTrue(address(lateAfter).codehash != address(first).codehash, "two reporters, two codes");
+        _approve(address(lateAfter), ReporterKind.AfterN);
+        uint256 unstarted = _create();
+        uint256 started = _create();
+        vm.warp(DATE - 1 hours);
+        _startBy(second, started, START);
+
+        address other = address(new SwappedRelay(games));
+        address[2] memory reporters = [address(first), address(lateAfter)];
+        for (uint256 w; w < reporters.length; ++w) {
+            address who = reporters[w];
+            bytes memory approvedCode = who.code;
+            bytes32 approved = who.codehash;
+            (,, bytes32 stored) = games.getReporter(who);
+            assertEq(stored, approved, "the hash stored at approval");
+
+            // Other code, and no code.
+            bytes[2] memory swaps = [other.code, bytes("")];
+            for (uint256 s; s < swaps.length; ++s) {
+                vm.etch(who, swaps[s]);
+                bytes32 found = who.codehash;
+                if (s == 0) assertEq(found, other.codehash, "the other code is there");
+                else assertTrue(found == bytes32(0) || found == keccak256(""), "no code is there");
+                assertTrue(found != approved);
+                _assertCodeChangedRefused(who, approved, found, unstarted, started);
+                (,, stored) = games.getReporter(who);
+                assertEq(stored, approved, "a swap moved the stored hash");
+            }
+            vm.etch(who, approvedCode);
+            assertEq(who.codehash, approved, "the approved code is back");
+        }
+        // Control: with the approved code back, each writes again.
+        vm.warp(DATE - 1 hours);
+        _startBy(first, unstarted, START);
+        vm.warp(START + WINDOW);
+        _take(address(lateAfter), _scoreReport(started, HOME, AWAY));
+        assertEq(uint8(_status(started)), uint8(GameStatus.Scored));
+    }
+
     // ──────────────────────────── Helpers ──────────────────────────────
+
+    /// @dev Every report kind a reporter could send to two games, one unstarted and one started: a start, a
+    ///      score, a report of each kind this contract does not take yet, and a start with a malformed reading.
+    function _everyKind(uint256 unstarted, uint256 started) internal view returns (Report[] memory out) {
+        out = new Report[](6);
+        out[0] = _startReport(unstarted, START);
+        out[1] = _scoreReport(started, HOME, AWAY);
+        ReportKind[3] memory others = [ReportKind.None, ReportKind.Void, ReportKind.Dispute];
+        for (uint256 i; i < others.length; ++i) {
+            out[2 + i] = _scoreReport(started, HOME, AWAY);
+            out[2 + i].kind = others[i];
+        }
+        out[5] = _startReport(unstarted, START);
+        out[5].readings[3] = Reading({seat: 4, kind: ReadingKind.Silent, homeScore: 1, awayScore: 0});
+    }
+
+    /// @dev `who`, whose code hashes `found` where `approved` was recorded, sends every kind of report at every
+    ///      hour: each is refused by name, emits nothing and changes nothing.
+    function _assertCodeChangedRefused(address who, bytes32 approved, bytes32 found, uint256 unstarted, uint256 started)
+        internal
+    {
+        uint64[3] memory times = [DATE - 1 hours, START + 1, START + WINDOW + 1];
+        bytes memory want = abi.encodeWithSelector(OspexGames.OspexGames__CodeChanged.selector, who, approved, found);
+        for (uint256 t; t < times.length; ++t) {
+            vm.warp(times[t]);
+            Report[] memory reports = _everyKind(unstarted, started);
+            for (uint256 x; x < reports.length; ++x) {
+                bytes32 before = _viewAll();
+                vm.recordLogs();
+                (bool ok, bytes memory err) = _send(who, reports[x]);
+                assertFalse(ok, "a reporter whose code changed wrote");
+                assertEq(err, want, "the refusal");
+                assertEq(vm.getRecordedLogs().length, 0, "a refused report emitted");
+                assertEq(_viewAll(), before, "a refused report changed state");
+            }
+        }
+    }
+
+    /// @dev Every game's status, start, scores, reporters and terms, each read as (taken, answer), and its
+    ///      storage word for word, which holds the date no read returns: what a game is, without the one read a
+    ///      retirement is meant to move.
+    function _gameStates() internal view returns (bytes32) {
+        uint256 count = games.gameCount();
+        bytes memory out = abi.encode(count);
+        for (uint256 id = 1; id <= count; ++id) {
+            out = abi.encodePacked(out, keccak256(_rawGame(id)));
+            bytes[5] memory calls = [
+                abi.encodeCall(IOspexGames.getGameStatus, (id)),
+                abi.encodeCall(IOspexGames.getGameStart, (id)),
+                abi.encodeCall(games.getGameReporters, (id)),
+                abi.encodeCall(IOspexGames.getGameScores, (id)),
+                abi.encodeCall(IOspexGames.getGameTerms, (id))
+            ];
+            for (uint256 c; c < calls.length; ++c) {
+                (bool ok, bytes memory answer) = address(games).staticcall(calls[c]);
+                out = abi.encodePacked(out, ok, keccak256(answer));
+            }
+        }
+        return keccak256(out);
+    }
+
+    /// @dev The stock timelock's refusal of a call to the games set that is not ready yet.
+    function _notReady(bytes memory call, bytes32 callSalt) internal view returns (bytes memory) {
+        return abi.encodeWithSelector(
+            TimelockController.TimelockUnexpectedOperationState.selector,
+            timelock.hashOperation(address(games), 0, call, bytes32(0), callSalt),
+            bytes32(uint256(1) << uint8(TimelockController.OperationState.Ready))
+        );
+    }
+
+    /// @dev The storage slots `account` wrote, each once, are exactly `want`.
+    function _assertWritesExactly(VmSafe.AccountAccess[] memory diff, address account, bytes32[] memory want)
+        internal
+        pure
+    {
+        bytes32[] memory seen = new bytes32[](64);
+        uint256 n;
+        for (uint256 i; i < diff.length; ++i) {
+            for (uint256 j; j < diff[i].storageAccesses.length; ++j) {
+                VmSafe.StorageAccess memory s = diff[i].storageAccesses[j];
+                if (s.account != account || !s.isWrite) continue;
+                bool dup;
+                for (uint256 k; k < n; ++k) {
+                    if (seen[k] == s.slot) dup = true;
+                }
+                if (!dup) seen[n++] = s.slot;
+            }
+        }
+        assertEq(n, want.length, "the deploy wrote another number of slots");
+        for (uint256 i; i < want.length; ++i) {
+            bool found;
+            for (uint256 k; k < n; ++k) {
+                if (seen[k] == want[i]) found = true;
+            }
+            assertTrue(found, "a slot of the first state was not written");
+        }
+    }
 
     /// @dev Every external call the contract has, from every kind of caller, the timelock key's address
     ///      included, against every game made so far. Refusals are expected; nothing may touch a game's list.
+    ///      The timelock's three calls, made directly by any of these callers, are each refused.
     function _everyCallFromEveryone(uint256[] memory made) internal {
         address[6] memory callers =
             [timelockKey, deployer, creator, address(first), address(later), address(second)];
+        address candidate = address(new MockReporter(games));
         for (uint256 c; c < callers.length; ++c) {
+            bytes[3] memory timelockCalls = [
+                abi.encodeCall(IOspexGames.approveReporter, (candidate, ReporterKind.FirstN, candidate.codehash)),
+                abi.encodeCall(IOspexGames.retireReporter, (address(first))),
+                abi.encodeCall(IOspexGames.setTerms, ("nba", _terms(1)))
+            ];
+            for (uint256 t; t < timelockCalls.length; ++t) {
+                vm.prank(callers[c], callers[c]);
+                (bool ok, bytes memory err) = address(games).call(timelockCalls[t]);
+                assertFalse(ok, "a timelock call was taken from another caller");
+                assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__NotTheTimelock.selector, callers[c]));
+            }
             for (uint256 m; m < made.length; ++m) {
                 if (made[m] == 0) continue;
                 for (uint8 kind; kind <= uint8(type(ReportKind).max); ++kind) {
@@ -722,7 +1350,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter == address(games) && logs[i].topics[0] == sig) {
                 (,,,,,, reporters, kinds) = abi.decode(
-                    logs[i].data, (string, string, string, uint64, Hint[], uint64, address[], uint8[])
+                    logs[i].data, (string, string, string, uint64, Hint[], Terms, address[], uint8[])
                 );
                 return (reporters, kinds);
             }
@@ -746,13 +1374,6 @@ contract OspexGamesNeverLinesTest is GamesBase {
     function _kinds3(uint8 a, uint8 b, uint8 c) internal pure returns (uint8[] memory list) {
         list = new uint8[](3);
         (list[0], list[1], list[2]) = (a, b, c);
-    }
-
-    function _toKinds(uint8[] memory k) internal pure returns (ReporterKind[] memory out) {
-        out = new ReporterKind[](k.length);
-        for (uint256 i; i < k.length; ++i) {
-            out[i] = ReporterKind(k[i]);
-        }
     }
 
     function _assertList(
