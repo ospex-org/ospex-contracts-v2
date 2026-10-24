@@ -12,10 +12,15 @@ import {RefusingCoin} from "./CoinFixtures.sol";
 
 /// @dev Drives the creation fee at random and keeps its own ledger, written from the rules, never read back
 ///      from the contract:
-///      - a creation takes the fee its league has in the model from its creator, and is refused when the coin
-///        would refuse that transfer (paused, or the creator or the games set blocked, or a creator with no
-///        coin), and by name when the coin keeps a cut of it; at a fee of 0 it takes nothing, whatever the
-///        coin's state;
+///      - a creation names the most its creator pays: the fee that creator last looked at for the league,
+///        which a fee change run since may have made stale, the fee as it stands, a unit below it, any amount,
+///        or an amount at random. Above that most, it is refused by name before the coin has any say, whatever
+///        the coin's state. Otherwise it takes the fee its league has in the model, never the most named, from
+///        its creator, and is refused when the coin would refuse that transfer (paused, or the creator or the
+///        games set blocked, or a creator with no coin), and by name when the coin keeps a cut of it; at a fee
+///        of 0 it takes nothing, whatever the coin's state;
+///      - a fee change is queued in the timelock by its key, and run later by anyone, as a step of its own, so
+///        creations and looks land between the two, and changes queued together run in any order;
 ///      - a start credits nothing;
 ///      - a score is taken only for a started game that has not ended, from one of its reporters at an hour it
 ///        may write (an after-n reporter from start + n), naming a payout address that is not 0, not the games
@@ -66,6 +71,18 @@ contract FeeHandler is Test {
     uint96 internal nbaFee;
     bool internal nbaOwn;
 
+    /// @dev A fee change queued in the timelock and not yet run.
+    struct Queued {
+        bool nba;
+        uint96 fee;
+        bytes32 salt;
+        uint256 readyAt;
+    }
+
+    Queued[] internal queued;
+    /// @dev The fee each creator last looked at, for nba (true) and for the default terms' leagues (false).
+    mapping(address => mapping(bool => uint96)) internal seen;
+
     mapping(uint256 => Ghost) internal ghosts;
     uint256 public created;
     mapping(address => uint256) public credit;
@@ -79,7 +96,7 @@ contract FeeHandler is Test {
 
     /// @dev Calls where the contract and the model disagreed. Must stay 0.
     uint256 public mismatches;
-    uint256[19] public counts;
+    uint256[24] public counts;
     // Indexes into counts.
     uint256 internal constant CREATES = 0;
     uint256 internal constant CREATES_REFUSED = 1;
@@ -103,6 +120,16 @@ contract FeeHandler is Test {
     /// @dev Scores refused for their payout address alone, that address the coin or a reporter: part of
     ///      SCORES_REFUSED.
     uint256 internal constant PAYOUTS_COIN_OR_REPORTER = 18;
+    /// @dev Fee changes queued; FEE_CHANGES counts those run.
+    uint256 internal constant FEE_QUEUED = 19;
+    /// @dev Creations refused by name for a fee above the most named: part of CREATES_REFUSED.
+    uint256 internal constant CREATES_ABOVE_MAX = 20;
+    /// @dev Of those, the ones whose most named was a look a fee change has since raised past.
+    uint256 internal constant STALE_REFUSED = 21;
+    /// @dev Creations taken naming a look a fee change has since lowered: each took the lower fee.
+    uint256 internal constant STALE_TAKEN_LOWER = 22;
+    /// @dev Looks at the fee.
+    uint256 internal constant LOOKS = 23;
 
     constructor(
         OspexGamesHarness games_,
@@ -128,6 +155,8 @@ contract FeeHandler is Test {
         for (uint256 i; i < 4; ++i) {
             creators[i] = makeAddr(string.concat("creator ", vm.toString(i)));
             accounts.push(creators[i]);
+            seen[creators[i]][true] = launch_.fee;
+            seen[creators[i]][false] = launch_.fee;
         }
         for (uint256 i; i < 3; ++i) {
             payouts[i] = makeAddr(string.concat("payout ", vm.toString(i)));
@@ -154,32 +183,51 @@ contract FeeHandler is Test {
 
     // ──────────────────────────── Actions ──────────────────────────────
 
-    function create(uint256 whoSeed, uint256 leagueSeed) external {
+    /// @dev maxSeed picks the most named: 0 the creator's last look, 1 the fee as it stands, 2 a unit below it,
+    ///      3 any amount, 4 an amount at random up to 60 USDC.
+    function create(uint256 whoSeed, uint256 leagueSeed, uint256 maxSeed) external {
         uint256 w = whoSeed % 4;
         address who = creators[w];
         bool nba = leagueSeed % 2 == 0;
         uint96 fee = nba && nbaOwn ? nbaFee : defaultFee;
+        uint256 k = maxSeed % 5;
+        uint256 maxFee = k == 0
+            ? seen[who][nba]
+            : k == 1 ? fee : k == 2 ? (fee == 0 ? 0 : fee - 1) : k == 3 ? type(uint256).max : bound(maxSeed >> 3, 0, 60_000_000);
+        bool aboveMax = fee > maxFee;
         bool coinMoves = w != 3 && !paused && !blocked[who] && !blocked[address(games)];
-        bool cutRefuses = fee != 0 && coinMoves && cut != 0;
-        bool expected = fee == 0 || (coinMoves && cut == 0);
-        // Under a cut, the refusal names the balance on each side of the pull.
+        bool cutRefuses = !aboveMax && fee != 0 && coinMoves && cut != 0;
+        bool expected = !aboveMax && (fee == 0 || (coinMoves && cut == 0));
+        // Above the most named, the refusal is that one, whatever the coin's state. Under a cut, the refusal
+        // names the balance on each side of the pull.
+        bytes memory maxRefusal =
+            abi.encodeWithSelector(OspexGames.OspexGames__FeeAboveMax.selector, uint256(fee), maxFee);
         uint256 balance = coin.balanceOf(address(games));
         uint256 arrives = cut >= fee ? 0 : fee - cut;
         bytes memory cutRefusal =
             abi.encodeWithSelector(OspexGames.OspexGames__FeeNotReceived.selector, uint256(fee), balance, balance + arrives);
+        uint256 coinBefore = coin.balanceOf(who);
 
         vm.recordLogs();
         vm.prank(who, who);
-        try games.createGame(nba ? "nba" : "nhl", "Home", "Away", BASE, new Hint[](0)) returns (uint256 id) {
+        try games.createGame(nba ? "nba" : "nhl", "Home", "Away", BASE, new Hint[](0), maxFee) returns (uint256 id) {
             if (!expected || id != created + 1 || coinOf[who] < fee) ++mismatches;
+            // What left the creator: the fee as it stood, never more than the most named.
+            uint256 pulled = coinBefore - coin.balanceOf(who);
+            if (pulled != fee || pulled > maxFee) ++mismatches;
             created = id;
             ghosts[id].creator = who;
             ghosts[id].fee = fee;
             if (coinOf[who] >= fee) coinOf[who] -= fee;
             ++counts[CREATES];
+            if (k == 0 && maxFee > fee) ++counts[STALE_TAKEN_LOWER];
         } catch (bytes memory err) {
             if (expected) ++mismatches;
-            if (cutRefuses) {
+            if (aboveMax) {
+                if (keccak256(err) != keccak256(maxRefusal)) ++mismatches;
+                ++counts[CREATES_ABOVE_MAX];
+                if (k == 0) ++counts[STALE_REFUSED];
+            } else if (cutRefuses) {
                 if (keccak256(err) != keccak256(cutRefusal)) ++mismatches;
                 ++counts[CREATES_CUT_REFUSED];
             }
@@ -188,20 +236,68 @@ contract FeeHandler is Test {
         _expectNoCredit(vm.getRecordedLogs());
     }
 
-    /// @dev The default fee or nba's own, through the timelock: 0 one time in five.
+    /// @dev A creator looks at a league's fee, as a caller does before it names the most it pays. The read must
+    ///      be the model's fee.
+    function look(uint256 whoSeed, uint256 leagueSeed) external {
+        address who = creators[whoSeed % 4];
+        bool nba = leagueSeed % 2 == 0;
+        uint96 fee = games.getTerms(nba ? "nba" : "nhl").fee;
+        if (fee != (nba && nbaOwn ? nbaFee : defaultFee)) ++mismatches;
+        seen[who][nba] = fee;
+        ++counts[LOOKS];
+    }
+
+    /// @dev Queues a change of the default fee or nba's own in the timelock, 0 one time in five. Nothing
+    ///      changes until it runs.
+    function queueFee(uint256 seed, uint96 fee) external {
+        _queueFee(seed, fee);
+    }
+
+    /// @dev Runs one queued change, any of them, waiting out its delay first if it has not passed.
+    function runFee(uint256 seed) external {
+        if (queued.length == 0) return;
+        _runFee(seed % queued.length);
+    }
+
+    /// @dev Queues a change and runs it at once: for the fixed-order test.
     function setFee(uint256 seed, uint96 fee) external {
+        _queueFee(seed, fee);
+        _runFee(queued.length - 1);
+    }
+
+    function _queueFee(uint256 seed, uint96 fee) internal {
         fee = seed % 5 == 0 ? 0 : uint96(bound(fee, 1, 50_000_000));
         bool nba = seed % 2 == 0;
+        bytes32 s = bytes32(++salt);
+        vm.prank(i_key);
+        timelock.schedule(address(games), 0, _feeCall(nba, fee), bytes32(0), s, DELAY);
+        queued.push(Queued({nba: nba, fee: fee, salt: s, readyAt: vm.getBlockTimestamp() + DELAY}));
+        ++counts[FEE_QUEUED];
+    }
+
+    function _runFee(uint256 i) internal {
+        Queued memory q = queued[i];
+        queued[i] = queued[queued.length - 1];
+        queued.pop();
+        if (vm.getBlockTimestamp() < q.readyAt) vm.warp(q.readyAt);
+        vm.prank(stranger);
+        try timelock.execute(address(games), 0, _feeCall(q.nba, q.fee), bytes32(0), q.salt) {
+            if (q.nba) {
+                nbaOwn = true;
+                nbaFee = q.fee;
+            } else {
+                defaultFee = q.fee;
+            }
+            ++counts[FEE_CHANGES];
+        } catch {
+            ++mismatches;
+        }
+    }
+
+    function _feeCall(bool nba, uint96 fee) internal view returns (bytes memory) {
         Terms memory t = launch;
         t.fee = fee;
-        if (!_run(abi.encodeCall(IOspexGames.setTerms, (nba ? "nba" : "", t)))) ++mismatches;
-        if (nba) {
-            nbaOwn = true;
-            nbaFee = fee;
-        } else {
-            defaultFee = fee;
-        }
-        ++counts[FEE_CHANGES];
+        return abi.encodeCall(IOspexGames.setTerms, (nba ? "nba" : "", t));
     }
 
     /// @dev Mostly a first-n reporter; one time in four the after-n reporter, which writes no start.
@@ -385,19 +481,6 @@ contract FeeHandler is Test {
         coinOf[to] += amount;
     }
 
-    function _run(bytes memory call) internal returns (bool ok) {
-        bytes32 s = bytes32(++salt);
-        vm.prank(i_key);
-        timelock.schedule(address(games), 0, call, bytes32(0), s, DELAY);
-        vm.warp(vm.getBlockTimestamp() + DELAY);
-        vm.prank(stranger);
-        try timelock.execute(address(games), 0, call, bytes32(0), s) {
-            ok = true;
-        } catch {
-            ok = false;
-        }
-    }
-
     /// @dev The logs hold one FeeCredited, for this game, account and amount; none at all for a fee of 0.
     function _expectCredit(Vm.Log[] memory logs, uint256 id, address account, uint96 fee) internal {
         uint256 seen;
@@ -496,9 +579,11 @@ contract FeeHandler is Test {
     }
 }
 
-/// @notice The stateful run for the creation fee's routing. After every call of a random sequence of creations,
-///         fee changes, starts, scores, refused reports, releases, withdrawals, coin pauses, blocks and cuts,
-///         and coin sent in directly: the contract took exactly what the model allows; each game's fee was
+/// @notice The stateful run for the creation fee's routing. After every call of a random sequence of creations
+///         each naming the most it pays, looks at the fee, fee changes queued in the timelock and run later as
+///         steps of their own, starts, scores, refused reports, releases, withdrawals, coin pauses, blocks and
+///         cuts, and coin sent in directly: the contract took exactly what the model allows, and no creation
+///         took more than its caller named; each game's fee was
 ///         credited at most once, and once it ended, to the payout address in the report that ended it or to
 ///         its creator, in the amount it copied at creation; every address's credit and coin read as the model
 ///         says, the coin's own included; and the coin the games set holds equals the fees of games not yet
@@ -516,10 +601,12 @@ contract OspexGamesFeeInvariantTest is GamesBase {
         // An hour before the games' date: starts land at once, and after-n scores a day and more later.
         vm.warp(1_800_000_037 - 1 hours);
 
-        bytes4[] memory selectors = new bytes4[](17);
+        bytes4[] memory selectors = new bytes4[](19);
         selectors[0] = FeeHandler.create.selector;
         selectors[1] = FeeHandler.create.selector; // creation twice as often
-        selectors[2] = FeeHandler.setFee.selector;
+        selectors[2] = FeeHandler.queueFee.selector;
+        selectors[17] = FeeHandler.runFee.selector;
+        selectors[18] = FeeHandler.look.selector;
         selectors[3] = FeeHandler.start.selector;
         selectors[4] = FeeHandler.start.selector;
         selectors[5] = FeeHandler.score.selector;
@@ -553,7 +640,7 @@ contract OspexGamesFeeInvariantTest is GamesBase {
     ///      campaign's: runs, then each count in FeeHandler's order.
     function afterInvariant() external {
         string memory line = string.concat("fee-campaign runs ", vm.toString(_addToTotal("RUNS", 1)));
-        for (uint256 i; i < 19; ++i) {
+        for (uint256 i; i < 24; ++i) {
             line = string.concat(line, " ", vm.toString(_addToTotal(vm.toString(i), handler.counts(i))));
         }
         console.log(line);
@@ -605,16 +692,17 @@ contract OspexGamesFeeInvariantTest is GamesBase {
     /// The model's every path, driven in a fixed order, agrees with the contract: so the random runs above
     /// compare two things that can each say yes, and each say no.
     function test_feeHandlerModelAgreesOnEveryPath() public {
-        // create(whoSeed, leagueSeed): who = creators[seed % 4], 3 has no coin; league even = nba.
-        handler.create(0, 1); // game 1, nhl, the default 1 USDC
-        handler.create(3, 1); // the creator with no coin: refused
+        // create(whoSeed, leagueSeed, maxSeed): who = creators[seed % 4], 3 has no coin; league even = nba; a
+        // max seed of 1 names the fee as it stands.
+        handler.create(0, 1, 1); // game 1, nhl, the default 1 USDC
+        handler.create(3, 1, 1); // the creator with no coin: refused
         handler.setFee(5, 0); // 5 % 5 == 0: fee 0; odd: the default
-        handler.create(3, 1); // game 2: at 0 the creator with no coin creates
+        handler.create(3, 1, 1); // game 2: at 0 the creator with no coin creates
         handler.setFee(2, 7_000_000); // even: nba's own, 7
-        handler.create(1, 0); // game 3, nba at 7
+        handler.create(1, 0, 1); // game 3, nba at 7
         handler.toggleCoin(0); // paused
-        handler.create(2, 0); // nba at 7, coin paused: refused
-        handler.create(2, 1); // game 4, nhl at 0: the paused coin is not called
+        handler.create(2, 0, 1); // nba at 7, coin paused: refused
+        handler.create(2, 1, 1); // game 4, nhl at 0: the paused coin is not called
         handler.toggleCoin(0); // unpaused
 
         // A game seed picks game 1 + seed % created (seed % 11 == 0 picks no game). With four games: seed 4 is
@@ -650,9 +738,9 @@ contract OspexGamesFeeInvariantTest is GamesBase {
         handler.release(3, 7); // game 4, not started: taken, made at 0, nothing credited
         handler.release(3, 7); // again: refused
         handler.release(4, 7); // game 1, scored: refused
-        handler.create(0, 1); // game 5, nhl at 0
+        handler.create(0, 1, 1); // game 5, nhl at 0
         handler.setFee(1, 3_000_000); // the default, 3
-        handler.create(0, 1); // game 6, nhl at 3
+        handler.create(0, 1, 1); // game 6, nhl at 3
         handler.release(5, 8); // six games now: seed 5 is game 6, taken, 3 to creator 0
 
         // withdraw(whoSeed): an odd seed picks accounts[(seed >> 1) % 15], so 2j + 1 picks account j: 0-3 the
@@ -675,22 +763,53 @@ contract OspexGamesFeeInvariantTest is GamesBase {
         // setCut(seed): an odd seed sets a cut of seed >> 1 (here 1 unit), an even one none. The default fee is 3
         // and nba's own 7.
         handler.setCut(3);
-        handler.create(0, 1); // nhl at 3, of which the coin keeps 1: refused by name
-        handler.create(0, 0); // nba at 7: refused the same
+        handler.create(0, 1, 1); // nhl at 3, of which the coin keeps 1: refused by name
+        handler.create(0, 0, 1); // nba at 7: refused the same
         handler.setFee(5, 0); // the default to 0
-        handler.create(0, 1); // game 7, nhl at 0: the coin is not called, so its cut does not matter
+        handler.create(0, 1, 1); // game 7, nhl at 0: the coin is not called, so its cut does not matter
         handler.setFee(1, 3_000_000); // the default back to 3
         handler.setCut(0);
-        handler.create(0, 1); // game 8, nhl at 3: taken whole
+        handler.create(0, 1, 1); // game 8, nhl at 3: taken whole
         handler.release(7, 8); // eight games: seed 7 is game 8, 3 to creator 0
         handler.setCut(3);
         handler.withdraw(1); // creator 0: the games set pays 3, the coin keeps 1 of it
         handler.donate(1_000); // 999 arrives
         handler.healCoin(); // no cut
 
+        // A look, then fee changes queued in the timelock and run later, between creations. look(whoSeed,
+        // leagueSeed); queueFee(seed, fee): an odd seed the default, an even one nba's own; runFee(seed) runs
+        // the queued change at seed % how many wait, the last one moved into a run one's place; create's max
+        // seed: 0 the creator's last look, 1 the fee as it stands, 2 a unit below it, 3 any amount. The
+        // default fee is 3 and nba's own 7.
+        handler.look(1, 1); // creator 1 looks at nhl: 3
+        handler.queueFee(1, 5_000_000); // the default to 5, queued
+        handler.create(1, 1, 0); // game 9: naming its look, 3, while the raise waits: taken at 3
+        handler.runFee(0); // the raise runs: the default is 5
+        handler.create(1, 1, 0); // naming the same look, 3: refused by name, before the coin
+        handler.create(1, 1, 2); // a unit below 5: refused by name
+        handler.toggleCoin(0); // paused
+        handler.create(1, 1, 2); // a unit below, the coin paused: refused by the same name
+        handler.create(1, 1, 1); // the fee as it stands, the coin paused: refused by the coin
+        handler.toggleCoin(0); // unpaused
+        handler.create(1, 1, 1); // game 10: the fee as it stands, 5: taken
+        handler.queueFee(3, 2_000_000); // the default to 2, queued
+        handler.queueFee(6, 9_000_000); // nba's own to 9, queued
+        handler.look(2, 0); // creator 2 looks at nba: 7
+        handler.runFee(1); // the second queued runs first: nba's own is 9
+        handler.create(2, 0, 0); // naming its look, 7: refused by name
+        handler.runFee(0); // the first runs: the default is 2
+        handler.create(1, 1, 0); // game 11: naming its look, 3, now above the fee: takes 2
+        handler.create(2, 0, 3); // game 12: any amount: takes nba's 9
+
         assertEq(handler.mismatches(), 0, "the contract and the model disagreed");
-        assertEq(handler.counts(0), 8, "creations");
-        assertEq(handler.counts(1), 4, "creations refused");
+        assertEq(handler.counts(0), 12, "creations");
+        assertEq(handler.counts(1), 9, "creations refused");
+        assertEq(handler.counts(20), 4, "creations refused for a fee above the most named");
+        assertEq(handler.counts(21), 2, "of those, naming a look a fee change raised past");
+        assertEq(handler.counts(22), 1, "creations naming a look a fee change lowered, taking the lower fee");
+        assertEq(handler.counts(23), 2, "looks");
+        assertEq(handler.counts(19), 8, "fee changes queued");
+        assertEq(handler.counts(11), 8, "fee changes run");
         assertEq(handler.counts(17), 2, "creations refused for the cut");
         assertEq(handler.counts(2), 3, "starts");
         assertEq(handler.counts(3), 2, "starts refused");
@@ -704,7 +823,11 @@ contract OspexGamesFeeInvariantTest is GamesBase {
         assertEq(handler.counts(14), 4, "fees credited");
         assertEq(handler.counts(15), 2, "ends at a fee of 0");
         assertEq(handler.counts(16), 3, "cut changes");
-        assertEq(token.balanceOf(address(games)), 1_999, "the games set holds only what arrived from coin sent to it");
+        assertEq(
+            token.balanceOf(address(games)),
+            19_001_999,
+            "the four open games' fees, 3 + 5 + 2 + 9, and what arrived from coin sent to it"
+        );
         assertEq(token.balanceOf(address(token)), 2, "the coin kept 1 of the withdrawal and 1 of the donation");
         _checkEachFeeIsCreditedAtMostOnceToTheEndsAddress();
         _checkTheCoinHeldIsWhatIsHeldPlusWhatIsCredited();

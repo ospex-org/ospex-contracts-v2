@@ -82,7 +82,8 @@ struct Reading {
 /// @param readings The readings the report rests on, one per feed asked.
 /// @param payout The payout address: where the report that ends a game credits its creation fee. The games set
 ///        never puts the sender in its place. Zero for a start, which pays nothing. A score refuses as payout:
-///        zero, the games set's own address and the coin's, none of which withdraws; and any address ever
+///        zero and the rest of the reserved range up to 0xffff, where precompiles and a chain's own contracts
+///        lie, the games set's own address and the coin's, none of which withdraws; and any address ever
 ///        approved as a reporter, retired ones included and the sender among them, since a reporter relays a
 ///        report and is never the one it pays.
 struct Report {
@@ -155,7 +156,8 @@ interface IOspexGames is IGameReporters {
 
     /// @notice Emitted when an address withdraws everything it has been credited.
     /// @param account The address that withdrew, and was paid
-    /// @param amount What it was paid
+    /// @param amount Its whole credit, which is what the games set's coin balance fell by. A coin that keeps a
+    ///        cut on the way delivers the account less.
     event Withdrawn(address indexed account, uint256 amount);
 
     /// @notice Emitted when a game is created. It carries the game's identity, which is not stored.
@@ -248,9 +250,11 @@ interface IOspexGames is IGameReporters {
     /// @notice Creates a game. Anyone may, the same real game twice included: each creation is its own
     ///         game, with its own id, its own copy of the reporters and the terms, and its own creation fee.
     ///         Refused while the approved list holds no first-n reporter, since nothing could write such a
-    ///         game's start. The creator pays the creation fee its league's terms name now, in the coin fixed at
-    ///         deploy, so the creator first allows this contract to take it; at a fee of 0 nothing is taken and
-    ///         the coin is not called. Refused unless taking the fee raises this contract's coin balance by
+    ///         game's start. The creator pays the creation fee its league's terms name as the creation runs, in
+    ///         the coin fixed at deploy, so the creator first allows this contract to take it; at a fee of 0
+    ///         nothing is taken and the coin is not called. Refused, before the coin is called, when that fee is
+    ///         above `maxFee`, so a fee change that lands between the creator's look and its creation never takes
+    ///         more than the creator named. Refused unless taking the fee raises this contract's coin balance by
     ///         exactly the fee. The games set holds the fee until the game ends.
     /// @param league The league's short text id: 1 to 16 characters, each a-z or 0-9.
     /// @param homeTeam The home team: 1 to 64 printable ASCII characters, not all spaces.
@@ -259,13 +263,16 @@ interface IOspexGames is IGameReporters {
     /// @param date The scheduled start, in seconds since 1970. Not zero, and at most 365 days after the creation.
     /// @param hints Up to 8 seat and id pairs, no seat twice, each id 1 to 64 printable ASCII characters, not all
     ///        spaces.
+    /// @param maxFee The most the creator will pay, in the coin's smallest unit: the fee read from getTerms
+    ///        before sending, or anything above it. The creation takes the fee as it runs, never this amount.
     /// @return gameId The new game's id. Ids start at 1 and count up.
     function createGame(
         string calldata league,
         string calldata homeTeam,
         string calldata awayTeam,
         uint64 date,
-        Hint[] calldata hints
+        Hint[] calldata hints,
+        uint256 maxFee
     ) external returns (uint256 gameId);
 
     /// @notice The one report call. Only the game's recorded reporters may send it, none that is retired, and
@@ -275,8 +282,9 @@ interface IOspexGames is IGameReporters {
 
     /// @notice Pays the caller everything it has been credited, and sets its credit to 0. Only the address
     ///         credited withdraws, and only to itself. When the coin refuses the transfer (the coin paused, or
-    ///         the caller or this contract blocked by it), this call alone fails and the credit stays.
-    /// @return amount What was paid
+    ///         the caller or this contract blocked by it), or the payment lowers this contract's coin balance by
+    ///         other than the amount, this call alone fails and the credit stays.
+    /// @return amount The whole credit, which is what this contract's coin balance fell by
     function withdraw() external returns (uint256 amount);
 
     /// @notice What an address has been credited and not yet withdrawn.

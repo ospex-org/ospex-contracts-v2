@@ -495,13 +495,13 @@ contract OspexGamesListTest is GamesBase {
         _retire(address(second));
         vm.prank(creator, creator);
         vm.expectRevert(OspexGames.OspexGames__NoFirstNReporter.selector);
-        games.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+        games.createGame("nba", "Home", "Away", DATE, new Hint[](0), ANY_FEE);
         // An after-n approval does not open it.
         MockReporter a = new MockReporter(games);
         _approve(address(a), ReporterKind.AfterN);
         vm.prank(creator, creator);
         vm.expectRevert(OspexGames.OspexGames__NoFirstNReporter.selector);
-        games.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+        games.createGame("nba", "Home", "Away", DATE, new Hint[](0), ANY_FEE);
         // A first-n approval does.
         MockReporter f = new MockReporter(games);
         _approve(address(f), ReporterKind.FirstN);
@@ -526,7 +526,7 @@ contract OspexGamesListTest is GamesBase {
         assertEq(list.length, 0);
         vm.prank(creator, creator);
         vm.expectRevert(OspexGames.OspexGames__NoFirstNReporter.selector);
-        games.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+        games.createGame("nba", "Home", "Away", DATE, new Hint[](0), ANY_FEE);
     }
 
     // ──────────────────────────── The terms ────────────────────────────
@@ -807,7 +807,7 @@ contract OspexGamesListTest is GamesBase {
 
     function _gameIn(string memory league) internal returns (Terms memory) {
         vm.prank(creator, creator);
-        uint256 game = games.createGame(league, "Home", "Away", DATE, new Hint[](0));
+        uint256 game = games.createGame(league, "Home", "Away", DATE, new Hint[](0), ANY_FEE);
         return games.getGameTerms(game);
     }
 

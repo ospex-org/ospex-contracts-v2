@@ -5,6 +5,8 @@ import {Vm} from "forge-std/Vm.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+import {VmSafe} from "forge-std/Vm.sol";
 import {OspexGames} from "../../src/games/OspexGames.sol";
 import {IOspexGames, GameStatus, ReporterKind, ReportKind, Report, Hint} from "../../src/games/IOspexGames.sol";
 import {GamesBase, MockReporter} from "./GamesBase.sol";
@@ -25,11 +27,13 @@ contract CallingBackCoin is TestCoin {
     }
 }
 
-/// @dev A payout address that, when the coin pays it, withdraws again before the first withdrawal returns.
+/// @dev A payout address that, when the coin pays it, withdraws again before the first withdrawal returns, and
+///      keeps the refusal.
 contract CoinReceiver {
     IOspexGames internal immutable i_games;
     uint256 public reentered;
     bool public tried;
+    bytes public refusal;
 
     constructor(IOspexGames games) {
         i_games = games;
@@ -44,7 +48,9 @@ contract CoinReceiver {
         tried = true;
         try i_games.withdraw() returns (uint256 amount) {
             reentered = amount;
-        } catch {}
+        } catch (bytes memory err) {
+            refusal = err;
+        }
     }
 }
 
@@ -86,6 +92,39 @@ contract OspexGamesFeeTest is GamesBase {
         );
     }
 
+    /// The coin's check refuses no code and a wallet's delegation, and nothing else. Code of 1, 22, 23 and 24
+    /// bytes that is no delegation is a contract, and is taken: among them 23 bytes that do not begin 0xef, and
+    /// 23 bytes that begin 0xef0000. A delegation is 23 bytes too, 0xef0100 and an address, so a check of the
+    /// length alone would refuse what is not one. Control: the delegation itself is refused.
+    /// Break: in the constructor, change `if (coin.code.length == 0 || _isDelegated(coin))` to
+    /// `if (coin.code.length <= 23)`. The 23-byte coins that are no delegation are then refused.
+    function test_constructor_takesACoinOfAnyLengthThatIsNotADelegation() public {
+        address only = address(new MockReporter(IOspexGames(address(0))));
+        bytes[5] memory codes = [
+            bytes(hex"00"),
+            abi.encodePacked(hex"60", bytes21(keccak256("twenty-two"))),
+            abi.encodePacked(hex"60", bytes22(keccak256("twenty-three"))),
+            abi.encodePacked(hex"ef0000", address(token)),
+            abi.encodePacked(hex"60", bytes23(keccak256("twenty-four")))
+        ];
+        uint256[5] memory lengths = [uint256(1), 22, 23, 23, 24];
+        for (uint256 i; i < codes.length; ++i) {
+            address coin = makeAddr(string.concat("a coin of length ", vm.toString(i)));
+            vm.etch(coin, codes[i]);
+            assertEq(coin.code.length, lengths[i], "the code's length");
+            OspexGames g = new OspexGames(
+                address(timelock), IERC20(coin), _launchTerms(), _one(only), _kinds1(ReporterKind.FirstN), _hashes(_one(only))
+            );
+            assertEq(address(g.i_token()), coin, "the coin taken");
+        }
+        address delegated = makeAddr("a delegation");
+        vm.etch(delegated, abi.encodePacked(hex"ef0100", address(token)));
+        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__TokenNotAContract.selector, delegated));
+        new OspexGames(
+            address(timelock), IERC20(delegated), _launchTerms(), _one(only), _kinds1(ReporterKind.FirstN), _hashes(_one(only))
+        );
+    }
+
     // ──────────────────────────── Creation ─────────────────────────────
 
     /// A creation takes exactly the game's fee from its creator, under an allowance of exactly that much, and
@@ -97,7 +136,7 @@ contract OspexGamesFeeTest is GamesBase {
         token.approve(address(games), FEE);
 
         vm.prank(who, who);
-        uint256 game = games.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+        uint256 game = games.createGame("nba", "Home", "Away", DATE, new Hint[](0), ANY_FEE);
         assertEq(token.balanceOf(who), 4 * uint256(FEE), "the creator paid the fee");
         assertEq(token.balanceOf(address(games)), FEE, "the games set holds it");
         assertEq(token.allowance(who, address(games)), 0, "the allowance is spent");
@@ -109,7 +148,7 @@ contract OspexGamesFeeTest is GamesBase {
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(games), 0, FEE)
         );
-        games.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+        games.createGame("nba", "Home", "Away", DATE, new Hint[](0), ANY_FEE);
         assertEq(games.gameCount(), 1, "a refused creation made a game");
     }
 
@@ -120,12 +159,12 @@ contract OspexGamesFeeTest is GamesBase {
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(games), 0, FEE)
         );
-        games.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+        games.createGame("nba", "Home", "Away", DATE, new Hint[](0), ANY_FEE);
         vm.prank(broke);
         token.approve(address(games), FEE);
         vm.prank(broke, broke);
         vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, broke, 0, FEE));
-        games.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+        games.createGame("nba", "Home", "Away", DATE, new Hint[](0), ANY_FEE);
         assertEq(games.gameCount(), 0, "a refused creation made a game");
         assertEq(token.balanceOf(address(games)), 0);
     }
@@ -141,7 +180,7 @@ contract OspexGamesFeeTest is GamesBase {
         token.setPaused(true);
         vm.expectCall(address(token), "", 0); // no call of any kind
         vm.prank(broke, broke);
-        uint256 game = games.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+        uint256 game = games.createGame("nba", "Home", "Away", DATE, new Hint[](0), ANY_FEE);
         (uint96 held, address recorded) = games.getGameFee(game);
         assertEq(held, 0, "a game made at 0 holds nothing");
         assertEq(recorded, broke, "its creator is recorded all the same");
@@ -179,12 +218,12 @@ contract OspexGamesFeeTest is GamesBase {
         coin.setRefusing(true);
         vm.prank(creator, creator);
         vm.expectRevert(abi.encodeWithSelector(SafeERC20.SafeERC20FailedOperation.selector, address(coin)));
-        g.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+        g.createGame("nba", "Home", "Away", DATE, new Hint[](0), ANY_FEE);
         assertEq(g.gameCount(), 0, "a game was made on a transfer that moved nothing");
 
         coin.setRefusing(false);
         vm.prank(creator, creator);
-        uint256 game = g.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+        uint256 game = g.createGame("nba", "Home", "Away", DATE, new Hint[](0), ANY_FEE);
         vm.warp(DATE - 1 hours);
         r.send(_startReport(game, START));
         vm.warp(START + 10);
@@ -223,7 +262,7 @@ contract OspexGamesFeeTest is GamesBase {
                     OspexGames.OspexGames__FeeNotReceived.selector, uint256(FEE), held, held + arrives
                 )
             );
-            games.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+            games.createGame("nba", "Home", "Away", DATE, new Hint[](0), ANY_FEE);
             assertEq(games.gameCount(), 1, "a game was made on a fee that did not arrive");
             assertEq(token.balanceOf(address(games)), held, "the games set's coin moved");
             assertEq(token.balanceOf(creator), purse, "the creator's coin moved");
@@ -231,7 +270,7 @@ contract OspexGamesFeeTest is GamesBase {
         }
         token.setCut(0);
         vm.prank(creator, creator);
-        uint256 game = games.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+        uint256 game = games.createGame("nba", "Home", "Away", DATE, new Hint[](0), ANY_FEE);
         assertEq(_held(game), FEE, "control: the game holds its fee");
         assertEq(token.balanceOf(address(games)), held + FEE, "control: the fee arrived");
     }
@@ -256,16 +295,106 @@ contract OspexGamesFeeTest is GamesBase {
         vm.expectRevert(
             abi.encodeWithSelector(OspexGames.OspexGames__FeeNotReceived.selector, uint256(FEE), 0, uint256(FEE) + 7)
         );
-        g.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+        g.createGame("nba", "Home", "Away", DATE, new Hint[](0), ANY_FEE);
         assertEq(g.gameCount(), 0, "a game was made on more than its fee");
         assertEq(coin.balanceOf(address(g)), 0);
 
         coin.setBonus(0);
         vm.prank(creator, creator);
-        uint256 game = g.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+        uint256 game = g.createGame("nba", "Home", "Away", DATE, new Hint[](0), ANY_FEE);
         (uint96 held,) = g.getGameFee(game);
         assertEq(held, FEE, "control: the game holds its fee");
         assertEq(coin.balanceOf(address(g)), FEE, "control: the fee arrived");
+    }
+
+    // ──────────────────────────── The most a creator pays ─────────────
+
+    /// A creation pays its fee as it runs, never the most it named: named exactly, named a unit above, and named
+    /// any amount, each takes the one fee; after a cut to half a fee, naming a whole one takes the half. Named a
+    /// unit below the fee, it is refused by name with both amounts, and nothing is taken. At a fee of 0, naming
+    /// 0 is enough.
+    /// Break: in createGame(), change `terms.fee > maxFee` to `terms.fee >= maxFee`. Naming the fee exactly is
+    /// then refused.
+    function test_create_paysTheFeeAsItRunsNeverTheMostNamed() public {
+        address who = makeAddr("a creator");
+        token.mint(who, 100 * uint256(FEE));
+        vm.prank(who);
+        token.approve(address(games), type(uint256).max);
+        uint256[3] memory named = [uint256(FEE), uint256(FEE) + 1, ANY_FEE];
+        for (uint256 i; i < named.length; ++i) {
+            uint256 before = token.balanceOf(who);
+            vm.prank(who, who);
+            uint256 game = games.createGame("nba", "Home", "Away", DATE, new Hint[](0), named[i]);
+            assertEq(before - token.balanceOf(who), FEE, "paid the fee, not the most named");
+            assertEq(_held(game), FEE, "the game holds the fee");
+        }
+        _setTerms("", _feeTerms(FEE / 2));
+        uint256 b = token.balanceOf(who);
+        vm.prank(who, who);
+        games.createGame("nba", "Home", "Away", DATE, new Hint[](0), FEE);
+        assertEq(b - token.balanceOf(who), FEE / 2, "a lower fee is paid as it stands");
+
+        uint256 count = games.gameCount();
+        b = token.balanceOf(who);
+        vm.prank(who, who);
+        vm.expectRevert(
+            abi.encodeWithSelector(OspexGames.OspexGames__FeeAboveMax.selector, uint256(FEE / 2), uint256(FEE / 2) - 1)
+        );
+        games.createGame("nba", "Home", "Away", DATE, new Hint[](0), uint256(FEE / 2) - 1);
+        assertEq(games.gameCount(), count, "a game was made");
+        assertEq(token.balanceOf(who), b, "coin was taken");
+
+        _setTerms("", _feeTerms(0));
+        vm.prank(who, who);
+        games.createGame("nba", "Home", "Away", DATE, new Hint[](0), 0);
+        assertEq(games.gameCount(), count + 1, "at 0, naming 0 creates");
+        assertEq(token.balanceOf(who), b, "at 0 nothing is taken");
+    }
+
+    /// A creation whose fee is above the most named is refused by that name before the coin is called, so the
+    /// coin's state has no say. Five states in which the pull itself would be refused under its own name: the
+    /// coin paused, the creator blocked, the games set blocked, a cut kept, and a creator with no coin and no
+    /// allowance. Each time the refusal is the same, and the call reached no coin address at all. Control:
+    /// named the fee, with the coin taking transfers, the same creation is made.
+    /// Break: in createGame(), move `if (terms.fee > maxFee) revert OspexGames__FeeAboveMax(terms.fee, maxFee);`
+    /// to just after `if (terms.fee != 0) _takeFee(terms.fee);`. The coin is then called first, and its own
+    /// refusal, or the cut's, is named instead.
+    function test_create_aFeeAboveTheMostNamedIsRefusedBeforeTheCoinIsCalled() public {
+        address broke = makeAddr("no coin, no allowance");
+        bytes memory refusal =
+            abi.encodeWithSelector(OspexGames.OspexGames__FeeAboveMax.selector, uint256(FEE), uint256(FEE) - 1);
+        for (uint256 i; i < 5; ++i) {
+            if (i == 0) token.setPaused(true);
+            if (i == 1) {
+                token.setPaused(false);
+                token.setBlocked(creator, true);
+            }
+            if (i == 2) {
+                token.setBlocked(creator, false);
+                token.setBlocked(address(games), true);
+            }
+            if (i == 3) {
+                token.setBlocked(address(games), false);
+                token.setCut(1);
+            }
+            if (i == 4) token.setCut(0);
+            vm.startStateDiffRecording();
+            vm.prank(i == 4 ? broke : creator, i == 4 ? broke : creator);
+            (bool ok, bytes memory err) = address(games).call(
+                abi.encodeCall(IOspexGames.createGame, ("nba", "Home", "Away", DATE, new Hint[](0), uint256(FEE) - 1))
+            );
+            VmSafe.AccountAccess[] memory accesses = vm.stopAndReturnStateDiff();
+            assertFalse(ok, "a creation above the most named");
+            assertEq(err, refusal, "the refusal");
+            assertGt(accesses.length, 0, "nothing was recorded");
+            for (uint256 j; j < accesses.length; ++j) {
+                assertTrue(accesses[j].account != address(token), "the coin was called");
+            }
+        }
+        assertEq(games.gameCount(), 0, "a game was made");
+        vm.prank(creator, creator);
+        games.createGame("nba", "Home", "Away", DATE, new Hint[](0), FEE);
+        assertEq(games.gameCount(), 1, "control: named the fee, the game is made");
     }
 
     // ──────────────────────────── The ends ─────────────────────────────
@@ -317,6 +446,53 @@ contract OspexGamesFeeTest is GamesBase {
         games.withdraw();
     }
 
+    /// A score's refusals name its first fault in one order: the game's status, a start field set, the payout
+    /// address, then the scores, the start's hour and n's window. A score whose payout is the games set and
+    /// which is faulty in a later way too is refused for its payout, each way: a score above MAX_SCORE, a score
+    /// sent before the start, and a score sent by an after-n reporter inside n. The same score with its start
+    /// field set is refused for the start field. Controls: each later fault alone is refused by its own name.
+    /// Break: in _writeScore(), move `_checkPayout(ReportKind.Score, r.payout);` from above the score's range
+    /// check to below the InsideWindow check. A faulty payout is then named only once the score and the clock
+    /// pass.
+    function test_score_namesAPayoutFaultBeforeTheScoreAndTheClock() public {
+        uint256 game = _create();
+        vm.warp(DATE - 1 hours);
+        _startBy(first, game, START);
+        bytes memory payoutFault =
+            abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsTheGamesSet.selector, ReportKind.Score);
+        uint32 tooHigh = games.MAX_SCORE() + 1;
+
+        vm.warp(START + 10);
+        Report memory high = _scoreReportTo(game, address(games));
+        high.homeScore = tooHigh;
+        _assertRefusedWith(first, high, payoutFault);
+        _assertRefusedWith(later, _scoreReportTo(game, address(games)), payoutFault); // inside n
+        Report memory withStart = _scoreReportTo(game, address(games));
+        withStart.start = START;
+        _assertRefusedWith(
+            first, withStart, abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Score)
+        );
+        vm.warp(START - 1);
+        _assertRefusedWith(first, _scoreReportTo(game, address(games)), payoutFault); // before the start
+
+        // Controls: each later fault alone.
+        _assertRefusedWith(
+            first, _scoreReport(game, HOME, AWAY), abi.encodeWithSelector(OspexGames.OspexGames__BeforeStart.selector, game, START)
+        );
+        vm.warp(START + 10);
+        _assertRefusedWith(
+            first,
+            _scoreReport(game, tooHigh, AWAY),
+            abi.encodeWithSelector(OspexGames.OspexGames__ScoreOutOfRange.selector, tooHigh, AWAY)
+        );
+        _assertRefusedWith(
+            later,
+            _scoreReport(game, HOME, AWAY),
+            abi.encodeWithSelector(OspexGames.OspexGames__InsideWindow.selector, game, uint256(START) + WINDOW)
+        );
+        _take(address(first), _scoreReport(game, HOME, AWAY));
+    }
+
     // ──────────────────────────── Withdrawal ───────────────────────────
 
     /// Credits add up across games and fees, for each address apart. A withdrawal pays its caller its own
@@ -360,10 +536,11 @@ contract OspexGamesFeeTest is GamesBase {
     }
 
     /// A coin that calls the payee back as it pays: the payee withdraws again from inside the payment, and
-    /// is refused, because its credit was spent before the coin was called. Another game's held fee is still
-    /// there, and the payee is paid once.
-    /// Break: in withdraw(), move `s_credits[msg.sender] = 0;` below `i_token.safeTransfer(msg.sender, amount);`.
-    /// The call back is then paid a second time, out of the other game's fee.
+    /// is refused, because one withdrawal runs at a time; its credit was spent before the coin was called as
+    /// well. Another game's held fee is still there, and the payee is paid once.
+    /// Break: in withdraw(), delete `nonReentrant`. The call back is then refused for the spent credit instead
+    /// (NothingToWithdraw), and this test reads the other refusal. The spent credit's own break is in
+    /// OspexGamesFeeCallbacks.t.sol.
     function test_withdraw_aCoinThatCallsBackPaysOnce() public {
         CallingBackCoin coin = new CallingBackCoin();
         MockReporter r = new MockReporter(IOspexGames(vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1)));
@@ -375,8 +552,8 @@ contract OspexGamesFeeTest is GamesBase {
         vm.prank(creator);
         coin.approve(address(g), type(uint256).max);
         vm.startPrank(creator, creator);
-        uint256 a = g.createGame("nba", "Home", "Away", DATE, new Hint[](0));
-        uint256 b = g.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+        uint256 a = g.createGame("nba", "Home", "Away", DATE, new Hint[](0), ANY_FEE);
+        uint256 b = g.createGame("nba", "Home", "Away", DATE, new Hint[](0), ANY_FEE);
         vm.stopPrank();
         vm.warp(DATE - 1 hours);
         r.send(_startReport(a, START));
@@ -386,6 +563,11 @@ contract OspexGamesFeeTest is GamesBase {
         assertEq(receiver.withdraw(), FEE, "paid once");
         assertTrue(receiver.tried(), "the coin called back");
         assertEq(receiver.reentered(), 0, "the call back was paid");
+        assertEq(
+            receiver.refusal(),
+            abi.encodeWithSelector(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector),
+            "refused as a second withdrawal running inside the first"
+        );
         assertEq(coin.balanceOf(address(receiver)), FEE);
         assertEq(coin.balanceOf(address(g)), FEE, "the other game's fee is still held");
         (uint96 held,) = g.getGameFee(b);
@@ -506,5 +688,11 @@ contract OspexGamesFeeTest is GamesBase {
             games.getGameStatus(ids[i]);
         }
         assertEq(games.gameCount(), 1, "the count moved");
+    }
+
+    function _assertRefusedWith(MockReporter by, Report memory r, bytes memory why) internal {
+        (bool ok, bytes memory err) = _send(address(by), r);
+        assertFalse(ok, "a faulty score was taken");
+        assertEq(err, why, "the refusal");
     }
 }

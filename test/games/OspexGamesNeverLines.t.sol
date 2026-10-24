@@ -1116,7 +1116,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
             vm.prank(creator);
             token.approve(address(g), FEE);
             vm.prank(creator, creator);
-            uint256 game = g.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+            uint256 game = g.createGame("nba", "Home", "Away", DATE, new Hint[](0), ANY_FEE);
             (address[] memory r,) = g.getGameReporters(game);
             assertEq(r.length, 1, "the changed list");
             assertEq(r[0], address(r2), "the approved reporter");
@@ -1274,8 +1274,8 @@ contract OspexGamesNeverLinesTest is GamesBase {
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
     // "The creation fee goes to an address where it literally can't be withdrawn." The chain refuses those it
-    //  can name: 0, the games set, the coin, and every address ever approved as a reporter. That any other
-    //  payout address can call withdraw is for review.
+    //  can name: 0 and the rest of the reserved range up to 0xffff, the games set, the coin, and every address
+    //  ever approved as a reporter. That any other payout address can call withdraw is for review.
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// A score naming address 0 as its payout is refused by name, and the game keeps its fee: nothing is
@@ -1287,6 +1287,36 @@ contract OspexGamesNeverLinesTest is GamesBase {
         _assertPayoutRefused(
             first, address(0), abi.encodeWithSelector(OspexGames.OspexGames__NoPayout.selector, ReportKind.Score)
         );
+    }
+
+    /// The same, naming an address from 1 to MAX_RESERVED_ADDRESS, the range set aside for precompiles and a
+    /// chain's own contracts: the first precompile, the last one Ethereum has today (0x11), Polygon's P-256
+    /// check (0x100), Polygon's native coin's contract (0x1010) and the range's last address. Each is refused
+    /// by name, with the address. Control, beside the helper's own: 0x10000, the first address past the range,
+    /// is credited and withdraws.
+    /// Break: in _checkPayout(), delete `if (uint160(payout) <= uint160(MAX_RESERVED_ADDRESS)) revert
+    /// OspexGames__PayoutIsReserved(kind, payout);`. The score is then taken and the fee credited to a
+    /// precompile, which never calls withdraw.
+    function test_neverLine_aPayoutOfAReservedAddressIsRefused() public {
+        assertEq(games.MAX_RESERVED_ADDRESS(), address(0xffff), "the range's last address");
+        address[5] memory reserved = [address(1), address(0x11), address(0x100), address(0x1010), address(0xffff)];
+        for (uint256 i; i < reserved.length; ++i) {
+            _assertPayoutRefused(
+                first,
+                reserved[i],
+                abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsReserved.selector, ReportKind.Score, reserved[i])
+            );
+        }
+        address past = address(0x10000);
+        uint256 game = _create();
+        vm.warp(DATE - 1 hours);
+        _startBy(first, game, START);
+        vm.warp(START + 10);
+        _take(address(first), _scoreReportTo(game, past));
+        assertEq(games.getCredit(past), FEE, "control: the first address past the range is credited");
+        vm.prank(past);
+        assertEq(games.withdraw(), FEE, "control: and withdraws");
+        assertEq(token.balanceOf(past), FEE);
     }
 
     /// The same, naming the games set's own address.
@@ -1373,9 +1403,9 @@ contract OspexGamesNeverLinesTest is GamesBase {
     /// transaction's origin, `if (payout == address(i_token) || payout == tx.origin) revert ...`, would refuse
     /// the runner's own report here.
     function testFuzz_neverLine_theFeeGoesToThePayoutInsideTheReport(address runner, uint96 fee) public {
-        // Not an address the chain refuses as payout: 0, the games set, the coin, or a reporter. Nor the
-        // cheatcode address, which cannot send.
-        vm.assume(runner != address(0) && runner != address(games) && runner != address(token));
+        // Not an address the chain refuses as payout: the reserved range from 0, the games set, the coin, or a
+        // reporter. Nor the cheatcode address, which cannot send.
+        vm.assume(uint160(runner) > 0xffff && runner != address(games) && runner != address(token));
         vm.assume(runner != address(first) && runner != address(later) && runner != address(second));
         vm.assume(runner != address(vm));
         fee = uint96(bound(fee, 1, PURSE));
@@ -1423,7 +1453,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
         uint256 g1 = _create();
         _setTerms("", _feeTerms(3 * FEE));
         vm.prank(other, other);
-        uint256 g2 = games.createGame("nba", "Denver Nuggets", "Utah Jazz", DATE, _hints());
+        uint256 g2 = games.createGame("nba", "Denver Nuggets", "Utah Jazz", DATE, _hints(), ANY_FEE);
         uint256 g3 = _create();
         uint256 g4 = _create();
         vm.warp(DATE - 1 hours);
@@ -1636,6 +1666,59 @@ contract OspexGamesNeverLinesTest is GamesBase {
         assertEq(token.balanceOf(address(games)), 0, "the games set holds nothing");
     }
 
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A creation pulls more than the fee its caller named." Not in the spec's text: a line for this piece,
+    //  added in its review.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// A creator reads the fee, 1 USDC, and allows the games set far more than that, as a standing allowance
+    /// does. A raise to 100 USDC is queued in the timelock. While it waits, a creation naming the 1 it read
+    /// takes 1. Then the raise runs first, and the same creation, naming the same 1, is refused by name before
+    /// the coin is called: the call reaches no coin address, no game is made, and no coin moves. The creator
+    /// read 100 and named it: the creation takes 100.
+    /// Break: in createGame(), delete `if (terms.fee > maxFee) revert OspexGames__FeeAboveMax(terms.fee,
+    /// maxFee);`. The same creation then takes the 100.
+    function test_neverLine_aCreationPullsNoMoreThanTheFeeItsCallerNamed() public {
+        address who = makeAddr("a creator with a standing allowance");
+        token.mint(who, 1_000 * uint256(FEE));
+        vm.prank(who);
+        token.approve(address(games), type(uint256).max);
+        uint256 named = games.getTerms("nba").fee;
+        assertEq(named, FEE, "the fee the creator read");
+
+        bytes memory raise = abi.encodeCall(IOspexGames.setTerms, ("", _feeTerms(100 * FEE)));
+        vm.prank(timelockKey);
+        timelock.schedule(address(games), 0, raise, bytes32(0), bytes32("raise"), DELAY);
+        vm.prank(who, who);
+        games.createGame("nba", "Home", "Away", DATE, new Hint[](0), named);
+        assertEq(token.balanceOf(who), 999 * uint256(FEE), "while the raise waits, the fee read");
+
+        vm.warp(vm.getBlockTimestamp() + DELAY);
+        vm.prank(stranger);
+        timelock.execute(address(games), 0, raise, bytes32(0), bytes32("raise"));
+        assertEq(games.getTerms("nba").fee, 100 * FEE, "the raise ran first");
+        uint256 count = games.gameCount();
+        uint256 held = token.balanceOf(address(games));
+        vm.startStateDiffRecording();
+        vm.prank(who, who);
+        (bool ok, bytes memory err) = address(games).call(
+            abi.encodeCall(IOspexGames.createGame, ("nba", "Home", "Away", DATE, new Hint[](0), named))
+        );
+        VmSafe.AccountAccess[] memory accesses = vm.stopAndReturnStateDiff();
+        assertFalse(ok, "a creation took more than its caller named");
+        assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__FeeAboveMax.selector, 100 * uint256(FEE), named));
+        for (uint256 i; i < accesses.length; ++i) {
+            assertTrue(accesses[i].account != address(token), "the coin was called");
+        }
+        assertEq(games.gameCount(), count, "a game was made");
+        assertEq(token.balanceOf(who), 999 * uint256(FEE), "the creator's coin moved");
+        assertEq(token.balanceOf(address(games)), held, "the games set's coin moved");
+
+        vm.prank(who, who);
+        games.createGame("nba", "Home", "Away", DATE, new Hint[](0), 100 * uint256(FEE));
+        assertEq(token.balanceOf(who), 899 * uint256(FEE), "control: named the new fee, it is taken");
+    }
+
     // ──────────────────────────── Helpers ──────────────────────────────
 
     /// @dev `by` scores a new game naming `bad` as the payout address: see _assertPayoutRefusedOn.
@@ -1822,7 +1905,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
             // Anyone may create a game, a reporter or the key included, and pays the fee to.
             if (token.allowance(callers[c], address(games)) == 0) _fund(callers[c], address(games));
             vm.prank(callers[c], callers[c]);
-            games.createGame("nhl", "A", "B", DATE, _hints());
+            games.createGame("nhl", "A", "B", DATE, _hints(), ANY_FEE);
             // And anyone may withdraw what it has been credited, which touches no game.
             vm.prank(callers[c], callers[c]);
             (bool paid,) = address(games).call(abi.encodeCall(IOspexGames.withdraw, ()));

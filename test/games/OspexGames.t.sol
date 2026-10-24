@@ -25,7 +25,7 @@ contract Creator {
     }
 
     function create() external returns (uint256) {
-        return i_games.createGame("nhl", "Home", "Away", 1_800_000_037, new Hint[](0));
+        return i_games.createGame("nhl", "Home", "Away", 1_800_000_037, new Hint[](0), type(uint256).max);
     }
 }
 
@@ -63,7 +63,7 @@ contract OspexGamesTest is GamesBase {
         vm.prank(creator);
         token.approve(address(g), FEE);
         vm.prank(creator);
-        uint256 game = g.createGame("mlb", "Home", "Away", DATE, new Hint[](0));
+        uint256 game = g.createGame("mlb", "Home", "Away", DATE, new Hint[](0), type(uint256).max);
         (address[] memory r, uint8[] memory k) = g.getGameReporters(game);
         assertEq(r.length, 1);
         assertEq(r[0], only);
@@ -160,7 +160,7 @@ contract OspexGamesTest is GamesBase {
         Hint[] memory hints = _hints();
         vm.recordLogs();
         vm.prank(creator, creator);
-        uint256 game = games.createGame("ncaab", "Saint Mary's (CA)", "Gonzaga", DATE + 5, hints);
+        uint256 game = games.createGame("ncaab", "Saint Mary's (CA)", "Gonzaga", DATE + 5, hints, ANY_FEE);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         // The games set's one event, then the coin's: the creator pays the league's own fee to the games set.
@@ -242,29 +242,29 @@ contract OspexGamesTest is GamesBase {
     function test_create_leagueId() public {
         string[8] memory good = ["a", "nfl", "ncaab", "f1", "0", "z9", "abcdefghijklmnop", "0123456789abcdef"];
         for (uint256 i; i < good.length; ++i) {
-            games.createGame(good[i], "H", "A", DATE, new Hint[](0));
+            games.createGame(good[i], "H", "A", DATE, new Hint[](0), ANY_FEE);
         }
         // Empty, one past the limit, and each neighbour of a-z and 0-9 in ASCII, plus the separators.
         string[12] memory bad =
             ["", "abcdefghijklmnopq", "NFL", "nFl", "n-fl", "n fl", "n_fl", "`", "{", "/", ":", "nfl\x00"];
         for (uint256 i; i < bad.length; ++i) {
             vm.expectRevert(OspexGames.OspexGames__LeagueNotValid.selector);
-            games.createGame(bad[i], "H", "A", DATE, new Hint[](0));
+            games.createGame(bad[i], "H", "A", DATE, new Hint[](0), ANY_FEE);
         }
         // A byte above 0x7f.
         vm.expectRevert(OspexGames.OspexGames__LeagueNotValid.selector);
-        games.createGame(string(hex"6e66c3a9"), "H", "A", DATE, new Hint[](0));
+        games.createGame(string(hex"6e66c3a9"), "H", "A", DATE, new Hint[](0), ANY_FEE);
     }
 
     function test_create_teams() public {
         string memory max = _repeat("x", 64);
         string memory over = _repeat("x", 65);
         // The printable edges, space and tilde: a space is taken first and last, beside one other character.
-        games.createGame("nba", " !", "~ ", DATE, new Hint[](0));
-        games.createGame("nba", "a b", "~", DATE, new Hint[](0));
-        games.createGame("nba", max, "y", DATE, new Hint[](0));
-        games.createGame("nba", "y", max, DATE, new Hint[](0));
-        games.createGame("nba", string.concat(_repeat(" ", 63), "z"), "y", DATE, new Hint[](0));
+        games.createGame("nba", " !", "~ ", DATE, new Hint[](0), ANY_FEE);
+        games.createGame("nba", "a b", "~", DATE, new Hint[](0), ANY_FEE);
+        games.createGame("nba", max, "y", DATE, new Hint[](0), ANY_FEE);
+        games.createGame("nba", "y", max, DATE, new Hint[](0), ANY_FEE);
+        games.createGame("nba", string.concat(_repeat(" ", 63), "z"), "y", DATE, new Hint[](0), ANY_FEE);
 
         // Empty, too long, only spaces, and a control byte, DEL or a non-ASCII byte first, inside and last.
         string[14] memory bad = [
@@ -285,15 +285,15 @@ contract OspexGamesTest is GamesBase {
         ];
         for (uint256 i; i < bad.length; ++i) {
             vm.expectRevert(OspexGames.OspexGames__TeamNotValid.selector);
-            games.createGame("nba", bad[i], "Away", DATE, new Hint[](0));
+            games.createGame("nba", bad[i], "Away", DATE, new Hint[](0), ANY_FEE);
             vm.expectRevert(OspexGames.OspexGames__TeamNotValid.selector);
-            games.createGame("nba", "Home", bad[i], DATE, new Hint[](0));
+            games.createGame("nba", "Home", bad[i], DATE, new Hint[](0), ANY_FEE);
         }
 
         vm.expectRevert(OspexGames.OspexGames__SameTeams.selector);
-        games.createGame("nba", "Utah Jazz", "Utah Jazz", DATE, new Hint[](0));
+        games.createGame("nba", "Utah Jazz", "Utah Jazz", DATE, new Hint[](0), ANY_FEE);
         // Control: text that differs only in case is two teams to the contract.
-        games.createGame("nba", "Utah Jazz", "utah jazz", DATE, new Hint[](0));
+        games.createGame("nba", "Utah Jazz", "utah jazz", DATE, new Hint[](0), ANY_FEE);
     }
 
     /// A date is not 0 and is at most a year after the creation. A date long past is taken: a late creation
@@ -303,18 +303,18 @@ contract OspexGamesTest is GamesBase {
         uint64[5] memory bad = [uint64(0), edge + 1, edge + 30 days, DATE * 1000, type(uint64).max];
         for (uint256 i; i < bad.length; ++i) {
             vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__DateNotValid.selector, bad[i]));
-            games.createGame("nba", "H", "A", bad[i], new Hint[](0));
+            games.createGame("nba", "H", "A", bad[i], new Hint[](0), ANY_FEE);
         }
         uint64[4] memory good = [uint64(1), DATE - 400 days, DATE, edge];
         for (uint256 i; i < good.length; ++i) {
-            uint256 game = games.createGame("nba", "H", "A", good[i], new Hint[](0));
+            uint256 game = games.createGame("nba", "H", "A", good[i], new Hint[](0), ANY_FEE);
             assertEq(game, i + 1, "a good date was refused");
         }
         // The cap counts from the creation's own time: a day later, a date a day further on is taken.
         vm.warp(vm.getBlockTimestamp() + 1 days);
-        games.createGame("nba", "H", "A", edge + 1 days, new Hint[](0));
+        games.createGame("nba", "H", "A", edge + 1 days, new Hint[](0), ANY_FEE);
         vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__DateNotValid.selector, edge + 1 days + 1));
-        games.createGame("nba", "H", "A", edge + 1 days + 1, new Hint[](0));
+        games.createGame("nba", "H", "A", edge + 1 days + 1, new Hint[](0), ANY_FEE);
     }
 
     function test_create_hints() public {
@@ -322,14 +322,14 @@ contract OspexGamesTest is GamesBase {
         for (uint256 i; i < 8; ++i) {
             eight[i] = Hint({seat: uint8(i), id: _repeat("9", 64)});
         }
-        games.createGame("nba", "H", "A", DATE, eight);
+        games.createGame("nba", "H", "A", DATE, eight, ANY_FEE);
 
         Hint[] memory nine = new Hint[](9);
         for (uint256 i; i < 9; ++i) {
             nine[i] = Hint({seat: 1, id: "1"});
         }
         vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__TooManyHints.selector, 9));
-        games.createGame("nba", "H", "A", DATE, nine);
+        games.createGame("nba", "H", "A", DATE, nine, ANY_FEE);
 
         string[8] memory bad = ["", _repeat("9", 65), " ", _repeat(" ", 64), "a\nb", "\x1fab", "ab\x7f", string(hex"c3a9")];
         uint256[3] memory at = [uint256(0), 3, 7];
@@ -338,13 +338,13 @@ contract OspexGamesTest is GamesBase {
                 Hint[] memory h = _eightSeats();
                 h[at[p]].id = bad[i];
                 vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__HintNotValid.selector, at[p]));
-                games.createGame("nba", "H", "A", DATE, h);
+                games.createGame("nba", "H", "A", DATE, h, ANY_FEE);
             }
         }
         // Control: an id with spaces and one other character is taken.
         Hint[] memory spaced = _eightSeats();
         spaced[7].id = string.concat(_repeat(" ", 63), "1");
-        games.createGame("nba", "H", "A", DATE, spaced);
+        games.createGame("nba", "H", "A", DATE, spaced, ANY_FEE);
     }
 
     /// No seat is hinted twice: the second hint for a seat is refused wherever the two sit, at both ends of
@@ -358,7 +358,7 @@ contract OspexGamesTest is GamesBase {
             h[twice[c][1]].seat = uint8(twice[c][2]);
             h[twice[c][1]].id = "another id";
             vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__HintSeatRepeated.selector, twice[c][1]));
-            games.createGame("nba", "H", "A", DATE, h);
+            games.createGame("nba", "H", "A", DATE, h, ANY_FEE);
         }
         // Controls: neighbouring seats and the two ends of the range together are taken.
         uint8[2][3] memory pairs = [[uint8(0), uint8(255)], [uint8(254), uint8(255)], [uint8(0), uint8(1)]];
@@ -366,13 +366,13 @@ contract OspexGamesTest is GamesBase {
             Hint[] memory h = new Hint[](2);
             h[0] = Hint({seat: pairs[c][0], id: "a"});
             h[1] = Hint({seat: pairs[c][1], id: "a"});
-            games.createGame("nba", "H", "A", DATE, h);
+            games.createGame("nba", "H", "A", DATE, h, ANY_FEE);
         }
         // And the same id under two seats is two hints.
         Hint[] memory sameId = new Hint[](2);
         sameId[0] = Hint({seat: 1, id: "18432"});
         sameId[1] = Hint({seat: 2, id: "18432"});
-        games.createGame("nba", "H", "A", DATE, sameId);
+        games.createGame("nba", "H", "A", DATE, sameId, ANY_FEE);
     }
 
     // ──────────────────────────── The start ────────────────────────────
@@ -732,14 +732,14 @@ contract OspexGamesTest is GamesBase {
     function _assertScoreEvents(uint256 game) internal {
         vm.warp(START + 1);
         Report memory s = _scoreReport(game, HOME, AWAY);
-        s.payout = address(0xBEE);
+        s.payout = address(0xBEE00);
         vm.recordLogs();
         _take(address(second), s);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         assertEq(logs.length, 2);
         assertEq(logs[0].topics[0], IOspexGames.FeeCredited.selector);
         assertEq(uint256(logs[0].topics[1]), game);
-        assertEq(logs[0].topics[2], bytes32(uint256(uint160(address(0xBEE)))), "the payout address credited");
+        assertEq(logs[0].topics[2], bytes32(uint256(uint160(address(0xBEE00)))), "the payout address credited");
         assertEq(abi.decode(logs[0].data, (uint256)), FEE);
         assertEq(logs[1].topics[0], IOspexGames.GameReported.selector);
         assertEq(logs[1].topics[2], bytes32(uint256(uint160(address(second)))), "the reporter that wrote");
@@ -749,7 +749,7 @@ contract OspexGamesTest is GamesBase {
         assertEq(start, 0);
         assertEq(h, HOME);
         assertEq(a, AWAY);
-        assertEq(pay, address(0xBEE));
+        assertEq(pay, address(0xBEE00));
         _assertReadings(readings, _readings());
     }
 

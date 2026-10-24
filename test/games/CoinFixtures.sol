@@ -68,6 +68,57 @@ contract BonusCoin is TestCoin {
     }
 }
 
+/// @dev What a coin with transfer hooks calls back.
+interface ICoinHook {
+    function onCoin() external;
+}
+
+/// @dev A coin that does, on request, what coins with transfer fees, rebates and hooks do, none of which USDC
+///      does. With a cut it keeps that much of each transfer (all of a smaller one) and delivers the rest. With
+///      a charge it takes that much more from the sender than it sends. With a refund it gives the sender back
+///      that much of each transfer, minting it. A sender marked exempt meets none of the three. After a
+///      transfer from or to an address it was told to call, it calls that address back, and what that address
+///      does from there is its own. Minting and burning take nothing and call no one.
+contract TrickCoin is TestCoin {
+    uint256 public cut;
+    uint256 public charge;
+    uint256 public refund;
+    mapping(address => bool) public exempt;
+    mapping(address => bool) public hooked;
+
+    function setCut(uint256 cut_) external {
+        cut = cut_;
+    }
+
+    function setCharge(uint256 charge_) external {
+        charge = charge_;
+    }
+
+    function setRefund(uint256 refund_) external {
+        refund = refund_;
+    }
+
+    function setExempt(address account, bool on) external {
+        exempt[account] = on;
+    }
+
+    function setHooked(address account, bool on) external {
+        hooked[account] = on;
+    }
+
+    function _update(address from, address to, uint256 value) internal override {
+        bool plain = from == address(0) || to == address(0) || exempt[from];
+        uint256 kept = plain ? 0 : value < cut ? value : cut;
+        if (kept != 0) super._update(from, address(this), kept);
+        super._update(from, to, value - kept);
+        if (!plain && charge != 0) super._update(from, address(this), charge);
+        if (!plain && refund != 0) super._update(address(0), from, refund);
+        if (from == address(0) || to == address(0)) return;
+        if (hooked[from]) ICoinHook(from).onCoin();
+        if (hooked[to]) ICoinHook(to).onCoin();
+    }
+}
+
 /// @dev A coin that, once set to refuse, answers false and moves nothing instead of reverting, as some coins
 ///      do. A caller that reads no answer would take the call as paid.
 contract FalseCoin is TestCoin {

@@ -27,17 +27,17 @@ contract OspexGamesInterfaceTest is GamesBase {
     }
 
     /// The contract has exactly these functions: the three writes anyone may send (create, report, withdraw),
-    /// the timelock's three calls, the five reads, the other reads, nine constants and the two addresses fixed
+    /// the timelock's three calls, the five reads, the other reads, ten constants and the two addresses fixed
     /// at deploy. So it has no owner, no pause, no setter but the timelock's three, no fee receiver and no
     /// setter for one, and nothing else writes a game, the list or a credit.
     /// Break: add any external function to OspexGames, such as one that pushes onto a game's reporters.
     function test_theFunctionsAreExactlyThese() public view {
         string[] memory want = vm.split(
             "MAX_CLOCK();MAX_DATE_AHEAD();MAX_HINTS();MAX_HINT_ID_LENGTH();MAX_LEAGUE_LENGTH();MAX_REPORTERS();"
-            "MAX_SCORE();MAX_TEAM_LENGTH();START_BOUND();i_timelock();i_token();"
+            "MAX_RESERVED_ADDRESS();MAX_SCORE();MAX_TEAM_LENGTH();START_BOUND();i_timelock();i_token();"
             "approveReporter(address,uint8,bytes32);retireReporter(address);"
             "setTerms(string,(uint64,uint64,uint64,uint96));"
-            "createGame(string,string,string,uint64,(uint8,string)[]);"
+            "createGame(string,string,string,uint64,(uint8,string)[],uint256);"
             "report((uint256,uint8,uint64,uint32,uint32,(uint8,uint8,uint32,uint32)[],address));withdraw();"
             "gameCount();getGameReporters(uint256);getGameScores(uint256);getGameStart(uint256);"
             "getGameStatus(uint256);getGameWindow(uint256);getGameTerms(uint256);isEveryReporterRetired(uint256);"
@@ -64,7 +64,9 @@ contract OspexGamesInterfaceTest is GamesBase {
             "OspexGames__TokenNotAContract(address);OspexGames__PayoutIsTheGamesSet(uint8);"
             "OspexGames__PayoutIsTheCoin(uint8);OspexGames__PayoutIsAReporter(uint8,address);"
             "OspexGames__FeeNotReceived(uint256,uint256,uint256);OspexGames__NothingToWithdraw(address);"
-            "SafeERC20FailedOperation(address);"
+            "SafeERC20FailedOperation(address);OspexGames__FeeAboveMax(uint256,uint256);"
+            "OspexGames__WithdrawalNotExact(uint256,uint256,uint256);OspexGames__PayoutIsReserved(uint8,address);"
+            "ReentrancyGuardReentrantCall();"
             "OspexGames__NotTheTimelock(address);OspexGames__NoReporters();"
             "OspexGames__LengthsDiffer(uint256,uint256,uint256);OspexGames__NoFirstNReporter();"
             "OspexGames__NoKind(address);OspexGames__AlreadyApproved(address);OspexGames__ReporterRetired(address);"
@@ -113,6 +115,9 @@ contract OspexGamesInterfaceTest is GamesBase {
             "OspexGames__PayoutIsTheCoin(uint8 kind);OspexGames__PayoutIsAReporter(uint8 kind,address reporter);"
             "OspexGames__FeeNotReceived(uint256 fee,uint256 balanceBefore,uint256 balanceAfter);"
             "OspexGames__NothingToWithdraw(address account);SafeERC20FailedOperation(address token);"
+            "OspexGames__FeeAboveMax(uint256 fee,uint256 maxFee);"
+            "OspexGames__WithdrawalNotExact(uint256 amount,uint256 balanceBefore,uint256 balanceAfter);"
+            "OspexGames__PayoutIsReserved(uint8 kind,address payout);ReentrancyGuardReentrantCall();"
             "OspexGames__NotTheTimelock(address caller);OspexGames__NoReporters();"
             "OspexGames__LengthsDiffer(uint256 reporters,uint256 kinds,uint256 codeHashes);"
             "OspexGames__NoFirstNReporter();OspexGames__NoKind(address reporter);"
@@ -170,6 +175,9 @@ contract OspexGamesInterfaceTest is GamesBase {
             _assertParams(impl, string.concat(at, ".outputs"), "", types[i]);
             assertFalse(vm.keyExistsJson(impl, string.concat(at, ".inputs[0]")), names[i]);
         }
+        assertEq(games.MAX_RESERVED_ADDRESS(), address(0xffff));
+        _assertParams(impl, "$.abi[?(@.name == 'MAX_RESERVED_ADDRESS')].outputs", "", "address");
+        assertFalse(vm.keyExistsJson(impl, "$.abi[?(@.name == 'MAX_RESERVED_ADDRESS')].inputs[0]"), "MAX_RESERVED_ADDRESS");
         _assertParams(impl, "$.abi[?(@.name == 'i_timelock')].outputs", "", "address");
         _assertParams(impl, "$.abi[?(@.name == 'i_token')].outputs", "", "address");
         assertEq(vm.parseJsonString(impl, "$.abi[?(@.name == 'i_token')].outputs[0].internalType"), "contract IERC20");
@@ -177,7 +185,8 @@ contract OspexGamesInterfaceTest is GamesBase {
 
     function test_theSelectorsAreThese() public pure {
         assertEq(
-            IOspexGames.createGame.selector, bytes4(keccak256("createGame(string,string,string,uint64,(uint8,string)[])"))
+            IOspexGames.createGame.selector,
+            bytes4(keccak256("createGame(string,string,string,uint64,(uint8,string)[],uint256)"))
         );
         assertEq(IOspexGames.getGameStatus.selector, bytes4(keccak256("getGameStatus(uint256)")));
         assertEq(IOspexGames.getGameStart.selector, bytes4(keccak256("getGameStart(uint256)")));
@@ -302,7 +311,10 @@ contract OspexGamesInterfaceTest is GamesBase {
         for (uint256 a; a < artifacts.length; ++a) {
             string memory inputs = "$.abi[?(@.name == 'createGame')].inputs";
             _assertParams(
-                artifacts[a], inputs, "league;homeTeam;awayTeam;date;hints", "string;string;string;uint64;tuple[]"
+                artifacts[a],
+                inputs,
+                "league;homeTeam;awayTeam;date;hints;maxFee",
+                "string;string;string;uint64;tuple[];uint256"
             );
             _assertParams(artifacts[a], string.concat(inputs, "[4].components"), "seat;id", "uint8;string");
             _assertParams(artifacts[a], "$.abi[?(@.name == 'createGame')].outputs", "gameId", "uint256");

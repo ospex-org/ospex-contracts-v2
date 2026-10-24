@@ -89,6 +89,9 @@ abstract contract GamesBase is Test {
     uint96 internal constant FEE = 1_000_000;
     /// @dev What each funded creator starts with.
     uint256 internal constant PURSE = 1_000_000_000_000;
+    /// @dev A creation's maxFee in a test that is not about it: any fee. The helpers below name the fee they
+    ///      read instead, as a careful caller does.
+    uint256 internal constant ANY_FEE = type(uint256).max;
 
     TimelockController internal timelock;
     /// @dev The coin the creation fee is paid in. It takes transfers until a test pauses it or blocks an address.
@@ -214,9 +217,11 @@ abstract contract GamesBase is Test {
         return _createAt(DATE);
     }
 
+    /// @dev Reads the league's fee and names exactly that as the most the creator pays, as a careful caller does.
     function _createAt(uint64 date) internal returns (uint256 gameId) {
+        uint256 fee = games.getTerms("nba").fee;
         vm.prank(creator, creator);
-        gameId = games.createGame("nba", "Denver Nuggets", "Utah Jazz", date, _hints());
+        gameId = games.createGame("nba", "Denver Nuggets", "Utah Jazz", date, _hints(), fee);
     }
 
     // ──────────────────────────── Reports ──────────────────────────────
