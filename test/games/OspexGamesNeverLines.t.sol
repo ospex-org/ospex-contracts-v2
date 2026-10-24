@@ -1420,13 +1420,16 @@ contract OspexGamesNeverLinesTest is GamesBase {
     //  game shares a reporter list, a state or money with the first." Here, the money.
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-    /// Two creations of the same real game each take and hold their own fee. The first ends by a score; a
-    /// second score to it is refused, credits nothing and moves no coin; the second creation still holds its
-    /// own fee, and only its own end pays it, to its own creator. (Every other refusal is in
-    /// test_neverLine_rejectedReportChangesNothing, which checks the money too.)
+    /// Two creations of the same real game each take and hold their own fee. The first ends by a score. Two
+    /// reports are refused and neither credits anything or moves coin: a second score to the first, and a
+    /// score to the second creation, whose start is not written. The second creation still holds its own fee,
+    /// and only its own end pays it, to its own creator. (Every other refusal is in
+    /// test_neverLine_rejectedReportChangesNothing, which checks the money too.) The second score is refused
+    /// twice over, by the score's status check and by `_end`; the score to an unstarted game only by the first,
+    /// which is what the break below reaches.
     /// Break: in _writeScore(), delete `if (status != GameStatus.Verified) _refuseScore(r.gameId, status);`.
-    /// The second score is then taken and credits the first game's fee again, out of the fee the second
-    /// creation holds, so that creator's withdrawal fails.
+    /// The score to the unstarted second creation is then taken and credits its fee to that report's payout
+    /// address.
     function test_neverLine_aRefusedReportMovesNoFeeAndTheSameRealGameHoldsItsOwn() public {
         address first2 = makeAddr("a second payout address");
         uint256 a = _create();
@@ -1450,6 +1453,14 @@ contract OspexGamesNeverLinesTest is GamesBase {
         assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__GameEnded.selector, a, GameStatus.Scored));
         assertEq(vm.getRecordedLogs().length, 0, "a refused report emitted");
         assertEq(_money(accounts), money, "a refused report moved money");
+
+        vm.recordLogs();
+        (ok, err) = _send(address(first), _scoreReportTo(b, first2));
+        assertFalse(ok, "a score to a game with no start was taken");
+        assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__StartNotWritten.selector, b));
+        assertEq(vm.getRecordedLogs().length, 0, "a refused report emitted");
+        assertEq(_money(accounts), money, "a refused report moved money");
+        assertEq(_held(b), FEE, "b holds its fee");
 
         vm.prank(stranger);
         games.harnessRelease(b);
