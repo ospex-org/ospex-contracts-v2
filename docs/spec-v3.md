@@ -30,7 +30,7 @@ Each word below means one thing, here and in v3's code.
 
 ## v3 as ruled
 
-**Words.** A *reporter* is an address on the approved list that writes a game's start and how it ended. The rulings call it a scorer, and earlier drafts an adapter or a door. "Scorer" already names a market's contract in every signed order, so the spec and the code say reporter *(the name proposed 10/11, in use unless Vince overturns it)*. The *courier* sends fills. The *approved agent* signs for an account under a grant. *n* is a game's window. *v2* is today's contracts.
+**Words.** *Reporter* and *n* are used as the glossary above defines them. The rulings call a reporter a scorer, and earlier drafts an adapter or a door. "Scorer" already names a market's contract in every signed order, so the spec and the code say reporter *(the name proposed 10/11, in use unless Vince overturns it)*. The *courier* sends fills. The *approved agent* signs for an account under a grant. *v2* is today's contracts.
 
 **Two pieces** *(ruled 10/15)*
 
