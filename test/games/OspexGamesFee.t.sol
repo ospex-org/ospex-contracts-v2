@@ -311,10 +311,10 @@ contract OspexGamesFeeTest is GamesBase {
 
     /// A creation pays its fee as it runs, never the most it named: named exactly, named a unit above, and named
     /// any amount, each takes the one fee; after a cut to half a fee, naming a whole one takes the half. Named a
-    /// unit below the fee, it is refused by name with both amounts, and nothing is taken. At a fee of 0, naming
-    /// 0 is enough.
+    /// unit below the fee, it is refused by name with both amounts, and nothing is taken; named 0, the same: 0
+    /// is a most of 0, not "any". At a fee of 0, naming 0 is enough.
     /// Break: in createGame(), change `terms.fee > maxFee` to `terms.fee >= maxFee`. Naming the fee exactly is
-    /// then refused.
+    /// then refused. And `terms.fee > maxFee && maxFee != 0`: naming 0 is then taken as no limit.
     function test_create_paysTheFeeAsItRunsNeverTheMostNamed() public {
         address who = makeAddr("a creator");
         token.mint(who, 100 * uint256(FEE));
@@ -341,6 +341,9 @@ contract OspexGamesFeeTest is GamesBase {
             abi.encodeWithSelector(OspexGames.OspexGames__FeeAboveMax.selector, uint256(FEE / 2), uint256(FEE / 2) - 1)
         );
         games.createGame("nba", "Home", "Away", DATE, new Hint[](0), uint256(FEE / 2) - 1);
+        vm.prank(who, who);
+        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__FeeAboveMax.selector, uint256(FEE / 2), 0));
+        games.createGame("nba", "Home", "Away", DATE, new Hint[](0), 0);
         assertEq(games.gameCount(), count, "a game was made");
         assertEq(token.balanceOf(who), b, "coin was taken");
 

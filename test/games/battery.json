@@ -1,6 +1,6 @@
 {
-  "about": "One-line breaks of the games contract, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; line is where it starts), run the named test alone and see it fail, restore the file byte for byte and see it pass. The whole games suite fails on each too.",
-  "command": "FOUNDRY_SRC=src/games FOUNDRY_TEST=test/games FOUNDRY_SCRIPT=none forge test --via-ir --optimize --match-path <testPath> --match-test '^<test>$'",
+  "about": "One-line breaks of the games contract, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; line is where it starts), run the named test alone and see it fail, restore the file byte for byte and see it pass. The whole games suite fails on each too. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis; one ending in $ matches nothing and passes with no test run. Check that exactly one test ran.",
+  "command": "FOUNDRY_SRC=src/games FOUNDRY_TEST=test/games FOUNDRY_SCRIPT=none forge test --via-ir --optimize --match-path <testPath> --match-test '^<test>\\('",
   "breaks": [
     {
       "id": "N1-txorigin",
@@ -295,6 +295,20 @@
       "testPath": "test/games/OspexGamesFee.t.sol",
       "test": "test_create_paysTheFeeAsItRunsNeverTheMostNamed",
       "breaks": "naming the fee exactly is refused"
+    },
+    {
+      "id": "F16-zeroisany",
+      "file": "src/games/OspexGames.sol",
+      "edits": [
+        {
+          "line": 499,
+          "find": "if (terms.fee > maxFee) revert",
+          "replace": "if (terms.fee > maxFee && maxFee != 0) revert"
+        }
+      ],
+      "testPath": "test/games/OspexGamesFee.t.sol",
+      "test": "test_create_paysTheFeeAsItRunsNeverTheMostNamed",
+      "breaks": "a most of 0 is taken as no limit"
     },
     {
       "id": "F11-pullmax",

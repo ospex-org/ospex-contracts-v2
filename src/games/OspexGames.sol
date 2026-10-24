@@ -44,18 +44,18 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
  *         setter and is not a proxy is for review, before the call is queued. Spec: "The approved list".
  *
  *         The creation fee. A creation takes the game's fee from its creator, in the coin fixed at deploy: the
- *         fee in the league's terms, copied into the game with them. The creator names the most it will pay,
- *         and a creation whose fee is above that is refused before the coin is called: a fee raised after the
- *         creator looked is refused, never taken. At a fee of 0 nothing is taken. Above 0, a creation is
- *         refused unless taking the fee raises this contract's coin balance by exactly the fee, so a coin that
- *         keeps a cut of a transfer, or adds to one, makes no game with a fee. A withdrawal is refused unless
- *         paying it lowers that balance by exactly the amount, so a coin that takes more from this contract
- *         than it sends pays no credit out of another's. Neither a creation nor a withdrawal can begin while
- *         either is running, so a coin that calls back into this contract during a transfer cannot have one
- *         transfer's change in the balance counted for another. A coin that changes balances outside a
- *         transfer, as a rebasing coin does, is outside these checks; USDC does none of these things. The game
- *         holds the fee until it ends. The report that ends it credits the amount to the payout address inside
- *         the report, and the sender never takes that address's place; a release credits it back to the creator.
+ *         fee in the league's terms, copied into the game with them. The creator names the most it will pay; a
+ *         fee above that is refused before the coin is called, so a raise past it is never taken. At 0 nothing
+ *         is taken. Above 0, a creation is refused unless taking the fee raises this contract's balance by
+ *         exactly the fee: a coin's cut of a transfer, or its addition to one, alone makes no game. A withdrawal
+ *         is refused unless paying it lowers that balance by exactly the amount, so a coin that takes more from
+ *         this contract than it sends pays no credit out of another's; under a coin that charges the sender,
+ *         every withdrawal waits until the charge stops. Neither a creation nor a withdrawal can begin while
+ *         either runs, so a coin that calls back during a transfer cannot have one transfer's balance change
+ *         counted for another. A coin that changes balances outside a transfer, as a rebasing coin does, is
+ *         outside these checks; USDC does none of these things. The game holds the fee until it ends. The
+ *         report that ends it credits the amount to the payout address inside the report, and the sender never
+ *         takes that address's place; a release credits it back to the creator.
  *         Each end credits once, through one internal call that writes the end and the credit together and
  *         refuses a game already ended. No coin moves inside an end: the address credited withdraws later, so a
  *         coin that refuses a transfer stops a withdrawal and never an end. The coin is held for games not yet

@@ -243,6 +243,54 @@ contract OspexGamesFeeCallbacksTest is GamesBase {
         assertEq(g.getCredit(payout), 0);
     }
 
+    /// A coin that charges the sender: on a creation the creator is the sender, so it pays the fee and the
+    /// coin's charge, and the games set's balance rises by exactly the fee, so the game is made holding it. On
+    /// a withdrawal the games set is the sender, so every withdrawal is refused, and the credit stays, until
+    /// the charge stops; then it is paid whole. The coin held stays what is held and credited throughout.
+    function test_withdraw_underACoinThatChargesTheSenderWaitsForTheChargeToStop() public {
+        coin.setCharge(1);
+        uint256 paid = coin.balanceOf(creator);
+        (uint256 a, uint256 b) = (_createOn(), _createOn());
+        assertEq(paid - coin.balanceOf(creator), 2 * (uint256(FEE) + 1), "the creator paid the fees and the charges");
+        assertEq(coin.balanceOf(address(g)), 2 * uint256(FEE), "the games set took the fees alone");
+        _startAndScore(a, payout);
+        _assertBooks(stranger); // the helper counts the payout address itself
+        vm.prank(payout);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                OspexGames.OspexGames__WithdrawalNotExact.selector, uint256(FEE), 2 * uint256(FEE), uint256(FEE) - 1
+            )
+        );
+        g.withdraw();
+        assertEq(g.getCredit(payout), FEE, "the credit stays");
+        _assertBooks(stranger); // the helper counts the payout address itself
+        coin.setCharge(0);
+        vm.prank(payout);
+        assertEq(g.withdraw(), FEE, "paid whole once the charge stops");
+        assertEq(coin.balanceOf(payout), FEE);
+        (uint96 held,) = g.getGameFee(b);
+        assertEq(coin.balanceOf(address(g)), held, "the other game's fee is still held");
+    }
+
+    /// The exact check is on the balance, so it is a coin's cut alone that makes no game: a cut made up inside
+    /// the pull by someone else's direct transfer leaves the balance risen by exactly the fee, and the game is
+    /// made. Nothing is short: the coin held is the game's fee, paid partly by the one who made up the cut.
+    function test_create_aCutMadeUpInsideThePullByAnotherIsTaken() public {
+        Actor maker = _actor("maker");
+        Actor donor = _actor("donor");
+        coin.setCut(7);
+        coin.setExempt(address(donor), true);
+        coin.setHooked(address(maker), true);
+        maker.queue(
+            address(donor), abi.encodeCall(Actor.act, (address(coin), abi.encodeCall(IERC20.transfer, (address(g), 7)))), true
+        );
+        maker.act(address(g), _createCall("nba", FEE));
+        assertEq(g.gameCount(), 1, "the game is made");
+        assertEq(coin.balanceOf(address(g)), FEE, "the games set holds exactly its fee");
+        assertEq(coin.balanceOf(address(coin)), 7, "the coin kept its cut");
+        _assertBooks(address(maker));
+    }
+
     // ──────────────────────────── A report inside a pull ───────────────
 
     /// The coin calls the creator back once the fee has arrived, and the call back starts and scores the game
