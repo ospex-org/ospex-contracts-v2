@@ -43,16 +43,16 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
  *         setter and is not a proxy is for review, before the call is queued. Spec: "The approved list".
  *
  *         The creation fee. A creation takes the game's fee from its creator, in the coin fixed at deploy: the
- *         fee in the league's terms, copied into the game with them. At a fee of 0 nothing is taken. The game
- *         holds that amount until it ends. The report that ends it credits the amount to the payout address
- *         inside the report, and the sender never takes that address's place; a release credits it back to the
- *         creator. Each end credits once, through one internal call that writes the end and the credit together
- *         and refuses a game already ended. The amount is booked as the fee, not measured as received: right for
- *         USDC, which takes no fee on a transfer, and wrong for a coin that does. No coin moves inside an end:
- *         the address credited withdraws later, so a coin that refuses a transfer stops a withdrawal and never
- *         an end. The coin is held for games not yet ended and for credits not yet withdrawn; there is no
- *         receiver, no setter for one, and no other way out. Coin sent here directly is held by no one and
- *         stays. Spec: "The creation fee".
+ *         fee in the league's terms, copied into the game with them. At a fee of 0 nothing is taken. A creation
+ *         is refused unless taking the fee raises this contract's coin balance by exactly the fee, so a coin that
+ *         keeps a cut of a transfer, or adds to one, makes no game. The game holds that amount until it ends. The
+ *         report that ends it credits the amount to the payout address inside the report, and the sender never
+ *         takes that address's place; a release credits it back to the creator. Each end credits once, through
+ *         one internal call that writes the end and the credit together and refuses a game already ended. No
+ *         coin moves inside an end: the address credited withdraws later, so a coin that refuses a transfer
+ *         stops a withdrawal and never an end. The coin is held for games not yet ended and for credits not yet
+ *         withdrawn; there is no receiver, no setter for one, and no other way out. Coin sent here directly is
+ *         held by no one and stays. Spec: "The creation fee".
  *
  *         Two things a reader may look for here belong to other parts of the games set, by design:
  *         - How a game ends other than by a score. The hour-24 void, the dispute record and day 7, and the
@@ -82,8 +82,9 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
  *         - Live by design: the sender's retired flag, because a retirement is meant to reach games already
  *           made; the clock, because when a report may land is what the gate decides; the game's status,
  *           because it is what the reports themselves write, each step once, and whether the game still holds
- *           its fee is read from it; and the payout address's credit, which an end adds to and only that
- *           address's withdrawal takes from.
+ *           its fee is read from it; the payout address's credit, which an end adds to and only that address's
+ *           withdrawal takes from; and whether the payout address was ever approved as a reporter, so a
+ *           reporter approved after the game's creation is refused as its payout too.
  *         - Not read, so not checked here: what a reporter's own storage holds, such as a proxy's logic or an
  *           owner's setting. A reporter whose behaviour can change while its code stays the same keeps its
  *           hash; the public delay before its approval is for finding that. Values a reporter holds as
@@ -100,11 +101,12 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
  *         whose every reporter is retired, so it waits for the day-30 release, counted from its date. The
  *         release is the recovery.
  *
- *         A score refuses three payout addresses: address 0 and this contract, which can never withdraw, and the
- *         reporter sending the report, since the payout is never the sender. It refuses no other, though the
- *         chain could name more that cannot call `withdraw`, such as the coin's own address or the game's other
- *         reporters. That a payout address can call `withdraw` is for review: a contract named as payout, or a
- *         contract that creates games, with no way to call it leaves its credit here for good.
+ *         A score refuses as its payout address: address 0, this contract and the coin, none of which calls
+ *         `withdraw`; and any address ever approved as a reporter, retired ones included and the sender among
+ *         them, since a reporter relays a report and is never the one paid. It refuses no other, though the chain
+ *         could name more that cannot call `withdraw`. That a payout address can call `withdraw` is for review: a
+ *         contract named as payout, or a contract that creates games, with no way to call it leaves its credit
+ *         here for good.
  *
  *         Operating rules for the timelock's calls, kept outside the code:
  *         - The stock timelock lets anyone run a ready call, in any order and at any later time. Chain calls
@@ -282,9 +284,16 @@ contract OspexGames is IOspexGames {
     /// @notice Thrown when a report that ends a game names this contract as its payout address: this contract
     ///         never calls its own withdraw, so a credit to it could never be withdrawn
     error OspexGames__PayoutIsTheGamesSet(ReportKind kind);
-    /// @notice Thrown when a report that ends a game names the reporter sending it as its payout address: the
-    ///         payout rides inside the report and is never the sender
-    error OspexGames__PayoutIsTheReporter(ReportKind kind, address reporter);
+    /// @notice Thrown when a report that ends a game names the coin's own address as its payout address: the
+    ///         coin does not call withdraw, so a credit to it could never be withdrawn
+    error OspexGames__PayoutIsTheCoin(ReportKind kind);
+    /// @notice Thrown when a report that ends a game names as its payout address any address ever approved as a
+    ///         reporter, retired ones included and the sender among them: a reporter relays a report and is never
+    ///         the one paid
+    error OspexGames__PayoutIsAReporter(ReportKind kind, address reporter);
+    /// @notice Thrown when taking a creation's fee does not raise this contract's coin balance by exactly the
+    ///         fee: a coin that keeps a cut of a transfer, or adds to one. No game is made.
+    error OspexGames__FeeNotReceived(uint256 fee, uint256 balanceBefore, uint256 balanceAfter);
     /// @notice Thrown when an address with no credit withdraws
     error OspexGames__NothingToWithdraw(address account);
     /// @notice Thrown when a reading marked silent carries a score: a feed that did not answer gave none
@@ -485,7 +494,7 @@ contract OspexGames is IOspexGames {
 
         // The fee last, after every write: the one call out. A fee of 0 calls nothing, so a coin that refuses
         // every transfer still lets a game be made at 0.
-        if (terms.fee != 0) i_token.safeTransferFrom(msg.sender, address(this), terms.fee);
+        if (terms.fee != 0) _takeFee(terms.fee);
     }
 
     // ──────────────────────────── The report call ──────────────────────
@@ -737,14 +746,28 @@ contract OspexGames is IOspexGames {
         _end(g, r.gameId, GameStatus.Scored, r.payout);
     }
 
-    /// @dev Refuses three payout addresses: address 0 and this contract, which can never withdraw (this contract
-    ///      never calls its own withdraw), and the reporter sending the report, since the payout rides inside the
-    ///      report and is never the sender. A score checks its payout here, and so is meant to every other report
-    ///      that ends a game.
+    /// @dev Refuses as payout address: address 0, this contract and the coin, none of which calls withdraw (this
+    ///      contract never calls its own); and any address ever approved as a reporter, retired ones included and
+    ///      the sender among them, since a reporter relays a report and is never the one paid. An admission's
+    ///      kind is never None once approved, and a retirement keeps it, so one read covers every reporter ever
+    ///      approved. A score checks its payout here, and so is meant to every other report that ends a game.
     function _checkPayout(ReportKind kind, address payout) private view {
         if (payout == address(0)) revert OspexGames__NoPayout(kind);
         if (payout == address(this)) revert OspexGames__PayoutIsTheGamesSet(kind);
-        if (payout == msg.sender) revert OspexGames__PayoutIsTheReporter(kind, payout);
+        if (payout == address(i_token)) revert OspexGames__PayoutIsTheCoin(kind);
+        if (s_admissions[payout].kind != ReporterKind.None) revert OspexGames__PayoutIsAReporter(kind, payout);
+    }
+
+    /// @dev Takes a creation's fee from its creator, through SafeERC20, and refuses the creation unless this
+    ///      contract's coin balance rose by exactly the fee: a coin that keeps a cut of a transfer, or adds to
+    ///      one, makes no game, so a game holds what arrived. The balance is read on each side of the pull, so
+    ///      coin sent here directly before or after the creation does not count. Called only for a fee above 0,
+    ///      after every other write of the creation.
+    function _takeFee(uint256 fee) private {
+        uint256 balanceBefore = i_token.balanceOf(address(this));
+        i_token.safeTransferFrom(msg.sender, address(this), fee);
+        uint256 balanceAfter = i_token.balanceOf(address(this));
+        if (balanceAfter != balanceBefore + fee) revert OspexGames__FeeNotReceived(fee, balanceBefore, balanceAfter);
     }
 
     /// @dev Ends a game and credits its creation fee, in one place, so that every end credits and nothing but

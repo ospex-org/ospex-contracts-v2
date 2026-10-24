@@ -8,7 +8,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {OspexGames} from "../../src/games/OspexGames.sol";
 import {IOspexGames, GameStatus, ReporterKind, ReportKind, Report, Hint} from "../../src/games/IOspexGames.sol";
 import {GamesBase, MockReporter} from "./GamesBase.sol";
-import {TestCoin, RefusingCoin, FalseCoin} from "./CoinFixtures.sol";
+import {TestCoin, RefusingCoin, FalseCoin, BonusCoin} from "./CoinFixtures.sol";
 
 /// @dev A coin that, as it pays an address it was told to, calls that address back: what a coin with transfer
 ///      hooks does.
@@ -130,17 +130,16 @@ contract OspexGamesFeeTest is GamesBase {
         assertEq(token.balanceOf(address(games)), 0);
     }
 
-    /// At a fee of 0 nothing is taken and the coin is not called: a creator with no coin and no allowance
-    /// creates, and so does one while the coin refuses every transfer. Its end credits nothing and emits no
-    /// credit, and there is nothing to withdraw.
-    /// Break: in createGame(), change `if (terms.fee != 0) i_token.safeTransferFrom(msg.sender, address(this),
-    /// terms.fee);` to `i_token.safeTransferFrom(msg.sender, address(this), terms.fee);`. The paused coin then
-    /// refuses the creation.
+    /// At a fee of 0 nothing is taken and the coin is not called, not even to read a balance: a creator with no
+    /// coin and no allowance creates, and so does one while the coin refuses every transfer. Its end credits
+    /// nothing and emits no credit, and there is nothing to withdraw.
+    /// Break: in createGame(), change `if (terms.fee != 0) _takeFee(terms.fee);` to `_takeFee(terms.fee);`. The
+    /// paused coin then refuses the creation.
     function test_create_atAFeeOfZeroTakesNothingAndCallsNoCoin() public {
         _setTerms("", _feeTerms(0));
         address broke = makeAddr("no coin");
         token.setPaused(true);
-        vm.expectCall(address(token), abi.encodeWithSelector(IERC20.transferFrom.selector), 0);
+        vm.expectCall(address(token), "", 0); // no call of any kind
         vm.prank(broke, broke);
         uint256 game = games.createGame("nba", "Home", "Away", DATE, new Hint[](0));
         (uint96 held, address recorded) = games.getGameFee(game);
@@ -164,8 +163,9 @@ contract OspexGamesFeeTest is GamesBase {
     /// A coin that answers false instead of refusing: the creation is refused by name, and nothing is created,
     /// so no game holds a fee the games set did not receive. A withdrawal it answers false to is refused too,
     /// and the credit stays.
-    /// Break: in createGame(), change `i_token.safeTransferFrom(msg.sender, address(this), terms.fee);` to
-    /// `i_token.transferFrom(msg.sender, address(this), terms.fee);`. The game is then made holding nothing.
+    /// Break: in _takeFee(), change `i_token.safeTransferFrom(msg.sender, address(this), fee);` to
+    /// `i_token.transferFrom(msg.sender, address(this), fee);`. The false answer is then read by nothing, and
+    /// only the balance check stops the creation, under its own name.
     function test_create_aCoinThatAnswersFalseIsRefused() public {
         FalseCoin coin = new FalseCoin();
         MockReporter r = new MockReporter(IOspexGames(vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1)));
@@ -198,6 +198,74 @@ contract OspexGamesFeeTest is GamesBase {
         vm.prank(payout);
         g.withdraw();
         assertEq(coin.balanceOf(payout), FEE);
+    }
+
+    /// A coin that keeps a cut of each transfer: taking the fee raises the games set's balance by less than the
+    /// fee, so the creation is refused by name, with the balance on each side, and no game is made and no coin
+    /// moves. A cut of 1 unit, and a cut larger than the fee, so that nothing arrives. The games set already
+    /// holds a fee, so neither balance read is 0. Control: with no cut, the same creation is made and the game
+    /// holds its fee.
+    /// Break: in _takeFee(), delete `if (balanceAfter != balanceBefore + fee) revert
+    /// OspexGames__FeeNotReceived(fee, balanceBefore, balanceAfter);`. The game is then made holding a fee the
+    /// games set did not receive.
+    function test_create_aCoinThatKeepsACutIsRefused() public {
+        _create();
+        uint256 held = token.balanceOf(address(games));
+        assertEq(held, FEE, "one fee held already");
+        uint256 purse = token.balanceOf(creator);
+        uint256[2] memory cuts = [uint256(1), uint256(FEE) + 5];
+        for (uint256 i; i < cuts.length; ++i) {
+            token.setCut(cuts[i]);
+            uint256 arrives = cuts[i] >= FEE ? 0 : FEE - cuts[i];
+            vm.prank(creator, creator);
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    OspexGames.OspexGames__FeeNotReceived.selector, uint256(FEE), held, held + arrives
+                )
+            );
+            games.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+            assertEq(games.gameCount(), 1, "a game was made on a fee that did not arrive");
+            assertEq(token.balanceOf(address(games)), held, "the games set's coin moved");
+            assertEq(token.balanceOf(creator), purse, "the creator's coin moved");
+            assertEq(token.balanceOf(address(token)), 0, "the coin kept a cut of a refused creation");
+        }
+        token.setCut(0);
+        vm.prank(creator, creator);
+        uint256 game = games.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+        assertEq(_held(game), FEE, "control: the game holds its fee");
+        assertEq(token.balanceOf(address(games)), held + FEE, "control: the fee arrived");
+    }
+
+    /// A coin that adds to a transfer: taking the fee raises the games set's balance by more than the fee, and
+    /// the creation is refused too. The check is for exactly the fee. Control: with no bonus, the creation is
+    /// made.
+    /// Break: in _takeFee(), change `balanceAfter != balanceBefore + fee` to `balanceAfter < balanceBefore +
+    /// fee`. The creation is then made, and the bonus is held by no game.
+    function test_create_aCoinThatAddsToATransferIsRefused() public {
+        BonusCoin coin = new BonusCoin();
+        MockReporter r = new MockReporter(IOspexGames(vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1)));
+        OspexGames g =
+            new OspexGames(address(timelock), coin, _launchTerms(), _one(address(r)), _kinds1(ReporterKind.FirstN), _hashes(_one(address(r))));
+        assertEq(address(r.i_games()), address(g), "the reporter points at the games set");
+        coin.mint(creator, PURSE);
+        vm.prank(creator);
+        coin.approve(address(g), type(uint256).max);
+
+        coin.setBonus(7);
+        vm.prank(creator, creator);
+        vm.expectRevert(
+            abi.encodeWithSelector(OspexGames.OspexGames__FeeNotReceived.selector, uint256(FEE), 0, uint256(FEE) + 7)
+        );
+        g.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+        assertEq(g.gameCount(), 0, "a game was made on more than its fee");
+        assertEq(coin.balanceOf(address(g)), 0);
+
+        coin.setBonus(0);
+        vm.prank(creator, creator);
+        uint256 game = g.createGame("nba", "Home", "Away", DATE, new Hint[](0));
+        (uint96 held,) = g.getGameFee(game);
+        assertEq(held, FEE, "control: the game holds its fee");
+        assertEq(coin.balanceOf(address(g)), FEE, "control: the fee arrived");
     }
 
     // ──────────────────────────── The ends ─────────────────────────────

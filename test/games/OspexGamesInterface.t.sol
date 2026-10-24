@@ -62,7 +62,8 @@ contract OspexGamesInterfaceTest is GamesBase {
         string[] memory want = vm.split(
             "OspexGames__TimelockNotAContract(address);OspexGames__TimelockIsTheDeployer(address);"
             "OspexGames__TokenNotAContract(address);OspexGames__PayoutIsTheGamesSet(uint8);"
-            "OspexGames__PayoutIsTheReporter(uint8,address);OspexGames__NothingToWithdraw(address);"
+            "OspexGames__PayoutIsTheCoin(uint8);OspexGames__PayoutIsAReporter(uint8,address);"
+            "OspexGames__FeeNotReceived(uint256,uint256,uint256);OspexGames__NothingToWithdraw(address);"
             "SafeERC20FailedOperation(address);"
             "OspexGames__NotTheTimelock(address);OspexGames__NoReporters();"
             "OspexGames__LengthsDiffer(uint256,uint256,uint256);OspexGames__NoFirstNReporter();"
@@ -109,7 +110,8 @@ contract OspexGamesInterfaceTest is GamesBase {
         string[] memory want = vm.split(
             "OspexGames__TimelockNotAContract(address timelock);OspexGames__TimelockIsTheDeployer(address timelock);"
             "OspexGames__TokenNotAContract(address token);OspexGames__PayoutIsTheGamesSet(uint8 kind);"
-            "OspexGames__PayoutIsTheReporter(uint8 kind,address reporter);"
+            "OspexGames__PayoutIsTheCoin(uint8 kind);OspexGames__PayoutIsAReporter(uint8 kind,address reporter);"
+            "OspexGames__FeeNotReceived(uint256 fee,uint256 balanceBefore,uint256 balanceAfter);"
             "OspexGames__NothingToWithdraw(address account);SafeERC20FailedOperation(address token);"
             "OspexGames__NotTheTimelock(address caller);OspexGames__NoReporters();"
             "OspexGames__LengthsDiffer(uint256 reporters,uint256 kinds,uint256 codeHashes);"

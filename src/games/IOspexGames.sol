@@ -81,9 +81,9 @@ struct Reading {
 /// @param awayScore For a score: the away team's score. Zero for any other kind.
 /// @param readings The readings the report rests on, one per feed asked.
 /// @param payout The payout address: where the report that ends a game credits its creation fee. The games set
-///        never puts the sender in its place. Zero for a start, which pays nothing. For a score, not zero and not
-///        the games set's own address, neither of which can withdraw, and not the reporter sending the report,
-///        since the payout is never the sender.
+///        never puts the sender in its place. Zero for a start, which pays nothing. For a score, not zero, the
+///        games set's own address or the coin's, none of which withdraws; and not any address ever approved as a
+///        reporter, retired ones included and the sender among them, since a reporter is never the one paid.
 struct Report {
     uint256 gameId;
     ReportKind kind;
@@ -249,7 +249,8 @@ interface IOspexGames is IGameReporters {
     ///         Refused while the approved list holds no first-n reporter, since nothing could write such a
     ///         game's start. The creator pays the creation fee its league's terms name now, in the coin fixed at
     ///         deploy, so the creator first allows this contract to take it; at a fee of 0 nothing is taken and
-    ///         the coin is not called. The games set holds the fee until the game ends.
+    ///         the coin is not called. Refused unless taking the fee raises this contract's coin balance by
+    ///         exactly the fee. The games set holds the fee until the game ends.
     /// @param league The league's short text id: 1 to 16 characters, each a-z or 0-9.
     /// @param homeTeam The home team: 1 to 64 printable ASCII characters, not all spaces.
     /// @param awayTeam The away team: 1 to 64 printable ASCII characters, not all spaces, and not the same text

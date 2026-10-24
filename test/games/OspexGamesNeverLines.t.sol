@@ -411,9 +411,9 @@ contract OspexGamesNeverLinesTest is GamesBase {
         _scoreBy(first, scored, HOME, AWAY);
         uint256 unknown = games.gameCount() + 1;
 
-        Report[] memory bad = new Report[](23);
-        address[] memory from = new address[](23);
-        bytes[] memory why = new bytes[](23);
+        Report[] memory bad = new Report[](25);
+        address[] memory from = new address[](25);
+        bytes[] memory why = new bytes[](25);
         uint256 n;
         (bad[n], from[n], why[n]) = (_startReport(0, START), address(first), _err1(OspexGames.OspexGames__UnknownGame.selector, 0));
         n++;
@@ -473,7 +473,11 @@ contract OspexGamesNeverLinesTest is GamesBase {
         n++;
         (bad[n], from[n], why[n]) = (_scoreReportTo(verified, address(games)), address(first), abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsTheGamesSet.selector, ReportKind.Score));
         n++;
-        (bad[n], from[n], why[n]) = (_scoreReportTo(verified, address(first)), address(first), abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsTheReporter.selector, ReportKind.Score, address(first)));
+        (bad[n], from[n], why[n]) = (_scoreReportTo(verified, address(first)), address(first), _isAReporter(address(first)));
+        n++;
+        (bad[n], from[n], why[n]) = (_scoreReportTo(verified, address(second)), address(first), _isAReporter(address(second)));
+        n++;
+        (bad[n], from[n], why[n]) = (_scoreReportTo(verified, address(token)), address(first), abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsTheCoin.selector, ReportKind.Score));
         n++;
         assertEq(n, bad.length, "every case filled");
 
@@ -1268,8 +1272,9 @@ contract OspexGamesNeverLinesTest is GamesBase {
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
-    // "The creation fee goes to an address where it literally can't be withdrawn." The chain refuses the
-    //  three it can name; that any other payout address can call withdraw is for review.
+    // "The creation fee goes to an address where it literally can't be withdrawn." The chain refuses those it
+    //  can name: 0, the games set, the coin, and every address ever approved as a reporter. That any other
+    //  payout address can call withdraw is for review.
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// A score naming address 0 as its payout is refused by name, and the game keeps its fee: nothing is
@@ -1295,26 +1300,61 @@ contract OspexGamesNeverLinesTest is GamesBase {
         );
     }
 
+    /// The same, naming the coin's own address.
+    /// Break: in _checkPayout(), delete `if (payout == address(i_token)) revert OspexGames__PayoutIsTheCoin(kind);`.
+    /// The score is then taken and the fee credited to the coin, which never calls withdraw.
+    function test_neverLine_aPayoutOfTheCoinIsRefused() public {
+        _assertPayoutRefused(
+            first, address(token), abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsTheCoin.selector, ReportKind.Score)
+        );
+    }
+
     /// The same, naming the reporter that sends the report: a first-n reporter inside n, and an after-n reporter
     /// from start + n.
-    /// Break: in _checkPayout(), delete `if (payout == msg.sender) revert OspexGames__PayoutIsTheReporter(kind,
-    /// payout);`. The score is then taken and the fee credited to the reporter, a contract with no call to
-    /// withdraw.
+    /// Break: in _checkPayout(), delete `if (s_admissions[payout].kind != ReporterKind.None) revert
+    /// OspexGames__PayoutIsAReporter(kind, payout);`. The score is then taken and the fee credited to the
+    /// reporter, a contract with no call to withdraw.
     function test_neverLine_aPayoutOfTheSendingReporterIsRefused() public {
-        _assertPayoutRefused(
-            first,
-            address(first),
-            abi.encodeWithSelector(
-                OspexGames.OspexGames__PayoutIsTheReporter.selector, ReportKind.Score, address(first)
-            )
-        );
-        _assertPayoutRefused(
-            later,
-            address(later),
-            abi.encodeWithSelector(
-                OspexGames.OspexGames__PayoutIsTheReporter.selector, ReportKind.Score, address(later)
-            )
-        );
+        _assertPayoutRefused(first, address(first), _isAReporter(address(first)));
+        _assertPayoutRefused(later, address(later), _isAReporter(address(later)));
+    }
+
+    /// The same, naming a reporter other than the sender: another of the game's reporters, of each kind, and a
+    /// reporter approved after the game was made, which is not on the game's copy.
+    /// Break: in _checkPayout(), change `if (s_admissions[payout].kind != ReporterKind.None)` to
+    /// `if (payout == msg.sender)`. Only the sender is then refused, and the score credits the other reporter.
+    function test_neverLine_aPayoutOfAnyReporterIsRefused() public {
+        _assertPayoutRefused(first, address(second), _isAReporter(address(second)));
+        _assertPayoutRefused(first, address(later), _isAReporter(address(later)));
+
+        uint256 game = _create();
+        MockReporter newer = new MockReporter(games);
+        _approve(address(newer), ReporterKind.FirstN);
+        (address[] memory copied,) = games.getGameReporters(game);
+        for (uint256 i; i < copied.length; ++i) {
+            assertTrue(copied[i] != address(newer), "the newer reporter is on the game's copy");
+        }
+        _assertPayoutRefusedOn(game, first, address(newer), _isAReporter(address(newer)));
+    }
+
+    /// The same, naming a retired reporter: one of the game's own reporters, retired after the game was made,
+    /// and one retired before the game was made, so never on its copy. A retired reporter keeps its admission,
+    /// and the refusal with it.
+    /// Break: in _checkPayout(), change `s_admissions[payout].kind != ReporterKind.None` to
+    /// `s_admissions[payout].kind != ReporterKind.None && !s_admissions[payout].retired`. The score then credits
+    /// the retired reporter.
+    function test_neverLine_aPayoutOfARetiredReporterIsRefused() public {
+        MockReporter gone = new MockReporter(games);
+        _approve(address(gone), ReporterKind.AfterN);
+        _retire(address(gone));
+        uint256 game = _create();
+        _retire(address(second));
+        (, bool goneRetired,) = games.getReporter(address(gone));
+        (, bool secondRetired,) = games.getReporter(address(second));
+        assertTrue(goneRetired && secondRetired, "both retired");
+
+        _assertPayoutRefusedOn(game, first, address(second), _isAReporter(address(second)));
+        _assertPayoutRefused(first, address(gone), _isAReporter(address(gone)));
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -1329,7 +1369,9 @@ contract OspexGamesNeverLinesTest is GamesBase {
     /// Break: in _end(), change `s_credits[account] += fee;` to `s_credits[msg.sender] += fee;`. The reporter
     /// that sent the report is credited instead of the address it named.
     function testFuzz_neverLine_theFeeGoesToThePayoutInsideTheReport(address runner, uint96 fee) public {
-        vm.assume(runner != address(0) && runner != address(games) && runner != address(later));
+        // Not an address the chain refuses as payout: 0, the games set, the coin, or a reporter.
+        vm.assume(runner != address(0) && runner != address(games) && runner != address(token));
+        vm.assume(runner != address(first) && runner != address(later) && runner != address(second));
         fee = uint96(bound(fee, 1, PURSE));
         _setTerms("", _feeTerms(fee));
         uint256 game = _create();
@@ -1589,11 +1631,15 @@ contract OspexGamesNeverLinesTest is GamesBase {
 
     // ──────────────────────────── Helpers ──────────────────────────────
 
-    /// @dev `by` scores a started game naming `bad` as the payout address, at an hour it may write: refused
-    ///      with `why`, nothing emitted, no game read and no money moved, and the game keeps its fee. Then the
-    ///      same report naming `payout` is taken and credits it, and `payout` withdraws it.
+    /// @dev `by` scores a new game naming `bad` as the payout address: see _assertPayoutRefusedOn.
     function _assertPayoutRefused(MockReporter by, address bad, bytes memory why) internal {
-        uint256 game = _create();
+        _assertPayoutRefusedOn(_create(), by, bad, why);
+    }
+
+    /// @dev `by` scores `game`, once started, naming `bad` as the payout address, at an hour it may write:
+    ///      refused with `why`, nothing emitted, no game read and no money moved, and the game keeps its fee.
+    ///      Then the same report naming `payout` is taken and credits it, and `payout` withdraws it.
+    function _assertPayoutRefusedOn(uint256 game, MockReporter by, address bad, bytes memory why) internal {
         vm.warp(DATE - 1 hours);
         _startBy(first, game, START);
         vm.warp(by == later ? START + WINDOW : START + 10);
@@ -1618,6 +1664,11 @@ contract OspexGamesNeverLinesTest is GamesBase {
         vm.prank(payout);
         games.withdraw();
         assertEq(token.balanceOf(payout) - paid, FEE, "control: the payout address withdraws");
+    }
+
+    /// @dev The refusal of a score naming `reporter`, an address ever approved as a reporter, as its payout.
+    function _isAReporter(address reporter) internal pure returns (bytes memory) {
+        return abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsAReporter.selector, ReportKind.Score, reporter);
     }
 
     /// @dev The logs hold exactly one FeeCredited, from the games set, for this game, account and amount.

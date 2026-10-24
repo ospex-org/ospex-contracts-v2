@@ -5,7 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {console} from "forge-std/console.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
-import {IOspexGames, ReportKind, Reading, Report, Hint, Terms} from "../../src/games/IOspexGames.sol";
+import {OspexGames} from "../../src/games/OspexGames.sol";
+import {IOspexGames, ReporterKind, ReportKind, Reading, Report, Hint, Terms} from "../../src/games/IOspexGames.sol";
 import {GamesBase, MockReporter, OspexGamesHarness} from "./GamesBase.sol";
 import {RefusingCoin} from "./CoinFixtures.sol";
 
@@ -13,17 +14,20 @@ import {RefusingCoin} from "./CoinFixtures.sol";
 ///      from the contract:
 ///      - a creation takes the fee its league has in the model from its creator, and is refused when the coin
 ///        would refuse that transfer (paused, or the creator or the games set blocked, or a creator with no
-///        coin); at a fee of 0 it takes nothing, whatever the coin's state;
+///        coin), and by name when the coin keeps a cut of it; at a fee of 0 it takes nothing, whatever the
+///        coin's state;
 ///      - a start credits nothing;
 ///      - a score is taken only for a started game that has not ended, from one of its reporters at an hour it
 ///        may write (an after-n reporter from start + n), naming a payout address that is not 0, not the games
-///        set and not the sender; it credits the game's fee to that address;
+///        set, not the coin and not any reporter ever approved, the retired one included; it credits the game's
+///        fee to that address;
 ///      - a release is taken only for a game that has not ended, and credits the game's fee to its creator. It
 ///        runs through the test harness's hook, which calls the production code's release credit; who may
 ///        release, and when, is the release call's and is not modelled;
 ///      - a report of a kind the contract does not take is refused;
 ///      - a withdrawal pays the caller its whole credit when the coin would move it, and otherwise leaves it;
-///      - coin sent to the games set directly is held by no one and stays.
+///        under a cut the games set pays it all and the coin keeps its cut on the way;
+///      - coin sent to the games set directly is held by no one and stays, less any cut.
 ///      Every FeeCredited event is checked against the model as it is emitted.
 contract FeeHandler is Test {
     struct Ghost {
@@ -47,6 +51,7 @@ contract FeeHandler is Test {
     MockReporter internal immutable i_first; // first-n
     MockReporter internal immutable i_later; // after-n
     MockReporter internal immutable i_second; // first-n
+    MockReporter internal immutable i_retired; // approved and retired before any game
 
     /// @dev Three creators with coin and an allowance, and one with neither.
     address[4] internal creators;
@@ -68,11 +73,13 @@ contract FeeHandler is Test {
     uint256 public donated;
     bool internal paused;
     mapping(address => bool) internal blocked;
+    /// @dev What the coin keeps of each transfer (all of a smaller one); 0 for none.
+    uint256 internal cut;
     uint256 internal salt;
 
     /// @dev Calls where the contract and the model disagreed. Must stay 0.
     uint256 public mismatches;
-    uint256[16] public counts;
+    uint256[19] public counts;
     // Indexes into counts.
     uint256 internal constant CREATES = 0;
     uint256 internal constant CREATES_REFUSED = 1;
@@ -90,6 +97,12 @@ contract FeeHandler is Test {
     uint256 internal constant COIN_TOGGLES = 13;
     uint256 internal constant CREDITS = 14;
     uint256 internal constant ENDS_AT_ZERO = 15;
+    uint256 internal constant CUT_CHANGES = 16;
+    /// @dev Creations refused by name because the coin kept a cut: part of CREATES_REFUSED.
+    uint256 internal constant CREATES_CUT_REFUSED = 17;
+    /// @dev Scores refused for their payout address alone, that address the coin or a reporter: part of
+    ///      SCORES_REFUSED.
+    uint256 internal constant PAYOUTS_COIN_OR_REPORTER = 18;
 
     constructor(
         OspexGamesHarness games_,
@@ -99,6 +112,7 @@ contract FeeHandler is Test {
         MockReporter first_,
         MockReporter later_,
         MockReporter second_,
+        MockReporter retired_,
         Terms memory launch_
     ) {
         games = games_;
@@ -108,6 +122,7 @@ contract FeeHandler is Test {
         i_first = first_;
         i_later = later_;
         i_second = second_;
+        i_retired = retired_;
         launch = launch_;
         defaultFee = launch_.fee;
         for (uint256 i; i < 4; ++i) {
@@ -126,6 +141,8 @@ contract FeeHandler is Test {
         accounts.push(address(later_));
         accounts.push(address(second_));
         accounts.push(address(0));
+        accounts.push(address(retired_));
+        accounts.push(address(coin_)); // where the coin keeps its cut
         // Coin: three creators and the donor; the fourth creator has none and allows nothing.
         for (uint256 i; i < 3; ++i) {
             _mint(creators[i], 1 << 120);
@@ -143,7 +160,13 @@ contract FeeHandler is Test {
         bool nba = leagueSeed % 2 == 0;
         uint96 fee = nba && nbaOwn ? nbaFee : defaultFee;
         bool coinMoves = w != 3 && !paused && !blocked[who] && !blocked[address(games)];
-        bool expected = fee == 0 || coinMoves;
+        bool cutRefuses = fee != 0 && coinMoves && cut != 0;
+        bool expected = fee == 0 || (coinMoves && cut == 0);
+        // Under a cut, the refusal names the balance on each side of the pull.
+        uint256 balance = coin.balanceOf(address(games));
+        uint256 arrives = cut >= fee ? 0 : fee - cut;
+        bytes memory cutRefusal =
+            abi.encodeWithSelector(OspexGames.OspexGames__FeeNotReceived.selector, uint256(fee), balance, balance + arrives);
 
         vm.recordLogs();
         vm.prank(who, who);
@@ -154,8 +177,12 @@ contract FeeHandler is Test {
             ghosts[id].fee = fee;
             if (coinOf[who] >= fee) coinOf[who] -= fee;
             ++counts[CREATES];
-        } catch {
+        } catch (bytes memory err) {
             if (expected) ++mismatches;
+            if (cutRefuses) {
+                if (keccak256(err) != keccak256(cutRefusal)) ++mismatches;
+                ++counts[CREATES_CUT_REFUSED];
+            }
             ++counts[CREATES_REFUSED];
         }
         _expectNoCredit(vm.getRecordedLogs());
@@ -205,10 +232,12 @@ contract FeeHandler is Test {
         address who = _pickSender(whoSeed);
         address to = _pickPayout(payoutSeed, g.creator, who);
         bool isReporter = who == address(i_first) || who == address(i_later) || who == address(i_second);
-        bool payoutCanWithdraw = to != address(0) && to != address(games) && to != who;
+        bool coinOrReporter = to == address(coin) || _everApproved(to);
+        bool payoutTaken = to != address(0) && to != address(games) && !coinOrReporter;
         uint256 nowTs = vm.getBlockTimestamp();
-        bool expected = _exists(id) && g.started && !g.ended && isReporter && payoutCanWithdraw
-            && nowTs >= g.start && (who != address(i_later) || nowTs >= uint256(g.start) + WINDOW);
+        bool rest = _exists(id) && g.started && !g.ended && isReporter && nowTs >= g.start
+            && (who != address(i_later) || nowTs >= uint256(g.start) + WINDOW);
+        bool expected = rest && payoutTaken;
 
         vm.recordLogs();
         bool ok = _send(who, _report(id, ReportKind.Score, 0, to));
@@ -222,6 +251,7 @@ contract FeeHandler is Test {
             _expectCredit(logs, id, to, g.fee);
         } else {
             ++counts[SCORES_REFUSED];
+            if (rest && coinOrReporter) ++counts[PAYOUTS_COIN_OR_REPORTER];
             _expectNoCredit(logs);
         }
     }
@@ -267,12 +297,14 @@ contract FeeHandler is Test {
         address who = whoSeed % 2 == 0 ? _pickCredited(whoSeed >> 1) : accounts[(whoSeed >> 1) % accounts.length];
         uint256 owed = credit[who];
         bool expected = owed > 0 && !paused && !blocked[who] && !blocked[address(games)];
+        uint256 kept = cut < owed ? cut : owed;
         uint256 before = coin.balanceOf(who);
         vm.prank(who);
         try games.withdraw() returns (uint256 amount) {
-            if (!expected || amount != owed || coin.balanceOf(who) != before + owed) ++mismatches;
+            if (!expected || amount != owed || coin.balanceOf(who) != before + owed - kept) ++mismatches;
             credit[who] = 0;
-            coinOf[who] += owed;
+            coinOf[who] += owed - kept;
+            coinOf[address(coin)] += kept;
             ++counts[WITHDRAWALS];
         } catch {
             if (expected) ++mismatches;
@@ -298,8 +330,17 @@ contract FeeHandler is Test {
         ++counts[COIN_TOGGLES];
     }
 
-    /// @dev The coin takes every transfer again: unpaused, nothing blocked.
+    /// @dev The coin keeps a cut of every transfer, from 1 unit to 3 USDC, half the time; otherwise none.
+    function setCut(uint256 seed) external {
+        cut = seed % 2 == 0 ? 0 : bound(seed >> 1, 1, 3_000_000);
+        coin.setCut(cut);
+        ++counts[CUT_CHANGES];
+    }
+
+    /// @dev The coin takes every transfer again, whole: unpaused, nothing blocked, no cut.
     function healCoin() external {
+        cut = 0;
+        coin.setCut(0);
         paused = false;
         coin.setPaused(false);
         for (uint256 i; i < accounts.length; ++i) {
@@ -314,11 +355,13 @@ contract FeeHandler is Test {
     function donate(uint256 amount) external {
         amount = bound(amount, 1, 5_000_000);
         bool expected = !paused && !blocked[donor] && !blocked[address(games)];
+        uint256 kept = cut < amount ? cut : amount;
         vm.prank(donor);
         try coin.transfer(address(games), amount) {
             if (!expected) ++mismatches;
-            donated += amount;
+            donated += amount - kept;
             coinOf[donor] -= amount;
+            coinOf[address(coin)] += kept;
             ++counts[DONATIONS];
         } catch {
             if (expected) ++mismatches;
@@ -416,15 +459,23 @@ contract FeeHandler is Test {
         return k == 0 ? address(i_first) : k == 1 ? address(i_later) : k == 2 ? address(i_second) : stranger;
     }
 
-    /// @dev One of the three payout addresses, the game's creator, or one of the three the chain refuses: 0, the
-    ///      games set, and the sender.
+    /// @dev One of the three payout addresses, the game's creator, or one the chain refuses: 0, the games set,
+    ///      the sender, the coin, a reporter other than the sender, and the retired reporter.
     function _pickPayout(uint256 seed, address gameCreator, address sender) internal view returns (address) {
-        uint256 k = seed % 7;
+        uint256 k = seed % 10;
         if (k < 3) return payouts[k];
         if (k == 3) return gameCreator == address(0) ? payouts[0] : gameCreator;
         if (k == 4) return address(0);
         if (k == 5) return address(games);
-        return sender;
+        if (k == 6) return sender;
+        if (k == 7) return address(coin);
+        if (k == 8) return sender == address(i_first) ? address(i_second) : address(i_first);
+        return address(i_retired);
+    }
+
+    /// @dev Every address ever approved as a reporter, as the model knows them.
+    function _everApproved(address a) internal view returns (bool) {
+        return a == address(i_first) || a == address(i_later) || a == address(i_second) || a == address(i_retired);
     }
 
     function _report(uint256 id, ReportKind kind, uint64 s, address to) internal pure returns (Report memory r) {
@@ -446,22 +497,26 @@ contract FeeHandler is Test {
 }
 
 /// @notice The stateful run for the creation fee's routing. After every call of a random sequence of creations,
-///         fee changes, starts, scores, refused reports, releases, withdrawals, coin pauses and blocks, and coin
-///         sent in directly: the contract took exactly what the model allows; each game's fee was credited at
-///         most once, and once it ended, to the payout address in the report that ended it or to its creator,
-///         in the amount it copied at creation; every address's credit and coin read as the model says; and
-///         the coin the games set holds equals the fees of games not yet ended, plus what is credited and not
-///         withdrawn, plus what was sent to it directly.
+///         fee changes, starts, scores, refused reports, releases, withdrawals, coin pauses, blocks and cuts,
+///         and coin sent in directly: the contract took exactly what the model allows; each game's fee was
+///         credited at most once, and once it ended, to the payout address in the report that ended it or to
+///         its creator, in the amount it copied at creation; every address's credit and coin read as the model
+///         says, the coin's own included; and the coin the games set holds equals the fees of games not yet
+///         ended, plus what is credited and not withdrawn, plus what arrived from coin sent to it directly.
 contract OspexGamesFeeInvariantTest is GamesBase {
     FeeHandler internal handler;
 
     function setUp() public override {
         super.setUp();
-        handler = new FeeHandler(games, token, timelock, timelockKey, first, later, second, _launchTerms());
+        // A reporter approved and retired before any game is made: on no game's copy, refused as payout.
+        MockReporter retired = new MockReporter(games);
+        _approve(address(retired), ReporterKind.AfterN);
+        _retire(address(retired));
+        handler = new FeeHandler(games, token, timelock, timelockKey, first, later, second, retired, _launchTerms());
         // An hour before the games' date: starts land at once, and after-n scores a day and more later.
         vm.warp(1_800_000_037 - 1 hours);
 
-        bytes4[] memory selectors = new bytes4[](16);
+        bytes4[] memory selectors = new bytes4[](17);
         selectors[0] = FeeHandler.create.selector;
         selectors[1] = FeeHandler.create.selector; // creation twice as often
         selectors[2] = FeeHandler.setFee.selector;
@@ -478,6 +533,7 @@ contract OspexGamesFeeInvariantTest is GamesBase {
         selectors[13] = FeeHandler.healCoin.selector;
         selectors[14] = FeeHandler.healCoin.selector; // the coin refuses less often than it takes
         selectors[15] = FeeHandler.donate.selector;
+        selectors[16] = FeeHandler.setCut.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
         targetContract(address(handler));
     }
@@ -497,7 +553,7 @@ contract OspexGamesFeeInvariantTest is GamesBase {
     ///      campaign's: runs, then each count in FeeHandler's order.
     function afterInvariant() external {
         string memory line = string.concat("fee-campaign runs ", vm.toString(_addToTotal("RUNS", 1)));
-        for (uint256 i; i < 16; ++i) {
+        for (uint256 i; i < 19; ++i) {
             line = string.concat(line, " ", vm.toString(_addToTotal(vm.toString(i), handler.counts(i))));
         }
         console.log(line);
@@ -572,14 +628,17 @@ contract OspexGamesFeeInvariantTest is GamesBase {
 
         // score(gameSeed, whoSeed, payoutSeed): a game seed divisible by 4 picks a game as above from seed / 4;
         // who 0 first, 1 later, 2 second, 3 stranger; payout 0-2 payouts, 3 the creator, 4 address 0, 5 the games
-        // set, 6 the sender.
+        // set, 6 the sender, 7 the coin, 8 another reporter, 9 the retired reporter.
         for (uint256 i; i < 3; ++i) {
             handler.warp(12 hours); // a day and a half: past every start + n
         }
         handler.score(16, 3, 0); // game 1 from a stranger: refused
         handler.score(16, 0, 4); // payout 0: refused
         handler.score(16, 0, 5); // payout the games set: refused
-        handler.score(16, 0, 6); // payout the sender: refused
+        handler.score(16, 0, 6); // payout the sender: refused, as a reporter
+        handler.score(16, 0, 7); // payout the coin: refused
+        handler.score(16, 0, 8); // payout the second reporter: refused
+        handler.score(16, 0, 9); // payout the retired reporter: refused
         handler.score(16, 0, 1); // game 1, first, payout 1: taken, 1 USDC
         handler.score(16, 2, 2); // game 1 again: refused
         handler.score(8, 1, 3); // game 3, after-n past start + n, payout its creator: taken, 7
@@ -596,9 +655,9 @@ contract OspexGamesFeeInvariantTest is GamesBase {
         handler.create(0, 1); // game 6, nhl at 3
         handler.release(5, 8); // six games now: seed 5 is game 6, taken, 3 to creator 0
 
-        // withdraw(whoSeed): an odd seed picks accounts[(seed >> 1) % 13], so 2j + 1 picks account j: 0-3 the
+        // withdraw(whoSeed): an odd seed picks accounts[(seed >> 1) % 15], so 2j + 1 picks account j: 0-3 the
         // creators, 4-6 the payout addresses, 7 the stranger, 8 the donor.
-        // toggleCoin(seed): seed % 3 == 1 blocks or unblocks accounts[(seed >> 8) % 13]; 1282 is payout 1.
+        // toggleCoin(seed): seed % 3 == 1 blocks or unblocks accounts[(seed >> 8) % 15]; 1282 is payout 1.
         handler.toggleCoin(1282); // block payout 1 (account 5)
         handler.withdraw(11); // payout 1, blocked: refused, the credit stays
         handler.toggleCoin(1282); // unblock
@@ -613,20 +672,40 @@ contract OspexGamesFeeInvariantTest is GamesBase {
         handler.withdraw(15); // stranger: refused
         handler.donate(1_000); // taken
 
+        // setCut(seed): an odd seed sets a cut of seed >> 1 (here 1 unit), an even one none. The default fee is 3
+        // and nba's own 7.
+        handler.setCut(3);
+        handler.create(0, 1); // nhl at 3, of which the coin keeps 1: refused by name
+        handler.create(0, 0); // nba at 7: refused the same
+        handler.setFee(5, 0); // the default to 0
+        handler.create(0, 1); // game 7, nhl at 0: the coin is not called, so its cut does not matter
+        handler.setFee(1, 3_000_000); // the default back to 3
+        handler.setCut(0);
+        handler.create(0, 1); // game 8, nhl at 3: taken whole
+        handler.release(7, 8); // eight games: seed 7 is game 8, 3 to creator 0
+        handler.setCut(3);
+        handler.withdraw(1); // creator 0: the games set pays 3, the coin keeps 1 of it
+        handler.donate(1_000); // 999 arrives
+        handler.healCoin(); // no cut
+
         assertEq(handler.mismatches(), 0, "the contract and the model disagreed");
-        assertEq(handler.counts(0), 6, "creations");
-        assertEq(handler.counts(1), 2, "creations refused");
+        assertEq(handler.counts(0), 8, "creations");
+        assertEq(handler.counts(1), 4, "creations refused");
+        assertEq(handler.counts(17), 2, "creations refused for the cut");
         assertEq(handler.counts(2), 3, "starts");
         assertEq(handler.counts(3), 2, "starts refused");
         assertEq(handler.counts(4), 3, "scores");
-        assertEq(handler.counts(5), 6, "scores refused");
-        assertEq(handler.counts(6), 2, "releases");
+        assertEq(handler.counts(5), 9, "scores refused");
+        assertEq(handler.counts(18), 4, "scores refused for a payout of the coin or a reporter");
+        assertEq(handler.counts(6), 3, "releases");
         assertEq(handler.counts(7), 2, "releases refused");
-        assertEq(handler.counts(9), 3, "withdrawals");
+        assertEq(handler.counts(9), 4, "withdrawals");
         assertEq(handler.counts(10), 4, "withdrawals refused");
-        assertEq(handler.counts(14), 3, "fees credited");
+        assertEq(handler.counts(14), 4, "fees credited");
         assertEq(handler.counts(15), 2, "ends at a fee of 0");
-        assertEq(token.balanceOf(address(games)), 1_000, "the games set holds only what was sent to it");
+        assertEq(handler.counts(16), 3, "cut changes");
+        assertEq(token.balanceOf(address(games)), 1_999, "the games set holds only what arrived from coin sent to it");
+        assertEq(token.balanceOf(address(token)), 2, "the coin kept 1 of the withdrawal and 1 of the donation");
         _checkEachFeeIsCreditedAtMostOnceToTheEndsAddress();
         _checkTheCoinHeldIsWhatIsHeldPlusWhatIsCredited();
     }
