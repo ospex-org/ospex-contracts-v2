@@ -17,7 +17,7 @@ import {IOspexReporter} from "./IOspexReporter.sol";
 /**
  * @title OspexGames
  * @author ospex.org
- * @notice The games contract of Ospex v3's games piece. The design it is built to is docs/spec-v3.md in this
+ * @notice The games contract of Ospex v3's games set. The design it is built to is docs/spec-v3.md in this
  *         repository, which controls where the two differ.
  *
  *         Anyone creates a game. When it is created, a game copies the approved list of reporters as it
@@ -40,7 +40,7 @@ import {IOspexReporter} from "./IOspexReporter.sol";
  *         fixed, that the values it reports are true, or that it scores correctly: that it has no owner and no
  *         setter and is not a proxy is for review, before the call is queued. Spec: "The approved list".
  *
- *         Two things a reader may look for here belong to other parts of the games piece, by design:
+ *         Two things a reader may look for here belong to other parts of the games set, by design:
  *         - How a game ends other than by a score, and the creation fee changing hands. The hour-24 void, the
  *           dispute record and day 7, and the day-30 release that gives every stake back are the ends, and a
  *           game whose every reporter is retired can be released at once. This contract copies each game's
@@ -49,7 +49,7 @@ import {IOspexReporter} from "./IOspexReporter.sol";
  *         - Correcting a start or a score. There is none: each is written once. Feeds that disagree lead to a
  *           dispute record, never to a correction. Spec: "The start is written once" and "A score is written
  *           once and is final".
- *         The games piece deploys once, with all of them. Spec: "Launch: one reporter, and the hooks".
+ *         The games set deploys once, with all of them. Spec: "Launch: one reporter, and the hooks".
  *
  *         It has no owner, no pause, no setter but the timelock's three calls, and no way to correct a start or
  *         a score. It refuses no league.
