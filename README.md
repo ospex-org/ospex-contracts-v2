@@ -102,7 +102,7 @@ Live on Polygon mainnet (chain ID 137). See [docs/DEPLOYMENT.md](docs/DEPLOYMENT
 
 ## v3: being built, not deployed
 
-Everything above describes v2, the contracts live today. The next version is specified in [docs/spec-v3.md](docs/spec-v3.md), which controls wherever code and spec differ. It has two pieces: the games piece (games, the reporters that write them, and how each game ends) and a betting add-on deployed beside it. Each piece is built in stages, reviewed, and deployed once, as a whole.
+Everything above describes v2, the contracts live today. The next version is specified in [docs/spec-v3.md](docs/spec-v3.md), which controls wherever code and spec differ. It has two pieces: the games set (games, the reporters that write them, and how each game ends) and the betting set deployed beside it. Each piece is built in stages, reviewed, and deployed once, as a whole.
 
 v3 says game where v2 said contest, and market where v2 said speculation; a position is a position in both.
 
