@@ -976,7 +976,7 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
     function _checkScoreReadings(Report calldata r, uint256 needed, bool dissentAllowed) private pure {
         Reading[] calldata readings = r.readings;
         uint256 count = readings.length;
-        uint256 agreeing;
+        uint256 agreeing = 0;
         uint256 dissent = type(uint256).max;
         for (uint256 i; i < count; ++i) {
             Reading calldata reading = readings[i];
@@ -1101,7 +1101,7 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
     ///      as the feeds gave them, not stored.
     function _checkReadings(Reading[] calldata readings) private pure {
         uint256 count = readings.length;
-        uint256 seats;
+        uint256 seats = 0;
         for (uint256 i; i < count; ++i) {
             Reading calldata reading = readings[i];
             if (reading.kind == ReadingKind.Silent && (reading.homeScore != 0 || reading.awayScore != 0)) {

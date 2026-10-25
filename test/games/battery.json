@@ -119,14 +119,14 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 1054,
-     "find": "            s_credits[account] += fee;",
-     "replace": "            s_credits[msg.sender] += fee;"
+     "line": 895,
+     "find": "        _end(g, r.gameId, GameStatus.Scored, r.payout);\n",
+     "replace": "        _end(g, r.gameId, GameStatus.Scored, msg.sender);\n"
     }
    ],
    "testPath": "test/games/OspexGamesNeverLines.t.sol",
    "test": "testFuzz_neverLine_theFeeGoesToThePayoutInsideTheReport",
-   "breaks": "an end credits the reporter that sent it"
+   "breaks": "a score credits the reporter that sent it"
   },
   {
    "id": "N4-releaser",
