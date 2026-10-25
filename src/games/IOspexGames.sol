@@ -23,8 +23,9 @@ enum GameStatus {
     Scored,
     /// @dev 5: a void is written. An end. A void is a status, never a scored 0-0.
     Voided,
-    /// @dev 6: released. An end of its own, by anyone once the day-30 clock has run or every reporter is
-    ///      retired; the betting set reads it as a void.
+    /// @dev 6: released. An end of its own, by anyone once the day-30 clock has run from the date given at
+    ///      creation, or every reporter that could still write to the game is retired; the betting set reads it
+    ///      as a void.
     Released
 }
 
@@ -65,8 +66,10 @@ enum ReadingKind {
     AnsweredFinal
 }
 
-/// @notice One feed's reading, as a report gives it. The games set emits readings and stores none.
-/// @param seat The feed's seat: its number in the scoring program's feed table. A feed is never named here.
+/// @notice One feed's reading, as a report gives it. The games set emits readings and stores none, and refuses a
+///         report its own readings contradict (see Report).
+/// @param seat The feed's seat: its number in the scoring program's feed table. A feed is never named here, and
+///        no two readings in one report name the same seat.
 /// @param kind Silent, answered without a final, or answered with a final.
 /// @param homeScore For a feed that answered, the home team's score as it gave it. Zero for a silent feed.
 /// @param awayScore For a feed that answered, the away team's score as it gave it. Zero for a silent feed.
@@ -83,7 +86,12 @@ struct Reading {
 /// @param start For a start: the game's start, in seconds since 1970. Zero for any other kind.
 /// @param homeScore For a score: the home team's score. Zero for any other kind.
 /// @param awayScore For a score: the away team's score. Zero for any other kind.
-/// @param readings The readings the report rests on, one per feed asked.
+/// @param readings The readings the report rests on, one per feed asked, no seat twice, and a silent one at 0-0.
+///        The games set reads them against the result the report carries and refuses a contradiction: a score
+///        must be read as a final by at least one of them, and by AGREE of them on a disputed game, and no final
+///        may read otherwise than the score, except on a disputed game from its day-7 clock, where the rule
+///        settles over one dissent; a void on a game with no dispute record may not carry AGREE finals that read
+///        the same. A day-7 void's finals are not read. Nothing else in a reading is checked.
 /// @param payout The payout address: where the report that ends a game credits its creation fee. The games set
 ///        never puts the sender in its place. Zero for a start and for a dispute record, which pay nothing. A
 ///        score and a void refuse as payout: zero and the rest of the reserved range up to 0xffff, where
@@ -117,9 +125,9 @@ struct Hint {
 ///        included, and the hour-24 void can post from then. n counts from the start as written.
 /// @param day7Clock In seconds: how long after a dispute record a disputed game's void opens. Longer than n. A
 ///        disputed game takes a score at any hour a reporter may write; only its void waits for this clock.
-/// @param day30Clock In seconds: how long after the start, or after the date for a game never started, anyone
-///        may release a game that has not ended. Longer than n and the day-7 clock together, so a dispute
-///        recorded by start + n has its whole day-7 clock before the release opens.
+/// @param day30Clock In seconds: how long after the date given at creation anyone may release a game that has
+///        not ended, and from when every report to it is refused. Set at creation and moved by nothing after,
+///        the start included. Longer than n and the day-7 clock together.
 /// @param fee The creation fee, in the smallest unit of the coin the games set takes it in. Zero is legal, and
 ///        at zero nothing is taken. A game holds the fee it copied until it ends, whatever its league's is now.
 struct Terms {
@@ -141,7 +149,9 @@ struct Terms {
  *         Every game ends once, as a score, a void or a release, and after its end nothing more is written to
  *         it. A score and a void are reports; a dispute record is a report that ends nothing and starts the
  *         day-7 clock, after which a disputed game's void opens; a release is anyone's call once the day-30
- *         clock has run or every one of the game's reporters is retired.
+ *         clock has run, counted from the game's date, or every one of the game's reporters that could still
+ *         write to it is retired. From the day-30 clock the release is the only door: no report is taken. The
+ *         games set refuses a report its own readings contradict, and re-derives no result.
  *
  *         A game's creator pays its creation fee when it is created, and the games set holds it until the game
  *         ends. The report that ends the game credits it to the payout address inside that report; a release
@@ -172,7 +182,8 @@ interface IOspexGames is IGameReporters {
     event Withdrawn(address indexed account, uint256 amount);
 
     /// @notice Emitted when a game is released: ended with no score and no void, by anyone, once its day-30 clock
-    ///         has run or every one of its reporters is retired. Its creation fee is credited back to its creator
+    ///         has run or every one of its reporters that could still write to it is retired. Its creation fee is
+    ///         credited back to its creator
     ///         (FeeCredited, emitted before this), never to the caller. The game's other ends, a score and a void,
     ///         are reports and emit GameReported.
     /// @param gameId The game
@@ -227,8 +238,8 @@ interface IOspexGames is IGameReporters {
     /// @param league The league's short text id, as a creation gives it, or empty for the default terms
     /// @param terms The four terms. The clocks run in order: n at least one second, the day-7 clock longer than
     ///        n, the day-30 clock longer than n and the day-7 clock together, and at most MAX_CLOCK. This
-    ///        orders the clocks' lengths; a dispute recorded after start + n can still have its day-7 result
-    ///        fall due after the release opens, and the first end to land wins.
+    ///        orders the clocks' lengths; a dispute recorded late can still have its day-7 result fall due at or
+    ///        after the day-30 clock, where it is refused and the game ends as a release.
     function setTerms(string calldata league, Terms calldata terms) external;
 
     /// @notice Approves a reporter. Only the timelock calls it. The code at the address must hash as named, so
@@ -305,21 +316,21 @@ interface IOspexGames is IGameReporters {
     ///         starts the day-7 clock; every later one is an update, taken and emitted, writing nothing. Every
     ///         report the games set takes is emitted with its readings, which are not stored. An update's event
     ///         has the record's shape; a game's first dispute event is its record, and getGameDisputedAt gives
-    ///         the record's time. A game that has ended takes no report of any kind.
+    ///         the record's time. A game that has ended takes no report of any kind, and no game takes one at or
+    ///         after its day-30 clock (PastDay30Clock), counted from the date given at creation: from that second
+    ///         the release is the only door. A report its own readings contradict is refused (see Report).
     function report(Report calldata r) external;
 
     /// @notice Releases a game that has not ended: no score, no void, no release, a dispute record or not.
-    ///         Anyone may, once the game's day-30 clock has run, counted from its start as written or, for a
-    ///         game whose start was never written, from the date given at creation; or at once, for a game whose
-    ///         every recorded reporter is retired. A release is an end of its own: the game's status reads
-    ///         Released, the betting set reads it as a void, and its creation fee is credited back to its
-    ///         creator, who withdraws it later. The caller pays the gas and gets nothing. Refused for an id that
-    ///         is not a game, for a game that has ended (GameEnded), and otherwise while the clock has not run
-    ///         and a reporter of the game is not retired (ReleaseNotOpen). The clock opens the release and
-    ///         refuses nothing else: a score or a void that lands first ends the game, past the clock or not,
-    ///         and a release that lands first ends it; past the clock the two race, and whichever lands first is
-    ///         the end. A start written after the date's clock has run moves the release to the start's clock,
-    ///         by at most START_BOUND.
+    ///         Anyone may, once the game's day-30 clock has run, counted from the date given at creation, which
+    ///         no write after creation moves; or at once, for a game whose every recorded reporter that could
+    ///         still write to it is retired (see isEveryReporterRetired). A release is an end of its own: the
+    ///         game's status reads Released, the betting set reads it as a void, and its creation fee is credited
+    ///         back to its creator, who withdraws it later. The caller pays the gas and gets nothing. Refused for
+    ///         an id that is not a game, for a game that has ended (GameEnded), and otherwise while the clock has
+    ///         not run and such a reporter is not retired (ReleaseNotOpen). The clock opens the release and at the
+    ///         same second closes every report: a score or a void that lands before it ends the game, and from
+    ///         it the release is the only door, a dispute record or not.
     function release(uint256 gameId) external;
 
     /// @notice Pays the caller everything it has been credited, and sets its credit to 0. Only the address
@@ -356,10 +367,10 @@ interface IOspexGames is IGameReporters {
     /// @notice A game's four terms, copied from its league's when the game was created.
     function getGameTerms(uint256 gameId) external view returns (Terms memory);
 
-    /// @notice True when every one of the game's recorded reporters is retired. Nothing can write to such a
-    ///         game again, so it can be released at once, ahead of its day-30 clock. A game whose first-n
-    ///         reporters are all retired before its start is written, while an after-n one is not, reads false:
-    ///         nothing can write its start, and it waits for the day-30 release.
+    /// @notice True when every one of the game's recorded reporters that could still write to it is retired:
+    ///         for a game whose start is not written, every first-n reporter, since an after-n reporter writes no
+    ///         start and nothing before one; for a game with a start, every reporter. Nothing can write to such a
+    ///         game again, so it can be released at once, ahead of its day-30 clock.
     function isEveryReporterRetired(uint256 gameId) external view returns (bool);
 
     /// @notice When a game's dispute record was written, in seconds since 1970: the time its day-7 clock counts

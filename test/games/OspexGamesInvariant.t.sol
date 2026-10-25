@@ -8,6 +8,7 @@ import {
     GameStatus,
     ReporterKind,
     ReportKind,
+    ReadingKind,
     Reading,
     Report,
     Hint,
@@ -36,12 +37,17 @@ contract NoRead {
 ///      - only a game's recorded reporters write, never one retired since, and never one whose code now hashes
 ///        otherwise than at its approval; a start once, by a first-n reporter,
 ///        within a day of the date, with no payout; a score once, after the start, and for an after-n reporter
-///        from start + n of the game's own n; and no report takes a silent reading that carries a score;
+///        from start + n of the game's own n; and no report takes a silent reading that carries a score, or two
+///        readings for one seat;
+///      - a score's readings support it: one final reading the score on a game with no record, three on a
+///        disputed game, and no final reading otherwise except on a disputed game from its day-7 clock; a void on
+///        a game with no record carries no three finals that agree, while a day-7 void's finals are not read;
 ///      - a void from start + n of the game's own n, for either kind, and on a disputed game only once its own
 ///        day-7 clock has run from the record; a dispute record after the start (an after-n reporter's from
 ///        start + n), with no payout, the first writing the record's time and every later one an update that
-///        writes nothing; a release by anyone once the game's own day-30 clock has run from its start or, with
-///        no start, from its date, or at once when every one of its reporters is retired;
+///        writes nothing; every report refused from the game's own day-30 clock, counted from its date; a release
+///        by anyone from that clock, or at once when every one of its reporters that could still write to it is
+///        retired: every first-n reporter for a game with no start, every reporter otherwise;
 ///      - every game ends once, as a score, a void or a release, and after its end nothing more is written to it:
 ///        no report of any kind is taken, no release, and its storage stays word for word what it was at the end.
 contract GamesHandler is Test {
@@ -272,7 +278,7 @@ contract GamesHandler is Test {
     }
 
     /// @dev shapeSeed: one time in seven the start carries a payout, one time in nine a silent reading carries
-    ///      a score.
+    ///      a score, one time in eleven two readings name one seat. Refused from the game's day-30 clock.
     function reportStart(uint256 gameSeed, uint256 whoSeed, uint256 offsetSeed, uint256 shapeSeed) external {
         uint256 id = _pickGame(gameSeed);
         Ghost storage g = ghosts[id];
@@ -290,7 +296,7 @@ contract GamesHandler is Test {
         bool expected = _exists(id) && _kindIn(g, who) == 1 && !retired[who] && _codeAsApproved(who)
             && !g.started && !_ended(g)
             && start != 0 && uint256(start) + DAY >= g.date && uint256(start) <= uint256(g.date) + DAY
-            && shapeSeed % 7 != 1 && shapeSeed % 9 != 1;
+            && _open(g) && shapeSeed % 7 != 1 && _readingsFine(shapeSeed);
         bool ok = _send(who, r);
         _check(ok, expected);
         if (ok && expected) {
@@ -300,8 +306,12 @@ contract GamesHandler is Test {
         }
     }
 
-    /// @dev shapeSeed: one time in nine a silent reading carries a score. A disputed game takes a score like
-    ///      any other.
+    /// @dev shapeSeed: one time in nine a silent reading carries a score, one time in eleven two readings name one
+    ///      seat; and by shapeSeed % 13 the readings behind the score: 1 one final reading it beside silents,
+    ///      which settles a game with no record and not a disputed one; 2 three finals reading it beside one
+    ///      reading otherwise, which settles a disputed game from its day-7 clock and nothing else; 3 three finals
+    ///      reading something else, never taken; otherwise three finals reading it beside a silent. A disputed game
+    ///      takes a score like any other, on those readings. Refused from the game's day-30 clock.
     function reportScore(uint256 gameSeed, uint256 whoSeed, uint32 home, uint32 away, uint256 shapeSeed) external {
         uint256 id = _pickGame(gameSeed);
         Ghost storage g = ghosts[id];
@@ -312,10 +322,13 @@ contract GamesHandler is Test {
 
         uint8 kind = _kindIn(g, who);
         uint256 nowTs = vm.getBlockTimestamp();
+        uint256 m = shapeSeed % 13;
+        bool day7 = g.disputed && nowTs >= uint256(g.disputedAt) + g.terms.day7Clock;
+        bool supported = m == 1 ? !g.disputed : m == 2 ? day7 : m != 3;
         bool expected = _exists(id) && kind != 0 && !retired[who] && _codeAsApproved(who) && g.started
             && !_ended(g) && home <= MAX_SCORE
-            && away <= MAX_SCORE && nowTs >= g.start && (kind != 2 || nowTs >= uint256(g.start) + g.terms.window)
-            && shapeSeed % 9 != 1;
+            && away <= MAX_SCORE && _open(g) && nowTs >= g.start
+            && (kind != 2 || nowTs >= uint256(g.start) + g.terms.window) && _readingsFine(shapeSeed) && supported;
         bool ok = _send(who, _report(id, ReportKind.Score, 0, home, away, shapeSeed));
         _check(ok, expected);
         if (ok && expected) {
@@ -328,8 +341,10 @@ contract GamesHandler is Test {
     }
 
     /// @dev A void: from start + n of the game's own n for either kind, and on a disputed game only once its own
-    ///      day-7 clock has run from the record. shapeSeed: one time in nine a silent reading carries a score;
-    ///      one time in seven the void carries a score of its own, which is refused.
+    ///      day-7 clock has run from the record; refused from the game's day-30 clock. shapeSeed: one time in
+    ///      nine a silent reading carries a score; one time in eleven two readings name one seat; one time in
+    ///      seven the void carries a score of its own, which is refused; one time in thirteen (% 13 == 1) its
+    ///      readings are three finals that agree, refused on a game with no record and taken as a day-7 void.
     function reportVoid(uint256 gameSeed, uint256 whoSeed, uint256 shapeSeed) external {
         uint256 id = _pickGame(gameSeed);
         Ghost storage g = ghosts[id];
@@ -339,9 +354,9 @@ contract GamesHandler is Test {
         Report memory r = _report(id, ReportKind.Void, 0, 0, 0, shapeSeed);
         if (shapeSeed % 7 == 1) r.homeScore = 3;
         bool expected = _exists(id) && kind != 0 && !retired[who] && _codeAsApproved(who) && g.started
-            && !_ended(g) && nowTs >= uint256(g.start) + g.terms.window
+            && !_ended(g) && _open(g) && nowTs >= uint256(g.start) + g.terms.window
             && (!g.disputed || nowTs >= uint256(g.disputedAt) + g.terms.day7Clock) && shapeSeed % 7 != 1
-            && shapeSeed % 9 != 1;
+            && _readingsFine(shapeSeed) && (shapeSeed % 13 != 1 || g.disputed);
         bool ok = _send(who, r);
         _check(ok, expected);
         if (ok && expected) {
@@ -352,8 +367,8 @@ contract GamesHandler is Test {
     }
 
     /// @dev A dispute record, or an update to one, with no payout; one time in seven it names a payout, which is
-    ///      refused. Taken after the start, for an after-n reporter from start + n. The first record writes the
-    ///      time the day-7 clock counts from; an update writes nothing.
+    ///      refused. Taken after the start, for an after-n reporter from start + n, and refused from the game's
+    ///      day-30 clock. The first record writes the time the day-7 clock counts from; an update writes nothing.
     function reportDispute(uint256 gameSeed, uint256 whoSeed, uint256 shapeSeed) external {
         uint256 id = _pickGame(gameSeed);
         Ghost storage g = ghosts[id];
@@ -363,8 +378,9 @@ contract GamesHandler is Test {
         Report memory r = _report(id, ReportKind.Dispute, 0, 0, 0, shapeSeed);
         r.payout = shapeSeed % 7 == 1 ? address(0xFEE00) : address(0);
         bool expected = _exists(id) && kind != 0 && !retired[who] && _codeAsApproved(who) && g.started
-            && !_ended(g) && nowTs >= g.start && (kind != 2 || nowTs >= uint256(g.start) + g.terms.window)
-            && shapeSeed % 7 != 1 && shapeSeed % 9 != 1;
+            && !_ended(g) && _open(g) && nowTs >= g.start
+            && (kind != 2 || nowTs >= uint256(g.start) + g.terms.window) && shapeSeed % 7 != 1
+            && _readingsFine(shapeSeed);
         bool ok = _send(who, r);
         _check(ok, expected);
         if (ok && expected) {
@@ -377,12 +393,12 @@ contract GamesHandler is Test {
     }
 
     /// @dev A release, by anyone in the pool or outside it: once the game's own day-30 clock has run from its
-    ///      start or, with no start, from its date, or at once when every one of its reporters is retired.
+    ///      date, or at once when every one of its reporters that could still write to it is retired.
     function release(uint256 gameSeed, uint256 callerSeed) external {
         uint256 id = _pickGame(gameSeed);
         Ghost storage g = ghosts[id];
         address caller = _pickSender(callerSeed);
-        uint256 opensAt = uint256(g.started ? g.start : g.date) + g.terms.day30Clock;
+        uint256 opensAt = uint256(g.date) + g.terms.day30Clock;
         bool expected = _exists(id) && !_ended(g) && (vm.getBlockTimestamp() >= opensAt || _everyRetired(g));
         vm.prank(caller, caller);
         (bool ok,) = address(games).call(abi.encodeCall(IOspexGames.release, (id)));
@@ -467,8 +483,23 @@ contract GamesHandler is Test {
         return g.scored || g.voided || g.released;
     }
 
+    /// @dev Whether the game's day-30 clock, from its date, has not run: before it a report may land, from it
+    ///      only the release.
+    function _open(Ghost storage g) internal view returns (bool) {
+        return vm.getBlockTimestamp() < uint256(g.date) + g.terms.day30Clock;
+    }
+
+    /// @dev Whether a report's readings pass the checks every kind makes: no silent reading carrying a score
+    ///      (shapeSeed % 9 == 1 plants one) and no seat twice (% 11 == 1 plants one).
+    function _readingsFine(uint256 shapeSeed) internal pure returns (bool) {
+        return shapeSeed % 9 != 1 && shapeSeed % 11 != 1;
+    }
+
+    /// @dev Every reporter that could still write to the game is retired: for a game with no start, every first-n
+    ///      reporter (an after-n one writes no start); otherwise every reporter.
     function _everyRetired(Ghost storage g) internal view returns (bool) {
         for (uint256 i; i < g.reporters.length; ++i) {
+            if (!g.started && g.kinds[i] == 2) continue;
             if (!retired[g.reporters[i]]) return false;
         }
         return true;
@@ -521,8 +552,13 @@ contract GamesHandler is Test {
         return 0;
     }
 
-    /// @dev One silent reading, at 0-0 unless shapeSeed says otherwise. A start pays nothing; any other kind
-    ///      names a payout.
+    /// @dev Four readings, seats 1 to 4, in the shape the program sends for the kind: a start's are the shape of
+    ///      a game in play (two finals, one answer without a final, one silent); a score's three finals reading
+    ///      the score beside a silent; a void's three answers without a final beside a silent; a dispute report's
+    ///      two finals that differ beside an answer without a final and a silent. Then shapeSeed's faults: % 9 == 1
+    ///      a silent reading carrying a score; % 11 == 1 two readings naming seat 1; and for a score by % 13: 1
+    ///      one final beside silents, 2 a dissenting fourth final, 3 three finals reading another score; for a
+    ///      void, % 13 == 1 three finals that agree. A start pays nothing; any other kind names a payout.
     function _report(uint256 id, ReportKind kind, uint64 start, uint32 home, uint32 away, uint256 shapeSeed)
         internal
         pure
@@ -533,8 +569,50 @@ contract GamesHandler is Test {
         r.start = start;
         r.homeScore = home;
         r.awayScore = away;
-        r.readings = new Reading[](1);
-        if (shapeSeed % 9 == 1) r.readings[0].homeScore = 1;
+        Reading[] memory readings = new Reading[](4);
+        for (uint256 i; i < 4; ++i) {
+            readings[i].seat = uint8(i + 1);
+        }
+        if (kind == ReportKind.Score) {
+            for (uint256 i; i < 3; ++i) {
+                readings[i] = Reading({seat: uint8(i + 1), kind: ReadingKind.AnsweredFinal, homeScore: home, awayScore: away});
+            }
+            uint256 m = shapeSeed % 13;
+            if (m == 1) {
+                readings[1].kind = ReadingKind.Silent;
+                readings[2].kind = ReadingKind.Silent;
+                readings[1].homeScore = 0;
+                readings[1].awayScore = 0;
+                readings[2].homeScore = 0;
+                readings[2].awayScore = 0;
+            } else if (m == 2) {
+                readings[3] = Reading({seat: 4, kind: ReadingKind.AnsweredFinal, homeScore: home ^ 1, awayScore: away});
+            } else if (m == 3) {
+                for (uint256 i; i < 3; ++i) {
+                    readings[i].homeScore = home ^ 1; // another score, whatever the home score is
+                }
+            }
+        } else if (kind == ReportKind.Void) {
+            for (uint256 i; i < 3; ++i) {
+                readings[i].kind = ReadingKind.AnsweredNoFinal;
+            }
+            if (shapeSeed % 13 == 1) {
+                for (uint256 i; i < 3; ++i) {
+                    readings[i] = Reading({seat: uint8(i + 1), kind: ReadingKind.AnsweredFinal, homeScore: 5, awayScore: 5});
+                }
+            }
+        } else {
+            readings[0] = Reading({seat: 1, kind: ReadingKind.AnsweredFinal, homeScore: 7, awayScore: 3});
+            readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: 7, awayScore: 4});
+            readings[2] = Reading({seat: 3, kind: ReadingKind.AnsweredNoFinal, homeScore: 6, awayScore: 3});
+        }
+        if (shapeSeed % 9 == 1) {
+            readings[3].kind = ReadingKind.Silent;
+            readings[3].homeScore = 1;
+            readings[3].awayScore = 0;
+        }
+        if (shapeSeed % 11 == 1) readings[3].seat = 1;
+        r.readings = readings;
         if (kind != ReportKind.Start) r.payout = address(0xFEE00);
     }
 

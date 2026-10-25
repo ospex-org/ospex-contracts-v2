@@ -447,8 +447,8 @@ contract OspexGamesListTest is GamesBase {
 
     /// A retired reporter writes nothing more to any game, from any game's start to its end, while the game's
     /// other reporters write on. The cases the spec carries: before the start, in play, and unscored past
-    /// start + n. A game whose every reporter is retired reads so at once, and nothing can write to it; it
-    /// keeps its status, since the release is the ends' to write.
+    /// start + n. A started game whose every reporter is retired reads so at once, and nothing can write to it;
+    /// it keeps its status, since the release is the ends' to write.
     function test_retire_beforeTheStartInPlayAndUnscored() public {
         uint256 unstarted = _create();
         uint256 inPlay = _create();

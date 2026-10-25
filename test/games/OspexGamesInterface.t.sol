@@ -26,15 +26,15 @@ contract OspexGamesInterfaceTest is GamesBase {
         impl = _artifact("OspexGames");
     }
 
-    /// The contract has exactly these functions: the three writes anyone may send (create, report, withdraw),
-    /// the timelock's three calls, the five reads, the other reads, ten constants and the two addresses fixed
-    /// at deploy. So it has no owner, no pause, no setter but the timelock's three, no fee receiver and no
-    /// setter for one, and nothing else writes a game, the list or a credit.
+    /// The contract has exactly these functions: the four writes anyone may send (create, report, release,
+    /// withdraw), the timelock's three calls, the five reads, the other reads, eleven constants and the two
+    /// addresses fixed at deploy. So it has no owner, no pause, no setter but the timelock's three, no fee
+    /// receiver and no setter for one, and nothing else writes a game, the list or a credit.
     /// Break: add any external function to OspexGames, such as one that pushes onto a game's reporters.
     function test_theFunctionsAreExactlyThese() public view {
         string[] memory want = vm.split(
-            "MAX_CLOCK();MAX_DATE_AHEAD();MAX_HINTS();MAX_HINT_ID_LENGTH();MAX_LEAGUE_LENGTH();MAX_REPORTERS();"
-            "MAX_RESERVED_ADDRESS();MAX_SCORE();MAX_TEAM_LENGTH();START_BOUND();i_timelock();i_token();"
+            "AGREE();MAX_CLOCK();MAX_DATE_AHEAD();MAX_HINTS();MAX_HINT_ID_LENGTH();MAX_LEAGUE_LENGTH();"
+            "MAX_REPORTERS();MAX_RESERVED_ADDRESS();MAX_SCORE();MAX_TEAM_LENGTH();START_BOUND();i_timelock();i_token();"
             "approveReporter(address,uint8,bytes32);retireReporter(address);"
             "setTerms(string,(uint64,uint64,uint64,uint96));"
             "createGame(string,string,string,uint64,(uint8,string)[],uint256);"
@@ -88,7 +88,10 @@ contract OspexGamesInterfaceTest is GamesBase {
             "OspexGames__InsideWindow(uint256,uint256);OspexGames__ScoreOutOfRange(uint32,uint32);"
             "OspexGames__NotScored(uint256,uint8);"
             "OspexGames__InsideDay7Clock(uint256,uint256);OspexGames__ReleaseNotOpen(uint256,uint256);"
-            "OspexGames__NotDisputed(uint256);OspexGames__NotAnEnd(uint8)",
+            "OspexGames__NotDisputed(uint256);OspexGames__NotAnEnd(uint8);"
+            "OspexGames__PastDay30Clock(uint256,uint256);OspexGames__ReadingSeatRepeated(uint256);"
+            "OspexGames__TooFewFinalsAgree(uint256,uint256);OspexGames__FinalDissents(uint256);"
+            "OspexGames__FinalsAgree(uint32,uint32)",
             ";"
         );
         _assertSameSet(_errorSignatures(impl, false), want, "error");
@@ -145,7 +148,11 @@ contract OspexGamesInterfaceTest is GamesBase {
             "OspexGames__NotScored(uint256 gameId,uint8 status);"
             "OspexGames__InsideDay7Clock(uint256 gameId,uint256 opensAt);"
             "OspexGames__ReleaseNotOpen(uint256 gameId,uint256 opensAt);"
-            "OspexGames__NotDisputed(uint256 gameId);OspexGames__NotAnEnd(uint8 status)",
+            "OspexGames__NotDisputed(uint256 gameId);OspexGames__NotAnEnd(uint8 status);"
+            "OspexGames__PastDay30Clock(uint256 gameId,uint256 closedAt);"
+            "OspexGames__ReadingSeatRepeated(uint256 index);"
+            "OspexGames__TooFewFinalsAgree(uint256 agreeing,uint256 needed);OspexGames__FinalDissents(uint256 index);"
+            "OspexGames__FinalsAgree(uint32 homeScore,uint32 awayScore)",
             ";"
         );
         _assertSameSet(_errorSignatures(impl, true), want, "named error");
@@ -164,7 +171,8 @@ contract OspexGamesInterfaceTest is GamesBase {
         assertEq(games.MAX_TEAM_LENGTH(), 64);
         assertEq(games.MAX_HINTS(), 8);
         assertEq(games.MAX_HINT_ID_LENGTH(), 64);
-        string[9] memory names = [
+        assertEq(games.AGREE(), 3);
+        string[10] memory names = [
             "MAX_SCORE",
             "START_BOUND",
             "MAX_DATE_AHEAD",
@@ -173,10 +181,11 @@ contract OspexGamesInterfaceTest is GamesBase {
             "MAX_LEAGUE_LENGTH",
             "MAX_TEAM_LENGTH",
             "MAX_HINTS",
-            "MAX_HINT_ID_LENGTH"
+            "MAX_HINT_ID_LENGTH",
+            "AGREE"
         ];
-        string[9] memory types =
-            ["uint32", "uint64", "uint64", "uint64", "uint256", "uint256", "uint256", "uint256", "uint256"];
+        string[10] memory types =
+            ["uint32", "uint64", "uint64", "uint64", "uint256", "uint256", "uint256", "uint256", "uint256", "uint256"];
         for (uint256 i; i < names.length; ++i) {
             string memory at = string.concat("$.abi[?(@.name == '", names[i], "')]");
             _assertParams(impl, string.concat(at, ".outputs"), "", types[i]);

@@ -263,11 +263,23 @@ abstract contract GamesBase is Test {
 
     // ──────────────────────────── Reports ──────────────────────────────
 
+    /// @dev Readings a start rides on, and the shape of a game still in play after n: two feeds show the same
+    ///      final, one answered without a final, one is silent.
     function _readings() internal pure returns (Reading[] memory readings) {
         readings = new Reading[](4);
         readings[0] = Reading({seat: 1, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY});
         readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY});
         readings[2] = Reading({seat: 3, kind: ReadingKind.AnsweredNoFinal, homeScore: 88, awayScore: 90});
+        readings[3] = Reading({seat: 4, kind: ReadingKind.Silent, homeScore: 0, awayScore: 0});
+    }
+
+    /// @dev Readings as a score rests on them: the three counting seats show the same final, the spare is
+    ///      silent. Three agreeing finals settle a game at any status and any hour the reporter may write.
+    function _scoreReadings(uint32 home, uint32 away) internal pure returns (Reading[] memory readings) {
+        readings = new Reading[](4);
+        readings[0] = Reading({seat: 1, kind: ReadingKind.AnsweredFinal, homeScore: home, awayScore: away});
+        readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: home, awayScore: away});
+        readings[2] = Reading({seat: 3, kind: ReadingKind.AnsweredFinal, homeScore: home, awayScore: away});
         readings[3] = Reading({seat: 4, kind: ReadingKind.Silent, homeScore: 0, awayScore: 0});
     }
 
@@ -284,12 +296,13 @@ abstract contract GamesBase is Test {
         r.kind = ReportKind.Score;
         r.homeScore = home;
         r.awayScore = away;
-        r.readings = _readings();
+        r.readings = _scoreReadings(home, away);
         r.payout = payout;
     }
 
     /// @dev Readings as the hour-24 void rests on them: the feeds that answer all show no final, and one is
-    ///      silent. The games set checks none of this; the shape is what the program would send.
+    ///      silent. The games set reads a void's readings only for three finals that agree; the shape is what
+    ///      the program would send.
     function _voidReadings() internal pure returns (Reading[] memory readings) {
         readings = new Reading[](4);
         readings[0] = Reading({seat: 1, kind: ReadingKind.AnsweredNoFinal, homeScore: 0, awayScore: 0});
@@ -383,8 +396,8 @@ abstract contract GamesBase is Test {
 
     /// @dev A game in a status, reached through the production paths: a fresh game for Unverified; otherwise a
     ///      game whose start is written at START by `first`, then disputed or scored at START + 1, voided at
-    ///      start + n, or released by a stranger once its day-30 clock has run. The clock is left where the path
-    ///      needed it; a caller that cares sets it after.
+    ///      start + n, or released by a stranger once its day-30 clock has run from its date. The clock is left
+    ///      where the path needed it; a caller that cares sets it after.
     function _inStatus(GameStatus s) internal returns (uint256 game) {
         game = _create();
         if (s == GameStatus.Unverified) return game;
@@ -400,9 +413,20 @@ abstract contract GamesBase is Test {
             vm.warp(START + WINDOW);
             _voidBy(first, game);
         } else {
-            vm.warp(START + games.getGameTerms(game).day30Clock);
+            vm.warp(_day30(game));
             _releaseBy(stranger, game);
         }
+    }
+
+    /// @dev The second a game's day-30 clock runs: its date as stored plus its own copied clock. From it the
+    ///      release is open and every report is refused.
+    function _day30(uint256 gameId) internal view returns (uint256) {
+        return uint256(_rawDate(gameId)) + games.getGameTerms(gameId).day30Clock;
+    }
+
+    /// @dev The refusal of any report to `gameId` at or after its day-30 clock.
+    function _pastDay30(uint256 gameId) internal view returns (bytes memory) {
+        return abi.encodeWithSelector(OspexGames.OspexGames__PastDay30Clock.selector, gameId, _day30(gameId));
     }
 
     // ──────────────────────────── The creation fee ─────────────────────

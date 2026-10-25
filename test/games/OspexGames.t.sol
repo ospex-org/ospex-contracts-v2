@@ -402,8 +402,9 @@ contract OspexGamesTest is GamesBase {
     }
 
     /// A start of 0 is refused even where the date is so early that 0 is within a day of it, since a written
-    /// start is never 0.
+    /// start is never 0. The clock sits before that date, so its day-30 clock has not run.
     function test_start_zeroIsRefused() public {
+        vm.warp(50);
         uint256 game = _createAt(100);
         (bool ok, bytes memory err) = _send(address(first), _startReport(game, 0));
         assertFalse(ok);
@@ -444,16 +445,25 @@ contract OspexGamesTest is GamesBase {
         assertEq(uint8(_status(game)), uint8(GameStatus.Verified));
     }
 
-    /// A start written late is taken: no rule refuses a start written after date + n. The bound above keeps it
-    /// within a day of the date, so it moves the day-30 release by at most a day.
-    function test_start_canBeWrittenAnyTimeBeforeAnEnd() public {
-        uint64[3] memory times = [uint64(DATE - 30 days), START + 1, DATE + 60 days];
+    /// A start written late is taken, up to the last second before the game's day-30 clock: no rule refuses a
+    /// start written after date + n. The bound above keeps it within a day of the date, and writing it moves no
+    /// clock. At the day-30 clock a start is refused like every other report: the release is the only door.
+    function test_start_canBeWrittenAnyTimeBeforeTheDay30Clock() public {
+        uint64[3] memory times = [uint64(DATE - 30 days), START + 1, DATE + DAY30 - 1];
         for (uint256 i; i < times.length; ++i) {
             vm.warp(times[i]);
             uint256 game = _create();
             _startBy(first, game, START);
             assertEq(games.getGameStart(game), START);
         }
+        vm.warp(DATE - 1 hours);
+        uint256 late = _create();
+        vm.warp(DATE + DAY30);
+        (bool ok, bytes memory err) = _send(address(first), _startReport(late, START));
+        assertFalse(ok, "a start at the day-30 clock was taken");
+        assertEq(err, _pastDay30(late));
+        _releaseBy(stranger, late);
+        assertEq(uint8(_status(late)), uint8(GameStatus.Released), "the release is the only door");
     }
 
     // ──────────────────────────── The score ────────────────────────────
@@ -580,7 +590,7 @@ contract OspexGamesTest is GamesBase {
     function test_report_aReportWithNoKindIsRefused() public {
         uint256 game = _verified();
         vm.warp(START + WINDOW + 1);
-        Report memory r = _scoreReport(game, 0, 0);
+        Report memory r = _voidReport(game);
         r.kind = ReportKind.None;
         (bool ok, bytes memory err) = _send(address(first), r);
         assertFalse(ok);
@@ -645,11 +655,14 @@ contract OspexGamesTest is GamesBase {
         MockReporter[2] memory who = [first, later];
         for (uint256 w; w < who.length; ++w) {
             for (uint256 i; i < statuses.length; ++i) {
-                // One game per report kind, each in the status.
+                // One game per report kind, each in the status, each path begun before the date.
                 vm.warp(DATE - 1 hours);
                 uint256 forStart = _inStatus(statuses[i]);
+                vm.warp(DATE - 1 hours);
                 uint256 forScore = _inStatus(statuses[i]);
+                vm.warp(DATE - 1 hours);
                 uint256 forVoid = _inStatus(statuses[i]);
+                vm.warp(DATE - 1 hours);
                 uint256 forDispute = _inStatus(statuses[i]);
                 vm.warp(START + WINDOW + 1);
 
@@ -665,22 +678,31 @@ contract OspexGamesTest is GamesBase {
         }
     }
 
-    /// A reading marked silent carries no score: a feed that did not answer gave none. Refused in a start and
-    /// in a score, wherever the reading sits, with either score set, up to the largest the field holds.
+    /// A reading marked silent carries no score: a feed that did not answer gave none. Refused in a report of
+    /// every kind, a start, a score, a void, a dispute record and an update, wherever the reading sits, with
+    /// either score set, up to the largest the field holds.
     function test_report_aSilentReadingCarriesNoScore() public {
         uint32[2][3] memory dirt =
             [[uint32(1), uint32(0)], [uint32(0), uint32(1)], [type(uint32).max, type(uint32).max]];
         uint256[3] memory at = [uint256(0), 1, 3];
-        for (uint256 k; k < 2; ++k) {
+        for (uint256 k; k < 5; ++k) {
             for (uint256 d; d < dirt.length; ++d) {
                 for (uint256 p; p < at.length; ++p) {
                     vm.warp(DATE - 1 hours);
                     uint256 game = _create();
                     Report memory r = _startReport(game, START);
-                    if (k == 1) {
+                    if (k != 0) {
                         _startBy(first, game, START);
                         vm.warp(START + 1);
-                        r = _scoreReport(game, HOME, AWAY);
+                        if (k == 1) r = _scoreReport(game, HOME, AWAY);
+                        else if (k == 2) r = _disputeReport(game);
+                        else if (k == 3) {
+                            _disputeBy(first, game);
+                            r = _disputeReport(game); // an update
+                        } else {
+                            vm.warp(START + WINDOW);
+                            r = _voidReport(game);
+                        }
                     }
                     r.readings[at[p]] =
                         Reading({seat: 9, kind: ReadingKind.Silent, homeScore: dirt[d][0], awayScore: dirt[d][1]});
@@ -693,7 +715,7 @@ contract OspexGamesTest is GamesBase {
             }
         }
         // Controls, in a start and in a score: a silent reading at 0-0, a reading answered without a final at
-        // 0-0 and with scores, and a final at 0-0.
+        // 0-0 and with scores, and a final at 0-0, which is the score the control reports.
         Reading[] memory fine = new Reading[](4);
         fine[0] = Reading({seat: 1, kind: ReadingKind.Silent, homeScore: 0, awayScore: 0});
         fine[1] = Reading({seat: 2, kind: ReadingKind.AnsweredNoFinal, homeScore: 0, awayScore: 0});
@@ -705,7 +727,7 @@ contract OspexGamesTest is GamesBase {
         start.readings = fine;
         _take(address(first), start);
         vm.warp(START + 1);
-        Report memory score = _scoreReport(game2, HOME, AWAY);
+        Report memory score = _scoreReport(game2, 0, 0);
         score.readings = fine;
         _take(address(first), score);
         assertEq(uint8(_status(game2)), uint8(GameStatus.Scored));
@@ -755,7 +777,7 @@ contract OspexGamesTest is GamesBase {
         assertEq(h, HOME);
         assertEq(a, AWAY);
         assertEq(pay, address(0xBEE00));
-        _assertReadings(readings, _readings());
+        _assertReadings(readings, _scoreReadings(HOME, AWAY));
     }
 
     /// A start with no readings is taken: a report need not carry any. What the games set does check in a
