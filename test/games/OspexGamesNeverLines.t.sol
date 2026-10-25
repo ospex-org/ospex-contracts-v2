@@ -1597,8 +1597,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
-    // "A refused USDC transfer stops a game from ending, or a release from happening." (10/21, a correction to
-    //  the frozen text, carried into the spec since.)
+    // "A refused USDC transfer stops a game from ending, or a release from happening."
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// The coin refuses every transfer (paused): a score and a release each go through and credit, and only
@@ -1667,8 +1666,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
-    // "A creation pulls more than the fee its caller named." Not in the spec's text: a line for this piece,
-    //  added in its review.
+    // "A creation pulls more than the fee its caller named." Not in the spec's text: a line for this piece.
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// A creator reads the fee, 1 USDC, and allows the games set far more than that, as a standing allowance
