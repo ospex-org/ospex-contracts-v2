@@ -614,18 +614,15 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
     ///      an update to a dispute record writes nothing. A score and a void also credit the game's creation fee
     ///      to the payout address in the report (FeeCredited), and call no coin. The sender's standing is checked
     ///      before the report's kind is read, so every kind is refused the same way: not the game's reporter,
-    ///      retired, or code changed. No local holds the sender's code hash: compiled through the IR pipeline,
-    ///      this function's frame at the event's encoding sits a slot from the stack's limit, and one more live
-    ///      word there fails the build of a contract that inherits it. The hash is read again only on the refusal.
+    ///      retired, or code changed.
     function report(Report calldata r) external {
         Game storage g = _game(r.gameId);
         ReporterKind kind = _recordedKind(r.gameId, msg.sender);
         if (kind == ReporterKind.None) revert OspexGames__NotAReporter(r.gameId, msg.sender);
         Admission storage a = s_admissions[msg.sender];
         if (a.retired) revert OspexGames__ReporterRetired(msg.sender);
-        if (msg.sender.codehash != a.codeHash) {
-            revert OspexGames__CodeChanged(msg.sender, a.codeHash, msg.sender.codehash);
-        }
+        bytes32 found = msg.sender.codehash;
+        if (found != a.codeHash) revert OspexGames__CodeChanged(msg.sender, a.codeHash, found);
         _checkReadings(r.readings);
 
         if (r.kind == ReportKind.Start) {

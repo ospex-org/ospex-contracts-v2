@@ -31,9 +31,9 @@ import {RefusingCoin} from "./CoinFixtures.sol";
 ///      - a fee change is queued in the timelock by its key, and run later by anyone, as a step of its own, so
 ///        creations and looks land between the two, and changes queued together run in any order;
 ///      - a start credits nothing;
-///      - a game's date is the second it was made; every report to it is refused from its date plus the day-30
-///        clock, and its readings are the shape the program sends, so only the fee's gates are in question here
-///        (the readings' are the games model's);
+///      - a game's date is the second it was made, or up to 25 days before; every report to it is refused from its
+///        date plus the day-30 clock, and its readings are the shape the program sends, so only the fee's gates
+///        are in question here (the readings' are the games model's);
 ///      - a score is taken only for a started game that has not ended, a dispute record or not, from one of its
 ///        reporters at an hour it may write (an after-n reporter from start + n), naming a payout address that
 ///        is not 0, not the games set, not the coin and not any reporter ever approved, the retired one
@@ -234,7 +234,10 @@ contract FeeHandler is Test {
         bytes memory cutRefusal =
             abi.encodeWithSelector(OspexGames.OspexGames__FeeNotReceived.selector, uint256(fee), balance, balance + arrives);
         uint256 coinBefore = coin.balanceOf(who);
-        uint64 date = uint64(vm.getBlockTimestamp()); // the game's date is the second it is made
+        // The game's date: the second it is made, or up to 25 days before it, so that its day-30 clock runs inside
+        // a sequence and the release, and the refusals from the clock, are reached. The league seed's higher bits
+        // say how far back; the fixed-order test's seeds say not at all.
+        uint64 date = uint64(vm.getBlockTimestamp() - bound(leagueSeed >> 1, 0, 25 days));
 
         vm.recordLogs();
         vm.prank(who, who);

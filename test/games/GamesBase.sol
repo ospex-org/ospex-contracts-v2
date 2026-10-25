@@ -39,18 +39,27 @@ contract MockReporter is IOspexReporter {
     }
 }
 
+/// @dev The six arguments of the games contract's constructor as one value. The harness's constructor takes them
+///      this way so that it holds one word for them where the contract's own holds six: compiled through the IR
+///      pipeline, the harness's creation code, the base constructor's loop inlined into it, sat one stack slot
+///      from the limit, and a one-line change anywhere in the contract could fail the harness's build while the
+///      contract itself built. The contract's constructor is unchanged.
+struct Deploy {
+    address timelock;
+    IERC20 token;
+    Terms defaultTerms;
+    address[] reporters;
+    ReporterKind[] kinds;
+    bytes32[] codeHashes;
+}
+
 /// @dev The games contract with test-only hooks. It overrides nothing, so every inherited call runs the
 ///      production code. No hook writes a status: every status a test needs is reached through the production
 ///      paths (a start, a score, a void, a dispute record, a release).
 contract OspexGamesHarness is OspexGames {
-    constructor(
-        address timelock,
-        IERC20 token,
-        Terms memory defaultTerms,
-        address[] memory reporters,
-        ReporterKind[] memory kinds,
-        bytes32[] memory codeHashes
-    ) OspexGames(timelock, token, defaultTerms, reporters, kinds, codeHashes) {}
+    constructor(Deploy memory d)
+        OspexGames(d.timelock, d.token, d.defaultTerms, d.reporters, d.kinds, d.codeHashes)
+    {}
 
     /// @dev Reaches `_end`, the one place an end is written and the fee credited, with whatever status and
     ///      account a test names, and none of the checks its production callers make first: the gate under test
@@ -161,8 +170,16 @@ abstract contract GamesBase is Test {
         kinds[0] = ReporterKind.FirstN;
         kinds[1] = ReporterKind.AfterN;
         kinds[2] = ReporterKind.FirstN;
-        games =
-            new OspexGamesHarness(address(timelock), token, _launchTerms(), reporters, kinds, _hashes(reporters));
+        games = new OspexGamesHarness(
+            Deploy({
+                timelock: address(timelock),
+                token: token,
+                defaultTerms: _launchTerms(),
+                reporters: reporters,
+                kinds: kinds,
+                codeHashes: _hashes(reporters)
+            })
+        );
         vm.stopPrank();
         assertEq(address(games), predicted, "games address as predicted");
         // The two addresses most tests create from can pay the fee.

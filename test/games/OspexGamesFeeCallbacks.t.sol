@@ -7,7 +7,7 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 import {OspexGames} from "../../src/games/OspexGames.sol";
 import {IOspexGames, GameStatus, ReporterKind, ReportKind, Report, Hint} from "../../src/games/IOspexGames.sol";
 import {IOspexReporter} from "../../src/games/IOspexReporter.sol";
-import {GamesBase, MockReporter, OspexGamesHarness} from "./GamesBase.sol";
+import {Deploy, GamesBase, MockReporter, OspexGamesHarness} from "./GamesBase.sol";
 import {TrickCoin} from "./CoinFixtures.sol";
 
 /// @dev An address that acts on its own and, when a coin calls it back, makes the calls it was queued, once and
@@ -95,7 +95,14 @@ contract OspexGamesFeeCallbacksTest is GamesBase {
         coin = new TrickCoin();
         r = new MockReporter(IOspexGames(vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1)));
         g = new OspexGamesHarness(
-            address(timelock), coin, _launchTerms(), _one(address(r)), _kinds1(ReporterKind.FirstN), _hashes(_one(address(r)))
+            Deploy({
+                timelock: address(timelock),
+                token: coin,
+                defaultTerms: _launchTerms(),
+                reporters: _one(address(r)),
+                kinds: _kinds1(ReporterKind.FirstN),
+                codeHashes: _hashes(_one(address(r)))
+            })
         );
         assertEq(address(r.i_games()), address(g), "the reporter points at the games set");
         coin.mint(creator, PURSE);
