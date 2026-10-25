@@ -789,6 +789,12 @@ contract OspexGamesTest is GamesBase {
             games.getGameTerms(ids[i]);
             vm.expectRevert(err);
             games.isEveryReporterRetired(ids[i]);
+            vm.expectRevert(err);
+            games.getGameFee(ids[i]);
+            vm.expectRevert(err);
+            games.getGameDisputedAt(ids[i]);
+            vm.expectRevert(err);
+            games.release(ids[i]);
         }
     }
 

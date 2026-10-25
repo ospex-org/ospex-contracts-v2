@@ -75,10 +75,12 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
  *         end no reporter writes. Anyone may release a game that has not ended once its day-30 clock has passed,
  *         counted from the start as written or, with no start written, from the date given at creation; or at
  *         once, when every one of the game's reporters is retired. A release credits the fee back to the creator
- *         and nothing to the caller. The three clocks are the game's own copied terms. Each opens a door and
- *         closes none: a score or a void that lands after the day-30 clock, before any release, is taken and pays
- *         on its result, and the first end to land is the game's. Spec: "How a game ends", "Retiring a
- *         reporter", "The terms".
+ *         and nothing to the caller. The three clocks are the game's own copied terms, and none refuses an end:
+ *         a score or a void that lands after the day-30 clock, before any release, is taken and pays on its
+ *         result; past that clock a release and a late result race, and whichever lands first is the game's
+ *         end. One write moves a clock after creation: a start, which may be written at any time within
+ *         START_BOUND of the date, moves the release from the date's clock to the start's, by at most that
+ *         bound. Spec: "How a game ends", "Retiring a reporter", "The terms".
  *
  *         Correcting a start or a score: there is none. Each is written once. Feeds that disagree lead to a
  *         dispute record and its updates, never to a correction. Spec: "The start is written once" and "A

@@ -422,7 +422,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
         uint64 late = START + 10;
         uint64 day7 = START + 10 + DAY7;
 
-        Refusal[] memory cases = new Refusal[](44);
+        Refusal[] memory cases = new Refusal[](48);
         uint256 n;
         // The start's refusals.
         cases[n++] = _refusal(_startReport(0, START), address(first), _err1(OspexGames.OspexGames__UnknownGame.selector, 0), late);
@@ -470,6 +470,11 @@ contract OspexGamesNeverLinesTest is GamesBase {
         r = _voidReport(verified);
         r.start = START;
         cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Void), START + WINDOW);
+        r = _voidReport(verified);
+        r.awayScore = 1;
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Void), START + WINDOW);
+        // Inside n a disputed game's void names n, not the day-7 clock.
+        cases[n++] = _refusal(_voidReport(disputed), address(first), abi.encodeWithSelector(OspexGames.OspexGames__InsideWindow.selector, disputed, uint256(START) + WINDOW), late);
         cases[n++] = _refusal(_voidReportTo(verified, address(0)), address(first), abi.encodeWithSelector(OspexGames.OspexGames__NoPayout.selector, ReportKind.Void), START + WINDOW);
         cases[n++] = _refusal(_voidReportTo(verified, address(0x1010)), address(first), abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsReserved.selector, ReportKind.Void, address(0x1010)), START + WINDOW);
         cases[n++] = _refusal(_voidReportTo(verified, address(games)), address(first), abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsTheGamesSet.selector, ReportKind.Void), START + WINDOW);
@@ -487,6 +492,12 @@ contract OspexGamesNeverLinesTest is GamesBase {
         cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Dispute), late);
         r = _disputeReport(verified);
         r.awayScore = 1;
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Dispute), late);
+        r = _disputeReport(verified);
+        r.homeScore = 1;
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Dispute), late);
+        r = _disputeReport(verified);
+        r.start = START;
         cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Dispute), late);
         cases[n++] = _refusal(_disputeReport(ahead), address(first), abi.encodeWithSelector(OspexGames.OspexGames__BeforeStart.selector, ahead, START), DATE - 1 hours);
         cases[n++] = _refusal(_disputeReport(tight), address(later), abi.encodeWithSelector(OspexGames.OspexGames__InsideWindow.selector, tight, uint256(START) + WINDOW), START + WINDOW - 1);
@@ -1870,9 +1881,11 @@ contract OspexGamesNeverLinesTest is GamesBase {
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// Games in every open status (unverified, started, disputed), long before their day-30 clock, beside a
-    /// scored game and a voided one. Retiring one reporter, then another, writes no game, moves no money and
-    /// leaves each open game's release refused by name; retiring the last opens the release of each open game
-    /// at once, and still writes and credits nothing. Then anyone releases each, and the creator alone is
+    /// scored game and a voided one, and a game made after a fourth reporter was approved. Retiring one of the
+    /// three, then another, writes no game, moves no money and leaves each open game's release refused by name;
+    /// retiring the last opens the release of each game that recorded only those three, at once, and still
+    /// writes and credits nothing. The game that also recorded the fourth, still live, stays closed, though the
+    /// approved list is not empty either way. Then anyone releases each open game, and the creator alone is
     /// credited. The ended games' release is refused as ended throughout.
     /// Break: in _everyReporterRetired(), change `if (!s_admissions[list[i].account].retired) return false;` to
     /// `if (s_admissions[list[i].account].retired) return true;`. One retirement then opens every release.
@@ -1885,6 +1898,9 @@ contract OspexGamesNeverLinesTest is GamesBase {
         vm.warp(DATE - 1 hours);
         uint256 voided = _inStatus(GameStatus.Voided);
         vm.warp(START + 2 days); // long before the day-30 clock
+        MockReporter fourth = new MockReporter(games);
+        _approve(address(fourth), ReporterKind.AfterN);
+        uint256 withFourth = _create(); // records the three and the fourth
         uint256[3] memory open = [unverified, verified, disputed];
         uint256[2] memory ended = [scored, voided];
         GameStatus[2] memory endedStatuses = [GameStatus.Scored, GameStatus.Voided];
@@ -1924,6 +1940,17 @@ contract OspexGamesNeverLinesTest is GamesBase {
             assertEq(_held(open[i]), FEE, "a retirement credited a fee");
         }
         assertEq(games.getCredit(creator), 0, "a retirement credited the creator");
+        // The game that recorded the fourth reporter, still live, is not one whose every reporter is retired:
+        // its release waits for its clock, though every other game's is open and the list holds a reporter.
+        (address[] memory listed,) = games.getApprovedReporters();
+        assertEq(listed.length, 1, "the approved list holds the fourth reporter");
+        assertFalse(games.isEveryReporterRetired(withFourth), "the fourth reporter is live");
+        (bool okFourth, bytes memory errFourth) = _tryRelease(stranger, withFourth);
+        assertFalse(okFourth, "a game with a live reporter was released early");
+        assertEq(
+            errFourth,
+            abi.encodeWithSelector(OspexGames.OspexGames__ReleaseNotOpen.selector, withFourth, uint256(DATE) + DAY30)
+        );
 
         vm.recordLogs();
         _releaseBy(stranger, unverified);
@@ -2402,11 +2429,17 @@ contract OspexGamesNeverLinesTest is GamesBase {
 
     /// A void naming as its payout address 0, a reserved address, the games set, the coin, the sending
     /// reporter, another of the game's reporters or a retired reporter is refused by name, with the void's kind
-    /// in the refusal; nothing is emitted, no money moves and the game keeps its fee. Control: the same void
-    /// naming the payout address is taken, credits it, and it withdraws.
+    /// in the refusal; nothing is emitted, no money moves and the game keeps its fee. The hour-24 void and the
+    /// day-7 void alike. Control: the same void naming the payout address is taken, credits it, and it withdraws.
     /// Break: in _writeVoid(), delete `_checkPayout(ReportKind.Void, r.payout);`. A void naming address 0 is then
     /// taken and the fee credited to 0, which nothing can withdraw.
     function test_neverLine_aVoidRefusesThePayoutsAScoreRefuses() public {
+        _assertVoidPayoutsRefused(false);
+        _assertVoidPayoutsRefused(true);
+    }
+
+    /// @dev The seven refusals, for the hour-24 void (`disputed` false) or the day-7 void (`disputed` true).
+    function _assertVoidPayoutsRefused(bool disputed) internal {
         MockReporter retiredOne = new MockReporter(games);
         _approve(address(retiredOne), ReporterKind.AfterN);
         _retire(address(retiredOne));
@@ -2432,7 +2465,13 @@ contract OspexGamesNeverLinesTest is GamesBase {
             vm.warp(DATE - 1 hours);
             uint256 game = _create();
             _startBy(first, game, START);
-            vm.warp(START + WINDOW);
+            if (disputed) {
+                vm.warp(START + 1);
+                _disputeBy(first, game);
+                vm.warp(START + 1 + DAY7);
+            } else {
+                vm.warp(START + WINDOW);
+            }
             bytes32 money = _money(accounts);
             bytes32 state = _viewAll();
             vm.recordLogs();
@@ -2444,6 +2483,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
             assertEq(_viewAll(), state, "a refused void changed a game");
             assertEq(_held(game), FEE, "the game keeps its fee");
             _take(address(first), _voidReportTo(game, payout));
+            assertEq(uint8(_status(game)), uint8(GameStatus.Voided), "control: voided");
             vm.prank(payout);
             paid += games.withdraw();
         }

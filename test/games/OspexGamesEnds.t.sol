@@ -60,6 +60,51 @@ contract OspexGamesEndsTest is GamesBase {
         assertEq(games.withdraw(), FEE, "the payout address withdraws");
     }
 
+    /// A void's refusals name its first fault in one order: the game's status, a start or score field set, the
+    /// payout address, then the clocks. A void naming the games set as its payout is refused for the payout
+    /// inside n, on a game with a dispute record and on one without, and inside the day-7 clock. The same void
+    /// naming a good payout is refused by the clock: inside n by n's name on both games, and past n on the
+    /// disputed game by the day-7 clock's.
+    function test_void_namesAPayoutFaultBeforeTheClocks() public {
+        vm.warp(DATE - 1 hours);
+        uint256 plain = _create();
+        uint256 disputed = _create();
+        _startBy(first, plain, START);
+        _startBy(first, disputed, START);
+        vm.warp(START + 1);
+        _disputeBy(first, disputed);
+        bytes memory payoutFault =
+            abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsTheGamesSet.selector, ReportKind.Void);
+        bytes memory insideN = abi.encodeWithSelector(OspexGames.OspexGames__InsideWindow.selector, plain, uint256(START) + WINDOW);
+        bytes memory insideNDisputed =
+            abi.encodeWithSelector(OspexGames.OspexGames__InsideWindow.selector, disputed, uint256(START) + WINDOW);
+        bytes memory insideDay7 =
+            abi.encodeWithSelector(OspexGames.OspexGames__InsideDay7Clock.selector, disputed, uint256(START) + 1 + DAY7);
+
+        vm.warp(START + 2);
+        (bool ok, bytes memory err) = _send(address(first), _voidReportTo(plain, address(games)));
+        assertFalse(ok);
+        assertEq(err, payoutFault, "the payout fault is named before n");
+        (ok, err) = _send(address(first), _voidReportTo(disputed, address(games)));
+        assertFalse(ok);
+        assertEq(err, payoutFault, "the payout fault is named before n, disputed game");
+        (ok, err) = _send(address(first), _voidReport(plain));
+        assertFalse(ok);
+        assertEq(err, insideN, "control: a good payout, inside n");
+        (ok, err) = _send(address(first), _voidReport(disputed));
+        assertFalse(ok);
+        assertEq(err, insideNDisputed, "control: inside n a disputed game names n, not the day-7 clock");
+
+        vm.warp(START + WINDOW);
+        (ok, err) = _send(address(later), _voidReportTo(disputed, address(games)));
+        assertFalse(ok);
+        assertEq(err, payoutFault, "the payout fault is named before the day-7 clock");
+        (ok, err) = _send(address(later), _voidReport(disputed));
+        assertFalse(ok);
+        assertEq(err, insideDay7, "control: a good payout, inside the day-7 clock");
+        _take(address(later), _voidReport(plain));
+    }
+
     /// On a disputed game the void opens at the record plus the game's own day-7 clock: a league's own clock
     /// (two days) and the default (seven), each refused a second before and taken at it, by either kind; a change
     /// to the league's clock after the game was made does not move it.
@@ -198,6 +243,22 @@ contract OspexGamesEndsTest is GamesBase {
             assertEq(uint8(_status(ids[i])), uint8(GameStatus.Released), "released at its clock");
         }
         assertEq(games.getCredit(creator), 4 * uint256(FEE), "each release credited the creator");
+
+        // A start written after the date's clock has run, while nothing has released the game, moves the release
+        // to the start's clock, by at most the start bound: refused until then, then taken.
+        vm.warp(DATE - 1 hours);
+        uint256 lateWritten = _create();
+        vm.warp(DATE + DAY30);
+        _startBy(first, lateWritten, START);
+        (bool okLate, bytes memory errLate) = _tryRelease(stranger, lateWritten);
+        assertFalse(okLate, "a start written after the date's clock ran left the release open");
+        assertEq(
+            errLate,
+            abi.encodeWithSelector(OspexGames.OspexGames__ReleaseNotOpen.selector, lateWritten, uint256(START) + DAY30)
+        );
+        vm.warp(START + DAY30);
+        _releaseBy(stranger, lateWritten);
+        assertEq(uint8(_status(lateWritten)), uint8(GameStatus.Released), "released at the start's clock");
     }
 
     /// A release's two events: the credit to the creator, then the release naming the game and the caller. At a
@@ -269,8 +330,10 @@ contract OspexGamesEndsTest is GamesBase {
 
     /// From every status, every call a game can take (a start, a score, a void, a dispute record, a release),
     /// from a first-n reporter and from an after-n one, at an hour every clock has run: the status never moves
-    /// back, and a credit is emitted exactly when the call moves the game into an end from an open status.
-    function test_status_onlyMovesForwardAndEveryEndCreditsOnce() public {
+    /// back, a refused call leaves it, an ended game takes nothing, and a credit is emitted exactly when the
+    /// call moves the game into an end from an open status. Which calls each status takes is
+    /// test_report_refusalNamesByStatus's.
+    function test_status_neverMovesBackAndACreditMeansAnEnd() public {
         GameStatus[6] memory statuses = [
             GameStatus.Unverified,
             GameStatus.Verified,

@@ -303,8 +303,9 @@ interface IOspexGames is IGameReporters {
     ///         reporter of either kind, and on a disputed game only once its day-7 clock has run. A dispute
     ///         record carries a zero payout, credits nothing and ends nothing: the first one writes Disputed and
     ///         starts the day-7 clock; every later one is an update, taken and emitted, writing nothing. Every
-    ///         report the games set takes is emitted with its readings, which are not stored. A game that has
-    ///         ended takes no report of any kind.
+    ///         report the games set takes is emitted with its readings, which are not stored. An update's event
+    ///         has the record's shape; a game's first dispute event is its record, and getGameDisputedAt gives
+    ///         the record's time. A game that has ended takes no report of any kind.
     function report(Report calldata r) external;
 
     /// @notice Releases a game that has not ended: no score, no void, no release, a dispute record or not.
@@ -316,7 +317,9 @@ interface IOspexGames is IGameReporters {
     ///         is not a game, for a game that has ended (GameEnded), and otherwise while the clock has not run
     ///         and a reporter of the game is not retired (ReleaseNotOpen). The clock opens the release and
     ///         refuses nothing else: a score or a void that lands first ends the game, past the clock or not,
-    ///         and a release that lands first ends it.
+    ///         and a release that lands first ends it; past the clock the two race, and whichever lands first is
+    ///         the end. A start written after the date's clock has run moves the release to the start's clock,
+    ///         by at most START_BOUND.
     function release(uint256 gameId) external;
 
     /// @notice Pays the caller everything it has been credited, and sets its credit to 0. Only the address
