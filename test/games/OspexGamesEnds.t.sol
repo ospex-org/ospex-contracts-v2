@@ -520,30 +520,30 @@ contract OspexGamesEndsTest is GamesBase {
         assertEq(a, AWAY);
     }
 
-    /// The shapes the scoring program sends are taken: inside n a score on three counting finals beside a spare
-    /// that answered without a final; after n a score on two counting finals, the third silent, the spare
-    /// without a final; a day-7 void over three finals that agree beside a silent fourth; a dispute record and
-    /// an update whose finals all agree, since a dispute report's readings are read only for shape; and a
-    /// disputed game's score before day 7 on three agreeing finals beside a silent spare.
+    /// Four of the shapes the scoring program sends, named: inside n a score on three counting finals beside a
+    /// spare that answered without a final; after n a score on two counting finals, the third silent, the spare
+    /// without a final; an update whose finals all agree beside a silent fourth, since a dispute report's
+    /// readings are read for shape alone; and a disputed game's score before day 7 on three agreeing finals
+    /// beside a silent spare. The whole file of them runs in OspexGamesShapes.t.sol.
     function test_readings_theProgramsShapesAreTaken() public {
         vm.warp(DATE - 1 hours);
         uint256 inside = _create();
         uint256 afterN = _create();
-        uint256 day7Void = _create();
+        uint256 updated = _create();
         uint256 disputed = _create();
         _startBy(first, inside, START);
         _startBy(first, afterN, START);
-        _startBy(first, day7Void, START);
+        _startBy(first, updated, START);
         _startBy(first, disputed, START);
 
         vm.warp(START + 1);
         Report memory s = _scoreReportTo(inside, payout);
         s.readings[3] = Reading({seat: 4, kind: ReadingKind.AnsweredNoFinal, homeScore: 50, awayScore: 40});
         _take(address(first), s);
-        Report memory record = _disputeReport(day7Void);
-        record.readings = _scoreReadings(HOME, AWAY); // every final agrees: read for shape only
-        _take(address(first), record);
-        _take(address(first), record); // an update of the same shape
+        _disputeBy(first, updated); // the record: two finals that differ
+        Report memory update = _disputeReport(updated);
+        update.readings = _scoreReadings(HOME, AWAY); // every final agrees: an update, read for shape only
+        _take(address(first), update);
         _disputeBy(first, disputed);
         Report memory settled = _scoreReportTo(disputed, payout);
         _take(address(second), settled); // three agreeing finals, the spare silent, inside n and before day 7
@@ -554,16 +554,12 @@ contract OspexGamesEndsTest is GamesBase {
         two.readings[3] = Reading({seat: 4, kind: ReadingKind.AnsweredNoFinal, homeScore: 0, awayScore: 0});
         _take(address(later), two);
 
-        vm.warp(START + 1 + DAY7);
-        Report memory v = _voidReportTo(day7Void, payout);
-        v.readings = _scoreReadings(HOME, AWAY); // three agree, the fourth silent: a day-7 void's shape
-        _take(address(later), v);
-
         assertEq(uint8(_status(inside)), uint8(GameStatus.Scored), "inside n");
         assertEq(uint8(_status(afterN)), uint8(GameStatus.Scored), "after n");
         assertEq(uint8(_status(disputed)), uint8(GameStatus.Scored), "a disputed game on agreement");
-        assertEq(uint8(_status(day7Void)), uint8(GameStatus.Voided), "the day-7 void over a silent fourth");
-        assertEq(games.getCredit(payout), 4 * uint256(FEE), "each end credited once");
+        assertEq(uint8(_status(updated)), uint8(GameStatus.Disputed), "an update writes nothing");
+        assertEq(games.getGameDisputedAt(updated), START + 1, "an update moves no clock");
+        assertEq(games.getCredit(payout), 3 * uint256(FEE), "each end credited once");
     }
 
     /// @dev `count` silent readings at 0-0, seats 1 to `count`.

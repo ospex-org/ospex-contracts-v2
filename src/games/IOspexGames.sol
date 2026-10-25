@@ -90,8 +90,8 @@ struct Reading {
 ///        The games set reads them against the result the report carries and refuses a contradiction: a score
 ///        must be read as a final by at least one of them, and by AGREE of them on a disputed game, and no final
 ///        may read otherwise than the score, except on a disputed game from its day-7 clock, where the rule
-///        settles over one dissent; a void on a game with no dispute record may not carry AGREE finals that read
-///        the same. A day-7 void's finals are not read. Nothing else in a reading is checked.
+///        settles over one dissent; a void may not carry AGREE finals that read the same, at hour 24 or at day 7,
+///        since the rule scores on them. Nothing else in a reading is checked.
 /// @param payout The payout address: where the report that ends a game credits its creation fee. The games set
 ///        never puts the sender in its place. Zero for a start and for a dispute record, which pay nothing. A
 ///        score and a void refuse as payout: zero and the rest of the reserved range up to 0xffff, where

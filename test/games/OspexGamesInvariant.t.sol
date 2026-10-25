@@ -40,8 +40,8 @@ contract NoRead {
 ///        from start + n of the game's own n; and no report takes a silent reading that carries a score, or two
 ///        readings for one seat;
 ///      - a score's readings support it: one final reading the score on a game with no record, three on a
-///        disputed game, and no final reading otherwise except on a disputed game from its day-7 clock; a void on
-///        a game with no record carries no three finals that agree, while a day-7 void's finals are not read;
+///        disputed game, and no final reading otherwise except on a disputed game from its day-7 clock; a void
+///        carries no three finals that agree, at hour 24 or at day 7;
 ///      - a void from start + n of the game's own n, for either kind, and on a disputed game only once its own
 ///        day-7 clock has run from the record; a dispute record after the start (an after-n reporter's from
 ///        start + n), with no payout, the first writing the record's time and every later one an update that
@@ -344,7 +344,7 @@ contract GamesHandler is Test {
     ///      day-7 clock has run from the record; refused from the game's day-30 clock. shapeSeed: one time in
     ///      nine a silent reading carries a score; one time in eleven two readings name one seat; one time in
     ///      seven the void carries a score of its own, which is refused; one time in thirteen (% 13 == 1) its
-    ///      readings are three finals that agree, refused on a game with no record and taken as a day-7 void.
+    ///      readings are three finals that agree, refused at either clock.
     function reportVoid(uint256 gameSeed, uint256 whoSeed, uint256 shapeSeed) external {
         uint256 id = _pickGame(gameSeed);
         Ghost storage g = ghosts[id];
@@ -356,7 +356,7 @@ contract GamesHandler is Test {
         bool expected = _exists(id) && kind != 0 && !retired[who] && _codeAsApproved(who) && g.started
             && !_ended(g) && _open(g) && nowTs >= uint256(g.start) + g.terms.window
             && (!g.disputed || nowTs >= uint256(g.disputedAt) + g.terms.day7Clock) && shapeSeed % 7 != 1
-            && _readingsFine(shapeSeed) && (shapeSeed % 13 != 1 || g.disputed);
+            && _readingsFine(shapeSeed) && shapeSeed % 13 != 1;
         bool ok = _send(who, r);
         _check(ok, expected);
         if (ok && expected) {

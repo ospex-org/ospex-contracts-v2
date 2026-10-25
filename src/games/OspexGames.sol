@@ -89,11 +89,11 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
  *         refuses a report its own readings contradict, and re-derives no result: no two readings name one seat;
  *         a silent reading carries no score; a score is read as a final by at least one of its readings, by
  *         AGREE of them on a disputed game, and no final reads otherwise, except on a disputed game from its
- *         day-7 clock, where the rule settles three of four over one dissent; an hour-24 void carries no AGREE
- *         finals that read the same, since that is a score's agreement. A day-7 void's finals are not read: at
- *         day 7 the rule voids on a silent fourth beside three that agree. Which readings settle a game is the
- *         scoring program's rule, behind the reporter's code hash; these checks are a second door, and a report
- *         that passes them is not thereby true. Spec: "The scoring program", "Must never happen".
+ *         day-7 clock, where the rule settles three of four over one dissent; a void carries no AGREE finals
+ *         that read the same, at hour 24 or at day 7, since that is a score's agreement and the rule scores on
+ *         it at either clock. Which readings settle a game is the scoring program's rule, behind the reporter's
+ *         code hash; these checks are a second door, and a report that passes them is not thereby true. Spec:
+ *         "The scoring program", "Must never happen".
  *
  *         Correcting a start or a score: there is none. Each is written once. Feeds that disagree lead to a
  *         dispute record and its updates, never to a correction. Spec: "The start is written once" and "A
@@ -171,7 +171,8 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
  *           retired. Retire it, so that a game left with no other reporter can be released at once.
  *         - A disputed game's score needs AGREE finals reading it, and before its day-7 clock no final reading
  *           otherwise; a program that settles a disputed game on two finals, or beside a dissenting spare, has
- *           its report refused here and waits for a third, or for day 7.
+ *           its report refused here and waits for a third, or for day 7. A void over AGREE finals that agree is
+ *           refused at every clock, day 7 included: those finals score.
  */
 contract OspexGames is IOspexGames, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
@@ -383,8 +384,8 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
     /// @notice Thrown when a score carries a final that reads otherwise than the score, except on a disputed game
     ///         from its day-7 clock, where the rule settles over one dissent. The index is the first such reading.
     error OspexGames__FinalDissents(uint256 index);
-    /// @notice Thrown when an hour-24 void carries AGREE finals that read the same: that is a score's agreement,
-    ///         not a void's. The scores are the ones they agree on.
+    /// @notice Thrown when a void, at hour 24 or at day 7, carries AGREE finals that read the same: that is a
+    ///         score's agreement, not a void's. The scores are the ones they agree on.
     error OspexGames__FinalsAgree(uint32 homeScore, uint32 awayScore);
     /// @notice Thrown for any report to a game that has ended, scored, voided or released, and for a release of
     ///         one: nothing more is written to an ended game
@@ -897,18 +898,17 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
 
     /// @dev Writes a void, which ends the game. The game's start must be written and no end written; the start
     ///      and both scores must be empty, since a void is a status and never a 0-0; the payout address one that
-    ///      can withdraw (see _checkPayout); on a game with no dispute record the readings must hold no AGREE
-    ///      finals that agree (see _checkVoidReadings); the time before the game's day-30 clock (see
-    ///      _checkDay30), and at or after start + n, that second included, for a reporter of either kind: the
-    ///      hour-24 void. On a disputed game the time must also be at or after the dispute record plus the day-7
-    ///      clock: the day-7 void, the one end a dispute holds back, whose finals are not read. The end credits
-    ///      the game's fee to the payout address.
+    ///      can withdraw (see _checkPayout); the readings must hold no AGREE finals that agree, at either clock
+    ///      (see _checkVoidReadings); the time before the game's day-30 clock (see _checkDay30), and at or after
+    ///      start + n, that second included, for a reporter of either kind: the hour-24 void. On a disputed game
+    ///      the time must also be at or after the dispute record plus the day-7 clock: the day-7 void, the one
+    ///      end a dispute holds back. The end credits the game's fee to the payout address.
     function _writeVoid(Game storage g, Report calldata r) private {
         GameStatus status = g.status;
         if (status != GameStatus.Verified && status != GameStatus.Disputed) _refuseResult(r.gameId, status);
         if (r.start != 0 || r.homeScore != 0 || r.awayScore != 0) revert OspexGames__FieldNotEmpty(ReportKind.Void);
         _checkPayout(ReportKind.Void, r.payout);
-        if (status == GameStatus.Verified) _checkVoidReadings(r.readings);
+        _checkVoidReadings(r.readings);
         _checkDay30(g, r.gameId);
         uint256 voidOpensAt = uint256(g.start) + g.terms.window;
         if (block.timestamp < voidOpensAt) revert OspexGames__InsideWindow(r.gameId, voidOpensAt);
@@ -988,11 +988,11 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
         if (dissent != type(uint256).max && !dissentAllowed) revert OspexGames__FinalDissents(dissent);
     }
 
-    /// @dev Refuses an hour-24 void whose readings hold AGREE finals that read the same: that is a score's
-    ///      agreement, and the void contradicts its own readings. Fewer finals that agree are not agreement (one
-    ///      final beside silents is still a void's shape here), and finals that differ are a dispute's shape,
-    ///      which the void does not refuse. Not read for a day-7 void, which the rule posts over a silent fourth
-    ///      beside three finals that agree.
+    /// @dev Refuses a void whose readings hold AGREE finals that read the same, at hour 24 and at day 7 alike:
+    ///      that is a score's agreement, and the void contradicts its own readings. The rule scores three agreeing
+    ///      votes at every clock, so no void it sends carries three finals alike; a day-7 void carries at most two.
+    ///      Fewer finals that agree are not agreement (one final beside silents is still a void's shape here), and
+    ///      finals that differ are a dispute's shape, which the void does not refuse.
     function _checkVoidReadings(Reading[] calldata readings) private pure {
         uint256 count = readings.length;
         for (uint256 i; i < count; ++i) {
@@ -1096,7 +1096,7 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
     }
 
     /// @dev Refuses, in a report of any kind, a reading marked silent that carries a score, and two readings that
-    ///      name one seat. A score's and an hour-24 void's readings are read against the result they carry in
+    ///      name one seat. A score's and a void's readings are read against the result they carry in
     ///      _checkScoreReadings and _checkVoidReadings; nothing else in a reading is checked, and all are emitted
     ///      as the feeds gave them, not stored.
     function _checkReadings(Reading[] calldata readings) private pure {

@@ -1,5 +1,5 @@
 {
- "about": "One-line breaks of the games contract and its interface, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; line is where it starts; a find of several lines is one anchor, chosen where the line alone occurs more than once), run the named test alone and see it fail, restore the file byte for byte and see it pass. The whole games suite fails on each too. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis; one ending in $ matches nothing and passes with no test run. Check that exactly one test ran. Ids: N, F, G, L, W, R, M are the creation fee's; E the ends'; P the earlier never-lines' and the interface's; C the day-30 clock's and the retirement's; A the readings' checks; X the four one-line mutants an independent read found surviving before them.",
+ "about": "One-line breaks of the games contract and its interface, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; line is where it starts; a find of several lines is one anchor, chosen where the line alone occurs more than once), run the named test alone and see it fail, restore the file byte for byte and see it pass. The whole games suite fails on each too. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis; one ending in $ matches nothing and passes with no test run. Check that exactly one test ran. Ids: N, F, G, L, W, R, M are the creation fee's; E the ends'; P the earlier never-lines' and the interface's; C the day-30 clock's and the retirement's; A the readings' checks; X the four one-line mutants an independent read found surviving before them; S the scoring program's own shapes (test/games/shapes.json), each run through the report door.",
  "command": "FOUNDRY_SRC=src/games FOUNDRY_TEST=test/games FOUNDRY_SCRIPT=none forge test --via-ir --optimize --match-path <testPath> --match-test '^<test>\\('",
  "breaks": [
   {
@@ -7,7 +7,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 895,
+     "line": 896,
      "find": "_end(g, r.gameId, GameStatus.Scored, r.payout);",
      "replace": "_end(g, r.gameId, GameStatus.Scored, tx.origin);"
     }
@@ -119,7 +119,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 895,
+     "line": 896,
      "find": "        _end(g, r.gameId, GameStatus.Scored, r.payout);\n",
      "replace": "        _end(g, r.gameId, GameStatus.Scored, msg.sender);\n"
     }
@@ -147,7 +147,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 879,
+     "line": 880,
      "find": "    function _writeScore(Game storage g, Report calldata r, ReporterKind kind) private {\n        GameStatus status = g.status;\n        if (status != GameStatus.Verified && status != GameStatus.Disputed) _refuseResult(r.gameId, status);\n",
      "replace": "    function _writeScore(Game storage g, Report calldata r, ReporterKind kind) private {\n        GameStatus status = g.status;\n"
     }
@@ -189,7 +189,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 580,
+     "line": 581,
      "find": "        if (terms.fee > maxFee) revert OspexGames__FeeAboveMax(terms.fee, maxFee);\n",
      "replace": ""
     }
@@ -203,7 +203,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 494,
+     "line": 495,
      "find": "        if (coin.code.length == 0 || _isDelegated(coin)) revert OspexGames__TokenNotAContract(coin);\n",
      "replace": ""
     }
@@ -217,7 +217,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 494,
+     "line": 495,
      "find": "if (coin.code.length == 0 || _isDelegated(coin)) revert",
      "replace": "if (coin.code.length <= 23) revert"
     }
@@ -231,7 +231,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 606,
+     "line": 607,
      "find": "        if (terms.fee != 0) _takeFee(terms.fee);",
      "replace": "        _takeFee(terms.fee);"
     }
@@ -287,7 +287,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 580,
+     "line": 581,
      "find": "if (terms.fee > maxFee) revert",
      "replace": "if (terms.fee >= maxFee) revert"
     }
@@ -301,7 +301,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 580,
+     "line": 581,
      "find": "if (terms.fee > maxFee) revert",
      "replace": "if (terms.fee > maxFee && maxFee != 0) revert"
     }
@@ -315,7 +315,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 606,
+     "line": 607,
      "find": "        if (terms.fee != 0) _takeFee(terms.fee);",
      "replace": "        if (terms.fee != 0) _takeFee(maxFee);"
     }
@@ -329,7 +329,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 580,
+     "line": 581,
      "find": "OspexGames__FeeAboveMax(terms.fee, maxFee);",
      "replace": "OspexGames__FeeAboveMax(maxFee, terms.fee);"
     }
@@ -343,12 +343,12 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 580,
+     "line": 581,
      "find": "        if (terms.fee > maxFee) revert OspexGames__FeeAboveMax(terms.fee, maxFee);\n",
      "replace": ""
     },
     {
-     "line": 606,
+     "line": 607,
      "find": "        if (terms.fee != 0) _takeFee(terms.fee);",
      "replace": "        if (terms.fee != 0) _takeFee(terms.fee);\n        if (terms.fee > maxFee) revert OspexGames__FeeAboveMax(terms.fee, maxFee);"
     }
@@ -362,7 +362,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 882,
+     "line": 883,
      "find": "        if (r.start != 0) revert OspexGames__FieldNotEmpty(ReportKind.Score);\n        _checkPayout(ReportKind.Score, r.payout);\n",
      "replace": "        _checkPayout(ReportKind.Score, r.payout);\n        if (r.start != 0) revert OspexGames__FieldNotEmpty(ReportKind.Score);\n"
     }
@@ -376,7 +376,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 675,
+     "line": 676,
      "find": "        i_token.safeTransfer(msg.sender, amount);",
      "replace": "        i_token.safeTransfer(tx.origin, amount);"
     }
@@ -390,7 +390,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 672,
+     "line": 673,
      "find": "        s_credits[msg.sender] = 0;\n        emit Withdrawn(msg.sender, amount);\n        uint256 balanceBefore = i_token.balanceOf(address(this));\n        i_token.safeTransfer(msg.sender, amount);\n",
      "replace": "        emit Withdrawn(msg.sender, amount);\n        uint256 balanceBefore = i_token.balanceOf(address(this));\n        i_token.safeTransfer(msg.sender, amount);\n        s_credits[msg.sender] = 0;\n"
     }
@@ -432,7 +432,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 460,
+     "line": 461,
      "find": "    mapping(address => uint256) internal s_credits;",
      "replace": "    mapping(address => uint96) internal s_credits;"
     }
@@ -446,7 +446,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 561,
+     "line": 562,
      "find": ") external nonReentrant returns (uint256 gameId) {",
      "replace": ") external returns (uint256 gameId) {"
     }
@@ -460,7 +460,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 669,
+     "line": 670,
      "find": "function withdraw() external nonReentrant returns (uint256 amount) {",
      "replace": "function withdraw() external returns (uint256 amount) {"
     }
@@ -474,7 +474,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 677,
+     "line": 678,
      "find": "        if (balanceAfter + amount != balanceBefore) {\n            revert OspexGames__WithdrawalNotExact(amount, balanceBefore, balanceAfter);\n        }\n",
      "replace": ""
     }
@@ -488,7 +488,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 677,
+     "line": 678,
      "find": "if (balanceAfter + amount != balanceBefore) {",
      "replace": "if (balanceAfter + amount < balanceBefore) {"
     }
@@ -502,7 +502,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 677,
+     "line": 678,
      "find": "if (balanceAfter + amount != balanceBefore) {",
      "replace": "if (balanceAfter + amount > balanceBefore) {"
     }
@@ -516,7 +516,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 678,
+     "line": 679,
      "find": "OspexGames__WithdrawalNotExact(amount, balanceBefore, balanceAfter);",
      "replace": "OspexGames__WithdrawalNotExact(amount, balanceAfter, balanceBefore);"
     }
@@ -530,7 +530,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 674,
+     "line": 675,
      "find": "        uint256 balanceBefore = i_token.balanceOf(address(this));\n        i_token.safeTransfer(msg.sender, amount);\n",
      "replace": "        i_token.safeTransfer(msg.sender, amount);\n        uint256 balanceBefore = i_token.balanceOf(address(this));\n"
     }
@@ -558,7 +558,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 234,
+     "line": 235,
      "find": "address public constant MAX_RESERVED_ADDRESS = address(0xffff);",
      "replace": "address public constant MAX_RESERVED_ADDRESS = address(0xff);"
     }
@@ -586,7 +586,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 671,
+     "line": 672,
      "find": "        if (amount == 0) revert OspexGames__NothingToWithdraw(msg.sender);\n",
      "replace": ""
     }
@@ -600,7 +600,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 672,
+     "line": 673,
      "find": "        s_credits[msg.sender] = 0;\n",
      "replace": ""
     }
@@ -614,7 +614,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 673,
+     "line": 674,
      "find": "        emit Withdrawn(msg.sender, amount);\n",
      "replace": ""
     }
@@ -670,7 +670,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 786,
+     "line": 787,
      "find": "        held = g.status >= GameStatus.Scored ? 0 : g.terms.fee;",
      "replace": "        held = g.terms.fee;"
     }
@@ -684,7 +684,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 786,
+     "line": 787,
      "find": "        held = g.status >= GameStatus.Scored ? 0 : g.terms.fee;",
      "replace": "        held = g.status > GameStatus.Scored ? 0 : g.terms.fee;"
     }
@@ -698,7 +698,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 787,
+     "line": 788,
      "find": "        creator = g.creator;\n",
      "replace": ""
     }
@@ -712,7 +712,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 587,
+     "line": 588,
      "find": "        g.creator = msg.sender;\n",
      "replace": ""
     }
@@ -726,7 +726,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 587,
+     "line": 588,
      "find": "        g.creator = msg.sender;",
      "replace": "        g.creator = tx.origin;"
     }
@@ -740,7 +740,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 496,
+     "line": 497,
      "find": "        emit TokenSet(coin);\n",
      "replace": ""
     }
@@ -824,7 +824,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 895,
+     "line": 896,
      "find": "_end(g, r.gameId, GameStatus.Scored, r.payout);",
      "replace": "_end(g, r.gameId, GameStatus.Voided, r.payout);"
     }
@@ -838,7 +838,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 883,
+     "line": 884,
      "find": "        _checkPayout(ReportKind.Score, r.payout);\n",
      "replace": ""
     }
@@ -922,7 +922,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 606,
+     "line": 607,
      "find": "        if (terms.fee != 0) _takeFee(terms.fee);",
      "replace": "        if (terms.fee != 0) _takeFee(1);"
     }
@@ -992,7 +992,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 606,
+     "line": 607,
      "find": "        if (terms.fee != 0) _takeFee(terms.fee);\n",
      "replace": "        if (terms.fee != 0) _takeFee(terms.fee);\n        else i_token.balanceOf(address(this));\n"
     }
@@ -1006,7 +1006,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 621,
+     "line": 622,
      "find": "        if (kind == ReporterKind.None) revert OspexGames__NotAReporter(r.gameId, msg.sender);\n",
      "replace": "        if (kind == ReporterKind.None && r.kind != ReportKind.Void) revert OspexGames__NotAReporter(r.gameId, msg.sender);\n"
     }
@@ -1048,7 +1048,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 621,
+     "line": 622,
      "find": "        if (kind == ReporterKind.None) revert OspexGames__NotAReporter(r.gameId, msg.sender);\n",
      "replace": "        if (kind == ReporterKind.None && g.status != GameStatus.Disputed) revert OspexGames__NotAReporter(r.gameId, msg.sender);\n"
     }
@@ -1062,7 +1062,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 640,
+     "line": 641,
      "find": "        emit GameReported(r.gameId, msg.sender, r.kind, r.start, r.homeScore, r.awayScore, r.readings, r.payout);\n",
      "replace": "        emit GameReported(r.gameId, msg.sender, r.kind, r.start, r.homeScore, r.awayScore, new Reading[](0), r.payout);\n"
     }
@@ -1132,7 +1132,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 692,
+     "line": 693,
      "find": "        if (g.start == 0) revert OspexGames__StartNotWritten(gameId);\n",
      "replace": "        if (g.status == GameStatus.Unverified) revert OspexGames__StartNotWritten(gameId);\n"
     }
@@ -1174,7 +1174,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 661,
+     "line": 662,
      "find": "        emit GameReleased(gameId, msg.sender);\n",
      "replace": "        emit GameReleased(gameId, g.creator);\n"
     }
@@ -1188,7 +1188,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 747,
+     "line": 748,
      "find": "        if (g.disputedAt == 0) revert OspexGames__NotDisputed(gameId);\n",
      "replace": ""
     }
@@ -1258,7 +1258,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 879,
+     "line": 880,
      "find": "    function _writeScore(Game storage g, Report calldata r, ReporterKind kind) private {\n        GameStatus status = g.status;\n        if (status != GameStatus.Verified && status != GameStatus.Disputed) _refuseResult(r.gameId, status);\n",
      "replace": "    function _writeScore(Game storage g, Report calldata r, ReporterKind kind) private {\n        GameStatus status = g.status;\n        if (status != GameStatus.Verified) _refuseResult(r.gameId, status);\n"
     }
@@ -1272,7 +1272,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 633,
+     "line": 634,
      "find": "            _writeVoid(g, r);\n",
      "replace": "            _writeScore(g, r, kind);\n"
     }
@@ -1286,7 +1286,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 621,
+     "line": 622,
      "find": "        if (kind == ReporterKind.None) revert OspexGames__NotAReporter(r.gameId, msg.sender);\n",
      "replace": ""
     }
@@ -1300,7 +1300,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 704,
+     "line": 705,
      "find": "        _game(gameId);\n        Reporter[] storage list = s_gameReporters[gameId];\n        uint256 count = list.length;\n        reporters = new address[](count);\n",
      "replace": "        _game(gameId);\n        Reporter[] storage list = s_approved;\n        uint256 count = list.length;\n        reporters = new address[](count);\n"
     }
@@ -1314,7 +1314,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 856,
+     "line": 857,
      "find": "        if (status != GameStatus.Unverified) _refuseStart(r.gameId, status);\n",
      "replace": ""
     }
@@ -1328,7 +1328,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 879,
+     "line": 880,
      "find": "    function _writeScore(Game storage g, Report calldata r, ReporterKind kind) private {\n        GameStatus status = g.status;\n        if (status != GameStatus.Verified && status != GameStatus.Disputed) _refuseResult(r.gameId, status);\n",
      "replace": "    function _writeScore(Game storage g, Report calldata r, ReporterKind kind) private {\n        GameStatus status = g.status;\n"
     }
@@ -1356,7 +1356,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 879,
+     "line": 880,
      "find": "    function _writeScore(Game storage g, Report calldata r, ReporterKind kind) private {\n        GameStatus status = g.status;\n        if (status != GameStatus.Verified && status != GameStatus.Disputed) _refuseResult(r.gameId, status);\n",
      "replace": "    function _writeScore(Game storage g, Report calldata r, ReporterKind kind) private {\n        GameStatus status = g.status;\n"
     }
@@ -1370,7 +1370,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 718,
+     "line": 719,
      "find": "        if (g.status != GameStatus.Scored) revert OspexGames__NotScored(gameId, g.status);\n",
      "replace": ""
     }
@@ -1405,7 +1405,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 637,
+     "line": 638,
      "find": "            revert OspexGames__ReportKindNotTaken(r.kind);\n",
      "replace": ""
     }
@@ -1419,7 +1419,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 582,
+     "line": 583,
      "find": "        gameId = ++s_gameCount;\n",
      "replace": "        gameId = s_gameCount + 1;\n"
     }
@@ -1477,7 +1477,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 704,
+     "line": 705,
      "find": "        _game(gameId);\n        Reporter[] storage list = s_gameReporters[gameId];\n        uint256 count = list.length;\n        reporters = new address[](count);\n",
      "replace": "        _game(gameId);\n        Reporter[] storage list = s_approved;\n        uint256 count = list.length;\n        reporters = new address[](count);\n"
     }
@@ -1505,7 +1505,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 548,
+     "line": 549,
      "find": "        emit ReporterRetired(reporter);\n",
      "replace": "        s_games[s_gameCount].status = GameStatus.Released;\n        emit ReporterRetired(reporter);\n"
     }
@@ -1533,7 +1533,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 724,
+     "line": 725,
      "find": "        return _game(gameId).terms.window;\n",
      "replace": "        return s_defaultTerms.window;\n"
     }
@@ -1547,7 +1547,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 528,
+     "line": 529,
      "find": "    function approveReporter(address reporter, ReporterKind kind, bytes32 codeHash) external onlyTimelock {\n",
      "replace": "    function approveReporter(address reporter, ReporterKind kind, bytes32 codeHash) external {\n"
     }
@@ -1561,7 +1561,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 807,
+     "line": 808,
      "find": "        if (found != codeHash) revert OspexGames__CodeHashMismatch(reporter, codeHash, found);\n",
      "replace": ""
     }
@@ -1575,7 +1575,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 490,
+     "line": 491,
      "find": "        i_timelock = timelock;\n",
      "replace": "        i_timelock = msg.sender;\n"
     }
@@ -1589,7 +1589,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 518,
+     "line": 519,
      "find": "    function setTerms(string calldata league, Terms calldata terms) external onlyTimelock {\n",
      "replace": "    function setTerms(string calldata league, Terms calldata terms) external {\n"
     }
@@ -1603,7 +1603,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 528,
+     "line": 529,
      "find": "    function approveReporter(address reporter, ReporterKind kind, bytes32 codeHash) external onlyTimelock {\n        _admit(reporter, kind, codeHash);\n",
      "replace": "    function approveReporter(address reporter, ReporterKind kind, bytes32 codeHash) external onlyTimelock {\n        if (block.timestamp < 1_900_000_000) revert OspexGames__NotTheTimelock(msg.sender);\n        _admit(reporter, kind, codeHash);\n"
     }
@@ -1617,7 +1617,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 623,
+     "line": 624,
      "find": "        if (a.retired) revert OspexGames__ReporterRetired(msg.sender);\n",
      "replace": ""
     }
@@ -1631,7 +1631,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 625,
+     "line": 626,
      "find": "        if (found != a.codeHash) revert OspexGames__CodeChanged(msg.sender, a.codeHash, found);\n",
      "replace": ""
     }
@@ -1645,7 +1645,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 809,
+     "line": 810,
      "find": "        a.kind = kind;\n        a.codeHash = codeHash;\n        s_approved.push(Reporter({account: reporter, kind: kind}));\n\n        bytes memory values = _fixedValues(reporter);\n        if (values.length == 0) revert OspexGames__NoFixedValues(reporter);\n",
      "replace": "        bytes memory values = _fixedValues(reporter);\n        if (values.length == 0) revert OspexGames__NoFixedValues(reporter);\n        a.kind = kind;\n        a.codeHash = codeHash;\n        s_approved.push(Reporter({account: reporter, kind: kind}));\n\n"
     }
@@ -1659,7 +1659,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 840,
+     "line": 841,
      "find": "                || uint256(terms.window) + terms.day7Clock >= terms.day30Clock || terms.day30Clock > MAX_CLOCK\n",
      "replace": "                || terms.day7Clock >= terms.day30Clock || terms.day30Clock > MAX_CLOCK\n"
     }
@@ -1673,7 +1673,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 400,
+     "line": 401,
      "find": "    error OspexGames__StartOutOfRange(uint256 gameId, uint64 start);\n",
      "replace": "    error OspexGames__StartOutOfRange(uint256 gameId, uint256 start);\n"
     }
@@ -1687,7 +1687,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 309,
+     "line": 310,
      "find": "    error OspexGames__CodeHashMismatch(address reporter, bytes32 named, bytes32 found);\n",
      "replace": "    error OspexGames__CodeHashMismatch(address reporter, bytes32 found, bytes32 named);\n"
     }
@@ -1701,7 +1701,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 215,
+     "line": 216,
      "find": "    uint256 public constant MAX_REPORTERS = 8;\n",
      "replace": "    uint8 public constant MAX_REPORTERS = 8;\n"
     }
@@ -1760,7 +1760,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 716,
+     "line": 717,
      "find": "    function getGameScores(uint256 gameId) external view returns (uint32 homeScore, uint32 awayScore) {\n",
      "replace": "    function getGameScores(uint256 gameId) external view returns (uint32 awayScore, uint32 homeScore) {\n"
     }
@@ -1774,7 +1774,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 666,
+     "line": 667,
      "find": "    /// @inheritdoc IOspexGames\n    /// @dev The credit is spent before the coin is called,",
      "replace": "    function extra() external {}\n\n    /// @inheritdoc IOspexGames\n    /// @dev The credit is spent before the coin is called,"
     }
@@ -1872,7 +1872,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 746,
+     "line": 747,
      "find": "        Game storage g = _game(gameId);\n        if (g.disputedAt == 0) revert OspexGames__NotDisputed(gameId);\n",
      "replace": "        Game storage g = s_games[gameId];\n        if (g.disputedAt == 0) revert OspexGames__NotDisputed(gameId);\n"
     }
@@ -1914,7 +1914,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 883,
+     "line": 884,
      "find": "        _checkPayout(ReportKind.Score, r.payout);\n        if (r.homeScore > MAX_SCORE || r.awayScore > MAX_SCORE) {\n            revert OspexGames__ScoreOutOfRange(r.homeScore, r.awayScore);\n        }\n",
      "replace": "        if (r.homeScore > MAX_SCORE || r.awayScore > MAX_SCORE) {\n            revert OspexGames__ScoreOutOfRange(r.homeScore, r.awayScore);\n        }\n        _checkPayout(ReportKind.Score, r.payout);\n"
     }
@@ -1942,7 +1942,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 655,
+     "line": 656,
      "find": "        if (status >= GameStatus.Scored) revert OspexGames__GameEnded(gameId, status);\n        uint256 opensAt = _day30(g);\n",
      "replace": "        uint256 opensAt = _day30(g);\n"
     }
@@ -1970,7 +1970,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 657,
+     "line": 658,
      "find": "        if (block.timestamp < opensAt && !_everyReporterRetired(g, gameId)) {\n",
      "replace": "        if (block.timestamp + g.terms.day30Clock < opensAt && !_everyReporterRetired(g, gameId)) {\n"
     }
@@ -1998,7 +1998,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 657,
+     "line": 658,
      "find": "        if (block.timestamp < opensAt && !_everyReporterRetired(g, gameId)) {\n",
      "replace": "        if (block.timestamp < opensAt) {\n"
     }
@@ -2012,7 +2012,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 657,
+     "line": 658,
      "find": "        if (block.timestamp < opensAt && !_everyReporterRetired(g, gameId)) {\n",
      "replace": "        if (block.timestamp < opensAt && s_approved.length != 0) {\n"
     }
@@ -2026,7 +2026,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 657,
+     "line": 658,
      "find": "        if (block.timestamp < opensAt && !_everyReporterRetired(g, gameId)) {\n",
      "replace": "        if (block.timestamp < opensAt && !_everyReporterRetired(s_games[s_gameCount], s_gameCount)) {\n"
     }
@@ -2041,8 +2041,8 @@
    "edits": [
     {
      "line": 910,
-     "find": "        _checkPayout(ReportKind.Void, r.payout);\n        if (status == GameStatus.Verified) _checkVoidReadings(r.readings);\n        _checkDay30(g, r.gameId);\n        uint256 voidOpensAt = uint256(g.start) + g.terms.window;\n        if (block.timestamp < voidOpensAt) revert OspexGames__InsideWindow(r.gameId, voidOpensAt);\n        if (status == GameStatus.Disputed) {\n            uint256 day7OpensAt = uint256(g.disputedAt) + g.terms.day7Clock;\n            if (block.timestamp < day7OpensAt) revert OspexGames__InsideDay7Clock(r.gameId, day7OpensAt);\n        }\n",
-     "replace": "        if (status == GameStatus.Verified) _checkVoidReadings(r.readings);\n        _checkDay30(g, r.gameId);\n        uint256 voidOpensAt = uint256(g.start) + g.terms.window;\n        if (block.timestamp < voidOpensAt) revert OspexGames__InsideWindow(r.gameId, voidOpensAt);\n        if (status == GameStatus.Disputed) {\n            uint256 day7OpensAt = uint256(g.disputedAt) + g.terms.day7Clock;\n            if (block.timestamp < day7OpensAt) revert OspexGames__InsideDay7Clock(r.gameId, day7OpensAt);\n        }\n        _checkPayout(ReportKind.Void, r.payout);\n"
+     "find": "        _checkPayout(ReportKind.Void, r.payout);\n        _checkVoidReadings(r.readings);\n        _checkDay30(g, r.gameId);\n        uint256 voidOpensAt = uint256(g.start) + g.terms.window;\n        if (block.timestamp < voidOpensAt) revert OspexGames__InsideWindow(r.gameId, voidOpensAt);\n        if (status == GameStatus.Disputed) {\n            uint256 day7OpensAt = uint256(g.disputedAt) + g.terms.day7Clock;\n            if (block.timestamp < day7OpensAt) revert OspexGames__InsideDay7Clock(r.gameId, day7OpensAt);\n        }\n",
+     "replace": "        _checkVoidReadings(r.readings);\n        _checkDay30(g, r.gameId);\n        uint256 voidOpensAt = uint256(g.start) + g.terms.window;\n        if (block.timestamp < voidOpensAt) revert OspexGames__InsideWindow(r.gameId, voidOpensAt);\n        if (status == GameStatus.Disputed) {\n            uint256 day7OpensAt = uint256(g.disputedAt) + g.terms.day7Clock;\n            if (block.timestamp < day7OpensAt) revert OspexGames__InsideDay7Clock(r.gameId, day7OpensAt);\n        }\n        _checkPayout(ReportKind.Void, r.payout);\n"
     }
    ],
    "testPath": "test/games/OspexGamesEnds.t.sol",
@@ -2068,7 +2068,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 891,
+     "line": 892,
      "find": "        _checkDay30(g, r.gameId);\n        _checkHour(g, r.gameId, kind);\n        g.homeScore = r.homeScore;\n",
      "replace": "        _checkHour(g, r.gameId, kind);\n        g.homeScore = r.homeScore;\n"
     }
@@ -2083,8 +2083,8 @@
    "edits": [
     {
      "line": 911,
-     "find": "        if (status == GameStatus.Verified) _checkVoidReadings(r.readings);\n        _checkDay30(g, r.gameId);\n",
-     "replace": "        if (status == GameStatus.Verified) _checkVoidReadings(r.readings);\n"
+     "find": "        _checkVoidReadings(r.readings);\n        _checkDay30(g, r.gameId);\n",
+     "replace": "        _checkVoidReadings(r.readings);\n"
     }
    ],
    "testPath": "test/games/OspexGamesNeverLines.t.sol",
@@ -2110,7 +2110,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 866,
+     "line": 867,
      "find": "        _checkDay30(g, r.gameId);\n        g.start = r.start;\n",
      "replace": "        g.start = r.start;\n"
     }
@@ -2138,7 +2138,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 660,
+     "line": 661,
      "find": "        _release(g, gameId);\n        emit GameReleased(gameId, msg.sender);\n",
      "replace": "        if (g.disputedAt != 0 && block.timestamp < uint256(g.disputedAt) + g.terms.day7Clock) {\n            revert OspexGames__InsideDay7Clock(gameId, uint256(g.disputedAt) + g.terms.day7Clock);\n        }\n        _release(g, gameId);\n        emit GameReleased(gameId, msg.sender);\n"
     }
@@ -2208,7 +2208,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 889,
+     "line": 890,
      "find": "            r, disputed ? AGREE : 1, disputed && block.timestamp >= uint256(g.disputedAt) + g.terms.day7Clock\n",
      "replace": "            r, disputed ? AGREE : 0, disputed && block.timestamp >= uint256(g.disputedAt) + g.terms.day7Clock\n"
     }
@@ -2222,7 +2222,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 889,
+     "line": 890,
      "find": "            r, disputed ? AGREE : 1, disputed && block.timestamp >= uint256(g.disputedAt) + g.terms.day7Clock\n",
      "replace": "            r, disputed ? 2 : 1, disputed && block.timestamp >= uint256(g.disputedAt) + g.terms.day7Clock\n"
     }
@@ -2236,7 +2236,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 889,
+     "line": 890,
      "find": "            r, disputed ? AGREE : 1, disputed && block.timestamp >= uint256(g.disputedAt) + g.terms.day7Clock\n",
      "replace": "            r, disputed ? AGREE : 1, disputed\n"
     }
@@ -2250,7 +2250,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 889,
+     "line": 890,
      "find": "            r, disputed ? AGREE : 1, disputed && block.timestamp >= uint256(g.disputedAt) + g.terms.day7Clock\n",
      "replace": "            r, disputed ? AGREE : 1, true\n"
     }
@@ -2321,13 +2321,13 @@
    "edits": [
     {
      "line": 911,
-     "find": "        if (status == GameStatus.Verified) _checkVoidReadings(r.readings);\n        _checkDay30(g, r.gameId);\n",
+     "find": "        _checkVoidReadings(r.readings);\n        _checkDay30(g, r.gameId);\n",
      "replace": "        _checkDay30(g, r.gameId);\n"
     }
    ],
    "testPath": "test/games/OspexGamesNeverLines.t.sol",
-   "test": "test_neverLine_anHour24VoidOverAgreeingFinalsIsRefused",
-   "breaks": "an hour-24 void over three agreeing finals is taken"
+   "test": "test_neverLine_aVoidOverAgreeingFinalsIsRefused",
+   "breaks": "a void over three agreeing finals is taken, at hour 24 and at day 7"
   },
   {
    "id": "A12-voidboundary",
@@ -2340,22 +2340,22 @@
     }
    ],
    "testPath": "test/games/OspexGamesNeverLines.t.sol",
-   "test": "test_neverLine_anHour24VoidOverAgreeingFinalsIsRefused",
+   "test": "test_neverLine_aVoidOverAgreeingFinalsIsRefused",
    "breaks": "three agreeing finals are not agreement for a void"
   },
   {
-   "id": "A13-day7voidread",
+   "id": "A13-day7voidunread",
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
      "line": 911,
-     "find": "        if (status == GameStatus.Verified) _checkVoidReadings(r.readings);\n",
-     "replace": "        _checkVoidReadings(r.readings);\n"
+     "find": "        _checkVoidReadings(r.readings);\n        _checkDay30(g, r.gameId);\n",
+     "replace": "        if (status == GameStatus.Verified) _checkVoidReadings(r.readings);\n        _checkDay30(g, r.gameId);\n"
     }
    ],
    "testPath": "test/games/OspexGamesNeverLines.t.sol",
-   "test": "test_neverLine_anHour24VoidOverAgreeingFinalsIsRefused",
-   "breaks": "the day-7 void's finals are read, so a silent fourth no longer voids"
+   "test": "test_neverLine_aVoidOverAgreeingFinalsIsRefused",
+   "breaks": "a day-7 void's finals are not read, so a void over three agreeing finals is taken at day 7"
   },
   {
    "id": "A14-voidhomeonly",
@@ -2368,7 +2368,7 @@
     }
    ],
    "testPath": "test/games/OspexGamesNeverLines.t.sol",
-   "test": "test_neverLine_anHour24VoidOverAgreeingFinalsIsRefused",
+   "test": "test_neverLine_aVoidOverAgreeingFinalsIsRefused",
    "breaks": "finals agree for a void on the home score alone"
   },
   {
@@ -2376,7 +2376,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 626,
+     "line": 627,
      "find": "        _checkReadings(r.readings);\n",
      "replace": "        if (r.kind <= ReportKind.Score) _checkReadings(r.readings);\n"
     }
@@ -2390,7 +2390,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 882,
+     "line": 883,
      "find": "        if (r.start != 0) revert OspexGames__FieldNotEmpty(ReportKind.Score);\n",
      "replace": "        if (status == GameStatus.Verified && r.start != 0) revert OspexGames__FieldNotEmpty(ReportKind.Score);\n"
     }
@@ -2426,6 +2426,146 @@
    "testPath": "test/games/OspexGamesNeverLines.t.sol",
    "test": "test_neverLine_rejectedReportChangesNothing",
    "breaks": "a day-7 void carrying a start or an away score is taken"
+  },
+  {
+   "id": "S1-voidtwoalike",
+   "file": "src/games/OspexGames.sol",
+   "edits": [
+    {
+     "line": 1008,
+     "find": "            if (alike >= AGREE) revert OspexGames__FinalsAgree(a.homeScore, a.awayScore);\n",
+     "replace": "            if (alike + 1 >= AGREE) revert OspexGames__FinalsAgree(a.homeScore, a.awayScore);\n"
+    }
+   ],
+   "testPath": "test/games/OspexGamesShapes.t.sol",
+   "test": "test_shapes_everyReportTheProgramSendsIsTaken",
+   "breaks": "a void over two finals that agree is refused, so the program's day-7 voids are"
+  },
+  {
+   "id": "S2-scoreexact",
+   "file": "src/games/OspexGames.sol",
+   "edits": [
+    {
+     "line": 987,
+     "find": "        if (agreeing < needed) revert OspexGames__TooFewFinalsAgree(agreeing, needed);\n",
+     "replace": "        if (agreeing <= needed) revert OspexGames__TooFewFinalsAgree(agreeing, needed);\n"
+    }
+   ],
+   "testPath": "test/games/OspexGamesShapes.t.sol",
+   "test": "test_shapes_everyReportTheProgramSendsIsTaken",
+   "breaks": "a score on exactly the finals it needs is refused, so a disputed game's score on three is"
+  },
+  {
+   "id": "S3-disputedfour",
+   "file": "src/games/OspexGames.sol",
+   "edits": [
+    {
+     "line": 890,
+     "find": "            r, disputed ? AGREE : 1, disputed && block.timestamp >= uint256(g.disputedAt) + g.terms.day7Clock\n",
+     "replace": "            r, disputed ? AGREE + 1 : 1, disputed && block.timestamp >= uint256(g.disputedAt) + g.terms.day7Clock\n"
+    }
+   ],
+   "testPath": "test/games/OspexGamesShapes.t.sol",
+   "test": "test_shapes_everyReportTheProgramSendsIsTaken",
+   "breaks": "a disputed game's score needs four finals, so the program's three-final settlement is refused"
+  },
+  {
+   "id": "S4-nodissentatday7",
+   "file": "src/games/OspexGames.sol",
+   "edits": [
+    {
+     "line": 890,
+     "find": "            r, disputed ? AGREE : 1, disputed && block.timestamp >= uint256(g.disputedAt) + g.terms.day7Clock\n",
+     "replace": "            r, disputed ? AGREE : 1, false\n"
+    }
+   ],
+   "testPath": "test/games/OspexGamesShapes.t.sol",
+   "test": "test_shapes_everyReportTheProgramSendsIsTaken",
+   "breaks": "a day-7 score beside a dissenting final is refused"
+  },
+  {
+   "id": "S5-day7voidlate",
+   "file": "src/games/OspexGames.sol",
+   "edits": [
+    {
+     "line": 917,
+     "find": "            if (block.timestamp < day7OpensAt) revert OspexGames__InsideDay7Clock(r.gameId, day7OpensAt);\n",
+     "replace": "            if (block.timestamp <= day7OpensAt) revert OspexGames__InsideDay7Clock(r.gameId, day7OpensAt);\n"
+    }
+   ],
+   "testPath": "test/games/OspexGamesShapes.t.sol",
+   "test": "test_shapes_everyReportTheProgramSendsIsTaken",
+   "breaks": "the day-7 void is refused in the clock's own second"
+  },
+  {
+   "id": "S6-day7dissentlate",
+   "file": "src/games/OspexGames.sol",
+   "edits": [
+    {
+     "line": 890,
+     "find": "            r, disputed ? AGREE : 1, disputed && block.timestamp >= uint256(g.disputedAt) + g.terms.day7Clock\n",
+     "replace": "            r, disputed ? AGREE : 1, disputed && block.timestamp > uint256(g.disputedAt) + g.terms.day7Clock\n"
+    }
+   ],
+   "testPath": "test/games/OspexGamesShapes.t.sol",
+   "test": "test_shapes_everyReportTheProgramSendsIsTaken",
+   "breaks": "a day-7 score beside a dissenting final is refused in the clock's own second"
+  },
+  {
+   "id": "S7-nofinalpoints",
+   "file": "src/games/OspexGames.sol",
+   "edits": [
+    {
+     "line": 1107,
+     "find": "            if (reading.kind == ReadingKind.Silent && (reading.homeScore != 0 || reading.awayScore != 0)) {\n",
+     "replace": "            if (reading.kind != ReadingKind.AnsweredFinal && (reading.homeScore != 0 || reading.awayScore != 0)) {\n"
+    }
+   ],
+   "testPath": "test/games/OspexGamesShapes.t.sol",
+   "test": "test_shapes_everyReportTheProgramSendsIsTaken",
+   "breaks": "a reading answered without a final may carry no points, so the program's in-play readings are refused"
+  },
+  {
+   "id": "S8-firstnwaits",
+   "file": "src/games/OspexGames.sol",
+   "edits": [
+    {
+     "line": 964,
+     "find": "        if (kind == ReporterKind.AfterN && block.timestamp < opensAt) {\n",
+     "replace": "        if (block.timestamp < opensAt) {\n"
+    }
+   ],
+   "testPath": "test/games/OspexGamesShapes.t.sol",
+   "test": "test_shapes_everyReportTheProgramSendsIsTaken",
+   "breaks": "a first-n reporter waits for start + n, so every shape inside the window is refused"
+  },
+  {
+   "id": "S9-hour24late",
+   "file": "src/games/OspexGames.sol",
+   "edits": [
+    {
+     "line": 914,
+     "find": "        if (block.timestamp < voidOpensAt) revert OspexGames__InsideWindow(r.gameId, voidOpensAt);\n",
+     "replace": "        if (block.timestamp <= voidOpensAt) revert OspexGames__InsideWindow(r.gameId, voidOpensAt);\n"
+    }
+   ],
+   "testPath": "test/games/OspexGamesShapes.t.sol",
+   "test": "test_shapes_everyReportTheProgramSendsIsTaken",
+   "breaks": "the hour-24 void is refused in start + n's own second"
+  },
+  {
+   "id": "S10-recordlate",
+   "file": "src/games/OspexGames.sol",
+   "edits": [
+    {
+     "line": 938,
+     "find": "            g.disputedAt = uint64(block.timestamp);\n",
+     "replace": "            g.disputedAt = uint64(block.timestamp) + 1;\n"
+    }
+   ],
+   "testPath": "test/games/OspexGamesShapes.t.sol",
+   "test": "test_shapes_everyReportTheProgramSendsIsTaken",
+   "breaks": "the record's time is written a second late, so the day-7 clock runs a second long"
   }
  ]
 }
