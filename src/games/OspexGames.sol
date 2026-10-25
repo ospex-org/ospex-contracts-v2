@@ -13,6 +13,9 @@ import {
     Terms
 } from "./IOspexGames.sol";
 import {IOspexReporter} from "./IOspexReporter.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 /**
  * @title OspexGames
@@ -40,12 +43,32 @@ import {IOspexReporter} from "./IOspexReporter.sol";
  *         fixed, that the values it reports are true, or that it scores correctly: that it has no owner and no
  *         setter and is not a proxy is for review, before the call is queued. Spec: "The approved list".
  *
+ *         The creation fee. A creation takes the game's fee from its creator, in the coin fixed at deploy: the
+ *         fee in the league's terms, copied into the game with them. The creator names the most it will pay; a
+ *         fee above that is refused before the coin is called, so a raise past it is never taken. At 0 nothing
+ *         is taken. Above 0, a creation is refused unless taking the fee raises this contract's balance by
+ *         exactly the fee: a coin's cut of a transfer, or its addition to one, alone makes no game. A withdrawal
+ *         is refused unless paying it lowers that balance by exactly the amount, so a coin that takes more from
+ *         this contract than it sends pays no credit out of another's; under a coin that charges the sender,
+ *         every withdrawal waits until the charge stops. Neither a creation nor a withdrawal can begin while
+ *         either runs, so a coin that calls back during a transfer cannot have one transfer's balance change
+ *         counted for another. A coin that changes balances outside a transfer, as a rebasing coin does, is
+ *         outside these checks; USDC does none of these things. The game holds the fee until it ends. The
+ *         report that ends it credits the amount to the payout address inside the report, and the sender never
+ *         takes that address's place; a release credits it back to the creator.
+ *         Each end credits once, through one internal call that writes the end and the credit together and
+ *         refuses a game already ended. No coin moves inside an end: the address credited withdraws later, so a
+ *         coin that refuses a transfer stops a withdrawal and never an end. The coin is held for games not yet
+ *         ended and for credits not yet withdrawn; there is no receiver, no setter for one, and no other way
+ *         out. Coin sent here directly is held by no one and stays. Spec: "The creation fee".
+ *
  *         Two things a reader may look for here belong to other parts of the games set, by design:
- *         - How a game ends other than by a score, and the creation fee changing hands. The hour-24 void, the
- *           dispute record and day 7, and the day-30 release that gives every stake back are the ends, and a
- *           game whose every reporter is retired can be released at once. This contract copies each game's
- *           clocks and fee and says when every reporter of a game is retired; it takes no fee and writes no end
- *           but a score. Spec: "How a game ends" and "The creation fee".
+ *         - How a game ends other than by a score. The hour-24 void, the dispute record and day 7, and the
+ *           day-30 release that gives every stake back are the ends, and a game whose every reporter is retired
+ *           can be released at once. This contract copies each game's clocks and says when every reporter of a
+ *           game is retired; it writes no end but a score. The credit each end makes is here already: an end
+ *           that names a payout checks it as a score does and credits through `_end`, and a release credits
+ *           the creator through `_release`. Spec: "How a game ends".
  *         - Correcting a start or a score. There is none: each is written once. Feeds that disagree lead to a
  *           dispute record, never to a correction. Spec: "The start is written once" and "A score is written
  *           once and is final".
@@ -58,17 +81,23 @@ import {IOspexReporter} from "./IOspexReporter.sol";
  *         thing that could change and must not is either never written again or compared with what was
  *         recorded:
  *         - Pinned when written, and never written again: the game's reporters and their kinds, its four terms
- *           and its date, from its creation; its start, once written; and this contract's own limits, which
- *           are constants.
+ *           and its date, from its creation; among the terms its creation fee, which is the amount the game
+ *           holds and its end credits, whatever the league's fee is now; its start, once written; and this
+ *           contract's own limits and coin, which are constants. A release reads one thing more, also pinned
+ *           at creation: the creator it credits.
  *         - Checked at the door against a stored value: the sender's code. Its live hash must equal the hash
  *           recorded at its approval, or the report is refused (CodeChanged).
  *         - Live by design: the sender's retired flag, because a retirement is meant to reach games already
- *           made; the clock, because when a report may land is what the gate decides; and the game's status,
- *           because it is what the reports themselves write, each step once.
+ *           made; the clock, because when a report may land is what the gate decides; the game's status,
+ *           because it is what the reports themselves write, each step once, and whether the game still holds
+ *           its fee is read from it; the payout address's credit, which an end adds to and only that address's
+ *           withdrawal takes from; and whether the payout address was ever approved as a reporter, so a
+ *           reporter approved after the game's creation is refused as its payout too.
  *         - Not read, so not checked here: what a reporter's own storage holds, such as a proxy's logic or an
  *           owner's setting. A reporter whose behaviour can change while its code stays the same keeps its
  *           hash; the public delay before its approval is for finding that. Values a reporter holds as
- *           immutables are written into its code, so its hash covers them.
+ *           immutables are written into its code, so its hash covers them. Nor the coin: no end calls it, so
+ *           whether the coin would take or refuse a transfer has no say in an end.
  *
  *         n counts from the start as written. A first-n reporter writes from the start; an after-n reporter
  *         writes from start + n, that second included, so n's window is [start, start + n), the window the
@@ -79,6 +108,14 @@ import {IOspexReporter} from "./IOspexReporter.sol";
  *         not on the game's copy. While an after-n reporter on the copy is not retired, the game is not one
  *         whose every reporter is retired, so it waits for the day-30 release, counted from its date. The
  *         release is the recovery.
+ *
+ *         A score refuses as its payout address: address 0 and every address up to MAX_RESERVED_ADDRESS (the
+ *         range EIP-1352 sets aside for precompiles and a chain's own contracts, which no key and no deployment
+ *         reaches in practice), this contract and the coin, none of which calls `withdraw`; and any address ever
+ *         approved as a reporter, retired ones included and the sender among them, since a reporter relays a
+ *         report and is never the one it pays. It refuses no other, though the chain could name more that
+ *         cannot call `withdraw`. That a payout address can call `withdraw` is for review: a contract named
+ *         as payout, or a contract that creates games, with no way to call it leaves its credit here for good.
  *
  *         Operating rules for the timelock's calls, kept outside the code:
  *         - The stock timelock lets anyone run a ready call, in any order and at any later time. Chain calls
@@ -94,7 +131,9 @@ import {IOspexReporter} from "./IOspexReporter.sol";
  *         - A reporter whose code changed writes nothing, but it is not retired, so no game counts it as
  *           retired. Retire it, so that a game left with no other reporter can be released at once.
  */
-contract OspexGames is IOspexGames {
+contract OspexGames is IOspexGames, ReentrancyGuardTransient {
+    using SafeERC20 for IERC20;
+
     // ──────────────────────────── Constants ────────────────────────────
 
     /// @notice The largest score accepted for one team. It is far above any real score in a sports league.
@@ -138,15 +177,24 @@ contract OspexGames is IOspexGames {
     /// @notice The longest hint id, in bytes of printable ASCII.
     uint256 public constant MAX_HINT_ID_LENGTH = 64;
 
+    /// @notice The highest address a score refuses as payout for where it lies. Addresses 0 to this one are the
+    ///         range EIP-1352 sets aside for precompiles and a chain's own contracts. Polygon's sit there, its
+    ///         native coin's contract at 0x1010 among them, and none was written to call this contract. A key or
+    ///         a deployment lands in the range only after about 2^144 tries.
+    address public constant MAX_RESERVED_ADDRESS = address(0xffff);
+
     // ──────────────────────────── Types ────────────────────────────────
 
-    /// @dev A game as stored. Its identity (league, teams, hints, creator) is in the creation event only.
+    /// @dev A game as stored. Its identity (league, teams, hints) is in the creation event only. Its creator is
+    ///      in the event and stored too, because a release credits the creator.
     /// @param status Where the game stands
     /// @param date The scheduled start the creator gave
     /// @param start The start, once written. A written start is never 0 and is within START_BOUND of the date.
     /// @param homeScore The home team's score, once written
     /// @param awayScore The away team's score, once written
-    /// @param terms The four terms, copied from the game's league at creation
+    /// @param terms The four terms, copied from the game's league at creation. Their fee is the amount the game
+    ///        holds until it ends.
+    /// @param creator The address that created the game and paid its fee: what a release credits
     struct Game {
         GameStatus status;
         uint64 date;
@@ -154,6 +202,7 @@ contract OspexGames is IOspexGames {
         uint32 homeScore;
         uint32 awayScore;
         Terms terms;
+        address creator;
     }
 
     /// @dev A reporter and its kind.
@@ -178,6 +227,8 @@ contract OspexGames is IOspexGames {
     error OspexGames__TimelockNotAContract(address timelock);
     /// @notice Thrown when the constructor's timelock is the deployer itself
     error OspexGames__TimelockIsTheDeployer(address timelock);
+    /// @notice Thrown when the constructor's coin has no code, or has only a wallet's delegation
+    error OspexGames__TokenNotAContract(address token);
     /// @notice Thrown when anything but the timelock calls one of its three calls
     error OspexGames__NotTheTimelock(address caller);
     /// @notice Thrown when the constructor is given no reporters
@@ -245,6 +296,30 @@ contract OspexGames is IOspexGames {
     error OspexGames__FieldNotEmpty(ReportKind kind);
     /// @notice Thrown when a report that ends a game names no payout address: address 0 can never withdraw
     error OspexGames__NoPayout(ReportKind kind);
+    /// @notice Thrown when a report that ends a game names as its payout address one of the addresses from 1 to
+    ///         MAX_RESERVED_ADDRESS: a precompile or a chain's own contract, which never calls withdraw
+    error OspexGames__PayoutIsReserved(ReportKind kind, address payout);
+    /// @notice Thrown when a report that ends a game names this contract as its payout address: this contract
+    ///         never calls its own withdraw, so a credit to it could never be withdrawn
+    error OspexGames__PayoutIsTheGamesSet(ReportKind kind);
+    /// @notice Thrown when a report that ends a game names the coin's own address as its payout address: the
+    ///         coin does not call withdraw, so a credit to it could never be withdrawn
+    error OspexGames__PayoutIsTheCoin(ReportKind kind);
+    /// @notice Thrown when a report that ends a game names as its payout address any address ever approved as a
+    ///         reporter, retired ones included and the sender among them: a reporter relays a report and is never
+    ///         the one it pays
+    error OspexGames__PayoutIsAReporter(ReportKind kind, address reporter);
+    /// @notice Thrown when taking a creation's fee does not raise this contract's coin balance by exactly the
+    ///         fee: a coin that keeps a cut of a transfer, or adds to one. No game is made.
+    error OspexGames__FeeNotReceived(uint256 fee, uint256 balanceBefore, uint256 balanceAfter);
+    /// @notice Thrown when a creation's fee, its league's fee as the creation runs, is above the most its caller
+    ///         named. Nothing is taken and the coin is not called.
+    error OspexGames__FeeAboveMax(uint256 fee, uint256 maxFee);
+    /// @notice Thrown when an address with no credit withdraws
+    error OspexGames__NothingToWithdraw(address account);
+    /// @notice Thrown when paying a withdrawal does not lower this contract's coin balance by exactly the amount:
+    ///         a coin that charges this contract more than it sends, or less. The credit stays.
+    error OspexGames__WithdrawalNotExact(uint256 amount, uint256 balanceBefore, uint256 balanceAfter);
     /// @notice Thrown when a reading marked silent carries a score: a feed that did not answer gave none
     error OspexGames__SilentReadingNotEmpty(uint256 index);
     /// @notice Thrown for any report to a game that has ended: scored, voided or released
@@ -273,6 +348,9 @@ contract OspexGames is IOspexGames {
     /// @notice The Polygon timelock: the only address that changes the approved list or the terms
     address public immutable i_timelock;
 
+    /// @notice The coin the creation fee is paid in, USDC at launch. Fixed at deploy.
+    IERC20 public immutable i_token;
+
     /// @dev How many games exist. Game ids run from 1 to this number.
     uint256 internal s_gameCount;
 
@@ -296,6 +374,10 @@ contract OspexGames is IOspexGames {
     /// @dev Game id to the reporters it copied at creation. Nothing writes a game's list after its creation.
     mapping(uint256 => Reporter[]) internal s_gameReporters;
 
+    /// @dev What each address has been credited and not yet withdrawn. An end adds a game's fee; only the
+    ///      address's own withdrawal takes it away.
+    mapping(address => uint256) internal s_credits;
+
     // ──────────────────────────── Constructor ──────────────────────────
 
     modifier onlyTimelock() {
@@ -304,9 +386,11 @@ contract OspexGames is IOspexGames {
     }
 
     /// @notice Writes the first state, the one write that waits for no timelock: the timelock it answers to,
-    ///         the default terms, and the first reporters, each admitted as an approval admits one, with its
-    ///         code hash checked and stored and its fixed values read and emitted.
+    ///         the coin the creation fee is paid in, the default terms, and the first reporters, each admitted
+    ///         as an approval admits one, with its code hash checked and stored and its fixed values read and
+    ///         emitted.
     /// @param timelock The Polygon timelock. A contract, and not the deployer.
+    /// @param token The coin the creation fee is paid in: USDC on Polygon at launch. A contract.
     /// @param defaultTerms The terms of every league with none of its own. At launch: n 24 hours, the day-7
     ///        clock 7 days, the day-30 clock 30 days and the fee 1 USDC.
     /// @param reporters The first reporters. At least one, none twice, at most MAX_REPORTERS.
@@ -314,6 +398,7 @@ contract OspexGames is IOspexGames {
     /// @param codeHashes The hash of each reporter's code, in the same order.
     constructor(
         address timelock,
+        IERC20 token,
         Terms memory defaultTerms,
         address[] memory reporters,
         ReporterKind[] memory kinds,
@@ -323,6 +408,11 @@ contract OspexGames is IOspexGames {
         if (timelock == msg.sender) revert OspexGames__TimelockIsTheDeployer(timelock);
         i_timelock = timelock;
         emit TimelockSet(timelock);
+
+        address coin = address(token);
+        if (coin.code.length == 0 || _isDelegated(coin)) revert OspexGames__TokenNotAContract(coin);
+        i_token = token;
+        emit TokenSet(coin);
 
         _checkTerms(defaultTerms);
         s_defaultTerms = defaultTerms;
@@ -385,8 +475,9 @@ contract OspexGames is IOspexGames {
         string calldata homeTeam,
         string calldata awayTeam,
         uint64 date,
-        Hint[] calldata hints
-    ) external returns (uint256 gameId) {
+        Hint[] calldata hints,
+        uint256 maxFee
+    ) external nonReentrant returns (uint256 gameId) {
         if (!_isLeague(league)) revert OspexGames__LeagueNotValid();
         if (!_isText(homeTeam, MAX_TEAM_LENGTH) || !_isText(awayTeam, MAX_TEAM_LENGTH)) {
             revert OspexGames__TeamNotValid();
@@ -402,13 +493,17 @@ contract OspexGames is IOspexGames {
             if (seats & seat != 0) revert OspexGames__HintSeatRepeated(i);
             seats |= seat;
         }
+        // The fee as the creation runs, against the most its caller named: a fee raised since the caller looked
+        // is refused here, before anything is written or the coin is called.
+        Terms memory terms = _termsOf(league);
+        if (terms.fee > maxFee) revert OspexGames__FeeAboveMax(terms.fee, maxFee);
 
         gameId = ++s_gameCount;
         Game storage g = s_games[gameId];
         g.status = GameStatus.Unverified;
         g.date = date;
-        Terms memory terms = _termsOf(league);
         g.terms = terms;
+        g.creator = msg.sender;
 
         uint256 count = s_approved.length;
         address[] memory accounts = new address[](count);
@@ -424,15 +519,20 @@ contract OspexGames is IOspexGames {
         if (!firstN) revert OspexGames__NoFirstNReporter();
 
         emit GameCreated(gameId, msg.sender, league, homeTeam, awayTeam, date, hints, terms, accounts, kinds);
+
+        // The fee last, after every write: the only calls out, the pull and the balance reads around it. A fee
+        // of 0 calls nothing, so a coin that refuses every transfer still lets a game be made at 0.
+        if (terms.fee != 0) _takeFee(terms.fee);
     }
 
     // ──────────────────────────── The report call ──────────────────────
 
     /// @inheritdoc IOspexGames
-    /// @dev A refused report reverts, so it changes nothing. A report this contract takes changes one game
-    ///      and emits GameReported, naming the sender as the reporter that wrote it. The sender's standing is
-    ///      checked before the report's kind is read, so every kind, those the ends add included, is refused
-    ///      the same way: not the game's reporter, retired, or code changed.
+    /// @dev A refused report reverts, so it changes nothing and moves no money. A report this contract takes
+    ///      changes one game and emits GameReported, naming the sender as the reporter that wrote it; a score
+    ///      also credits the game's creation fee to the payout address in the report (FeeCredited), and calls
+    ///      no coin. The sender's standing is checked before the report's kind is read, so every kind, those
+    ///      the ends add included, is refused the same way: not the game's reporter, retired, or code changed.
     function report(Report calldata r) external {
         Game storage g = _game(r.gameId);
         ReporterKind kind = _recordedKind(r.gameId, msg.sender);
@@ -452,6 +552,24 @@ contract OspexGames is IOspexGames {
         }
 
         emit GameReported(r.gameId, msg.sender, r.kind, r.start, r.homeScore, r.awayScore, r.readings, r.payout);
+    }
+
+    // ──────────────────────────── Withdrawal ───────────────────────────
+
+    /// @inheritdoc IOspexGames
+    /// @dev The credit is spent before the coin is called, and the payment is refused unless this contract's
+    ///      balance fell by exactly the amount, so no other game's fee or other address's credit pays any of it.
+    function withdraw() external nonReentrant returns (uint256 amount) {
+        amount = s_credits[msg.sender];
+        if (amount == 0) revert OspexGames__NothingToWithdraw(msg.sender);
+        s_credits[msg.sender] = 0;
+        emit Withdrawn(msg.sender, amount);
+        uint256 balanceBefore = i_token.balanceOf(address(this));
+        i_token.safeTransfer(msg.sender, amount);
+        uint256 balanceAfter = i_token.balanceOf(address(this));
+        if (balanceAfter + amount != balanceBefore) {
+            revert OspexGames__WithdrawalNotExact(amount, balanceBefore, balanceAfter);
+        }
     }
 
     // ──────────────────────────── The five reads ───────────────────────
@@ -546,6 +664,21 @@ contract OspexGames is IOspexGames {
         return _termsOf(league);
     }
 
+    /// @inheritdoc IOspexGames
+    function getCredit(address account) external view returns (uint256) {
+        return s_credits[account];
+    }
+
+    /// @inheritdoc IOspexGames
+    /// @dev Read from the status, which holds because every end goes through `_end`, the one place that writes
+    ///      an end and credits the fee together. Scored, Voided and Released, the three ends, are the last three
+    ///      statuses.
+    function getGameFee(uint256 gameId) external view returns (uint96 held, address creator) {
+        Game storage g = _game(gameId);
+        held = g.status >= GameStatus.Scored ? 0 : g.terms.fee;
+        creator = g.creator;
+    }
+
     // ──────────────────────────── Internal ─────────────────────────────
 
     /// @dev Admits a reporter to the approved list: the constructor's first reporters, and every approval. It
@@ -625,14 +758,15 @@ contract OspexGames is IOspexGames {
         g.status = GameStatus.Verified;
     }
 
-    /// @dev Writes a score. The game's start must be written and no end written, the start field must be
-    ///      empty, the payout address must not be 0, both scores at most MAX_SCORE, the time at or after the
-    ///      start, and, for an after-n reporter, at or after start + n: from start + n, that second included.
+    /// @dev Writes a score, which ends the game. The game's start must be written and no end written, the start
+    ///      field must be empty, the payout address one that can withdraw (see _checkPayout), both scores at
+    ///      most MAX_SCORE, the time at or after the start, and, for an after-n reporter, at or after start + n:
+    ///      from start + n, that second included. The end credits the game's fee to the payout address.
     function _writeScore(Game storage g, Report calldata r, ReporterKind kind) private {
         GameStatus status = g.status;
         if (status != GameStatus.Verified) _refuseScore(r.gameId, status);
         if (r.start != 0) revert OspexGames__FieldNotEmpty(ReportKind.Score);
-        if (r.payout == address(0)) revert OspexGames__NoPayout(ReportKind.Score);
+        _checkPayout(ReportKind.Score, r.payout);
         if (r.homeScore > MAX_SCORE || r.awayScore > MAX_SCORE) {
             revert OspexGames__ScoreOutOfRange(r.homeScore, r.awayScore);
         }
@@ -644,7 +778,59 @@ contract OspexGames is IOspexGames {
         }
         g.homeScore = r.homeScore;
         g.awayScore = r.awayScore;
-        g.status = GameStatus.Scored;
+        _end(g, r.gameId, GameStatus.Scored, r.payout);
+    }
+
+    /// @dev Refuses as payout address: address 0 and the rest of the reserved range up to MAX_RESERVED_ADDRESS,
+    ///      this contract and the coin, none of which calls withdraw (this contract never calls its own); and any
+    ///      address ever approved as a reporter, retired ones included and the sender among them, since a
+    ///      reporter relays a report and is never the one it pays. An admission's kind is never None once
+    ///      approved, and a retirement keeps it, so one read covers every reporter ever approved. A score checks
+    ///      its payout here, and so is meant to every other report that ends a game.
+    function _checkPayout(ReportKind kind, address payout) private view {
+        if (payout == address(0)) revert OspexGames__NoPayout(kind);
+        if (uint160(payout) <= uint160(MAX_RESERVED_ADDRESS)) revert OspexGames__PayoutIsReserved(kind, payout);
+        if (payout == address(this)) revert OspexGames__PayoutIsTheGamesSet(kind);
+        if (payout == address(i_token)) revert OspexGames__PayoutIsTheCoin(kind);
+        if (s_admissions[payout].kind != ReporterKind.None) revert OspexGames__PayoutIsAReporter(kind, payout);
+    }
+
+    /// @dev Takes a creation's fee from its creator, through SafeERC20, and refuses the creation unless this
+    ///      contract's coin balance rose by exactly the fee: a coin that keeps a cut of a transfer, or adds to
+    ///      one, makes no game, so a game holds what arrived. The balance is read on each side of the pull, so
+    ///      coin sent here directly before or after the creation does not count, and no other creation or
+    ///      withdrawal can run between the two reads (both are nonReentrant). Called only for a fee above 0,
+    ///      after every other write of the creation.
+    function _takeFee(uint256 fee) private {
+        uint256 balanceBefore = i_token.balanceOf(address(this));
+        i_token.safeTransferFrom(msg.sender, address(this), fee);
+        uint256 balanceAfter = i_token.balanceOf(address(this));
+        if (balanceAfter != balanceBefore + fee) revert OspexGames__FeeNotReceived(fee, balanceBefore, balanceAfter);
+    }
+
+    /// @dev Ends a game and credits its creation fee, in one place, so that every end credits and nothing but
+    ///      an end does. It refuses an id that is not a game and a game already ended, whatever its caller has
+    ///      checked, so a game's fee is credited at most once. (Scored, Voided and Released, the three ends, are
+    ///      the last three statuses.) The amount is the fee the game copied at its creation, whatever its
+    ///      league's fee is now; a fee of 0 credits nothing. No coin moves here: the address credited withdraws
+    ///      later.
+    function _end(Game storage g, uint256 gameId, GameStatus end, address account) private {
+        GameStatus status = g.status;
+        if (status == GameStatus.None) revert OspexGames__UnknownGame(gameId);
+        if (status >= GameStatus.Scored) revert OspexGames__GameEnded(gameId, status);
+        g.status = end;
+        uint96 fee = g.terms.fee;
+        if (fee != 0) {
+            s_credits[account] += fee;
+            emit FeeCredited(gameId, account, fee);
+        }
+    }
+
+    /// @dev Releases a game: ends it as Released and credits its creation fee back to its creator, never to the
+    ///      caller. The release call itself, which decides who may release a game and when, is not built yet; it
+    ///      will call this, and `_end` refuses a game already ended.
+    function _release(Game storage g, uint256 gameId) internal {
+        _end(g, gameId, GameStatus.Released, g.creator);
     }
 
     /// @dev Names why a start is refused, from a status other than Unverified. Always reverts.
