@@ -22,14 +22,18 @@ import {RefusingCoin} from "./CoinFixtures.sol";
 ///      - a fee change is queued in the timelock by its key, and run later by anyone, as a step of its own, so
 ///        creations and looks land between the two, and changes queued together run in any order;
 ///      - a start credits nothing;
-///      - a score is taken only for a started game that has not ended, from one of its reporters at an hour it
-///        may write (an after-n reporter from start + n), naming a payout address that is not 0, not the games
-///        set, not the coin and not any reporter ever approved, the retired one included; it credits the game's
-///        fee to that address;
-///      - a release is taken only for a game that has not ended, and credits the game's fee to its creator. It
-///        runs through the test harness's hook, which calls the production code's release credit; who may
-///        release, and when, is the release call's and is not modelled;
-///      - a report of a kind the contract does not take is refused;
+///      - a score is taken only for a started game that has not ended, a dispute record or not, from one of its
+///        reporters at an hour it may write (an after-n reporter from start + n), naming a payout address that
+///        is not 0, not the games set, not the coin and not any reporter ever approved, the retired one
+///        included; it credits the game's fee to that address;
+///      - a void is taken only for a started game that has not ended, from one of its reporters, from start + n
+///        for either kind and, on a disputed game, from the record plus the day-7 clock, naming a payout address
+///        as a score does; it credits the game's fee to that address;
+///      - a dispute record is taken only for a started game that has not ended, from one of its reporters at an
+///        hour it may write; the first writes the record's time, every later one is an update; none credits;
+///      - a release is taken only for a game that has not ended, by anyone, once the day-30 clock has run from
+///        its start or, with no start, from its date, and credits the game's fee to its creator;
+///      - a report with no kind is refused;
 ///      - a withdrawal pays the caller its whole credit when the coin would move it, and otherwise leaves it;
 ///        under a cut the games set pays it all and the coin keeps its cut on the way;
 ///      - coin sent to the games set directly is held by no one and stays, less any cut.
@@ -40,6 +44,8 @@ contract FeeHandler is Test {
         uint96 fee;
         bool started;
         uint64 start;
+        bool disputed;
+        uint64 disputedAt;
         bool ended;
         address paidTo;
         uint256 creditEvents;
@@ -47,6 +53,9 @@ contract FeeHandler is Test {
 
     uint64 internal constant BASE = 1_800_000_037;
     uint64 internal constant WINDOW = 1 days;
+    /// @dev The launch day-7 and day-30 clocks. The fee changes this handler runs keep them.
+    uint64 internal constant DAY7 = 7 days;
+    uint64 internal constant DAY30 = 30 days;
     uint256 internal constant DELAY = 60;
 
     OspexGamesHarness public immutable games;
@@ -96,7 +105,7 @@ contract FeeHandler is Test {
 
     /// @dev Calls where the contract and the model disagreed. Must stay 0.
     uint256 public mismatches;
-    uint256[24] public counts;
+    uint256[28] public counts;
     // Indexes into counts.
     uint256 internal constant CREATES = 0;
     uint256 internal constant CREATES_REFUSED = 1;
@@ -130,6 +139,11 @@ contract FeeHandler is Test {
     uint256 internal constant STALE_TAKEN_LOWER = 22;
     /// @dev Looks at the fee.
     uint256 internal constant LOOKS = 23;
+    uint256 internal constant VOIDS = 24;
+    uint256 internal constant VOIDS_REFUSED = 25;
+    /// @dev Dispute reports taken: records and updates.
+    uint256 internal constant DISPUTES = 26;
+    uint256 internal constant DISPUTES_REFUSED = 27;
 
     constructor(
         OspexGamesHarness games_,
@@ -352,17 +366,76 @@ contract FeeHandler is Test {
         }
     }
 
-    /// @dev Released by anyone at any hour, through the harness's hook: the release call's own rules are not
-    ///      built yet.
+    /// @dev Three times in four, a game the model has started and not ended. Taken from start + n for either
+    ///      kind and, on a disputed game, from the record plus the day-7 clock; it credits the payout address.
+    function voidGame(uint256 gameSeed, uint256 whoSeed, uint256 payoutSeed) external {
+        uint256 id = gameSeed % 4 != 0 ? _pickOpenStarted(gameSeed >> 2) : _pickGame(gameSeed >> 2);
+        Ghost storage g = ghosts[id];
+        address who = _pickSender(whoSeed);
+        address to = _pickPayout(payoutSeed, g.creator, who);
+        bool isReporter = who == address(i_first) || who == address(i_later) || who == address(i_second);
+        bool coinOrReporter = to == address(coin) || _everApproved(to);
+        bool payoutTaken = to != address(0) && to != address(games) && !coinOrReporter;
+        uint256 nowTs = vm.getBlockTimestamp();
+        bool rest = _exists(id) && g.started && !g.ended && isReporter && nowTs >= uint256(g.start) + WINDOW
+            && (!g.disputed || nowTs >= uint256(g.disputedAt) + DAY7);
+        bool expected = rest && payoutTaken;
+
+        vm.recordLogs();
+        bool ok = _send(who, _report(id, ReportKind.Void, 0, to));
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        if (ok != expected) ++mismatches;
+        if (ok && expected) {
+            g.ended = true;
+            g.paidTo = to;
+            credit[to] += g.fee;
+            ++counts[VOIDS];
+            _expectCredit(logs, id, to, g.fee);
+        } else {
+            ++counts[VOIDS_REFUSED];
+            if (rest && coinOrReporter) ++counts[PAYOUTS_COIN_OR_REPORTER];
+            _expectNoCredit(logs);
+        }
+    }
+
+    /// @dev A dispute report, naming no payout: a record on a started game not yet disputed, an update after.
+    ///      Taken from a reporter at an hour it may write; it credits nothing either way.
+    function dispute(uint256 gameSeed, uint256 whoSeed) external {
+        uint256 id = _pickGame(gameSeed);
+        Ghost storage g = ghosts[id];
+        address who = _pickSender(whoSeed);
+        bool isReporter = who == address(i_first) || who == address(i_later) || who == address(i_second);
+        uint256 nowTs = vm.getBlockTimestamp();
+        bool expected = _exists(id) && g.started && !g.ended && isReporter && nowTs >= g.start
+            && (who != address(i_later) || nowTs >= uint256(g.start) + WINDOW);
+
+        vm.recordLogs();
+        bool ok = _send(who, _report(id, ReportKind.Dispute, 0, address(0)));
+        if (ok != expected) ++mismatches;
+        if (ok && expected) {
+            if (!g.disputed) {
+                g.disputed = true;
+                g.disputedAt = uint64(nowTs);
+            }
+            ++counts[DISPUTES];
+        } else {
+            ++counts[DISPUTES_REFUSED];
+        }
+        _expectNoCredit(vm.getRecordedLogs());
+    }
+
+    /// @dev Released by anyone, once the day-30 clock has run from the start or, with no start, from the date;
+    ///      refused before, and for a game that has ended.
     function release(uint256 gameSeed, uint256 callerSeed) external {
         uint256 id = _pickGame(gameSeed);
         Ghost storage g = ghosts[id];
         address caller = accounts[callerSeed % accounts.length];
-        bool expected = _exists(id) && !g.ended;
+        uint256 opensAt = uint256(g.started ? g.start : BASE) + DAY30;
+        bool expected = _exists(id) && !g.ended && vm.getBlockTimestamp() >= opensAt;
 
         vm.recordLogs();
         vm.prank(caller);
-        (bool ok,) = address(games).call(abi.encodeCall(OspexGamesHarness.harnessRelease, (id)));
+        (bool ok,) = address(games).call(abi.encodeCall(IOspexGames.release, (id)));
         Vm.Log[] memory logs = vm.getRecordedLogs();
         if (ok != expected) ++mismatches;
         if (ok && expected) {
@@ -377,12 +450,11 @@ contract FeeHandler is Test {
         }
     }
 
-    /// @dev A report of a kind the contract does not take, from a reporter, naming any payout: refused.
-    function reportOther(uint256 gameSeed, uint256 kindSeed, uint256 payoutSeed) external {
+    /// @dev A report with no kind, from a reporter, naming any payout: refused.
+    function reportOther(uint256 gameSeed, uint256 payoutSeed) external {
         uint256 id = _pickGame(gameSeed);
-        ReportKind kind = [ReportKind.None, ReportKind.Void, ReportKind.Dispute][kindSeed % 3];
         vm.recordLogs();
-        bool ok = _send(address(i_first), _report(id, kind, 0, payouts[payoutSeed % 3]));
+        bool ok = _send(address(i_first), _report(id, ReportKind.None, 0, payouts[payoutSeed % 3]));
         if (ok) ++mismatches;
         ++counts[OTHERS_REFUSED];
         _expectNoCredit(vm.getRecordedLogs());
@@ -410,6 +482,11 @@ contract FeeHandler is Test {
 
     function warp(uint256 secs) external {
         vm.warp(vm.getBlockTimestamp() + bound(secs, 0, 12 hours));
+    }
+
+    /// @dev A longer step, so the day-7 and day-30 clocks run inside one sequence.
+    function warpLong(uint256 secs) external {
+        vm.warp(vm.getBlockTimestamp() + bound(secs, 0, 8 days));
     }
 
     /// @dev Pauses or unpauses the coin, or blocks or unblocks an account or the games set.
@@ -581,13 +658,14 @@ contract FeeHandler is Test {
 
 /// @notice The stateful run for the creation fee's routing. After every call of a random sequence of creations
 ///         each naming the most it pays, looks at the fee, fee changes queued in the timelock and run later as
-///         steps of their own, starts, scores, refused reports, releases, withdrawals, coin pauses, blocks and
-///         cuts, and coin sent in directly: the contract took exactly what the model allows, and no creation
-///         took more than its caller named; each game's fee was
-///         credited at most once, and once it ended, to the payout address in the report that ended it or to
-///         its creator, in the amount it copied at creation; every address's credit and coin read as the model
-///         says, the coin's own included; and the coin the games set holds equals the fees of games not yet
-///         ended, plus what is credited and not withdrawn, plus what arrived from coin sent to it directly.
+///         steps of their own, starts, scores, voids, dispute records and updates, refused reports, releases
+///         once the day-30 clock has run, withdrawals, coin pauses, blocks and cuts, and coin sent in directly:
+///         the contract took exactly what the model allows, and no creation took more than its caller named;
+///         each game's fee was credited at most once, and once it ended, to the payout address in the report
+///         that ended it or to its creator, in the amount it copied at creation; every address's credit and
+///         coin read as the model says, the coin's own included; and the coin the games set holds equals the
+///         fees of games not yet ended, plus what is credited and not withdrawn, plus what arrived from coin
+///         sent to it directly.
 contract OspexGamesFeeInvariantTest is GamesBase {
     FeeHandler internal handler;
 
@@ -601,7 +679,7 @@ contract OspexGamesFeeInvariantTest is GamesBase {
         // An hour before the games' date: starts land at once, and after-n scores a day and more later.
         vm.warp(1_800_000_037 - 1 hours);
 
-        bytes4[] memory selectors = new bytes4[](19);
+        bytes4[] memory selectors = new bytes4[](23);
         selectors[0] = FeeHandler.create.selector;
         selectors[1] = FeeHandler.create.selector; // creation twice as often
         selectors[2] = FeeHandler.queueFee.selector;
@@ -621,6 +699,10 @@ contract OspexGamesFeeInvariantTest is GamesBase {
         selectors[14] = FeeHandler.healCoin.selector; // the coin refuses less often than it takes
         selectors[15] = FeeHandler.donate.selector;
         selectors[16] = FeeHandler.setCut.selector;
+        selectors[19] = FeeHandler.voidGame.selector;
+        selectors[20] = FeeHandler.dispute.selector;
+        selectors[21] = FeeHandler.dispute.selector; // records and updates
+        selectors[22] = FeeHandler.warpLong.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
         targetContract(address(handler));
     }
@@ -640,7 +722,7 @@ contract OspexGamesFeeInvariantTest is GamesBase {
     ///      campaign's: runs, then each count in FeeHandler's order.
     function afterInvariant() external {
         string memory line = string.concat("fee-campaign runs ", vm.toString(_addToTotal("RUNS", 1)));
-        for (uint256 i; i < 24; ++i) {
+        for (uint256 i; i < 28; ++i) {
             line = string.concat(line, " ", vm.toString(_addToTotal(vm.toString(i), handler.counts(i))));
         }
         console.log(line);
@@ -732,9 +814,13 @@ contract OspexGamesFeeInvariantTest is GamesBase {
         handler.score(8, 1, 3); // game 3, after-n past start + n, payout its creator: taken, 7
         handler.score(4, 0, 0); // game 2, made at 0: taken, nothing credited
         handler.score(12, 0, 0); // game 4, not started: refused
-        handler.reportOther(3, 1, 0); // a void: refused
+        handler.reportOther(3, 0); // a report with no kind: refused
 
-        // release(gameSeed, callerSeed): anyone.
+        // release(gameSeed, callerSeed): anyone, once the day-30 clock has run from the start or the date.
+        handler.release(3, 7); // game 4, not started, two days in: refused
+        for (uint256 i; i < 4; ++i) {
+            handler.warpLong(8 days); // past the day-30 clock of every game so far
+        }
         handler.release(3, 7); // game 4, not started: taken, made at 0, nothing credited
         handler.release(3, 7); // again: refused
         handler.release(4, 7); // game 1, scored: refused
@@ -801,8 +887,26 @@ contract OspexGamesFeeInvariantTest is GamesBase {
         handler.create(1, 1, 0); // game 11: naming its look, 3, now above the fee: takes 2
         handler.create(2, 0, 3); // game 12: any amount: takes nba's 9
 
+        // The ends the reports write. Two more nhl games at the default, 2. With fourteen games a game seed s
+        // picks game 1 + s % 14: 12 is game 13 and 13 is game 14; a void's game seed is four times that.
+        // dispute(gameSeed, whoSeed) and voidGame(gameSeed, whoSeed, payoutSeed) pick the sender as a score does:
+        // 0 first, 1 later, 2 second, 3 stranger.
+        handler.create(0, 1, 1); // game 13, nhl at 2
+        handler.create(0, 1, 1); // game 14, nhl at 2
+        handler.start(12, 1, 30); // game 13, second: taken
+        handler.start(13, 1, 30); // game 14, second: taken
+        handler.dispute(12, 3); // game 13 from a stranger: refused
+        handler.dispute(12, 0); // game 13, first: the record
+        handler.dispute(12, 1); // game 13, later, past start + n: an update, which credits nothing
+        handler.voidGame(48, 0, 0); // game 13, first, payout 0: inside the day-7 clock: refused
+        handler.voidGame(52, 1, 1); // game 14, later, payout 1: past start + n, no record: taken, 2
+        handler.warpLong(8 days); // the day-7 clock has run
+        handler.voidGame(48, 2, 0); // game 13, second, payout 0: the day-7 void: taken, 2
+        handler.dispute(12, 0); // game 13, ended: refused
+        handler.release(12, 7); // game 13, ended: refused
+
         assertEq(handler.mismatches(), 0, "the contract and the model disagreed");
-        assertEq(handler.counts(0), 12, "creations");
+        assertEq(handler.counts(0), 14, "creations");
         assertEq(handler.counts(1), 9, "creations refused");
         assertEq(handler.counts(20), 4, "creations refused for a fee above the most named");
         assertEq(handler.counts(21), 2, "of those, naming a look a fee change raised past");
@@ -811,22 +915,26 @@ contract OspexGamesFeeInvariantTest is GamesBase {
         assertEq(handler.counts(19), 8, "fee changes queued");
         assertEq(handler.counts(11), 8, "fee changes run");
         assertEq(handler.counts(17), 2, "creations refused for the cut");
-        assertEq(handler.counts(2), 3, "starts");
+        assertEq(handler.counts(2), 5, "starts");
         assertEq(handler.counts(3), 2, "starts refused");
         assertEq(handler.counts(4), 3, "scores");
         assertEq(handler.counts(5), 9, "scores refused");
         assertEq(handler.counts(18), 4, "scores refused for a payout of the coin or a reporter");
+        assertEq(handler.counts(24), 2, "voids");
+        assertEq(handler.counts(25), 1, "voids refused");
+        assertEq(handler.counts(26), 2, "dispute reports taken: the record and an update");
+        assertEq(handler.counts(27), 2, "dispute reports refused");
         assertEq(handler.counts(6), 3, "releases");
-        assertEq(handler.counts(7), 2, "releases refused");
+        assertEq(handler.counts(7), 4, "releases refused");
         assertEq(handler.counts(9), 4, "withdrawals");
         assertEq(handler.counts(10), 4, "withdrawals refused");
-        assertEq(handler.counts(14), 4, "fees credited");
+        assertEq(handler.counts(14), 6, "fees credited");
         assertEq(handler.counts(15), 2, "ends at a fee of 0");
         assertEq(handler.counts(16), 3, "cut changes");
         assertEq(
             token.balanceOf(address(games)),
-            19_001_999,
-            "the four open games' fees, 3 + 5 + 2 + 9, and what arrived from coin sent to it"
+            23_001_999,
+            "the four open games' fees, 3 + 5 + 2 + 9, the two voids' credits, 2 + 2, and what arrived from coin sent to it"
         );
         assertEq(token.balanceOf(address(token)), 2, "the coin kept 1 of the withdrawal and 1 of the donation");
         _checkEachFeeIsCreditedAtMostOnceToTheEndsAddress();

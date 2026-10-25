@@ -15,13 +15,16 @@ enum GameStatus {
     Unverified,
     /// @dev 2: its start is written.
     Verified,
-    /// @dev 3: a dispute record is written. The game is not over: it takes its result from the day-7 clock.
+    /// @dev 3: a dispute record is written. The game is not over: it still takes a score from any of its
+    ///      reporters permitted at that hour, and later dispute reports as updates; its void opens only when the
+    ///      day-7 clock, counted from the record, has run.
     Disputed,
     /// @dev 4: its score is written. An end.
     Scored,
     /// @dev 5: a void is written. An end. A void is a status, never a scored 0-0.
     Voided,
-    /// @dev 6: released. An end of its own; the betting set reads it as a void.
+    /// @dev 6: released. An end of its own, by anyone once the day-30 clock has run or every reporter is
+    ///      retired; the betting set reads it as a void.
     Released
 }
 
@@ -42,11 +45,12 @@ enum ReportKind {
     None,
     /// @dev 1: the game's start.
     Start,
-    /// @dev 2: the game's score.
+    /// @dev 2: the game's score. An end.
     Score,
-    /// @dev 3: a void.
+    /// @dev 3: a void. An end, from start + n; on a disputed game, from the day-7 clock.
     Void,
-    /// @dev 4: a dispute record.
+    /// @dev 4: a dispute record, which starts the day-7 clock; on a disputed game, an update to it, which
+    ///      writes nothing.
     Dispute
 }
 
@@ -81,11 +85,11 @@ struct Reading {
 /// @param awayScore For a score: the away team's score. Zero for any other kind.
 /// @param readings The readings the report rests on, one per feed asked.
 /// @param payout The payout address: where the report that ends a game credits its creation fee. The games set
-///        never puts the sender in its place. Zero for a start, which pays nothing. A score refuses as payout:
-///        zero and the rest of the reserved range up to 0xffff, where precompiles and a chain's own contracts
-///        lie, the games set's own address and the coin's, none of which withdraws; and any address ever
-///        approved as a reporter, retired ones included and the sender among them, since a reporter relays a
-///        report and is never the one it pays.
+///        never puts the sender in its place. Zero for a start and for a dispute record, which pay nothing. A
+///        score and a void refuse as payout: zero and the rest of the reserved range up to 0xffff, where
+///        precompiles and a chain's own contracts lie, the games set's own address and the coin's, none of which
+///        withdraws; and any address ever approved as a reporter, retired ones included and the sender among
+///        them, since a reporter relays a report and is never the one it pays.
 struct Report {
     uint256 gameId;
     ReportKind kind;
@@ -111,7 +115,8 @@ struct Hint {
 /// @param window n, in seconds: the game's window, [start, start + n), the same n the scoring program uses.
 ///        Inside it only a first-n reporter writes; an after-n reporter writes from start + n, that second
 ///        included, and the hour-24 void can post from then. n counts from the start as written.
-/// @param day7Clock In seconds: how long after a dispute record the game takes its day-7 result. Longer than n.
+/// @param day7Clock In seconds: how long after a dispute record a disputed game's void opens. Longer than n. A
+///        disputed game takes a score at any hour a reporter may write; only its void waits for this clock.
 /// @param day30Clock In seconds: how long after the start, or after the date for a game never started, anyone
 ///        may release a game that has not ended. Longer than n and the day-7 clock together, so a dispute
 ///        recorded by start + n has its whole day-7 clock before the release opens.
@@ -127,10 +132,16 @@ struct Terms {
 /**
  * @title IOspexGames
  * @author ospex.org
- * @notice The games set: games anyone creates, the reporters each game keeps, and the five reads that tell
- *         any contract what happened. A game copies the approved reporters, with their kinds, and its league's
- *         terms when it is created, and only those reporters ever write to it. Its start and its score are each
- *         written once. The approved list and the terms change only by the Polygon timelock's three calls.
+ * @notice The games set: games anyone creates, the reporters each game keeps, how each game ends, and the five
+ *         reads that tell any contract what happened. A game copies the approved reporters, with their kinds,
+ *         and its league's terms when it is created, and only those reporters ever write to it. Its start and
+ *         its score are each written once. The approved list and the terms change only by the Polygon
+ *         timelock's three calls.
+ *
+ *         Every game ends once, as a score, a void or a release, and after its end nothing more is written to
+ *         it. A score and a void are reports; a dispute record is a report that ends nothing and starts the
+ *         day-7 clock, after which a disputed game's void opens; a release is anyone's call once the day-30
+ *         clock has run or every one of the game's reporters is retired.
  *
  *         A game's creator pays its creation fee when it is created, and the games set holds it until the game
  *         ends. The report that ends the game credits it to the payout address inside that report; a release
@@ -159,6 +170,14 @@ interface IOspexGames is IGameReporters {
     /// @param amount Its whole credit, which is what the games set's coin balance fell by. A coin that keeps a
     ///        cut on the way delivers the account less.
     event Withdrawn(address indexed account, uint256 amount);
+
+    /// @notice Emitted when a game is released: ended with no score and no void, by anyone, once its day-30 clock
+    ///         has run or every one of its reporters is retired. Its creation fee is credited back to its creator
+    ///         (FeeCredited, emitted before this), never to the caller. The game's other ends, a score and a void,
+    ///         are reports and emit GameReported.
+    /// @param gameId The game
+    /// @param caller The address that released it, which pays the gas and gets nothing
+    event GameReleased(uint256 indexed gameId, address caller);
 
     /// @notice Emitted when a game is created. It carries the game's identity, which is not stored.
     /// @param gameId The new game's id
@@ -276,9 +295,29 @@ interface IOspexGames is IGameReporters {
     ) external returns (uint256 gameId);
 
     /// @notice The one report call. Only the game's recorded reporters may send it, none that is retired, and
-    ///         none whose code hashes otherwise than the hash recorded at its approval. A score ends the game and
-    ///         credits its creation fee to the payout address in the report; a start credits nothing.
+    ///         none whose code hashes otherwise than the hash recorded at its approval. A first-n reporter writes
+    ///         from the game's start; an after-n reporter from start + n, that second included. A start is
+    ///         written once, by a first-n reporter, and credits nothing. A score ends the game and credits its
+    ///         creation fee to the payout address in the report; it is taken at or after the start, a dispute
+    ///         record or not. A void ends the game the same way, with no score stored, from start + n for a
+    ///         reporter of either kind, and on a disputed game only once its day-7 clock has run. A dispute
+    ///         record carries a zero payout, credits nothing and ends nothing: the first one writes Disputed and
+    ///         starts the day-7 clock; every later one is an update, taken and emitted, writing nothing. Every
+    ///         report the games set takes is emitted with its readings, which are not stored. A game that has
+    ///         ended takes no report of any kind.
     function report(Report calldata r) external;
+
+    /// @notice Releases a game that has not ended: no score, no void, no release, a dispute record or not.
+    ///         Anyone may, once the game's day-30 clock has run, counted from its start as written or, for a
+    ///         game whose start was never written, from the date given at creation; or at once, for a game whose
+    ///         every recorded reporter is retired. A release is an end of its own: the game's status reads
+    ///         Released, the betting set reads it as a void, and its creation fee is credited back to its
+    ///         creator, who withdraws it later. The caller pays the gas and gets nothing. Refused for an id that
+    ///         is not a game, for a game that has ended (GameEnded), and otherwise while the clock has not run
+    ///         and a reporter of the game is not retired (ReleaseNotOpen). The clock opens the release and
+    ///         refuses nothing else: a score or a void that lands first ends the game, past the clock or not,
+    ///         and a release that lands first ends it.
+    function release(uint256 gameId) external;
 
     /// @notice Pays the caller everything it has been credited, and sets its credit to 0. Only the address
     ///         credited withdraws, and only to itself. When the coin refuses the transfer (the coin paused, or
@@ -319,6 +358,11 @@ interface IOspexGames is IGameReporters {
     ///         reporters are all retired before its start is written, while an after-n one is not, reads false:
     ///         nothing can write its start, and it waits for the day-30 release.
     function isEveryReporterRetired(uint256 gameId) external view returns (bool);
+
+    /// @notice When a game's dispute record was written, in seconds since 1970: the time its day-7 clock counts
+    ///         from, which nothing after the record moves. Refuses a game with no dispute record, whatever its
+    ///         status; a game that ended after its record still answers.
+    function getGameDisputedAt(uint256 gameId) external view returns (uint64);
 
     /// @notice The approved list as it stands: what a game made now copies, in the order it copies it.
     function getApprovedReporters() external view returns (address[] memory reporters, uint8[] memory kinds);

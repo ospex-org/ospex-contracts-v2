@@ -576,17 +576,18 @@ contract OspexGamesTest is GamesBase {
 
     // ──────────────────────────── Report kinds and refusal names ───────
 
-    function test_report_kindsNotTakenHere() public {
+    /// A report with no kind is refused by name, at an hour every other kind is taken.
+    function test_report_aReportWithNoKindIsRefused() public {
         uint256 game = _verified();
         vm.warp(START + WINDOW + 1);
-        ReportKind[3] memory kinds = [ReportKind.None, ReportKind.Void, ReportKind.Dispute];
-        for (uint256 i; i < kinds.length; ++i) {
-            Report memory r = _scoreReport(game, 0, 0);
-            r.kind = kinds[i];
-            (bool ok, bytes memory err) = _send(address(first), r);
-            assertFalse(ok);
-            assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__ReportKindNotTaken.selector, kinds[i]));
-        }
+        Report memory r = _scoreReport(game, 0, 0);
+        r.kind = ReportKind.None;
+        (bool ok, bytes memory err) = _send(address(first), r);
+        assertFalse(ok);
+        assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__ReportKindNotTaken.selector, ReportKind.None));
+        // Control: the same report as a void is taken.
+        r.kind = ReportKind.Void;
+        _take(address(first), r);
     }
 
     /// A kind outside the enum is refused by the decoder.
@@ -614,9 +615,10 @@ contract OspexGamesTest is GamesBase {
     }
 
     /// Each status names its own reason for refusing a report, rather than one "already scored" for all, for a
-    /// start and for a score, from a first-n reporter and from an after-n reporter past start + n. The status
-    /// is checked before the reporter's kind, so an after-n reporter's start on a game whose start is written
-    /// is refused as written, not as the wrong kind.
+    /// start, a score, a void and a dispute record, from a first-n reporter and from an after-n reporter past
+    /// start + n and inside the day-7 clock. The status is checked before the reporter's kind, so an after-n
+    /// reporter's start on a game whose start is written is refused as written, not as the wrong kind. Every
+    /// status is reached through the production paths.
     function test_report_refusalNamesByStatus() public {
         GameStatus[6] memory statuses = [
             GameStatus.Unverified,
@@ -630,32 +632,35 @@ contract OspexGamesTest is GamesBase {
         bytes4 taken = bytes4(0);
         bytes4 written = OspexGames.OspexGames__StartAlreadyWritten.selector;
         bytes4 ended = OspexGames.OspexGames__GameEnded.selector;
+        bytes4 noStart = OspexGames.OspexGames__StartNotWritten.selector;
         bytes4[6] memory startByFirst = [taken, written, written, ended, ended, ended];
         bytes4[6] memory startByLater =
             [OspexGames.OspexGames__NotFirstN.selector, written, written, ended, ended, ended];
-        bytes4[6] memory scoreByEither = [
-            OspexGames.OspexGames__StartNotWritten.selector,
-            taken,
-            OspexGames.OspexGames__Disputed.selector,
-            ended,
-            ended,
-            ended
-        ];
+        // A disputed game takes a score, and a dispute report as an update; its void waits for the day-7 clock.
+        bytes4[6] memory scoreByEither = [noStart, taken, taken, ended, ended, ended];
+        bytes4[6] memory voidByEither =
+            [noStart, taken, OspexGames.OspexGames__InsideDay7Clock.selector, ended, ended, ended];
+        bytes4[6] memory disputeByEither = [noStart, taken, taken, ended, ended, ended];
 
         MockReporter[2] memory who = [first, later];
         for (uint256 w; w < who.length; ++w) {
             for (uint256 i; i < statuses.length; ++i) {
-                // One game for the start and one for the score, each in the status: a fresh game for
-                // Unverified, and for any other status a game whose start is written, then put in it.
+                // One game per report kind, each in the status.
                 vm.warp(DATE - 1 hours);
                 uint256 forStart = _inStatus(statuses[i]);
                 uint256 forScore = _inStatus(statuses[i]);
+                uint256 forVoid = _inStatus(statuses[i]);
+                uint256 forDispute = _inStatus(statuses[i]);
                 vm.warp(START + WINDOW + 1);
 
                 (bool ok, bytes memory err) = _send(address(who[w]), _startReport(forStart, START + 1));
                 _assertNamed(ok, err, w == 0 ? startByFirst[i] : startByLater[i], forStart, statuses[i], who[w]);
                 (ok, err) = _send(address(who[w]), _scoreReport(forScore, HOME, AWAY));
                 _assertNamed(ok, err, scoreByEither[i], forScore, statuses[i], who[w]);
+                (ok, err) = _send(address(who[w]), _voidReport(forVoid));
+                _assertNamed(ok, err, voidByEither[i], forVoid, statuses[i], who[w]);
+                (ok, err) = _send(address(who[w]), _disputeReport(forDispute));
+                _assertNamed(ok, err, disputeByEither[i], forDispute, statuses[i], who[w]);
             }
         }
     }
@@ -798,33 +803,51 @@ contract OspexGamesTest is GamesBase {
     /// A game that ended without a start has none to read: the start read refuses by the start, never by the
     /// status. A release from the date reaches a game whose start was never written; the ends write that
     /// later, and the hook plants it here. Every written start reads back, whatever the status after it.
+    /// The one end a game with no start can reach is the release, once the day-30 clock has run from the date
+    /// given at creation. Such a game reads Released, refuses its start and its scores by name, and takes nothing
+    /// more: no report of any kind, and no second release. Its reads are the same before the release.
+    /// Break: in getGameStart(), change `if (g.start == 0)` to `if (g.status == GameStatus.Unverified)`. The
+    /// released game then reads a start of 0 as if one were written.
     function test_reads_startRefusedForAGameThatEndedWithoutOne() public {
-        GameStatus[3] memory unstarted = [GameStatus.Unverified, GameStatus.Released, GameStatus.Voided];
-        for (uint256 i; i < unstarted.length; ++i) {
-            uint256 game = _create();
-            games.harnessSetStatus(game, unstarted[i]);
-            assertEq(uint8(_status(game)), uint8(unstarted[i]), "status");
-            vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__StartNotWritten.selector, game));
-            games.getGameStart(game);
-            vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__NotScored.selector, game, unstarted[i]));
-            games.getGameScores(game);
-            if (unstarted[i] != GameStatus.Unverified) {
-                // An ended game takes no start, so the read stays refused.
-                (bool ok, bytes memory err) = _send(address(first), _startReport(game, START));
-                assertFalse(ok, "an ended game took a start");
-                assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__GameEnded.selector, game, unstarted[i]));
-                vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__StartNotWritten.selector, game));
-                games.getGameStart(game);
+        uint256 game = _create();
+        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__StartNotWritten.selector, game));
+        games.getGameStart(game);
+        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__NotScored.selector, game, GameStatus.Unverified));
+        games.getGameScores(game);
+
+        vm.warp(DATE + DAY30);
+        _releaseBy(stranger, game);
+        assertEq(uint8(_status(game)), uint8(GameStatus.Released), "status");
+        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__StartNotWritten.selector, game));
+        games.getGameStart(game);
+        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__NotScored.selector, game, GameStatus.Released));
+        games.getGameScores(game);
+        // Nothing more is written: every report kind from every reporter, and a second release, are refused.
+        bytes memory ended = abi.encodeWithSelector(OspexGames.OspexGames__GameEnded.selector, game, GameStatus.Released);
+        MockReporter[3] memory reporters = [first, later, second];
+        for (uint256 i; i < reporters.length; ++i) {
+            Report[4] memory reports =
+                [_startReport(game, START), _scoreReport(game, HOME, AWAY), _voidReport(game), _disputeReport(game)];
+            for (uint256 k; k < reports.length; ++k) {
+                (bool ok, bytes memory err) = _send(address(reporters[i]), reports[k]);
+                assertFalse(ok, "a released game took a report");
+                assertEq(err, ended, "the refusal");
             }
         }
+        (bool okAgain, bytes memory errAgain) = _tryRelease(stranger, game);
+        assertFalse(okAgain, "a released game was released again");
+        assertEq(errAgain, ended, "the second release's refusal");
+        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__StartNotWritten.selector, game));
+        games.getGameStart(game);
+
         // Controls: a written start reads back in every status a game with a start can reach.
         GameStatus[5] memory started =
             [GameStatus.Verified, GameStatus.Disputed, GameStatus.Scored, GameStatus.Voided, GameStatus.Released];
         for (uint256 i; i < started.length; ++i) {
-            uint256 game = _create();
-            _startBy(first, game, START);
-            games.harnessSetStatus(game, started[i]);
-            assertEq(games.getGameStart(game), START, "a written start did not read back");
+            vm.warp(DATE - 1 hours);
+            uint256 g = _inStatus(started[i]);
+            assertEq(uint8(_status(g)), uint8(started[i]), "control status");
+            assertEq(games.getGameStart(g), START, "a written start did not read back");
         }
     }
 
@@ -850,17 +873,19 @@ contract OspexGamesTest is GamesBase {
         vm.warp(DATE - 1 hours);
         _startBy(first, game, START);
         vm.warp(START + 1);
+        _disputeBy(first, game);
+        vm.warp(START + 2);
         _scoreBy(first, game, HOME, AWAY);
 
         // Word 0: status, date, start, home, away. Word 1: n and the two clocks. Word 2: the fee. Word 3: the
-        // creator.
+        // creator and the time of the dispute record.
         bytes memory want = abi.encodePacked(
             uint256(uint8(GameStatus.Scored)) | (uint256(DATE) << 8) | (uint256(START) << 72)
                 | (uint256(HOME) << 136) | (uint256(AWAY) << 168),
             uint256(own.window) | (uint256(own.day7Clock) << 64) | (uint256(own.day30Clock) << 128),
             uint256(own.fee)
         );
-        want = abi.encodePacked(want, uint256(uint160(creator)));
+        want = abi.encodePacked(want, uint256(uint160(creator)) | (uint256(START + 1) << 160));
         // Then the reporters' copy: its length, and each entry as address and kind.
         uint256 firstKind = uint256(uint8(ReporterKind.FirstN)) << 160;
         want = abi.encodePacked(want, uint256(3), uint256(uint160(address(first))) | firstKind);
@@ -901,18 +926,10 @@ contract OspexGamesTest is GamesBase {
         _startBy(first, game, START);
     }
 
-    /// @dev A game in a status: a fresh game for Unverified; otherwise a game whose start is written, put in it.
-    function _inStatus(GameStatus s) internal returns (uint256 game) {
-        game = _create();
-        if (s == GameStatus.Unverified) return game;
-        _startBy(first, game, START);
-        games.harnessSetStatus(game, s);
-    }
-
     /// @dev Asserts a report was taken (want 0) or refused with the named error and its arguments.
     function _assertNamed(bool ok, bytes memory err, bytes4 want, uint256 game, GameStatus s, MockReporter who)
         internal
-        pure
+        view
     {
         if (want == bytes4(0)) {
             assertTrue(ok, string.concat("refused: ", vm.toString(err)));
@@ -924,6 +941,9 @@ contract OspexGamesTest is GamesBase {
             expected = abi.encodeWithSelector(want, game, s);
         } else if (want == OspexGames.OspexGames__NotFirstN.selector) {
             expected = abi.encodeWithSelector(want, game, address(who));
+        } else if (want == OspexGames.OspexGames__InsideDay7Clock.selector) {
+            uint256 opensAt = uint256(games.getGameDisputedAt(game)) + games.getGameTerms(game).day7Clock;
+            expected = abi.encodeWithSelector(want, game, opensAt);
         } else {
             expected = abi.encodeWithSelector(want, game);
         }

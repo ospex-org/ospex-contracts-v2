@@ -62,37 +62,49 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
  *         ended and for credits not yet withdrawn; there is no receiver, no setter for one, and no other way
  *         out. Coin sent here directly is held by no one and stays. Spec: "The creation fee".
  *
- *         Two things a reader may look for here belong to other parts of the games set, by design:
- *         - How a game ends other than by a score. The hour-24 void, the dispute record and day 7, and the
- *           day-30 release that gives every stake back are the ends, and a game whose every reporter is retired
- *           can be released at once. This contract copies each game's clocks and says when every reporter of a
- *           game is retired; it writes no end but a score. The credit each end makes is here already: an end
- *           that names a payout checks it as a score does and credits through `_end`, and a release credits
- *           the creator through `_release`. Spec: "How a game ends".
- *         - Correcting a start or a score. There is none: each is written once. Feeds that disagree lead to a
- *           dispute record, never to a correction. Spec: "The start is written once" and "A score is written
- *           once and is final".
- *         The games set deploys once, with all of them. Spec: "Launch: one reporter, and the hooks".
+ *         How a game ends. Every game ends once, as a score, a void or a release, and after its end nothing more
+ *         is written to it: no report of any kind, and no release. A score and a void come through the report
+ *         call, from one of the game's recorded reporters permitted at that hour, and each credits the fee to the
+ *         payout address inside the report. A void is a status, never a score of 0-0, and is taken from start + n,
+ *         that second included, by a reporter of either kind: the hour-24 void. A dispute record comes through
+ *         the same call, from the start by a first-n reporter and from start + n by an after-n one; it carries no
+ *         payout, credits nothing and ends nothing. It is a record, not a lock: a disputed game still takes a
+ *         score from any of its reporters permitted at that hour, and takes later dispute reports as updates,
+ *         which write nothing. What the first record does is start the day-7 clock, counted from that record and
+ *         moved by nothing after it: on a disputed game a void is taken only from that clock. The release is the
+ *         end no reporter writes. Anyone may release a game that has not ended once its day-30 clock has passed,
+ *         counted from the start as written or, with no start written, from the date given at creation; or at
+ *         once, when every one of the game's reporters is retired. A release credits the fee back to the creator
+ *         and nothing to the caller. The three clocks are the game's own copied terms. Each opens a door and
+ *         closes none: a score or a void that lands after the day-30 clock, before any release, is taken and pays
+ *         on its result, and the first end to land is the game's. Spec: "How a game ends", "Retiring a
+ *         reporter", "The terms".
+ *
+ *         Correcting a start or a score: there is none. Each is written once. Feeds that disagree lead to a
+ *         dispute record and its updates, never to a correction. Spec: "The start is written once" and "A
+ *         score is written once and is final".
  *
  *         It has no owner, no pause, no setter but the timelock's three calls, and no way to correct a start or
  *         a score. It refuses no league.
  *
- * @dev    What the report call reads, by whether it can change between a game's creation and its score. Each
- *         thing that could change and must not is either never written again or compared with what was
- *         recorded:
+ * @dev    What the report call and the release read, by whether it can change between a game's creation and
+ *         its end. Each thing that could change and must not is either never written again or compared with
+ *         what was recorded:
  *         - Pinned when written, and never written again: the game's reporters and their kinds, its four terms
  *           and its date, from its creation; among the terms its creation fee, which is the amount the game
- *           holds and its end credits, whatever the league's fee is now; its start, once written; and this
- *           contract's own limits and coin, which are constants. A release reads one thing more, also pinned
- *           at creation: the creator it credits.
+ *           holds and its end credits, whatever the league's fee is now; its start, once written; the time of
+ *           its dispute record, once written, which an update never moves; and this contract's own limits and
+ *           coin, which are constants. A release reads one thing more, also pinned at creation: the creator it
+ *           credits.
  *         - Checked at the door against a stored value: the sender's code. Its live hash must equal the hash
  *           recorded at its approval, or the report is refused (CodeChanged).
  *         - Live by design: the sender's retired flag, because a retirement is meant to reach games already
- *           made; the clock, because when a report may land is what the gate decides; the game's status,
- *           because it is what the reports themselves write, each step once, and whether the game still holds
- *           its fee is read from it; the payout address's credit, which an end adds to and only that address's
- *           withdrawal takes from; and whether the payout address was ever approved as a reporter, so a
- *           reporter approved after the game's creation is refused as its payout too.
+ *           made, and with it whether every reporter of a game is retired, which opens its release; the clock,
+ *           because when a report or a release may land is what the gates decide; the game's status, because
+ *           it is what the reports themselves write, each step once and never back, and whether the game still
+ *           holds its fee is read from it; the payout address's credit, which an end adds to and only that
+ *           address's withdrawal takes from; and whether the payout address was ever approved as a reporter,
+ *           so a reporter approved after the game's creation is refused as its payout too.
  *         - Not read, so not checked here: what a reporter's own storage holds, such as a proxy's logic or an
  *           owner's setting. A reporter whose behaviour can change while its code stays the same keeps its
  *           hash; the public delay before its approval is for finding that. Values a reporter holds as
@@ -101,7 +113,16 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
  *
  *         n counts from the start as written. A first-n reporter writes from the start; an after-n reporter
  *         writes from start + n, that second included, so n's window is [start, start + n), the window the
- *         scoring program uses. A start written at or after start + n opens the after-n score at once.
+ *         scoring program uses. A start written at or after start + n opens the after-n score, and the void,
+ *         at once. The day-7 clock counts from the dispute record as written, so a record written late, or
+ *         long after start + n, has its whole clock, and its void may fall due after the day-30 release has
+ *         opened; the first end to land is the game's.
+ *
+ *         Every end is written by `_end` and nowhere else, and `_end` refuses a game already ended and a status
+ *         that is not an end, whatever its caller checked. Each caller checks the status first for its own
+ *         reason (StartNotWritten, GameEnded), so a reader learns why; `_end` is the one lock behind all of
+ *         them, and the one place the fee is credited. Nothing writes a status back: a game moves Unverified,
+ *         Verified, Disputed, then one end, and a retirement writes no game.
  *
  *         A tradeoff kept: if every first-n reporter a game recorded is retired before its start is written,
  *         nothing can write that start. An after-n reporter writes no start, and a reporter approved later is
@@ -109,7 +130,7 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
  *         whose every reporter is retired, so it waits for the day-30 release, counted from its date. The
  *         release is the recovery.
  *
- *         A score refuses as its payout address: address 0 and every address up to MAX_RESERVED_ADDRESS (the
+ *         A score and a void refuse as the payout address: address 0 and every address up to MAX_RESERVED_ADDRESS (the
  *         range EIP-1352 sets aside for precompiles and a chain's own contracts, which no key and no deployment
  *         reaches in practice), this contract and the coin, none of which calls `withdraw`; and any address ever
  *         approved as a reporter, retired ones included and the sender among them, since a reporter relays a
@@ -195,6 +216,8 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
     /// @param terms The four terms, copied from the game's league at creation. Their fee is the amount the game
     ///        holds until it ends.
     /// @param creator The address that created the game and paid its fee: what a release credits
+    /// @param disputedAt When the dispute record was written; 0 until then. The day-7 clock counts from it, and
+    ///        nothing moves it once written: an update to the record writes nothing.
     struct Game {
         GameStatus status;
         uint64 date;
@@ -203,6 +226,7 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
         uint32 awayScore;
         Terms terms;
         address creator;
+        uint64 disputedAt;
     }
 
     /// @dev A reporter and its kind.
@@ -289,10 +313,10 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
     /// @notice Thrown when a report's sender has code that hashes otherwise than the hash recorded at its
     ///         approval, no code at all included
     error OspexGames__CodeChanged(address reporter, bytes32 approved, bytes32 found);
-    /// @notice Thrown for a report kind this contract does not take: no kind, a void or a dispute record
+    /// @notice Thrown for a report with no kind. (A kind past the last is refused by the decoder.)
     error OspexGames__ReportKindNotTaken(ReportKind kind);
     /// @notice Thrown when a report sets a field its kind does not use: a score or a payout on a start, a start
-    ///         on a score
+    ///         on a score, a start or a score on a void, and a start, a score or a payout on a dispute record
     error OspexGames__FieldNotEmpty(ReportKind kind);
     /// @notice Thrown when a report that ends a game names no payout address: address 0 can never withdraw
     error OspexGames__NoPayout(ReportKind kind);
@@ -322,22 +346,35 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
     error OspexGames__WithdrawalNotExact(uint256 amount, uint256 balanceBefore, uint256 balanceAfter);
     /// @notice Thrown when a reading marked silent carries a score: a feed that did not answer gave none
     error OspexGames__SilentReadingNotEmpty(uint256 index);
-    /// @notice Thrown for any report to a game that has ended: scored, voided or released
+    /// @notice Thrown for any report to a game that has ended, scored, voided or released, and for a release of
+    ///         one: nothing more is written to an ended game
     error OspexGames__GameEnded(uint256 gameId, GameStatus status);
+    /// @notice Thrown when `_end` is handed a status that is not an end. No call reaches it: it guards the one
+    ///         place an end is written against a caller that names the wrong status.
+    error OspexGames__NotAnEnd(GameStatus status);
     /// @notice Thrown when a start is reported for a game whose start is already written
     error OspexGames__StartAlreadyWritten(uint256 gameId);
     /// @notice Thrown when a start is reported by a reporter that is not first-n for the game
     error OspexGames__NotFirstN(uint256 gameId, address reporter);
     /// @notice Thrown when a reported start is 0, or more than START_BOUND from the date given at creation
     error OspexGames__StartOutOfRange(uint256 gameId, uint64 start);
-    /// @notice Thrown when a score is reported, or a start read, for a game whose start is not written
+    /// @notice Thrown when a score, a void or a dispute record is reported, or a start read, for a game whose
+    ///         start is not written
     error OspexGames__StartNotWritten(uint256 gameId);
-    /// @notice Thrown when a score is reported for a game whose dispute record is written
-    error OspexGames__Disputed(uint256 gameId);
-    /// @notice Thrown when a score is reported before the game's start
+    /// @notice Thrown when a score or a dispute record is reported before the game's start
     error OspexGames__BeforeStart(uint256 gameId, uint64 start);
-    /// @notice Thrown when an after-n reporter reports a score before start + n
+    /// @notice Thrown when an after-n reporter reports a score or a dispute record before start + n, and when a
+    ///         reporter of either kind reports a void before start + n. The void opens at that second.
     error OspexGames__InsideWindow(uint256 gameId, uint256 opensAt);
+    /// @notice Thrown when a void is reported for a disputed game before its day-7 clock has run: the clock
+    ///         counts from the dispute record, and the void opens at that second
+    error OspexGames__InsideDay7Clock(uint256 gameId, uint256 opensAt);
+    /// @notice Thrown when a game that has not ended is released before its day-30 clock has run, while a
+    ///         reporter of the game is not retired. The clock counts from the start as written or, with no start
+    ///         written, from the date given at creation, and the release opens at that second.
+    error OspexGames__ReleaseNotOpen(uint256 gameId, uint256 opensAt);
+    /// @notice Thrown when a game's dispute record time is read and no dispute record is written
+    error OspexGames__NotDisputed(uint256 gameId);
     /// @notice Thrown when a reported score is above MAX_SCORE
     error OspexGames__ScoreOutOfRange(uint32 homeScore, uint32 awayScore);
     /// @notice Thrown when a game's scores are read and the game is not scored
@@ -529,10 +566,11 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
 
     /// @inheritdoc IOspexGames
     /// @dev A refused report reverts, so it changes nothing and moves no money. A report this contract takes
-    ///      changes one game and emits GameReported, naming the sender as the reporter that wrote it; a score
-    ///      also credits the game's creation fee to the payout address in the report (FeeCredited), and calls
-    ///      no coin. The sender's standing is checked before the report's kind is read, so every kind, those
-    ///      the ends add included, is refused the same way: not the game's reporter, retired, or code changed.
+    ///      emits GameReported, naming the sender as the reporter that wrote it, and changes one game, or none:
+    ///      an update to a dispute record writes nothing. A score and a void also credit the game's creation fee
+    ///      to the payout address in the report (FeeCredited), and call no coin. The sender's standing is checked
+    ///      before the report's kind is read, so every kind is refused the same way: not the game's reporter,
+    ///      retired, or code changed.
     function report(Report calldata r) external {
         Game storage g = _game(r.gameId);
         ReporterKind kind = _recordedKind(r.gameId, msg.sender);
@@ -547,11 +585,35 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
             _writeStart(g, r, kind);
         } else if (r.kind == ReportKind.Score) {
             _writeScore(g, r, kind);
+        } else if (r.kind == ReportKind.Void) {
+            _writeVoid(g, r);
+        } else if (r.kind == ReportKind.Dispute) {
+            _writeDispute(g, r, kind);
         } else {
             revert OspexGames__ReportKindNotTaken(r.kind);
         }
 
         emit GameReported(r.gameId, msg.sender, r.kind, r.start, r.homeScore, r.awayScore, r.readings, r.payout);
+    }
+
+    // ──────────────────────────── The release ──────────────────────────
+
+    /// @inheritdoc IOspexGames
+    /// @dev The one end no reporter writes. It reads the game's own copied day-30 clock, counted from the start
+    ///      as written or, with no start written, from the date given at creation; failing that, it looks for
+    ///      every recorded reporter retired. Then it ends the game through `_release`, which credits the creator
+    ///      and never the caller. It calls no coin, so it holds no lock. The status is checked here first so an
+    ///      ended game is refused by that name, and `_end` refuses it again behind this check.
+    function release(uint256 gameId) external {
+        Game storage g = _game(gameId);
+        GameStatus status = g.status;
+        if (status >= GameStatus.Scored) revert OspexGames__GameEnded(gameId, status);
+        uint256 opensAt = _releaseOpensAt(g);
+        if (block.timestamp < opensAt && !_everyReporterRetired(gameId)) {
+            revert OspexGames__ReleaseNotOpen(gameId, opensAt);
+        }
+        _release(g, gameId);
+        emit GameReleased(gameId, msg.sender);
     }
 
     // ──────────────────────────── Withdrawal ───────────────────────────
@@ -632,12 +694,14 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
     /// @inheritdoc IOspexGames
     function isEveryReporterRetired(uint256 gameId) external view returns (bool) {
         _game(gameId);
-        Reporter[] storage list = s_gameReporters[gameId];
-        uint256 count = list.length;
-        for (uint256 i; i < count; ++i) {
-            if (!s_admissions[list[i].account].retired) return false;
-        }
-        return true;
+        return _everyReporterRetired(gameId);
+    }
+
+    /// @inheritdoc IOspexGames
+    function getGameDisputedAt(uint256 gameId) external view returns (uint64) {
+        Game storage g = _game(gameId);
+        if (g.disputedAt == 0) revert OspexGames__NotDisputed(gameId);
+        return g.disputedAt;
     }
 
     /// @inheritdoc IOspexGames
@@ -758,35 +822,84 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
         g.status = GameStatus.Verified;
     }
 
-    /// @dev Writes a score, which ends the game. The game's start must be written and no end written, the start
-    ///      field must be empty, the payout address one that can withdraw (see _checkPayout), both scores at
-    ///      most MAX_SCORE, the time at or after the start, and, for an after-n reporter, at or after start + n:
-    ///      from start + n, that second included. The end credits the game's fee to the payout address.
+    /// @dev Writes a score, which ends the game. The game's start must be written and no end written, a dispute
+    ///      record or not; the start field must be empty, the payout address one that can withdraw (see
+    ///      _checkPayout), both scores at most MAX_SCORE, the time at or after the start, and, for an after-n
+    ///      reporter, at or after start + n (see _checkHour). The end credits the game's fee to the payout
+    ///      address. A disputed game takes a score at any hour a reporter may write: the record is a record,
+    ///      not a lock, and which readings settle it is the scoring program's rule, not read here.
     function _writeScore(Game storage g, Report calldata r, ReporterKind kind) private {
         GameStatus status = g.status;
-        if (status != GameStatus.Verified) _refuseScore(r.gameId, status);
+        if (status != GameStatus.Verified && status != GameStatus.Disputed) _refuseResult(r.gameId, status);
         if (r.start != 0) revert OspexGames__FieldNotEmpty(ReportKind.Score);
         _checkPayout(ReportKind.Score, r.payout);
         if (r.homeScore > MAX_SCORE || r.awayScore > MAX_SCORE) {
             revert OspexGames__ScoreOutOfRange(r.homeScore, r.awayScore);
         }
-        uint256 start = g.start;
-        if (block.timestamp < start) revert OspexGames__BeforeStart(r.gameId, g.start);
-        uint256 opensAt = start + g.terms.window;
-        if (kind == ReporterKind.AfterN && block.timestamp < opensAt) {
-            revert OspexGames__InsideWindow(r.gameId, opensAt);
-        }
+        _checkHour(g, r.gameId, kind);
         g.homeScore = r.homeScore;
         g.awayScore = r.awayScore;
         _end(g, r.gameId, GameStatus.Scored, r.payout);
+    }
+
+    /// @dev Writes a void, which ends the game. The game's start must be written and no end written; the start
+    ///      and both scores must be empty, since a void is a status and never a 0-0; the payout address one that
+    ///      can withdraw (see _checkPayout); and the time at or after start + n, that second included, for a
+    ///      reporter of either kind: the hour-24 void. On a disputed game the time must also be at or after the
+    ///      dispute record plus the day-7 clock: the day-7 void, the one end a dispute holds back. The end
+    ///      credits the game's fee to the payout address. Whether the readings show a final is the scoring
+    ///      program's rule, not read here.
+    function _writeVoid(Game storage g, Report calldata r) private {
+        GameStatus status = g.status;
+        if (status != GameStatus.Verified && status != GameStatus.Disputed) _refuseResult(r.gameId, status);
+        if (r.start != 0 || r.homeScore != 0 || r.awayScore != 0) revert OspexGames__FieldNotEmpty(ReportKind.Void);
+        _checkPayout(ReportKind.Void, r.payout);
+        uint256 voidOpensAt = uint256(g.start) + g.terms.window;
+        if (block.timestamp < voidOpensAt) revert OspexGames__InsideWindow(r.gameId, voidOpensAt);
+        if (status == GameStatus.Disputed) {
+            uint256 day7OpensAt = uint256(g.disputedAt) + g.terms.day7Clock;
+            if (block.timestamp < day7OpensAt) revert OspexGames__InsideDay7Clock(r.gameId, day7OpensAt);
+        }
+        _end(g, r.gameId, GameStatus.Voided, r.payout);
+    }
+
+    /// @dev Writes a dispute record, or takes an update to one. The game's start must be written and no end
+    ///      written; the start, both scores and the payout must be empty, since a dispute record credits
+    ///      nothing; the time at or after the start and, for an after-n reporter, at or after start + n (see
+    ///      _checkHour). On a game not yet disputed it writes Disputed and the time, which the day-7 clock counts
+    ///      from. On a disputed game it writes nothing: the report is taken and emitted as an update, and the
+    ///      clock stays where the first record put it.
+    function _writeDispute(Game storage g, Report calldata r, ReporterKind kind) private {
+        GameStatus status = g.status;
+        if (status != GameStatus.Verified && status != GameStatus.Disputed) _refuseResult(r.gameId, status);
+        if (r.start != 0 || r.homeScore != 0 || r.awayScore != 0 || r.payout != address(0)) {
+            revert OspexGames__FieldNotEmpty(ReportKind.Dispute);
+        }
+        _checkHour(g, r.gameId, kind);
+        if (status == GameStatus.Verified) {
+            g.status = GameStatus.Disputed;
+            g.disputedAt = uint64(block.timestamp);
+        }
+    }
+
+    /// @dev Refuses a score or a dispute record before the game's start and, from an after-n reporter, before
+    ///      start + n: from start + n, that second included, an after-n reporter writes. A void has its own
+    ///      clock, start + n for a reporter of either kind, in _writeVoid.
+    function _checkHour(Game storage g, uint256 gameId, ReporterKind kind) private view {
+        uint256 start = g.start;
+        if (block.timestamp < start) revert OspexGames__BeforeStart(gameId, g.start);
+        uint256 opensAt = start + g.terms.window;
+        if (kind == ReporterKind.AfterN && block.timestamp < opensAt) {
+            revert OspexGames__InsideWindow(gameId, opensAt);
+        }
     }
 
     /// @dev Refuses as payout address: address 0 and the rest of the reserved range up to MAX_RESERVED_ADDRESS,
     ///      this contract and the coin, none of which calls withdraw (this contract never calls its own); and any
     ///      address ever approved as a reporter, retired ones included and the sender among them, since a
     ///      reporter relays a report and is never the one it pays. An admission's kind is never None once
-    ///      approved, and a retirement keeps it, so one read covers every reporter ever approved. A score checks
-    ///      its payout here, and so is meant to every other report that ends a game.
+    ///      approved, and a retirement keeps it, so one read covers every reporter ever approved. A score and a
+    ///      void, the two reports that end a game, check their payout here; a release names none.
     function _checkPayout(ReportKind kind, address payout) private view {
         if (payout == address(0)) revert OspexGames__NoPayout(kind);
         if (uint160(payout) <= uint160(MAX_RESERVED_ADDRESS)) revert OspexGames__PayoutIsReserved(kind, payout);
@@ -809,12 +922,14 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
     }
 
     /// @dev Ends a game and credits its creation fee, in one place, so that every end credits and nothing but
-    ///      an end does. It refuses an id that is not a game and a game already ended, whatever its caller has
-    ///      checked, so a game's fee is credited at most once. (Scored, Voided and Released, the three ends, are
-    ///      the last three statuses.) The amount is the fee the game copied at its creation, whatever its
-    ///      league's fee is now; a fee of 0 credits nothing. No coin moves here: the address credited withdraws
-    ///      later.
-    function _end(Game storage g, uint256 gameId, GameStatus end, address account) private {
+    ///      an end does. It refuses a status that is not an end, an id that is not a game and a game already
+    ///      ended, whatever its caller has checked, so a game's fee is credited at most once and only with an
+    ///      end. (Scored, Voided and Released, the three ends, are the last three statuses.) The amount is the
+    ///      fee the game copied at its creation, whatever its league's fee is now; a fee of 0 credits nothing.
+    ///      No coin moves here: the address credited withdraws later. Internal, not private, so a test can reach
+    ///      the gate itself; nothing outside this contract calls it.
+    function _end(Game storage g, uint256 gameId, GameStatus end, address account) internal {
+        if (end < GameStatus.Scored) revert OspexGames__NotAnEnd(end);
         GameStatus status = g.status;
         if (status == GameStatus.None) revert OspexGames__UnknownGame(gameId);
         if (status >= GameStatus.Scored) revert OspexGames__GameEnded(gameId, status);
@@ -827,10 +942,30 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
     }
 
     /// @dev Releases a game: ends it as Released and credits its creation fee back to its creator, never to the
-    ///      caller. The release call itself, which decides who may release a game and when, is not built yet; it
-    ///      will call this, and `_end` refuses a game already ended.
+    ///      caller. `release` decides who may release a game and when, and calls this; `_end` refuses a game
+    ///      already ended behind it.
     function _release(Game storage g, uint256 gameId) internal {
         _end(g, gameId, GameStatus.Released, g.creator);
+    }
+
+    /// @dev When a game's release opens by its clock: the day-30 clock, counted from the start as written or,
+    ///      with no start written, from the date given at creation. A written start lies within START_BOUND of
+    ///      the date, so writing it moves the release by at most that much.
+    function _releaseOpensAt(Game storage g) private view returns (uint256) {
+        uint64 start = g.start;
+        return uint256(start != 0 ? start : g.date) + g.terms.day30Clock;
+    }
+
+    /// @dev True when every one of the game's recorded reporters is retired: nothing can write to the game
+    ///      again, so its release is open at once. Read live, since a retirement is meant to reach games
+    ///      already made.
+    function _everyReporterRetired(uint256 gameId) private view returns (bool) {
+        Reporter[] storage list = s_gameReporters[gameId];
+        uint256 count = list.length;
+        for (uint256 i; i < count; ++i) {
+            if (!s_admissions[list[i].account].retired) return false;
+        }
+        return true;
     }
 
     /// @dev Names why a start is refused, from a status other than Unverified. Always reverts.
@@ -841,10 +976,10 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
         revert OspexGames__GameEnded(gameId, status);
     }
 
-    /// @dev Names why a score is refused, from a status other than Verified. Always reverts.
-    function _refuseScore(uint256 gameId, GameStatus status) private pure {
+    /// @dev Names why a score, a void or a dispute record is refused, from a status other than Verified or
+    ///      Disputed: the start is not written, or the game has ended. Always reverts.
+    function _refuseResult(uint256 gameId, GameStatus status) private pure {
         if (status == GameStatus.Unverified) revert OspexGames__StartNotWritten(gameId);
-        if (status == GameStatus.Disputed) revert OspexGames__Disputed(gameId);
         revert OspexGames__GameEnded(gameId, status);
     }
 
