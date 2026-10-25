@@ -1,5 +1,5 @@
 {
- "about": "One-line breaks of the games contract and its interface, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; line is where it starts; a find of several lines is one anchor, chosen where the line alone occurs more than once), run the named test alone and see it fail, restore the file byte for byte and see it pass. The whole games suite fails on each too. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis; one ending in $ matches nothing and passes with no test run. Check that exactly one test ran. Ids: N, F, G, L, W, R, M are the creation fee's; E the ends'; P the earlier never-lines' and the interface's; C the day-30 clock's and the retirement's; A the readings' checks; X the four one-line mutants an independent read found surviving before them; S the scoring program's own shapes (test/games/shapes.json), each run through the report door.",
+ "about": "One-line breaks of the games contract and its interface, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; line is where it starts; a find of several lines is one anchor, chosen where the line alone occurs more than once), run the named test alone and see it fail, restore the file byte for byte and see it pass. The whole games suite fails on each too. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis; one ending in $ matches nothing and passes with no test run. Check that exactly one test ran. Ids: N, F, G, L, W, R, M are the creation fee's; E the ends'; P the earlier never-lines' and the interface's; C the day-30 clock's and the retirement's; A the readings' checks; X the four one-line mutants an independent read found surviving before them; H the scoring program's own shapes (test/games/shapes.json), each run through the report door.",
  "command": "FOUNDRY_SRC=src/games FOUNDRY_TEST=test/games FOUNDRY_SCRIPT=none forge test --via-ir --optimize --match-path <testPath> --match-test '^<test>\\('",
  "breaks": [
   {
@@ -2428,7 +2428,7 @@
    "breaks": "a day-7 void carrying a start or an away score is taken"
   },
   {
-   "id": "S1-voidtwoalike",
+   "id": "H1-voidtwoalike",
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
@@ -2442,7 +2442,7 @@
    "breaks": "a void over two finals that agree is refused, so the program's day-7 voids are"
   },
   {
-   "id": "S2-scoreexact",
+   "id": "H2-scoreexact",
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
@@ -2456,7 +2456,7 @@
    "breaks": "a score on exactly the finals it needs is refused, so a disputed game's score on three is"
   },
   {
-   "id": "S3-disputedfour",
+   "id": "H3-disputedfour",
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
@@ -2470,7 +2470,7 @@
    "breaks": "a disputed game's score needs four finals, so the program's three-final settlement is refused"
   },
   {
-   "id": "S4-nodissentatday7",
+   "id": "H4-nodissentatday7",
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
@@ -2484,7 +2484,7 @@
    "breaks": "a day-7 score beside a dissenting final is refused"
   },
   {
-   "id": "S5-day7voidlate",
+   "id": "H5-day7voidlate",
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
@@ -2498,7 +2498,7 @@
    "breaks": "the day-7 void is refused in the clock's own second"
   },
   {
-   "id": "S6-day7dissentlate",
+   "id": "H6-day7dissentlate",
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
@@ -2512,7 +2512,7 @@
    "breaks": "a day-7 score beside a dissenting final is refused in the clock's own second"
   },
   {
-   "id": "S7-nofinalpoints",
+   "id": "H7-nofinalpoints",
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
@@ -2526,7 +2526,7 @@
    "breaks": "a reading answered without a final may carry no points, so the program's in-play readings are refused"
   },
   {
-   "id": "S8-firstnwaits",
+   "id": "H8-firstnwaits",
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
@@ -2540,7 +2540,7 @@
    "breaks": "a first-n reporter waits for start + n, so every shape inside the window is refused"
   },
   {
-   "id": "S9-hour24late",
+   "id": "H9-hour24late",
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
@@ -2554,7 +2554,7 @@
    "breaks": "the hour-24 void is refused in start + n's own second"
   },
   {
-   "id": "S10-recordlate",
+   "id": "H10-recordlate",
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
