@@ -52,6 +52,31 @@ contract DeployGamesHarness is DeployGames {
         return _signpostCall(in_, p, deployBlock, commit, dir);
     }
 
+    function checkFor(Inputs memory in_, address games, address reporter, uint256 creationBlock, string memory dir)
+        external
+    {
+        _check(in_, games, reporter, creationBlock, dir);
+    }
+
+    function writePredictionFor(string memory dir, Prediction memory p) external {
+        _writePrediction(dir, p);
+    }
+
+    bytes internal setLogs;
+    bool internal setLogsSet;
+
+    /// @dev The logs of a set the test built, in the place of the chain's: the RPC cannot see a local creation.
+    function setSetLogs(VmSafe.Log[] memory logs) external {
+        setLogs = abi.encode(logs);
+        setLogsSet = true;
+    }
+
+    function _logsOf(address games, address reporter, uint256 fromBlock) internal override returns (VmSafe.Log[] memory) {
+        if (!setLogsSet) return super._logsOf(games, reporter, fromBlock);
+        bytes memory encoded = setLogs;
+        return abi.decode(encoded, (VmSafe.Log[]));
+    }
+
     /// @dev From this block on, the code at an address is the fork's own: a local creation the RPC never saw.
     function setLocalFrom(uint256 blockNumber) external {
         localFrom = blockNumber;
@@ -186,23 +211,23 @@ contract DeployGamesTest is Test {
         script.setLocalFrom(FORK_BLOCK);
         script.setLogsRpc(vm.envOr("POLYGON_LOGS_RPC_URL", string("")));
         polygon = script.inputs(137);
-        // The deployer holds coin for the check.
+        // The deployer holds coin for the checks: one test stages five.
         vm.prank(HOLDER);
-        IERC20(USDC).transfer(deployer, 3 * FEE);
+        IERC20(USDC).transfer(deployer, 6 * FEE);
     }
 
     // ---------------------------------------------------------------------------------------------------
     // The chain's fixed addresses
     // ---------------------------------------------------------------------------------------------------
 
-    /// The fork is Polygon at the pinned block, and it holds the inputs as pinned: the timelock's whole layout
-    /// read from the chain, its five logs included, and its delay above zero.
+    /// The fork is Polygon at the pinned block, and it holds the inputs as pinned: the timelock's roles replayed
+    /// from every log it emitted on the chain (its five), and its delay above zero.
     function test_fork_isPolygonWithTheFixedAddresses() public {
         assertEq(block.chainid, 137, "chain id");
         assertEq(block.number, FORK_BLOCK, "fork block");
         assertEq(polygon.timelock, TIMELOCK, "timelock");
         assertEq(polygon.k, K, "K");
-        assertEq(polygon.timelockDeployer, HOLDER, "the timelock's creator");
+        assertEq(polygon.timelockCreationBlock, 95_761_553, "the timelock's creation block");
         assertEq(polygon.signpost, SIGNPOST, "signpost");
         assertEq(polygon.coin, USDC, "coin");
         assertEq(polygon.forwarder, FORWARDER, "forwarder");
@@ -212,11 +237,10 @@ contract DeployGamesTest is Test {
         assertEq(OspexSignpost(SIGNPOST).entryCount(), 1, "the signpost lists v2 alone");
     }
 
-    /// Each fixed address is checked against the chain: another timelock, another key, another creator, a
-    /// timelock with no delay, one with a second proposer, one whose creator kept the admin role, another
-    /// signpost, a coin with other decimals, a forwarder that is not one, each refused by name before anything
-    /// is sent.
-    /// Break: in requireTimelock(), delete `require(delay != 0, ...)`. The zero-delay timelock then passes.
+    /// Each fixed address is checked against the chain: another timelock, another key, another signpost, a coin
+    /// with other decimals, a forwarder that is not one, each refused by name before anything is sent.
+    /// Break: in requireChain(), delete `require(IDecimals(in_.coin).decimals() == COIN_DECIMALS, ...)`. The
+    /// eighteen-decimal coin then passes.
     function test_inputs_eachFixedAddressIsCheckedAgainstTheChain() public {
         DeployGames.Inputs memory in_;
         in_ = polygon;
@@ -225,39 +249,8 @@ contract DeployGamesTest is Test {
         script.requireChain(in_);
         in_ = polygon;
         in_.k = stranger;
-        vm.expectRevert(bytes("a role is not as ruled"));
+        vm.expectRevert(bytes("the timelock's proposer is not the key alone"));
         script.requireChain(in_);
-        in_ = polygon;
-        in_.timelockDeployer = stranger;
-        vm.expectRevert(bytes("a role log is not as ruled"));
-        script.requireChain(in_);
-
-        // A timelock of the test's own, the pinned build with no delay: refused before its logs are read.
-        uint256 here = vm.getBlockNumber();
-        address t = address(new TimelockController(0, _one(K), _one(address(0)), address(0)));
-        vm.expectRevert(bytes("the timelock has no delay"));
-        script.requireTimelock(t, K, address(this), here);
-        // One with a second proposer: the roles the layout names are as ruled; the logs show the other grant.
-        address[] memory two = new address[](2);
-        two[0] = K;
-        two[1] = stranger;
-        vm.recordLogs();
-        t = address(new TimelockController(60, two, _one(address(0)), address(0)));
-        script.setTimelockLogs(vm.getRecordedLogs());
-        vm.expectRevert(bytes("the timelock has other logs"));
-        script.requireTimelock(t, K, address(this), here);
-        // One whose creator kept the admin role: refused by the roles.
-        vm.recordLogs();
-        t = address(new TimelockController(60, _one(K), _one(address(0)), address(this)));
-        script.setTimelockLogs(vm.getRecordedLogs());
-        vm.expectRevert(bytes("a role is not as ruled"));
-        script.requireTimelock(t, K, address(this), here);
-        // Control: one built as ruled, with its own logs, passes.
-        vm.recordLogs();
-        t = address(new TimelockController(60, _one(K), _one(address(0)), address(0)));
-        script.setTimelockLogs(vm.getRecordedLogs());
-        script.requireTimelock(t, K, address(this), here);
-        script.useTheChainsTimelockLogs();
 
         in_ = polygon;
         in_.signpost = TIMELOCK;
@@ -291,6 +284,106 @@ contract DeployGamesTest is Test {
         script.inputs(80002);
     }
 
+    /// Must never happen, the timelock's part: the timelock is read as it stands, its roles replayed from every
+    /// log it ever emitted to today's holders, and what it has done never refuses. On a timelock of the test's
+    /// own, the pinned build with its own logs: born as ruled, accepted; its delay raised through itself (a
+    /// call scheduled, the delay waited, the call run), accepted, with the delay read live; a proposer granted
+    /// after birth refused by name, then revoked, accepted; the key revoked as canceller, a named executor
+    /// beside anyone, a second admin, a role the timelock was not born with, each refused by name, each put
+    /// right, accepted; a second proposer at birth and a creator who kept the admin role refused by name; no
+    /// delay refused before the logs are read; a timelock whose live roles are not its logs' refused; a
+    /// history missing its first logs refused.
+    /// Break: in _requireRoles(), delete `require(accounts[j] == holder[r], reason[r]);`. The proposer granted
+    /// after birth is then taken.
+    function test_timelock_rolesAreReplayedFromItsLogsAndOperationNeverRefuses() public {
+        uint256 here = vm.getBlockNumber();
+        bytes32 proposer = keccak256("PROPOSER_ROLE");
+        bytes32 canceller = keccak256("CANCELLER_ROLE");
+        bytes32 executor = keccak256("EXECUTOR_ROLE");
+
+        // Born as ruled: accepted on its five logs.
+        vm.recordLogs();
+        TimelockController t = new TimelockController(60, _one(K), _one(address(0)), address(0));
+        VmSafe.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 5, "the constructor's five logs");
+        script.setTimelockLogs(logs);
+        script.requireTimelock(address(t), K, here);
+
+        // Its delay raised to seven days through itself: ordinary operation, accepted, the delay read live.
+        _run(t, abi.encodeCall(t.updateDelay, (7 days)));
+        logs = _append(logs, vm.getRecordedLogs());
+        assertEq(logs.length, 9, "a call scheduled, its salt, the delay changed, the call run");
+        assertEq(t.getMinDelay(), 7 days, "the delay as raised");
+        script.setTimelockLogs(logs);
+        script.requireTimelock(address(t), K, here);
+
+        // A proposer granted after birth: refused by name. Revoked: accepted again.
+        _run(t, abi.encodeCall(t.grantRole, (proposer, stranger)));
+        logs = _append(logs, vm.getRecordedLogs());
+        assertTrue(t.hasRole(proposer, stranger), "the stranger proposes");
+        script.setTimelockLogs(logs);
+        vm.expectRevert(bytes("the timelock's proposer is not the key alone"));
+        script.requireTimelock(address(t), K, here);
+        _run(t, abi.encodeCall(t.revokeRole, (proposer, stranger)));
+        logs = _append(logs, vm.getRecordedLogs());
+        assertFalse(t.hasRole(proposer, stranger), "the stranger no longer proposes");
+        script.setTimelockLogs(logs);
+        script.requireTimelock(address(t), K, here);
+
+        // The key revoked as canceller; a named executor beside anyone; a second admin; a role the timelock
+        // was not born with: each refused by name, each put right, accepted.
+        logs = _refusedThenRighted(t, logs, here, canceller, K, true, "the timelock's canceller is not the key alone");
+        logs = _refusedThenRighted(t, logs, here, executor, stranger, false, "the timelock's executor is not anyone alone");
+        logs = _refusedThenRighted(t, logs, here, bytes32(0), stranger, false, "the timelock's admin is not itself alone");
+        logs = _refusedThenRighted(t, logs, here, keccak256("OTHER_ROLE"), stranger, false, "the timelock holds a role it was not born with");
+        assertEq(logs.length, 5 + 11 * 4, "the constructor's five, then eleven operations of four logs each, kept");
+
+        // A history missing its first logs: the first revoke is of a role never granted.
+        VmSafe.Log[] memory later = new VmSafe.Log[](logs.length - 5);
+        for (uint256 i; i < later.length; ++i) {
+            later[i] = logs[5 + i];
+        }
+        script.setTimelockLogs(later);
+        vm.expectRevert(bytes("the timelock's logs are not its whole history"));
+        script.requireTimelock(address(t), K, here);
+
+        // A timelock whose live roles are not its logs': one born with the stranger as proposer and canceller,
+        // read on its own birth logs with the key written in as the holder, which replay to the ruled layout.
+        vm.recordLogs();
+        TimelockController other = new TimelockController(60, _one(stranger), _one(address(0)), address(0));
+        VmSafe.Log[] memory forged = _copy(vm.getRecordedLogs());
+        for (uint256 i; i < forged.length; ++i) {
+            if (forged[i].topics.length == 4 && forged[i].topics[2] == bytes32(uint256(uint160(stranger)))) {
+                forged[i].topics[2] = bytes32(uint256(uint160(K)));
+            }
+        }
+        script.setTimelockLogs(forged);
+        vm.expectRevert(bytes("the timelock's live roles are not its logs'"));
+        script.requireTimelock(address(other), K, here);
+
+        // Born otherwise: a second proposer; a creator who kept the admin role; no delay.
+        address[] memory two = new address[](2);
+        two[0] = K;
+        two[1] = stranger;
+        vm.recordLogs();
+        other = new TimelockController(60, two, _one(address(0)), address(0));
+        script.setTimelockLogs(vm.getRecordedLogs());
+        vm.expectRevert(bytes("the timelock's proposer is not the key alone"));
+        script.requireTimelock(address(other), K, here);
+        vm.recordLogs();
+        other = new TimelockController(60, _one(K), _one(address(0)), address(this));
+        script.setTimelockLogs(vm.getRecordedLogs());
+        vm.expectRevert(bytes("the timelock's admin is not itself alone"));
+        script.requireTimelock(address(other), K, here);
+        other = new TimelockController(0, _one(K), _one(address(0)), address(0));
+        vm.expectRevert(bytes("the timelock has no delay"));
+        script.requireTimelock(address(other), K, here);
+        script.useTheChainsTimelockLogs();
+
+        // The Polygon timelock itself, on the chain's logs.
+        script.requireTimelock(TIMELOCK, K, polygon.timelockCreationBlock);
+    }
+
     // ---------------------------------------------------------------------------------------------------
     // Phase 1: the prediction
     // ---------------------------------------------------------------------------------------------------
@@ -321,6 +414,10 @@ contract DeployGamesTest is Test {
         assertEq(p.games, vm.computeCreateAddress(deployer, nonce + 2), "the games contract at k + 2");
         assertEq(p.reporter.code.length, 0, "no code yet at the reporter's address");
         assertEq(p.games.code.length, 0, "no code yet at the games address");
+        assertEq(p.reporterInitHash, keccak256(type(OspexChainlinkReporter).creationCode), "the reporter the script sends");
+        assertEq(p.deployerCoin, IERC20(USDC).balanceOf(deployer), "the deployer's coin at the plan");
+        assertEq(p.keyCoin, IERC20(USDC).balanceOf(K), "the key's coin at the plan");
+        assertGe(p.deployerCoin, 6 * FEE, "the deployer holds at least the six fees the test gave it");
 
         DeployGames.Prediction memory back = script.readPrediction(dir);
         assertEq(keccak256(abi.encode(back)), keccak256(abi.encode(p)), "the plan reads back as predicted");
@@ -536,20 +633,7 @@ contract DeployGamesTest is Test {
         assertEq(address(reporter), p.reporter, "the reporter at its predicted address");
         assertEq(address(games), p.games, "the games contract at its predicted address");
         assertEq(vm.getNonce(deployer), p.nonce + 3, "three sends");
-        uint256 creates;
-        for (uint256 i; i < diff.length; ++i) {
-            if (diff[i].kind == VmSafe.AccountAccessKind.Create) {
-                ++creates;
-                assertEq(diff[i].accessor, deployer, "created by the deployer");
-                assertEq(diff[i].account, creates == 1 ? p.reporter : p.games, "the reporter first, then the games contract");
-            }
-            for (uint256 j; j < diff[i].storageAccesses.length; ++j) {
-                VmSafe.StorageAccess memory a = diff[i].storageAccesses[j];
-                if (!a.isWrite || a.reverted) continue;
-                assertTrue(a.account == p.games || a.account == USDC, "a write outside the games contract and the coin");
-            }
-        }
-        assertEq(creates, 2, "two creations");
+        _requireTheDeploysAccesses(diff, p);
         assertEq(IERC20(USDC).balanceOf(deployer), deployerCoin - FEE, "the deployer paid exactly one fee");
         assertEq(IERC20(USDC).balanceOf(K), keyCoin + FEE, "the key received exactly one fee");
 
@@ -592,7 +676,7 @@ contract DeployGamesTest is Test {
         (, OspexChainlinkReporter reporter, OspexGames games, string memory dir) = _deployed("keeps-nothing");
         assertEq(games.i_timelock(), TIMELOCK, "the games contract answers to the Polygon timelock");
         assertEq(games.getCredit(deployer), 0, "no credit");
-        script.requireTimelock(TIMELOCK, K, polygon.timelockDeployer, polygon.timelockCreationBlock);
+        script.requireTimelock(TIMELOCK, K, polygon.timelockCreationBlock);
         assertFalse(TimelockController(payable(TIMELOCK)).hasRole(keccak256("PROPOSER_ROLE"), deployer), "a role");
 
         MockReporter extra = new MockReporter(IOspexGames(address(games)));
@@ -660,7 +744,9 @@ contract DeployGamesTest is Test {
 
     /// Done when: a nonce moved by one stops the script before it sends. The deployer sent one transaction
     /// since the prediction that was not the coin check; deploy stops at its first read of the nonce, creating
-    /// nothing and moving no coin. A transfer of another amount, or from someone else, is not the coin check.
+    /// nothing and moving no coin. A transfer of another amount, or from someone else, is not the coin check;
+    /// nor is the fee twice over, nor a fee sent before the plan in the plan's own block: the key's coin must
+    /// have moved by exactly the fee since the plan.
     /// Break: in _deploy(), delete `require(_feeSentToKey(in_, p), ...)`. The deploy then runs on the moved
     /// nonce with the check skipped, and lands the set with the coin unchecked.
     function test_neverLine_aMovedNonceStopsTheDeployBeforeAnySend() public {
@@ -669,13 +755,16 @@ contract DeployGamesTest is Test {
         _writeWorkflow(dir, V2_ID, V2_OWNER, p.reporter, p.games);
         DeployGames.Workflow memory w = script.readWorkflow(dir, p);
         string memory reason = "the nonce moved since the prediction and the chain shows no coin check: nothing sent";
+        string memory balance =
+            "the nonce moved since the prediction and the key's coin has not moved by exactly the fee: nothing sent";
 
         vm.recordLogs();
         vm.setNonce(deployer, p.nonce + 1);
         _expectDeployStopped(polygon, p, w, reason);
         assertEq(vm.getNonce(deployer), p.nonce + 1, "nothing sent");
 
-        // Two fees from the deployer to the key: not the check.
+        // Two fees from the deployer to the key in one transfer: not the check.
+        uint256 keyCoin = IERC20(USDC).balanceOf(K);
         vm.recordLogs();
         vm.prank(deployer);
         IERC20(USDC).transfer(K, 2 * FEE);
@@ -687,7 +776,42 @@ contract DeployGamesTest is Test {
         IERC20(USDC).transfer(K, FEE);
         vm.setNonce(deployer, p.nonce + 1);
         _expectDeployStopped(polygon, p, w, reason);
+        uint256 back = IERC20(USDC).balanceOf(K) - keyCoin;
+        vm.prank(K);
+        IERC20(USDC).transfer(HOLDER, back);
+        // The fee twice, one transfer each: the chain shows the check, the key's coin moved by two fees.
+        vm.recordLogs();
+        vm.prank(deployer);
+        IERC20(USDC).transfer(K, FEE);
+        vm.prank(deployer);
+        IERC20(USDC).transfer(K, FEE);
+        vm.setNonce(deployer, p.nonce + 1);
+        _expectDeployStopped(polygon, p, w, balance);
+        vm.prank(K);
+        IERC20(USDC).transfer(HOLDER, 2 * FEE);
+        // The fee beside a fee from someone else: the key's coin moved by two fees.
+        vm.recordLogs();
+        vm.prank(deployer);
+        IERC20(USDC).transfer(K, FEE);
+        vm.prank(HOLDER);
+        IERC20(USDC).transfer(K, FEE);
+        vm.setNonce(deployer, p.nonce + 1);
+        _expectDeployStopped(polygon, p, w, balance);
         assertEq(p.reporter.code.length, 0, "nothing deployed");
+        _clean(dir);
+
+        // The fee sent before the plan, in the plan's own block: the chain shows a transfer in the plan's
+        // block, and the key's coin has not moved since the plan.
+        dir = _fresh("nonce-before-the-plan");
+        vm.recordLogs();
+        vm.prank(deployer);
+        IERC20(USDC).transfer(K, FEE);
+        p = script.predictFor(polygon, deployer, V2_OWNER, dir);
+        assertEq(p.keyCoin, IERC20(USDC).balanceOf(K), "the key's coin at the plan, the early fee in it");
+        _writeWorkflow(dir, V2_ID, V2_OWNER, p.reporter, p.games);
+        w = script.readWorkflow(dir, p);
+        vm.setNonce(deployer, p.nonce + 1);
+        _expectDeployStopped(polygon, p, w, balance);
         _clean(dir);
     }
 
@@ -738,7 +862,8 @@ contract DeployGamesTest is Test {
     /// The chain decides what is left: a second run after the whole deploy is refused, with nothing sent; a run
     /// after the coin check alone landed skips the check and sends the reporter and the games contract; a run
     /// after the coin check and the reporter landed sends the games contract alone; code at the reporter's
-    /// address that is not this deploy's reporter stops the run before the games contract.
+    /// address that is not this deploy's reporter, by its values or by its code with the same four values,
+    /// stops the run before the games contract.
     /// Break: in _deploy(), delete `require(!(reporterUp && gamesUp), "deployed already: ...")`. The second run
     /// is then refused for another reason, after the sends were skipped.
     function test_neverLine_aSecondRunFinishesWhatIsMissingAndRefusesWhatIsDone() public {
@@ -793,7 +918,7 @@ contract DeployGamesTest is Test {
         VmSafe.AccountAccess[] memory diff = vm.stopAndReturnStateDiff();
         uint256 creates;
         for (uint256 i; i < diff.length; ++i) {
-            if (diff[i].kind == VmSafe.AccountAccessKind.Create) ++creates;
+            if (diff[i].kind == VmSafe.AccountAccessKind.Create && diff[i].accessor == deployer) ++creates;
         }
         assertEq(creates, 1, "one creation: the games contract");
         assertEq(address(reporter), address(landed), "the reporter as landed");
@@ -822,18 +947,46 @@ contract DeployGamesTest is Test {
         _resetAfterStop(nonce);
         assertEq(p.games.code.length, 0, "the games contract was deployed against another reporter");
         _clean(dir);
+
+        // Code at the reporter's address that answers the four reads with this deploy's values and is not this
+        // script's reporter: stopped before the games contract.
+        dir = _fresh("stale-reporter");
+        p = script.predictFor(polygon, deployer, V2_OWNER, dir);
+        _writeWorkflow(dir, V2_ID, V2_OWNER, p.reporter, p.games);
+        w = script.readWorkflow(dir, p);
+        vm.recordLogs();
+        vm.prank(deployer);
+        IERC20(USDC).transfer(K, FEE);
+        vm.setNonce(deployer, p.nonce + 1);
+        vm.prank(deployer);
+        StaleReporter stale = new StaleReporter(FORWARDER, V2_OWNER, V2_ID, IOspexGames(p.games));
+        assertEq(address(stale), p.reporter, "the stale reporter at the predicted address");
+        assertEq(stale.i_workflowId(), V2_ID, "it answers with this deploy's id");
+        nonce = vm.getNonce(deployer);
+        vm.expectRevert(bytes("the code at the predicted reporter is not the reporter this script sends"));
+        script.deployFrom(polygon, p, w);
+        _resetAfterStop(nonce);
+        assertEq(p.games.code.length, 0, "the games contract was deployed against the stale reporter");
+        _clean(dir);
     }
 
-    /// deploy refuses a sender other than the predicted deployer, and a prediction for another chain.
-    function test_deploy_refusesAnotherSenderOrChain() public {
+    /// deploy refuses a sender other than the predicted deployer, a prediction for another chain, and a plan
+    /// naming another reporter build than the one this script sends.
+    /// Break: in _deploy(), delete `require(keccak256(type(OspexChainlinkReporter).creationCode) ==
+    /// p.reporterInitHash, ...)`. The plan from another build is then deployed on.
+    function test_deploy_refusesAnotherSenderOrChainOrBuild() public {
         string memory dir = _fresh("sender");
         // A prediction made for a stranger, deployed from the default sender.
         DeployGames.Prediction memory p = script.predictFor(polygon, stranger, V2_OWNER, dir);
         _writeWorkflow(dir, V2_ID, V2_OWNER, p.reporter, p.games);
         DeployGames.Workflow memory w = script.readWorkflow(dir, p);
         _expectDeployStopped(polygon, p, w, "the sender is not the predicted deployer");
-        p.chainId = 80002;
-        _expectDeployStopped(polygon, p, w, "the RPC is not on the prediction's chain");
+        DeployGames.Prediction memory q = _copyOf(p);
+        q.chainId = 80002;
+        _expectDeployStopped(polygon, q, w, "the RPC is not on the prediction's chain");
+        q = _copyOf(p);
+        q.reporterInitHash = bytes32(uint256(p.reporterInitHash) ^ 1);
+        _expectDeployStopped(polygon, q, w, "the script's reporter is not the plan's: predict again with this script");
         _clean(dir);
     }
 
@@ -899,6 +1052,55 @@ contract DeployGamesTest is Test {
         _expectVerifyRefused(otherTerms, ReporterKind.FirstN, 0, "the default terms are not the launch terms");
         _expectVerifyRefused(script.launchTerms(), ReporterKind.FirstN, 1, "the approved list is not the reporter alone");
         _expectVerifyRefused(script.launchTerms(), ReporterKind.AfterN, 1, "the reporter is not first-n");
+    }
+
+    /// check reads a set back against the plan beside it: the plan's deployer is the one whose credit is read,
+    /// the plan's owner the one the reporter's is read against, the plan's addresses these; a plan for another
+    /// set is refused; without a plan the set is read against its own values.
+    /// Break: in _check(), after `p = readPrediction(dir);` add `p.deployer = address(0);`. The credit read is
+    /// then address zero's, not the plan's deployer's.
+    function test_check_readsTheSetBackAgainstThePlan() public {
+        uint256 here = vm.getBlockNumber();
+        uint64 nonce = vm.getNonce(address(this));
+        address predicted = vm.computeCreateAddress(address(this), nonce + 1);
+        vm.recordLogs();
+        OspexChainlinkReporter reporter = new OspexChainlinkReporter(FORWARDER, V2_OWNER, V2_ID, IOspexGames(predicted));
+        OspexGames games = new OspexGames(
+            TIMELOCK, IERC20(USDC), script.launchTerms(), _one(address(reporter)), _firstN(), _one32(address(reporter).codehash)
+        );
+        assertEq(address(games), predicted, "predicted");
+        script.setSetLogs(vm.getRecordedLogs());
+
+        string memory dir = _fresh("check");
+        DeployGames.Prediction memory p;
+        p.chainId = 137;
+        p.deployer = address(this);
+        p.nonce = nonce;
+        p.blockNumber = here;
+        p.workflowOwner = V2_OWNER;
+        p.reporter = address(reporter);
+        p.games = address(games);
+        p.reporterInitHash = keccak256(type(OspexChainlinkReporter).creationCode);
+        script.writePredictionFor(dir, p);
+        vm.expectCall(address(games), abi.encodeCall(games.getCredit, (address(this))));
+        script.checkFor(polygon, address(games), address(reporter), here, dir);
+
+        // The plan's owner is what the reporter's is read against; the plan's addresses are these.
+        DeployGames.Prediction memory q = _copyOf(p);
+        q.workflowOwner = K;
+        script.writePredictionFor(dir, q);
+        vm.expectRevert(bytes("the reporter's workflow owner"));
+        script.checkFor(polygon, address(games), address(reporter), here, dir);
+        q = _copyOf(p);
+        q.games = stranger;
+        script.writePredictionFor(dir, q);
+        vm.expectRevert(bytes("the plan beside the record is another set's"));
+        script.checkFor(polygon, address(games), address(reporter), here, dir);
+
+        // No plan: the set's own values, and no deployer's credit read.
+        _clean(dir);
+        vm.expectCall(address(games), abi.encodeCall(games.getCredit, (address(0))));
+        script.checkFor(polygon, address(games), address(reporter), here, dir);
     }
 
     // ---------------------------------------------------------------------------------------------------
@@ -1084,7 +1286,11 @@ contract DeployGamesTest is Test {
         script.deployFrom(in_, p, w);
         VmSafe.AccountAccess[] memory diff = vm.stopAndReturnStateDiff();
         for (uint256 i; i < diff.length; ++i) {
-            assertTrue(diff[i].kind != VmSafe.AccountAccessKind.Create || diff[i].reverted, "a contract was created");
+            if (diff[i].kind != VmSafe.AccountAccessKind.Create || diff[i].reverted) continue;
+            // The one creation a stopped run may show: the reporter's, simulated by the script for its code
+            // hash and undone, which the diff records as the script's and leaves no code behind.
+            assertEq(diff[i].accessor, address(script), "a contract was created");
+            assertEq(diff[i].account.code.length, 0, "the simulated reporter stayed");
         }
         assertEq(IERC20(in_.coin).balanceOf(deployer), coin, "coin moved");
         assertEq(p.reporter.code.length, 0, "the reporter was deployed");
@@ -1101,6 +1307,54 @@ contract DeployGamesTest is Test {
         if (mode == VmSafe.CallerMode.RecurrentBroadcast || mode == VmSafe.CallerMode.Broadcast) vm.stopBroadcast();
     }
 
+    /// @dev The whole deploy's accesses: two creations by the deployer, the reporter then the games contract;
+    ///      one creation simulated by the script for the reporter's code hash and undone; writes in the games
+    ///      contract and the coin alone.
+    function _requireTheDeploysAccesses(VmSafe.AccountAccess[] memory diff, DeployGames.Prediction memory p) internal view {
+        _requireTheDeploysCreates(diff, p);
+        _requireTheDeploysWrites(diff, p);
+    }
+
+    function _requireTheDeploysCreates(VmSafe.AccountAccess[] memory diff, DeployGames.Prediction memory p) internal view {
+        address[] memory sent = _createdBy(diff, deployer);
+        assertEq(sent.length, 2, "two creations by the deployer");
+        assertEq(sent[0], p.reporter, "the reporter first");
+        assertEq(sent[1], p.games, "then the games contract");
+        address[] memory simulated = _createdBy(diff, address(script));
+        assertEq(simulated.length, 1, "one creation simulated by the script, the reporter's");
+        assertEq(simulated[0].code.length, 0, "the simulated reporter stayed");
+        assertEq(_createdBy(diff, address(0)).length + sent.length + simulated.length, _creates(diff), "a creation by someone else");
+    }
+
+    /// @dev The accounts `accessor` created, in order.
+    function _createdBy(VmSafe.AccountAccess[] memory diff, address accessor) internal pure returns (address[] memory out) {
+        uint256 n;
+        for (uint256 i; i < diff.length; ++i) {
+            if (diff[i].kind == VmSafe.AccountAccessKind.Create && diff[i].accessor == accessor) ++n;
+        }
+        out = new address[](n);
+        n = 0;
+        for (uint256 i; i < diff.length; ++i) {
+            if (diff[i].kind == VmSafe.AccountAccessKind.Create && diff[i].accessor == accessor) out[n++] = diff[i].account;
+        }
+    }
+
+    function _creates(VmSafe.AccountAccess[] memory diff) internal pure returns (uint256 n) {
+        for (uint256 i; i < diff.length; ++i) {
+            if (diff[i].kind == VmSafe.AccountAccessKind.Create) ++n;
+        }
+    }
+
+    function _requireTheDeploysWrites(VmSafe.AccountAccess[] memory diff, DeployGames.Prediction memory p) internal pure {
+        for (uint256 i; i < diff.length; ++i) {
+            for (uint256 j; j < diff[i].storageAccesses.length; ++j) {
+                VmSafe.StorageAccess memory a = diff[i].storageAccesses[j];
+                if (!a.isWrite || a.reverted) continue;
+                assertTrue(a.account == p.games || a.account == USDC, "a write outside the games contract and the coin");
+            }
+        }
+    }
+
     function _copyOf(DeployGames.Prediction memory p) internal pure returns (DeployGames.Prediction memory q) {
         q.chainId = p.chainId;
         q.deployer = p.deployer;
@@ -1109,6 +1363,57 @@ contract DeployGamesTest is Test {
         q.workflowOwner = p.workflowOwner;
         q.reporter = p.reporter;
         q.games = p.games;
+        q.reporterInitHash = p.reporterInitHash;
+        q.deployerCoin = p.deployerCoin;
+        q.keyCoin = p.keyCoin;
+    }
+
+    /// @dev One call on the timelock `t`, through itself: the key schedules it, the delay passes, anyone runs
+    ///      it. The salt counts up, so the same call twice is two operations.
+    uint256 internal salts;
+
+    function _run(TimelockController t, bytes memory data) internal {
+        bytes32 salt = bytes32(++salts);
+        uint256 delay = t.getMinDelay();
+        vm.prank(K);
+        t.schedule(address(t), 0, data, bytes32(0), salt, delay);
+        vm.warp(vm.getBlockTimestamp() + delay);
+        vm.prank(stranger);
+        t.execute(address(t), 0, data, bytes32(0), salt);
+    }
+
+    /// @dev `role` taken from or given to `account` through the timelock (revoked when `revoke`, else granted),
+    ///      refused for `reason`; then put back, accepted. Returns the logs with the four operations' appended.
+    function _refusedThenRighted(
+        TimelockController t,
+        VmSafe.Log[] memory logs,
+        uint256 here,
+        bytes32 role,
+        address account,
+        bool revoke,
+        string memory reason
+    ) internal returns (VmSafe.Log[] memory) {
+        _run(t, revoke ? abi.encodeCall(t.revokeRole, (role, account)) : abi.encodeCall(t.grantRole, (role, account)));
+        logs = _append(logs, vm.getRecordedLogs());
+        assertEq(t.hasRole(role, account), !revoke, "the role as changed");
+        script.setTimelockLogs(logs);
+        vm.expectRevert(bytes(reason));
+        script.requireTimelock(address(t), K, here);
+        _run(t, revoke ? abi.encodeCall(t.grantRole, (role, account)) : abi.encodeCall(t.revokeRole, (role, account)));
+        logs = _append(logs, vm.getRecordedLogs());
+        script.setTimelockLogs(logs);
+        script.requireTimelock(address(t), K, here);
+        return logs;
+    }
+
+    function _append(VmSafe.Log[] memory a, VmSafe.Log[] memory b) internal pure returns (VmSafe.Log[] memory out) {
+        out = new VmSafe.Log[](a.length + b.length);
+        for (uint256 i; i < a.length; ++i) {
+            out[i] = a[i];
+        }
+        for (uint256 i; i < b.length; ++i) {
+            out[a.length + i] = b[i];
+        }
     }
 
     /// @dev A games set built otherwise, with a reporter of its own: other terms, the reporter's kind, and
@@ -1213,6 +1518,24 @@ struct IOspexGamesReport {
 /// @dev The registry's read of its linked owners.
 interface IRegistryOwners {
     function getLinkedOwners(uint256 start, uint256 limit) external view returns (address[] memory);
+}
+
+/// @dev Answers the reporter's four reads with the values it was given, and is not the reporter: other code,
+///      as an earlier build of the reporter would be.
+contract StaleReporter {
+    address public immutable i_forwarder;
+    address public immutable i_workflowOwner;
+    bytes32 public immutable i_workflowId;
+    IOspexGames public immutable i_games;
+
+    constructor(address forwarder, address workflowOwner, bytes32 workflowId, IOspexGames games) {
+        i_forwarder = forwarder;
+        i_workflowOwner = workflowOwner;
+        i_workflowId = workflowId;
+        i_games = games;
+    }
+
+    function onReport(bytes calldata, bytes calldata) external {}
 }
 
 /// @dev Shaped like a forwarder, down to its version string, but not one by its own account.

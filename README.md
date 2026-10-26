@@ -115,8 +115,8 @@ Deploy day for the games set, the checklist beside the script's own order:
 
 1. The deployer is the operator's working wallet, the address the box's lanes send from. Before the plan is written, stop whatever sends from it on the box (the postgame timer first), and keep it stopped until the three sends are mined; its nonce is the plan.
 2. The coin is Polygon USDC at the pinned address. The coin check proves that a transfer of the fee arrives as the fee at that address, and nothing about any other coin: a coin other than Polygon USDC gets its own review (exact transfer, no fee, no rebase, decimals) before the script is pointed at it.
-3. The RPC serves `eth_getLogs` in 10,000-block windows and the state of the current block; the script reads the timelock's whole log history and the coin's transfers since the plan.
-4. `predict` with the deployer as `--sender`, no broadcast; the reproducible build in ospex-cre with both predicted addresses, its JSON saved beside the plan; the owner registers the id at Chainlink; `deploy` with `--broadcast`; the receipts are forge's broadcast log; `signpostCall` with the games contract's creation block and the commit; the key schedules the call.
+3. The RPC serves `eth_getLogs` in 10,000-block windows and the state of the current block; the script reads the timelock's whole log history (its roles replayed to today's holders; what it has done since never refuses) and the coin's transfers since the plan.
+4. `predict` with the deployer as `--sender`, no broadcast: the plan records the addresses, the block, both coin balances and the reporter's build; the reproducible build in ospex-cre with both predicted addresses, its JSON saved beside the plan; the owner registers the id at Chainlink; `deploy` with `--broadcast`, from the same checkout of this script; the receipts are forge's broadcast log; `signpostCall` with the games contract's creation block and the commit; the key schedules the call.
 
 ## License
 
