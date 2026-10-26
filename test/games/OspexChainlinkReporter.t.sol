@@ -58,6 +58,38 @@ struct ShortReport {
     address payout;
 }
 
+/// @dev A report with a field too many, after the payout: it decodes as the one shape, since the decoder follows
+///      the readings' offset and never reads the extra word, and must be refused all the same.
+struct LongReport {
+    uint256 gameId;
+    uint8 kind;
+    uint64 start;
+    uint32 homeScore;
+    uint32 awayScore;
+    SpecReading[] readings;
+    address payout;
+    uint256 extra;
+}
+
+/// @dev A reading with a field too many: each reading five words, of which the decoder reads four.
+struct WideReading {
+    uint8 seat;
+    uint8 kind;
+    uint32 homeScore;
+    uint32 awayScore;
+    uint256 extra;
+}
+
+struct WideReport {
+    uint256 gameId;
+    uint8 kind;
+    uint64 start;
+    uint32 homeScore;
+    uint32 awayScore;
+    WideReading[] readings;
+    address payout;
+}
+
 /**
  * @notice The Chainlink reporter against a games set that lists it first-n, with a stand-in forwarder. Tests
  *         named test_neverLine_... are the spec's lines under "Must never happen" as they reach the reporter
@@ -128,13 +160,22 @@ contract OspexChainlinkReporterTest is GamesBase {
         assertEq(chainlink.METADATA_LENGTH(), 64, "a live report's metadata");
     }
 
-    /// A forwarder without code, a zero owner, a zero id and a zero games address are refused. A games address
-    /// with no code yet is taken: on deploy day the games contract does not exist when the reporter deploys.
+    /// A forwarder without code, a forwarder that is a wallet with delegated code (EIP-7702), a zero owner, a
+    /// zero id and a zero games address are refused. A games address with no code yet is taken: on deploy day
+    /// the games contract does not exist when the reporter deploys.
+    /// Break: in the constructor, delete `|| _isDelegated(forwarder)`. The delegated wallet is then taken.
     function test_constructor_refusesAMissingValue() public {
         vm.expectRevert(
             abi.encodeWithSelector(OspexChainlinkReporter.OspexChainlinkReporter__ForwarderNotAContract.selector, stranger)
         );
         new OspexChainlinkReporter(stranger, workflowOwner, WORKFLOW_ID, games);
+        address delegated = makeAddr("a wallet with delegated code");
+        vm.etch(delegated, abi.encodePacked(hex"ef0100", address(forwarder)));
+        assertEq(delegated.code.length, 23, "a delegation's code");
+        vm.expectRevert(
+            abi.encodeWithSelector(OspexChainlinkReporter.OspexChainlinkReporter__ForwarderNotAContract.selector, delegated)
+        );
+        new OspexChainlinkReporter(delegated, workflowOwner, WORKFLOW_ID, games);
         vm.expectRevert(OspexChainlinkReporter.OspexChainlinkReporter__NoWorkflowOwner.selector);
         new OspexChainlinkReporter(address(forwarder), address(0), WORKFLOW_ID, games);
         vm.expectRevert(OspexChainlinkReporter.OspexChainlinkReporter__NoWorkflowId.selector);
@@ -225,9 +266,13 @@ contract OspexChainlinkReporterTest is GamesBase {
     }
 
     /// The report is the one shape the spec gives, in the spec's order, encoded by the workflow as a struct:
-    /// decoded here and passed on field for field. Another shape is refused by the decoder, and so is a kind
-    /// past the last.
-    /// Break: in onReport(), decode `report` as another shape.
+    /// decoded here and passed on field for field. Another shape is refused: by the decoder when it cannot
+    /// decode (a reading a field short, a kind past the last, junk, nothing), and by name when it decodes but
+    /// is not the one shape's own encoding of what it decoded to (a report a field long, a reading a field
+    /// wide, a report inside an outer tuple). Bytes that are the one shape's encoding are the one shape,
+    /// whatever struct wrote them: a reading a field short, followed by a zero word, is a reading whose away
+    /// score is zero.
+    /// Break: in onReport(), delete the encode-and-compare. The report a field long is then taken.
     function test_neverLine_theReportShapeIsTheOneShape() public {
         uint256 game = _inStatus(GameStatus.Verified);
         vm.warp(START + 1);
@@ -277,7 +322,79 @@ contract OspexChainlinkReporterTest is GamesBase {
         // Not a report at all.
         _expectRefused(_good(), hex"01", "");
         _expectRefused(_good(), "", "");
+
+        // The right values in a shape that decodes but is not the one shape: refused by name, with the two
+        // lengths. A report a field long (the extra word after the payout is never read by the decoder).
+        spec.kind = 2;
+        bytes memory canonical = abi.encode(spec);
+        LongReport memory long_;
+        long_.gameId = spec.gameId;
+        long_.kind = spec.kind;
+        long_.homeScore = HOME;
+        long_.awayScore = AWAY;
+        long_.readings = spec.readings;
+        long_.payout = named;
+        long_.extra = 7;
+        bytes memory longBytes = abi.encode(long_);
+        assertEq(longBytes.length, canonical.length + 32, "one word longer");
+        _expectRefused(_good(), longBytes, _notTheOneShape(longBytes.length, canonical.length));
+        // A reading a field wide, one reading: the decoder reads its first four words and ignores the fifth.
+        // (With several readings the stride is wrong from the second on, and the decoder refuses it itself.)
+        WideReport memory wide;
+        wide.gameId = spec.gameId;
+        wide.kind = 2;
+        wide.homeScore = HOME;
+        wide.awayScore = AWAY;
+        wide.readings = new WideReading[](1);
+        wide.readings[0] = WideReading(1, 2, HOME, AWAY, 9);
+        wide.payout = named;
+        SpecReport memory oneReading;
+        oneReading.gameId = spec.gameId;
+        oneReading.kind = 2;
+        oneReading.homeScore = HOME;
+        oneReading.awayScore = AWAY;
+        oneReading.readings = new SpecReading[](1);
+        oneReading.readings[0] = SpecReading(1, 2, HOME, AWAY);
+        oneReading.payout = named;
+        bytes memory wideBytes = abi.encode(wide);
+        assertEq(wideBytes.length, abi.encode(oneReading).length + 32, "a word wider");
+        _expectRefused(_good(), wideBytes, _notTheOneShape(wideBytes.length, abi.encode(oneReading).length));
+        // The report inside an outer tuple, beside another value.
+        bytes memory wrapped = abi.encode(spec, uint256(0xdeadbeef));
+        _expectRefused(_good(), wrapped, _notTheOneShape(wrapped.length, canonical.length));
         assertEq(uint8(_status(second)), uint8(GameStatus.Verified), "untouched");
+
+        // Bytes that are the one shape's encoding, written by another struct: a reading a field short with a
+        // zero word after it is a reading with a zero away score. The games set takes the report as that.
+        ShortReport memory short_;
+        short_.gameId = second;
+        short_.kind = 2;
+        short_.homeScore = HOME;
+        short_.awayScore = 0;
+        short_.readings = new ShortReading[](1);
+        short_.readings[0] = ShortReading(1, 2, HOME);
+        short_.payout = named;
+        bytes memory padded = bytes.concat(abi.encode(short_), new bytes(32));
+        SpecReport memory asRead;
+        asRead.gameId = second;
+        asRead.kind = 2;
+        asRead.homeScore = HOME;
+        asRead.awayScore = 0;
+        asRead.readings = new SpecReading[](1);
+        asRead.readings[0] = SpecReading(1, 2, HOME, 0);
+        asRead.payout = named;
+        assertEq(padded, abi.encode(asRead), "the same bytes as the one shape with a zero away score");
+        vm.prank(stranger, stranger);
+        forwarder.report(address(chainlink), _good(), padded);
+        (uint32 h, uint32 a) = games.getGameScores(second);
+        assertEq(h, HOME, "home, as the bytes say");
+        assertEq(a, 0, "away zero, as the bytes say");
+    }
+
+    function _notTheOneShape(uint256 received, uint256 encoded) internal pure returns (bytes memory) {
+        return abi.encodeWithSelector(
+            OspexChainlinkReporter.OspexChainlinkReporter__NotTheOneShape.selector, received, encoded
+        );
     }
 
     /// A refusal in the games set comes back through the reporter under the games set's own name, with
@@ -436,7 +553,7 @@ contract OspexChainlinkReporterTest is GamesBase {
 
     /// The reporter has no owner, no setter and is not a proxy: its runtime code holds no storage write, no
     /// storage read, no delegatecall, no callcode, no create and no selfdestruct; its functions are the eight
-    /// here and no other; its errors are the eight here. (The games contract's code holds a storage write, so
+    /// here and no other; its errors are the nine here. (The games contract's code holds a storage write, so
     /// the scan sees one.)
     /// Break: add `uint256 public count;` and `++count;` to onReport(). Both the scan and the function set go red.
     function test_neverLine_noOwnerNoSetterNotAProxy() public view {
@@ -467,7 +584,7 @@ contract OspexChainlinkReporterTest is GamesBase {
             assertTrue(_has(functions, expected[i]), string.concat("missing ", expected[i]));
         }
 
-        string[8] memory errors = [
+        string[9] memory errors = [
             "OspexChainlinkReporter__ForwarderNotAContract",
             "OspexChainlinkReporter__NoWorkflowOwner",
             "OspexChainlinkReporter__NoWorkflowId",
@@ -475,7 +592,8 @@ contract OspexChainlinkReporterTest is GamesBase {
             "OspexChainlinkReporter__NotTheForwarder",
             "OspexChainlinkReporter__MetadataTooShort",
             "OspexChainlinkReporter__NotTheWorkflowOwner",
-            "OspexChainlinkReporter__NotTheWorkflowId"
+            "OspexChainlinkReporter__NotTheWorkflowId",
+            "OspexChainlinkReporter__NotTheOneShape"
         ];
         uint256 found;
         for (uint256 i; vm.keyExistsJson(json, string.concat("$.abi[", vm.toString(i), "]")); ++i) {
