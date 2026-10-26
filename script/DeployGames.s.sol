@@ -271,7 +271,6 @@ contract DeployGames is Script {
         VmSafe.Log[] memory logs = _logsOf(games, reporter, creationBlock);
         verify(OspexGames(games), r, in_, p, r.i_workflowId(), logs);
         console.log("read back as ruled", games, reporter);
-        console.log("the timelock's delay, seconds:", TimelockController(payable(in_.timelock)).getMinDelay());
 
         string memory dir = _dir(block.chainid);
         if (vm.exists(string.concat(dir, "/workflow.json"))) {
@@ -415,9 +414,7 @@ contract DeployGames is Script {
 
         // The games contract, at k + 2: the launch terms and the reporter as its one first-n reporter.
         require(vm.getNonce(sender) == p.nonce + 2, "the nonce is not the games contract's: nothing more sent");
-        games = new OspexGames(
-            in_.timelock, coin, launchTerms(), _one(address(reporter)), _firstN(), _one32(address(reporter).codehash)
-        );
+        games = _createGames(in_, coin, reporter);
         require(address(games) == p.games, "the games contract is not at its predicted address");
         vm.stopBroadcast();
 
@@ -426,12 +423,20 @@ contract DeployGames is Script {
         console.log("reporter", address(reporter));
         console.log("games", address(games));
         console.log("workflow id", vm.toString(w.id));
-        console.log("the timelock's delay, seconds:", TimelockController(payable(in_.timelock)).getMinDelay());
         console.log("constructor arguments for the verification, the reporter's then the games contract's:");
         console.logBytes(abi.encode(in_.forwarder, p.workflowOwner, w.id, p.games));
         console.logBytes(gamesConstructorArgs(in_, address(reporter)));
         console.log("the receipts: broadcast/DeployGames.s.sol/<chain id>/deploy-latest.json, written by forge");
         console.log("next: signpostCall(<creation block of the games contract>, <commit>)");
+    }
+
+    /// @dev The games contract's creation, sent in the broadcast: the timelock, the coin, the launch terms, and
+    ///      the reporter as the one first-n reporter with its code hash as it is. Its own function, so the
+    ///      deploy's frame stays within the stack.
+    function _createGames(Inputs memory in_, IERC20 coin, OspexChainlinkReporter reporter) private returns (OspexGames) {
+        return new OspexGames(
+            in_.timelock, coin, launchTerms(), _one(address(reporter)), _firstN(), _one32(address(reporter).codehash)
+        );
     }
 
     /// @dev The read-back after the deploy, and `check`'s. Every value the deploy fixed, read from the
@@ -587,6 +592,7 @@ contract DeployGames is Script {
         require(keccak256(timelock.code) == timelockDeploy.EXACT_CODE_HASH(), "the timelock is not the pinned code");
         uint256 delay = TimelockController(payable(timelock)).getMinDelay();
         require(delay != 0, "the timelock has no delay");
+        console.log("the timelock's delay, seconds:", delay);
         timelockDeploy.verify(TimelockController(payable(timelock)), k, deployer, delay, _timelockLogs(timelock, creationBlock));
     }
 
