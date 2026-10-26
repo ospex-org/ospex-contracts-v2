@@ -15,6 +15,8 @@ fs_permissions = [
     { access = "read", path = "chainlink-functions" },
     # The games tests pin the frozen interface from its build artifact.
     { access = "read", path = "out" },
+    # The games tests run every report shape the scoring program can send, from its exported file.
+    { access = "read", path = "test/games/shapes.json" },
     { access = "read-write", path = "deployments" },
     { access = "read", path = "lib/openzeppelin-contracts/package.json" },
 ]

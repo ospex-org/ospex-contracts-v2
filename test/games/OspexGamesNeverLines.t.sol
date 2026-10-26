@@ -237,8 +237,9 @@ contract OspexGamesNeverLinesTest is GamesBase {
         );
     }
 
-    /// Break: in _writeScore(), delete `if (status != GameStatus.Verified) _refuseScore(r.gameId, status);`.
-    /// A second score then overwrites the first.
+    /// Break: in _writeScore(), delete `if (status != GameStatus.Verified && status != GameStatus.Disputed)
+    /// _refuseResult(r.gameId, status);`. The second score then runs on to `_end`, which refuses it by the same
+    /// name, but the after-n reporter's second score inside n is refused for the hour instead: the red.
     function test_neverLine_scoreWrittenOnce() public {
         uint256 game = _create();
         _startBy(first, game, START);
@@ -273,7 +274,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
     // "A score is written before the game's start."
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-    /// Break: in _writeScore(), delete `if (block.timestamp < start) revert OspexGames__BeforeStart(r.gameId,
+    /// Break: in _checkHour(), delete `if (block.timestamp < start) revert OspexGames__BeforeStart(gameId,
     /// g.start);`. A first-n reporter then scores before the start. (Only a first-n reporter discriminates
     /// here: an after-n reporter is also held back by start + n.)
     function test_neverLine_noScoreBeforeTheStartTime() public {
@@ -297,8 +298,9 @@ contract OspexGamesNeverLinesTest is GamesBase {
         assertEq(uint8(_status(game)), uint8(GameStatus.Scored), "score at the start");
     }
 
-    /// Break: in _writeScore(), delete `if (status != GameStatus.Verified) _refuseScore(r.gameId, status);`.
-    /// A game with no start written then takes a score: its start is 0, so no time is before it.
+    /// Break: in _writeScore(), delete `if (status != GameStatus.Verified && status != GameStatus.Disputed)
+    /// _refuseResult(r.gameId, status);`. A game with no start written then takes a score: its start is 0, so
+    /// no time is before it.
     function test_neverLine_noScoreBeforeTheStartIsWritten() public {
         uint256 game = _create();
         uint64[4] memory times = [uint64(DATE - 1 days), DATE, START + WINDOW, DATE + 40 days];
@@ -324,15 +326,16 @@ contract OspexGamesNeverLinesTest is GamesBase {
     /// Break: in getGameScores(), delete `if (g.status != GameStatus.Scored) revert OspexGames__NotScored(gameId,
     /// g.status);`. A voided game then reads as a 0-0 score.
     function test_neverLine_noGameReadsAsScoredUnlessScoreWritten() public {
-        // Every status but Scored, with the score fields at 0-0 and then planted at a real-looking score.
+        // Every status but Scored, each reached through its own path, with the score fields at 0-0 and then
+        // planted at a real-looking score.
         GameStatus[5] memory unscored = [
             GameStatus.Unverified, GameStatus.Verified, GameStatus.Disputed, GameStatus.Voided, GameStatus.Released
         ];
         uint32[2][2] memory fields = [[uint32(0), uint32(0)], [HOME, AWAY]];
         for (uint256 s; s < unscored.length; ++s) {
             for (uint256 f; f < fields.length; ++f) {
-                uint256 game = _create();
-                games.harnessSetStatus(game, unscored[s]);
+                vm.warp(DATE - 1 hours);
+                uint256 game = _inStatus(unscored[s]);
                 games.harnessSetScoreFields(game, fields[f][0], fields[f][1]);
                 assertEq(uint8(_status(game)), uint8(unscored[s]), "status read");
                 vm.expectRevert(
@@ -343,6 +346,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
         }
 
         // Controls: a written 0-0 reads as scored 0-0, and a written score reads home then away.
+        vm.warp(DATE - 1 hours);
         uint256 nil = _create();
         _startBy(first, nil, START);
         vm.warp(START + 1);
@@ -391,116 +395,208 @@ contract OspexGamesNeverLinesTest is GamesBase {
     //  game shares a reporter list, a state or money with the first."
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-    /// Every refusal the report call makes, each against games in each state the call can see. A refused
-    /// report reverts, changes no read of any game, emits nothing, and moves no money: the coin the games set
-    /// holds, every credit, every account's coin and every game's held fee read as before.
-    /// Break: in report(), replace `revert OspexGames__ReportKindNotTaken(r.kind);` with nothing. A void is
-    /// then "taken" without a revert, and an event announcing a void is emitted for a game that was not voided.
+    /// Every refusal the report call makes, each against games in each state the call can see, and every
+    /// refusal the release makes. A refused report or release reverts, changes no read of any game, emits
+    /// nothing, and moves no money: the coin the games set holds, every credit, every account's coin and every
+    /// game's held fee read as before.
+    /// Break: in report(), replace `revert OspexGames__ReportKindNotTaken(r.kind);` with nothing. A report with
+    /// no kind is then "taken" without a revert, and an event announcing it is emitted for a game it did not
+    /// change.
     function test_neverLine_rejectedReportChangesNothing() public {
         uint256 open = _create(); // Unverified
         uint256 verified = _create();
         uint256 scored = _create();
         uint256 tight = _create(); // for the after-n window
-        uint256 ahead = _create(); // for a score before the start
+        uint256 ahead = _create(); // for a report before the start
+        uint256 disputed = _create();
         vm.warp(DATE - 1 hours);
         _startBy(first, verified, START);
         _startBy(first, scored, START);
         _startBy(first, tight, START);
         _startBy(first, ahead, START);
+        _startBy(first, disputed, START);
         vm.warp(START + 10);
         _scoreBy(first, scored, HOME, AWAY);
+        _disputeBy(first, disputed);
         uint256 unknown = games.gameCount() + 1;
+        uint64 late = START + 10;
+        uint64 day7 = START + 10 + DAY7;
+        uint64 closed = DATE + DAY30;
 
-        Report[] memory bad = new Report[](25);
-        address[] memory from = new address[](25);
-        bytes[] memory why = new bytes[](25);
+        Refusal[] memory cases = new Refusal[](68);
         uint256 n;
-        (bad[n], from[n], why[n]) = (_startReport(0, START), address(first), _err1(OspexGames.OspexGames__UnknownGame.selector, 0));
-        n++;
-        (bad[n], from[n], why[n]) = (_startReport(unknown, START), address(first), _err1(OspexGames.OspexGames__UnknownGame.selector, unknown));
-        n++;
-        (bad[n], from[n], why[n]) = (_startReport(open, START), makeAddr("x"), abi.encodeWithSelector(OspexGames.OspexGames__NotAReporter.selector, open, makeAddr("x")));
-        n++;
+        // The start's refusals.
+        cases[n++] = _refusal(_startReport(0, START), address(first), _err1(OspexGames.OspexGames__UnknownGame.selector, 0), late);
+        cases[n++] = _refusal(_startReport(unknown, START), address(first), _err1(OspexGames.OspexGames__UnknownGame.selector, unknown), late);
+        cases[n++] = _refusal(_startReport(open, START), makeAddr("x"), abi.encodeWithSelector(OspexGames.OspexGames__NotAReporter.selector, open, makeAddr("x")), late);
         Report memory r = _startReport(open, START);
         r.kind = ReportKind.None;
-        (bad[n], from[n], why[n]) = (r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__ReportKindNotTaken.selector, ReportKind.None));
-        n++;
-        r = _startReport(verified, 0);
-        r.kind = ReportKind.Void;
-        (bad[n], from[n], why[n]) = (r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__ReportKindNotTaken.selector, ReportKind.Void));
-        n++;
-        r = _startReport(verified, 0);
-        r.kind = ReportKind.Dispute;
-        (bad[n], from[n], why[n]) = (r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__ReportKindNotTaken.selector, ReportKind.Dispute));
-        n++;
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__ReportKindNotTaken.selector, ReportKind.None), late);
         r = _startReport(open, START);
         r.homeScore = 1;
-        (bad[n], from[n], why[n]) = (r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Start));
-        n++;
-        r = _scoreReport(verified, HOME, AWAY);
-        r.start = START;
-        (bad[n], from[n], why[n]) = (r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Score));
-        n++;
-        (bad[n], from[n], why[n]) = (_scoreReport(scored, 1, 2), address(first), abi.encodeWithSelector(OspexGames.OspexGames__GameEnded.selector, scored, GameStatus.Scored));
-        n++;
-        (bad[n], from[n], why[n]) = (_startReport(scored, START), address(second), abi.encodeWithSelector(OspexGames.OspexGames__GameEnded.selector, scored, GameStatus.Scored));
-        n++;
-        (bad[n], from[n], why[n]) = (_startReport(verified, START + 1), address(second), _err1(OspexGames.OspexGames__StartAlreadyWritten.selector, verified));
-        n++;
-        (bad[n], from[n], why[n]) = (_startReport(open, START), address(later), abi.encodeWithSelector(OspexGames.OspexGames__NotFirstN.selector, open, address(later)));
-        n++;
-        (bad[n], from[n], why[n]) = (_startReport(open, DATE + DAY + 1), address(first), abi.encodeWithSelector(OspexGames.OspexGames__StartOutOfRange.selector, open, DATE + DAY + 1));
-        n++;
-        (bad[n], from[n], why[n]) = (_startReport(open, DATE - DAY - 1), address(first), abi.encodeWithSelector(OspexGames.OspexGames__StartOutOfRange.selector, open, DATE - DAY - 1));
-        n++;
-        (bad[n], from[n], why[n]) = (_scoreReport(open, HOME, AWAY), address(first), _err1(OspexGames.OspexGames__StartNotWritten.selector, open));
-        n++;
-        (bad[n], from[n], why[n]) = (_scoreReport(tight, HOME, AWAY), address(later), abi.encodeWithSelector(OspexGames.OspexGames__InsideWindow.selector, tight, uint256(START) + WINDOW));
-        n++;
-        (bad[n], from[n], why[n]) = (_scoreReport(verified, games.MAX_SCORE() + 1, AWAY), address(first), abi.encodeWithSelector(OspexGames.OspexGames__ScoreOutOfRange.selector, games.MAX_SCORE() + 1, AWAY));
-        n++;
-        (bad[n], from[n], why[n]) = (_scoreReport(verified, HOME, games.MAX_SCORE() + 1), address(first), abi.encodeWithSelector(OspexGames.OspexGames__ScoreOutOfRange.selector, HOME, games.MAX_SCORE() + 1));
-        n++;
-        (bad[n], from[n], why[n]) = (_scoreReport(ahead, HOME, AWAY), address(first), abi.encodeWithSelector(OspexGames.OspexGames__BeforeStart.selector, ahead, START));
-        n++;
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Start), late);
+        cases[n++] = _refusal(_startReport(scored, START), address(second), abi.encodeWithSelector(OspexGames.OspexGames__GameEnded.selector, scored, GameStatus.Scored), late);
+        cases[n++] = _refusal(_startReport(verified, START + 1), address(second), _err1(OspexGames.OspexGames__StartAlreadyWritten.selector, verified), late);
+        cases[n++] = _refusal(_startReport(disputed, START + 1), address(second), _err1(OspexGames.OspexGames__StartAlreadyWritten.selector, disputed), late);
+        cases[n++] = _refusal(_startReport(open, START), address(later), abi.encodeWithSelector(OspexGames.OspexGames__NotFirstN.selector, open, address(later)), late);
+        cases[n++] = _refusal(_startReport(open, DATE + DAY + 1), address(first), abi.encodeWithSelector(OspexGames.OspexGames__StartOutOfRange.selector, open, DATE + DAY + 1), late);
+        cases[n++] = _refusal(_startReport(open, DATE - DAY - 1), address(first), abi.encodeWithSelector(OspexGames.OspexGames__StartOutOfRange.selector, open, DATE - DAY - 1), late);
         r = _startReport(open, START);
         r.payout = payout;
-        (bad[n], from[n], why[n]) = (r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Start));
-        n++;
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Start), late);
         r = _startReport(open, START);
         r.readings[3] = Reading({seat: 4, kind: ReadingKind.Silent, homeScore: 1, awayScore: 0});
-        (bad[n], from[n], why[n]) = (r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__SilentReadingNotEmpty.selector, 3));
-        n++;
-        (bad[n], from[n], why[n]) = (_scoreReportTo(verified, address(games)), address(first), abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsTheGamesSet.selector, ReportKind.Score));
-        n++;
-        (bad[n], from[n], why[n]) = (_scoreReportTo(verified, address(first)), address(first), _isAReporter(address(first)));
-        n++;
-        (bad[n], from[n], why[n]) = (_scoreReportTo(verified, address(second)), address(first), _isAReporter(address(second)));
-        n++;
-        (bad[n], from[n], why[n]) = (_scoreReportTo(verified, address(token)), address(first), abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsTheCoin.selector, ReportKind.Score));
-        n++;
-        assertEq(n, bad.length, "every case filled");
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__SilentReadingNotEmpty.selector, 3), late);
+        // The score's refusals.
+        r = _scoreReport(verified, HOME, AWAY);
+        r.start = START;
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Score), late);
+        cases[n++] = _refusal(_scoreReport(scored, 1, 2), address(first), abi.encodeWithSelector(OspexGames.OspexGames__GameEnded.selector, scored, GameStatus.Scored), late);
+        cases[n++] = _refusal(_scoreReport(open, HOME, AWAY), address(first), _err1(OspexGames.OspexGames__StartNotWritten.selector, open), late);
+        cases[n++] = _refusal(_scoreReport(tight, HOME, AWAY), address(later), abi.encodeWithSelector(OspexGames.OspexGames__InsideWindow.selector, tight, uint256(START) + WINDOW), START + WINDOW - 1);
+        cases[n++] = _refusal(_scoreReport(disputed, HOME, AWAY), address(later), abi.encodeWithSelector(OspexGames.OspexGames__InsideWindow.selector, disputed, uint256(START) + WINDOW), START + WINDOW - 1);
+        cases[n++] = _refusal(_scoreReport(verified, games.MAX_SCORE() + 1, AWAY), address(first), abi.encodeWithSelector(OspexGames.OspexGames__ScoreOutOfRange.selector, games.MAX_SCORE() + 1, AWAY), late);
+        cases[n++] = _refusal(_scoreReport(verified, HOME, games.MAX_SCORE() + 1), address(first), abi.encodeWithSelector(OspexGames.OspexGames__ScoreOutOfRange.selector, HOME, games.MAX_SCORE() + 1), late);
+        cases[n++] = _refusal(_scoreReport(ahead, HOME, AWAY), address(first), abi.encodeWithSelector(OspexGames.OspexGames__BeforeStart.selector, ahead, START), DATE - 1 hours);
+        cases[n++] = _refusal(_scoreReportTo(verified, address(games)), address(first), abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsTheGamesSet.selector, ReportKind.Score), late);
+        cases[n++] = _refusal(_scoreReportTo(verified, address(first)), address(first), _isAReporter(address(first)), late);
+        cases[n++] = _refusal(_scoreReportTo(verified, address(second)), address(first), _isAReporter(address(second)), late);
+        cases[n++] = _refusal(_scoreReportTo(verified, address(token)), address(first), abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsTheCoin.selector, ReportKind.Score), late);
+        // The void's refusals: the status, the fields, the payout, the hour and the day-7 clock.
+        cases[n++] = _refusal(_voidReport(open), address(first), _err1(OspexGames.OspexGames__StartNotWritten.selector, open), late);
+        cases[n++] = _refusal(_voidReport(scored), address(first), abi.encodeWithSelector(OspexGames.OspexGames__GameEnded.selector, scored, GameStatus.Scored), START + WINDOW);
+        r = _voidReport(verified);
+        r.homeScore = 1;
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Void), START + WINDOW);
+        r = _voidReport(verified);
+        r.start = START;
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Void), START + WINDOW);
+        r = _voidReport(verified);
+        r.awayScore = 1;
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Void), START + WINDOW);
+        // Inside n a disputed game's void names n, not the day-7 clock.
+        cases[n++] = _refusal(_voidReport(disputed), address(first), abi.encodeWithSelector(OspexGames.OspexGames__InsideWindow.selector, disputed, uint256(START) + WINDOW), late);
+        cases[n++] = _refusal(_voidReportTo(verified, address(0)), address(first), abi.encodeWithSelector(OspexGames.OspexGames__NoPayout.selector, ReportKind.Void), START + WINDOW);
+        cases[n++] = _refusal(_voidReportTo(verified, address(0x1010)), address(first), abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsReserved.selector, ReportKind.Void, address(0x1010)), START + WINDOW);
+        cases[n++] = _refusal(_voidReportTo(verified, address(games)), address(first), abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsTheGamesSet.selector, ReportKind.Void), START + WINDOW);
+        cases[n++] = _refusal(_voidReportTo(verified, address(token)), address(first), abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsTheCoin.selector, ReportKind.Void), START + WINDOW);
+        cases[n++] = _refusal(_voidReportTo(verified, address(later)), address(first), abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsAReporter.selector, ReportKind.Void, address(later)), START + WINDOW);
+        cases[n++] = _refusal(_voidReport(tight), address(first), abi.encodeWithSelector(OspexGames.OspexGames__InsideWindow.selector, tight, uint256(START) + WINDOW), START + WINDOW - 1);
+        cases[n++] = _refusal(_voidReport(tight), address(later), abi.encodeWithSelector(OspexGames.OspexGames__InsideWindow.selector, tight, uint256(START) + WINDOW), START + WINDOW - 1);
+        cases[n++] = _refusal(_voidReport(disputed), address(first), abi.encodeWithSelector(OspexGames.OspexGames__InsideDay7Clock.selector, disputed, uint256(day7)), day7 - 1);
+        cases[n++] = _refusal(_voidReport(disputed), address(later), abi.encodeWithSelector(OspexGames.OspexGames__InsideDay7Clock.selector, disputed, uint256(day7)), day7 - 1);
+        // The dispute record's refusals: the status, the fields and the hour.
+        cases[n++] = _refusal(_disputeReport(open), address(first), _err1(OspexGames.OspexGames__StartNotWritten.selector, open), late);
+        cases[n++] = _refusal(_disputeReport(scored), address(first), abi.encodeWithSelector(OspexGames.OspexGames__GameEnded.selector, scored, GameStatus.Scored), late);
+        r = _disputeReport(verified);
+        r.payout = payout;
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Dispute), late);
+        r = _disputeReport(verified);
+        r.awayScore = 1;
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Dispute), late);
+        r = _disputeReport(verified);
+        r.homeScore = 1;
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Dispute), late);
+        r = _disputeReport(verified);
+        r.start = START;
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Dispute), late);
+        cases[n++] = _refusal(_disputeReport(ahead), address(first), abi.encodeWithSelector(OspexGames.OspexGames__BeforeStart.selector, ahead, START), DATE - 1 hours);
+        cases[n++] = _refusal(_disputeReport(tight), address(later), abi.encodeWithSelector(OspexGames.OspexGames__InsideWindow.selector, tight, uint256(START) + WINDOW), START + WINDOW - 1);
+        // The fields on a disputed game: a score's start, an update's start and scores, a day-7 void's start and
+        // away score, each refused where the game has a dispute record too.
+        r = _scoreReport(disputed, HOME, AWAY);
+        r.start = START;
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Score), late);
+        r = _disputeReport(disputed);
+        r.start = START;
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Dispute), late);
+        r = _disputeReport(disputed);
+        r.homeScore = 1;
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Dispute), late);
+        r = _disputeReport(disputed);
+        r.awayScore = 1;
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Dispute), late);
+        r = _voidReport(disputed);
+        r.start = START;
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Void), day7);
+        r = _voidReport(disputed);
+        r.awayScore = 1;
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Void), day7);
+        // A silent reading carrying a score, in a void and in a dispute record.
+        r = _voidReport(verified);
+        r.readings[2] = Reading({seat: 3, kind: ReadingKind.Silent, homeScore: 0, awayScore: 1});
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__SilentReadingNotEmpty.selector, 2), START + WINDOW);
+        r = _disputeReport(verified);
+        r.readings[3] = Reading({seat: 4, kind: ReadingKind.Silent, homeScore: 1, awayScore: 0});
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__SilentReadingNotEmpty.selector, 3), late);
+        // The readings against the result: two readings for one seat; a score no final reads, on a game with no
+        // record and on a disputed one; a score beside a dissenting final; a disputed game's score on two finals
+        // (two of three) and on three finals beside a dissent before the day-7 clock; an hour-24 void over three
+        // finals that agree.
+        r = _startReport(open, START);
+        r.readings[2].seat = 1;
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__ReadingSeatRepeated.selector, 2), late);
+        r = _scoreReport(verified, 1, 0);
+        r.readings = _scoreReadings(HOME, AWAY);
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__TooFewFinalsAgree.selector, 0, 1), late);
+        r = _scoreReport(disputed, 1, 0);
+        r.readings = _scoreReadings(HOME, AWAY);
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__TooFewFinalsAgree.selector, 0, 3), late);
+        r = _scoreReport(verified, HOME, AWAY);
+        r.readings[3] = Reading({seat: 4, kind: ReadingKind.AnsweredFinal, homeScore: AWAY, awayScore: HOME});
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FinalDissents.selector, 3), late);
+        r = _scoreReport(disputed, HOME, AWAY);
+        r.readings[2] = Reading({seat: 3, kind: ReadingKind.Silent, homeScore: 0, awayScore: 0});
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__TooFewFinalsAgree.selector, 2, 3), late);
+        r = _scoreReport(disputed, HOME, AWAY);
+        r.readings[3] = Reading({seat: 4, kind: ReadingKind.AnsweredFinal, homeScore: AWAY, awayScore: HOME});
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FinalDissents.selector, 3), day7 - 1);
+        r = _voidReport(verified);
+        r.readings = _scoreReadings(HOME, AWAY);
+        cases[n++] = _refusal(r, address(later), abi.encodeWithSelector(OspexGames.OspexGames__FinalsAgree.selector, HOME, AWAY), START + WINDOW);
+        // The day-30 clock: a start, a score, a void, a dispute record and an update at the clock.
+        cases[n++] = _refusal(_startReport(open, START), address(first), _pastDay30(open), closed);
+        cases[n++] = _refusal(_scoreReport(verified, HOME, AWAY), address(first), _pastDay30(verified), closed);
+        cases[n++] = _refusal(_voidReport(verified), address(later), _pastDay30(verified), closed);
+        cases[n++] = _refusal(_disputeReport(verified), address(first), _pastDay30(verified), closed);
+        cases[n++] = _refusal(_disputeReport(disputed), address(later), _pastDay30(disputed), closed);
+        assertEq(n, cases.length, "every case filled");
 
         address[] memory accounts = new address[](8);
         (accounts[0], accounts[1], accounts[2], accounts[3]) = (address(first), address(later), address(second), creator);
         (accounts[4], accounts[5], accounts[6], accounts[7]) = (payout, address(games), address(this), address(0));
-        assertEq(token.balanceOf(address(games)), 5 * uint256(FEE), "five games' fees, one of them credited");
+        assertEq(token.balanceOf(address(games)), 6 * uint256(FEE), "six games' fees, one of them credited");
         for (uint256 i; i < n; ++i) {
-            // The window case and the before-start case need their own clocks.
-            if (i == 15) vm.warp(START + WINDOW - 1);
-            else if (i == 18) vm.warp(DATE - 1 hours);
-            else vm.warp(START + 10);
-            bytes32 before = _viewAll();
-            bytes32 money = _money(accounts);
-            vm.recordLogs();
-            (bool ok, bytes memory err) = _send(from[i], bad[i]);
-            Vm.Log[] memory logs = vm.getRecordedLogs();
-            assertFalse(ok, string.concat("a rejected report was taken, case ", vm.toString(i)));
-            assertEq(err, why[i], string.concat("refusal reason, case ", vm.toString(i)));
-            assertEq(logs.length, 0, string.concat("a rejected report emitted, case ", vm.toString(i)));
-            assertEq(_viewAll(), before, string.concat("a rejected report changed state, case ", vm.toString(i)));
-            assertEq(_money(accounts), money, string.concat("a rejected report moved money, case ", vm.toString(i)));
+            _assertRefused(cases[i], accounts, i);
         }
+
+        // The release's refusals: not a game, ended, and not yet open, from a stranger and from the creator.
+        _assertReleaseRefused(0, late, _err1(OspexGames.OspexGames__UnknownGame.selector, 0), accounts);
+        _assertReleaseRefused(unknown, late, _err1(OspexGames.OspexGames__UnknownGame.selector, unknown), accounts);
+        _assertReleaseRefused(
+            scored,
+            START + DAY30,
+            abi.encodeWithSelector(OspexGames.OspexGames__GameEnded.selector, scored, GameStatus.Scored),
+            accounts
+        );
+        _assertReleaseRefused(
+            open,
+            DATE + DAY30 - 1,
+            abi.encodeWithSelector(OspexGames.OspexGames__ReleaseNotOpen.selector, open, uint256(DATE) + DAY30),
+            accounts
+        );
+        _assertReleaseRefused(
+            verified,
+            DATE + DAY30 - 1,
+            abi.encodeWithSelector(OspexGames.OspexGames__ReleaseNotOpen.selector, verified, uint256(DATE) + DAY30),
+            accounts
+        );
+        _assertReleaseRefused(
+            disputed,
+            DATE + DAY30 - 1,
+            abi.encodeWithSelector(OspexGames.OspexGames__ReleaseNotOpen.selector, disputed, uint256(DATE) + DAY30),
+            accounts
+        );
     }
 
     /// Break: in createGame(), change `gameId = ++s_gameCount;` to `gameId = s_gameCount + 1;`. Every creation
@@ -550,7 +646,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
 
     /// A first-n reporter and an after-n reporter write through the same call in the same shape, and the
     /// after-n path, the hook the open path's reporter needs, takes a score from start + n.
-    /// Break: in _writeScore(), change `if (kind == ReporterKind.AfterN && block.timestamp < opensAt)` to
+    /// Break: in _checkHour(), change `if (kind == ReporterKind.AfterN && block.timestamp < opensAt)` to
     /// `if (kind == ReporterKind.AfterN)`. The after-n reporter can then never score.
     function test_neverLine_oneShapeForEveryReporter() public {
         uint256 game = _create();
@@ -744,7 +840,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
 
     /// An after-n reporter approved through the timelock writes no start, and scores only from start + n of
     /// the game's own n: not when the defaults shrink to a second, not when its league gets terms of its own.
-    /// Break: in _writeScore(), change `uint256 opensAt = start + g.terms.window;` to
+    /// Break: in _checkHour(), change `uint256 opensAt = start + g.terms.window;` to
     /// `uint256 opensAt = start + s_defaultTerms.window;`. The game then opens at the defaults' new n.
     function test_neverLine_afterNWritesNothingBeforeItsGamesStartPlusN() public {
         MockReporter lateAfter = new MockReporter(games);
@@ -780,14 +876,15 @@ contract OspexGamesNeverLinesTest is GamesBase {
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
     // "A retirement scores, voids or settles anything; it only opens the release." Here, the first half: a
-    // retirement writes no game. The contract holds no money yet, so the money half comes with the fee, and
-    // the release comes with the ends.
+    // retirement writes no game and moves no money. The second half, that it opens the release and nothing
+    // else does so early, is test_neverLine_aRetirementOnlyOpensTheRelease.
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-    /// Games in every status, each reporter retired in turn, the last leaving every game with every reporter
-    /// retired: after each retirement every game's status, start, scores, reporters and terms read as before,
-    /// its storage is unchanged word for word, the date included, and the only event is the retirement. What
-    /// moves is the one thing a retirement opens: whether every reporter of a game is retired.
+    /// Games in every status, each reached through its own path, each reporter retired in turn, the last
+    /// leaving every game with every reporter retired: after each retirement every game's status, start,
+    /// scores, reporters and terms read as before, its storage is unchanged word for word, the date included,
+    /// no money moves, and the only event is the retirement. What moves is the one thing a retirement opens:
+    /// whether every reporter of a game is retired.
     /// Break: in retireReporter(), add `s_games[s_gameCount].status = GameStatus.Released;` before the emit.
     /// The newest game is then released by the retirement itself.
     function test_neverLine_aRetirementWritesNoGame() public {
@@ -801,18 +898,15 @@ contract OspexGamesNeverLinesTest is GamesBase {
         ];
         for (uint256 i; i < statuses.length; ++i) {
             vm.warp(DATE - 1 hours);
-            uint256 game = _create();
-            if (statuses[i] == GameStatus.Unverified) continue;
-            _startBy(first, game, START);
-            if (statuses[i] == GameStatus.Scored) {
-                vm.warp(START + 1);
-                _scoreBy(first, game, HOME, AWAY);
-            } else if (statuses[i] != GameStatus.Verified) {
-                games.harnessSetStatus(game, statuses[i]);
-            }
+            _inStatus(statuses[i]);
         }
+        vm.warp(DATE - 1 hours);
         uint256 last = _create(); // the newest game: Unverified, so a release of it shows
         assertEq(last, 7);
+        address[] memory accounts = new address[](5);
+        (accounts[0], accounts[1], accounts[2], accounts[3], accounts[4]) =
+            (creator, payout, stranger, address(first), address(games));
+        bytes32 money = _money(accounts);
 
         address[3] memory retiring = [address(later), address(second), address(first)];
         for (uint256 r; r < retiring.length; ++r) {
@@ -821,6 +915,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
             _retire(retiring[r]);
             Vm.Log[] memory logs = vm.getRecordedLogs();
             assertEq(_gameStates(), before, "a retirement changed a game");
+            assertEq(_money(accounts), money, "a retirement moved money");
             uint256 fromGames;
             for (uint256 l; l < logs.length; ++l) {
                 if (logs[l].emitter != address(games)) continue;
@@ -1133,8 +1228,8 @@ contract OspexGamesNeverLinesTest is GamesBase {
 
     /// A retired reporter is refused by name on every game that recorded it, for every report kind it could
     /// send, at every hour; games made after its retirement never record it. The retirement is checked before
-    /// the report's kind or readings are read, so a kind this contract does not take yet, and a report with a
-    /// malformed reading, are refused as from a retired reporter too: the kinds the ends add inherit the check.
+    /// the report's kind or readings are read, so a void, a dispute record, a report with no kind and a report
+    /// with a malformed reading are refused as from a retired reporter too.
     /// Break: in report(), delete `if (a.retired) revert OspexGames__ReporterRetired(msg.sender);`.
     function test_neverLine_aRetiredReporterWritesNothingMore() public {
         uint256 unstarted = _create();
@@ -1440,11 +1535,10 @@ contract OspexGamesNeverLinesTest is GamesBase {
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// Two creators and two fees: a game made at 1 USDC before the fee rose to 3, one made at 3 by another
-    /// creator, one made at 3 whose start was written, and one at 3 with a dispute record. A stranger releases
-    /// three of them and their creator the fourth. Each creator is credited its own games' fees and the stranger
-    /// nothing; no other credit moves; each creator withdraws exactly what it paid. The releases go through the
-    /// test harness's hook, which calls the production code's release credit; who may release a game, and
-    /// when, is the release call's, not built yet.
+    /// creator, one made at 3 whose start was written, and one at 3 with a dispute record. Once the day-30
+    /// clock has run, a stranger releases three of them and their creator the fourth. Each creator is credited
+    /// its own games' fees and the stranger nothing; no other credit moves; each creator withdraws exactly what
+    /// it paid.
     /// Break: in _release(), change `_end(g, gameId, GameStatus.Released, g.creator);` to
     /// `_end(g, gameId, GameStatus.Released, msg.sender);`. Whoever releases the game is credited.
     function test_neverLine_aReleaseCreditsTheCreatorItsOwnFee() public {
@@ -1458,21 +1552,20 @@ contract OspexGamesNeverLinesTest is GamesBase {
         uint256 g4 = _create();
         vm.warp(DATE - 1 hours);
         _startBy(first, g3, START);
-        games.harnessSetStatus(g4, GameStatus.Disputed); // a dispute record, as the ends will write it
+        _startBy(first, g4, START);
+        vm.warp(START + 1);
+        _disputeBy(first, g4);
         assertEq(token.balanceOf(address(games)), 10 * uint256(FEE), "held: 1 + 3 + 3 + 3");
 
+        vm.warp(START + DAY30);
         vm.recordLogs();
-        vm.prank(stranger);
-        games.harnessRelease(g1);
+        _releaseBy(stranger, g1);
         _assertOneCredit(vm.getRecordedLogs(), g1, creator, FEE);
         vm.recordLogs();
-        vm.prank(stranger);
-        games.harnessRelease(g2);
+        _releaseBy(stranger, g2);
         _assertOneCredit(vm.getRecordedLogs(), g2, other, 3 * FEE);
-        vm.prank(creator);
-        games.harnessRelease(g3);
-        vm.prank(stranger);
-        games.harnessRelease(g4);
+        _releaseBy(creator, g3);
+        _releaseBy(stranger, g4);
 
         uint256[4] memory ids = [g1, g2, g3, g4];
         for (uint256 i; i < ids.length; ++i) {
@@ -1506,9 +1599,9 @@ contract OspexGamesNeverLinesTest is GamesBase {
     /// test_neverLine_rejectedReportChangesNothing, which checks the money too.) The second score is refused
     /// twice over, by the score's status check and by `_end`; the score to an unstarted game only by the first,
     /// which is what the break below reaches.
-    /// Break: in _writeScore(), delete `if (status != GameStatus.Verified) _refuseScore(r.gameId, status);`.
-    /// The score to the unstarted second creation is then taken and credits its fee to that report's payout
-    /// address.
+    /// Break: in _writeScore(), delete `if (status != GameStatus.Verified && status != GameStatus.Disputed)
+    /// _refuseResult(r.gameId, status);`. The score to the unstarted second creation is then taken and credits
+    /// its fee to that report's payout address.
     function test_neverLine_aRefusedReportMovesNoFeeAndTheSameRealGameHoldsItsOwn() public {
         address first2 = makeAddr("a second payout address");
         uint256 a = _create();
@@ -1541,8 +1634,8 @@ contract OspexGamesNeverLinesTest is GamesBase {
         assertEq(_money(accounts), money, "a refused report moved money");
         assertEq(_held(b), FEE, "b holds its fee");
 
-        vm.prank(stranger);
-        games.harnessRelease(b);
+        vm.warp(DATE + DAY30);
+        _releaseBy(stranger, b);
         assertEq(games.getCredit(creator), FEE, "b's end credits b's own creator");
         vm.prank(payout);
         assertEq(games.withdraw(), FEE, "a's payout address");
@@ -1587,11 +1680,10 @@ contract OspexGamesNeverLinesTest is GamesBase {
         for (uint256 i; i < logs.length; ++i) {
             assertTrue(logs[i].topics[0] != IOspexGames.FeeCredited.selector, "a fee of 0 was credited");
         }
-        vm.prank(stranger);
-        games.harnessRelease(g2);
+        vm.warp(DATE + DAY30);
+        _releaseBy(stranger, g2);
         assertEq(games.getCredit(creator), 5 * uint256(FEE), "g2 credits the 5 it holds");
-        vm.prank(stranger);
-        games.harnessRelease(g4);
+        _releaseBy(stranger, g4);
         assertEq(games.getCredit(creator), 7 * uint256(FEE), "g4 credits the 2 it holds");
         assertEq(token.balanceOf(address(games)), 8 * uint256(FEE), "the coin held is what was paid");
     }
@@ -1620,8 +1712,8 @@ contract OspexGamesNeverLinesTest is GamesBase {
         token.setPaused(true);
         _take(address(first), _scoreReportTo(a, payout));
         assertEq(uint8(_status(a)), uint8(GameStatus.Scored), "the score was written");
-        vm.prank(stranger);
-        games.harnessRelease(b);
+        vm.warp(DATE + DAY30); // the release's clock, from the date: b never starts
+        _releaseBy(stranger, b);
         assertEq(uint8(_status(b)), uint8(GameStatus.Released), "the release was written");
         assertEq(games.getCredit(payout), FEE, "the score credited");
         assertEq(games.getCredit(creator), FEE, "the release credited");
@@ -1640,6 +1732,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
         assertEq(token.balanceOf(payout), FEE, "paid once the coin took transfers");
 
         // The payout address blocked.
+        vm.warp(START + 10); // back inside c's clocks
         address blocked = makeAddr("a payout address the coin blocks");
         token.setBlocked(blocked, true);
         _take(address(first), _scoreReportTo(c, blocked));
@@ -1652,9 +1745,9 @@ contract OspexGamesNeverLinesTest is GamesBase {
         assertEq(games.withdraw(), FEE, "paid once unblocked");
 
         // The games set blocked.
+        vm.warp(DATE + DAY30); // d never starts: the release's clock, from the date
         token.setBlocked(address(games), true);
-        vm.prank(stranger);
-        games.harnessRelease(d);
+        _releaseBy(stranger, d);
         assertEq(uint8(_status(d)), uint8(GameStatus.Released), "the release was written");
         vm.prank(creator);
         vm.expectRevert(abi.encodeWithSelector(RefusingCoin.Blocked.selector, address(games)));
@@ -1717,7 +1810,1349 @@ contract OspexGamesNeverLinesTest is GamesBase {
         assertEq(token.balanceOf(who), 899 * uint256(FEE), "control: named the new fee, it is taken");
     }
 
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "An address not among a game's recorded reporters writes a start, a score, a void, a dispute record or
+    //  a day-7 result to that game." Here, for a void, a dispute record and a day-7 result.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// Outsiders of every kind: a stranger, the creator, the timelock, its key, a contract that was never
+    /// approved, and a reporter approved after the games were made. Each sends a void and a dispute record to a
+    /// started game, and a day-7 score, a day-7 void and an update to a disputed game, at start + n and past the
+    /// day-7 clock: each is refused by name, emits nothing and changes nothing. Controls: the games' own
+    /// reporters, of both kinds, are taken for each kind of report.
+    /// Break: in report(), change `if (kind == ReporterKind.None) revert OspexGames__NotAReporter(r.gameId,
+    /// msg.sender);` to `if (kind == ReporterKind.None && r.kind != ReportKind.Void) revert
+    /// OspexGames__NotAReporter(r.gameId, msg.sender);`. An outsider's void is then taken.
+    function test_neverLine_onlyRecordedReportersWriteAnEnd() public {
+        address[] memory accounts = new address[](4);
+        (accounts[0], accounts[1], accounts[2], accounts[3]) = (creator, payout, stranger, address(games));
+        uint256 started = _create();
+        uint256 disputed = _create();
+        uint256 third = _create();
+        vm.warp(DATE - 1 hours);
+        _startBy(first, started, START);
+        _startBy(first, disputed, START);
+        _startBy(first, third, START);
+        vm.warp(START + 1);
+        _disputeBy(first, disputed);
+        MockReporter lateComer = new MockReporter(games);
+        _approve(address(lateComer), ReporterKind.AfterN);
+
+        address[6] memory outsiders =
+            [stranger, creator, address(timelock), timelockKey, address(new Plain()), address(lateComer)];
+        uint64[2] memory times = [START + WINDOW, START + 1 + DAY7];
+        for (uint256 t; t < times.length; ++t) {
+            vm.warp(times[t]);
+            for (uint256 o; o < outsiders.length; ++o) {
+                Report[5] memory reports = [
+                    _voidReport(started),
+                    _disputeReport(started),
+                    _scoreReport(disputed, HOME, AWAY),
+                    _voidReport(disputed),
+                    _disputeReport(disputed)
+                ];
+                for (uint256 k; k < reports.length; ++k) {
+                    _assertReportRefused(
+                        outsiders[o],
+                        reports[k],
+                        abi.encodeWithSelector(
+                            OspexGames.OspexGames__NotAReporter.selector, reports[k].gameId, outsiders[o]
+                        ),
+                        accounts
+                    );
+                }
+            }
+        }
+        // Controls, at the later hour: the day-7 score by an after-n reporter; the void by a first-n one; a
+        // dispute record by an after-n reporter and an update by a first-n one, then that game's day-7 void.
+        _take(address(later), _scoreReportTo(disputed, payout));
+        _take(address(first), _voidReportTo(started, payout));
+        _take(address(later), _disputeReport(third));
+        _take(address(first), _disputeReport(third));
+        vm.warp(START + 1 + DAY7 + DAY7);
+        _take(address(second), _voidReportTo(third, payout));
+        assertEq(uint8(_status(disputed)), uint8(GameStatus.Scored), "the day-7 score");
+        assertEq(uint8(_status(started)), uint8(GameStatus.Voided), "the void");
+        assertEq(uint8(_status(third)), uint8(GameStatus.Voided), "the day-7 void");
+        assertEq(games.getCredit(payout), 3 * uint256(FEE), "each end credited the payout address once");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "An after-n reporter writes to a game before its start + n." Here, for a dispute record.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// An after-n reporter's dispute record is refused inside n by name, at the start, inside n and at
+    /// start + n - 1, on a game with the default n and on one whose league gave it another; at start + n it is
+    /// taken and the day-7 clock counts from then. A first-n reporter's record is taken from the start, and an
+    /// after-n reporter's update inside n is refused the same way; its update from start + n is taken and moves
+    /// nothing.
+    /// Break: in _writeDispute(), change `_checkHour(g, r.gameId, kind);` to
+    /// `_checkHour(g, r.gameId, ReporterKind.FirstN);`. The after-n reporter's dispute record inside n is then
+    /// taken.
+    function test_neverLine_afterNWritesNoDisputeRecordBeforeStartPlusN() public {
+        _setTerms("nhl", _terms(3 hours));
+        uint256 game = _create(); // nba: n is a day
+        vm.prank(creator, creator);
+        uint256 short_ = games.createGame("nhl", "Home", "Away", DATE, _hints(), ANY_FEE); // n is 3 hours
+        vm.warp(DATE - 1 hours);
+        _startBy(first, game, START);
+        _startBy(first, short_, START);
+
+        uint256[2] memory ids = [game, short_];
+        uint64[2] memory windows = [WINDOW, 3 hours];
+        for (uint256 i; i < ids.length; ++i) {
+            uint64[3] memory inside = [START, START + windows[i] / 2, START + windows[i] - 1];
+            for (uint256 t; t < inside.length; ++t) {
+                vm.warp(inside[t]);
+                bytes32 before = _viewAll();
+                (bool ok, bytes memory err) = _send(address(later), _disputeReport(ids[i]));
+                assertFalse(ok, "an after-n reporter's dispute record inside n was taken");
+                assertEq(
+                    err,
+                    abi.encodeWithSelector(
+                        OspexGames.OspexGames__InsideWindow.selector, ids[i], uint256(START) + windows[i]
+                    )
+                );
+                assertEq(_viewAll(), before, "a refused report changed state");
+            }
+            vm.warp(START + windows[i]);
+            _take(address(later), _disputeReport(ids[i]));
+            assertEq(uint8(_status(ids[i])), uint8(GameStatus.Disputed), "taken at start + n");
+            assertEq(games.getGameDisputedAt(ids[i]), START + windows[i], "the day-7 clock counts from the record");
+        }
+
+        vm.warp(DATE - 1 hours);
+        uint256 early = _create();
+        _startBy(first, early, START);
+        vm.warp(START);
+        _take(address(first), _disputeReport(early));
+        (bool okUpdate, bytes memory errUpdate) = _send(address(later), _disputeReport(early));
+        assertFalse(okUpdate, "an after-n reporter's update inside n was taken");
+        assertEq(
+            errUpdate,
+            abi.encodeWithSelector(OspexGames.OspexGames__InsideWindow.selector, early, uint256(START) + WINDOW)
+        );
+        vm.warp(START + WINDOW);
+        _take(address(later), _disputeReport(early));
+        assertEq(games.getGameDisputedAt(early), START, "the update moved the clock");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A retirement scores, voids or settles anything; it only opens the release." Here, the second half.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// Games in every open status (unverified, started, disputed), long before their day-30 clock, beside a
+    /// scored game and a voided one, and a game made after a fourth, first-n reporter was approved. Retiring one
+    /// of the three, then another, writes no game, moves no money and leaves each open game's release refused by
+    /// name; retiring the last opens the release of each game that recorded only those three, at once, and still
+    /// writes and credits nothing. The game that also recorded the fourth, still live and able to write its
+    /// start, stays closed, though the approved list is not empty either way. Then anyone releases each open
+    /// game, and the creator alone is credited. The ended games' release is refused as ended throughout.
+    /// Break: in _everyReporterRetired(), change `if (!s_admissions[r.account].retired) return false;` to
+    /// `if (s_admissions[r.account].retired) return true;`. One retirement then opens every release.
+    function test_neverLine_aRetirementOnlyOpensTheRelease() public {
+        vm.warp(DATE - 1 hours);
+        uint256 unverified = _inStatus(GameStatus.Unverified);
+        uint256 verified = _inStatus(GameStatus.Verified);
+        uint256 disputed = _inStatus(GameStatus.Disputed);
+        uint256 scored = _inStatus(GameStatus.Scored);
+        vm.warp(DATE - 1 hours);
+        uint256 voided = _inStatus(GameStatus.Voided);
+        vm.warp(START + 2 days); // long before the day-30 clock
+        MockReporter fourth = new MockReporter(games);
+        _approve(address(fourth), ReporterKind.FirstN);
+        uint256 withFourth = _create(); // records the three and the fourth
+        uint256[3] memory open = [unverified, verified, disputed];
+        uint256[2] memory ended = [scored, voided];
+        GameStatus[2] memory endedStatuses = [GameStatus.Scored, GameStatus.Voided];
+        address[] memory accounts = new address[](5);
+        (accounts[0], accounts[1], accounts[2], accounts[3], accounts[4]) =
+            (creator, payout, stranger, address(games), address(first));
+
+        address[3] memory retiring = [address(later), address(second), address(first)];
+        for (uint256 r; r < retiring.length; ++r) {
+            bytes32 money = _money(accounts);
+            bytes32 states = _gameStates();
+            _retire(retiring[r]);
+            assertEq(_money(accounts), money, "a retirement moved money");
+            assertEq(_gameStates(), states, "a retirement wrote a game");
+            bool last = r == retiring.length - 1;
+            for (uint256 i; i < open.length; ++i) {
+                assertEq(games.isEveryReporterRetired(open[i]), last, "every reporter retired");
+                if (last) continue;
+                (bool ok, bytes memory err) = _tryRelease(stranger, open[i]);
+                assertFalse(ok, "a release opened before every reporter was retired");
+                uint256 opensAt = uint256(DATE) + DAY30;
+                assertEq(
+                    err, abi.encodeWithSelector(OspexGames.OspexGames__ReleaseNotOpen.selector, open[i], opensAt)
+                );
+            }
+            for (uint256 i; i < ended.length; ++i) {
+                (bool ok, bytes memory err) = _tryRelease(stranger, ended[i]);
+                assertFalse(ok, "an ended game was released");
+                assertEq(
+                    err,
+                    abi.encodeWithSelector(OspexGames.OspexGames__GameEnded.selector, ended[i], endedStatuses[i])
+                );
+            }
+        }
+        for (uint256 i; i < open.length; ++i) {
+            assertLt(uint8(_status(open[i])), uint8(GameStatus.Scored), "a retirement ended a game");
+            assertEq(_held(open[i]), FEE, "a retirement credited a fee");
+        }
+        assertEq(games.getCredit(creator), 0, "a retirement credited the creator");
+        // The game that recorded the fourth reporter, still live, is not one whose every reporter is retired:
+        // its release waits for its clock, though every other game's is open and the list holds a reporter.
+        (address[] memory listed,) = games.getApprovedReporters();
+        assertEq(listed.length, 1, "the approved list holds the fourth reporter");
+        assertFalse(games.isEveryReporterRetired(withFourth), "the fourth reporter is live");
+        (bool okFourth, bytes memory errFourth) = _tryRelease(stranger, withFourth);
+        assertFalse(okFourth, "a game with a live reporter was released early");
+        assertEq(
+            errFourth,
+            abi.encodeWithSelector(OspexGames.OspexGames__ReleaseNotOpen.selector, withFourth, uint256(DATE) + DAY30)
+        );
+
+        vm.recordLogs();
+        _releaseBy(stranger, unverified);
+        _assertOneCredit(vm.getRecordedLogs(), unverified, creator, FEE);
+        _releaseBy(creator, verified);
+        _releaseBy(makeAddr("anyone"), disputed);
+        for (uint256 i; i < open.length; ++i) {
+            assertEq(uint8(_status(open[i])), uint8(GameStatus.Released), "released at once");
+            assertEq(_held(open[i]), 0, "a released game holds nothing");
+        }
+        assertEq(games.getCredit(creator), 3 * uint256(FEE), "the creator, each game's fee");
+        assertEq(games.getCredit(stranger), 0, "a releaser was credited");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A release touches a game that has a score or a void; a score or a void is accepted after a release."
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// A released game, with a start and without, takes no start, score, void or dispute record from any
+    /// reporter of either kind at any hour, and no second release, each refused by name, nothing emitted,
+    /// nothing changed. A scored game and a voided game: a release of each is refused by name before the day-30
+    /// clock, at it and long past it, by a stranger and by the creator, with every reporter live and then with
+    /// every reporter retired; nothing changes and no second credit is made.
+    /// Break: in release(), delete `if (status >= GameStatus.Scored) revert OspexGames__GameEnded(gameId,
+    /// status);`. A release of a scored game before its clock is then refused as not open instead of as ended
+    /// (and past its clock only by `_end`). A second break, the dispute record's: in _writeDispute(), delete
+    /// `if (status != GameStatus.Verified && status != GameStatus.Disputed) _refuseResult(r.gameId, status);`.
+    /// An update to a released game is then taken.
+    function test_neverLine_noReleaseOfAnEndedGameAndNoEndAfterARelease() public {
+        address[] memory accounts = new address[](3);
+        (accounts[0], accounts[1], accounts[2]) = (creator, payout, stranger);
+
+        // Released games take nothing more.
+        vm.warp(DATE - 1 hours);
+        uint256 withStart = _create();
+        uint256 noStart = _create();
+        _startBy(first, withStart, START);
+        vm.warp(START + DAY30);
+        _releaseBy(stranger, withStart);
+        _releaseBy(stranger, noStart);
+        uint256[2] memory released = [withStart, noStart];
+        MockReporter[3] memory reporters = [first, later, second];
+        uint64[3] memory hours_ = [START + DAY30, START + DAY30 + DAY7, START + DAY30 + 365 days];
+        for (uint256 t; t < hours_.length; ++t) {
+            vm.warp(hours_[t]);
+            for (uint256 g; g < released.length; ++g) {
+                bytes memory want =
+                    abi.encodeWithSelector(OspexGames.OspexGames__GameEnded.selector, released[g], GameStatus.Released);
+                for (uint256 w; w < reporters.length; ++w) {
+                    Report[4] memory reports = [
+                        _startReport(released[g], START),
+                        _scoreReport(released[g], HOME, AWAY),
+                        _voidReport(released[g]),
+                        _disputeReport(released[g])
+                    ];
+                    for (uint256 k; k < reports.length; ++k) {
+                        _assertReportRefused(address(reporters[w]), reports[k], want, accounts);
+                    }
+                }
+                (bool okAgain, bytes memory errAgain) = _tryRelease(creator, released[g]);
+                assertFalse(okAgain, "a released game was released again");
+                assertEq(errAgain, want, "the second release's refusal");
+            }
+        }
+        assertEq(games.getCredit(creator), 2 * uint256(FEE), "each release credited the creator once");
+
+        // Ended games are not released.
+        vm.warp(DATE - 1 hours);
+        uint256 scored = _inStatus(GameStatus.Scored);
+        vm.warp(DATE - 1 hours);
+        uint256 voided = _inStatus(GameStatus.Voided);
+        uint256[2] memory ended = [scored, voided];
+        GameStatus[2] memory endedStatuses = [GameStatus.Scored, GameStatus.Voided];
+        address[2] memory callers = [stranger, creator];
+        uint64[3] memory times = [START + WINDOW + 1, START + DAY30, START + DAY30 + 365 days];
+        for (uint256 pass; pass < 2; ++pass) {
+            if (pass == 1) {
+                vm.warp(START + WINDOW + 1);
+                _retire(address(first));
+                _retire(address(later));
+                _retire(address(second));
+                assertTrue(games.isEveryReporterRetired(scored), "every reporter retired");
+            }
+            for (uint256 t; t < times.length; ++t) {
+                for (uint256 i; i < ended.length; ++i) {
+                    for (uint256 c; c < callers.length; ++c) {
+                        vm.warp(times[t]);
+                        bytes32 money = _money(accounts);
+                        bytes32 state = _viewAll();
+                        vm.recordLogs();
+                        (bool ok, bytes memory err) = _tryRelease(callers[c], ended[i]);
+                        assertFalse(ok, "an ended game was released");
+                        assertEq(
+                            err,
+                            abi.encodeWithSelector(
+                                OspexGames.OspexGames__GameEnded.selector, ended[i], endedStatuses[i]
+                            ),
+                            "the refusal"
+                        );
+                        assertEq(vm.getRecordedLogs().length, 0, "a refused release emitted");
+                        assertEq(_money(accounts), money, "a refused release moved money");
+                        assertEq(_viewAll(), state, "a refused release changed a game");
+                    }
+                }
+            }
+        }
+        assertEq(games.getCredit(payout), 2 * uint256(FEE), "the score and the void each credited once");
+        assertEq(games.getCredit(creator), 2 * uint256(FEE), "no release of an ended game credited");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A game ends twice, or a release discards a score that landed first." Before the day-30 clock the first
+    //  end to land is the game's; from the clock the release is the only door.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// In the day-30 clock's last second, with nothing released: a score is taken, pays on its result, and the
+    /// release after it, at the clock, is refused as ended; a void the same, on a second game. In the other
+    /// order, a release lands at the clock on a third game, and the score, the void and a second release after
+    /// it are refused as ended, by the status's name before the clock's. Each game credits once, to the end that
+    /// landed.
+    /// Break: in _end(), change `g.status = end;` to `if (end != GameStatus.Released) g.status = end;`. A
+    /// release then credits the creator and leaves the game open, so the game ends again.
+    function test_neverLine_aGameEndsOnceAndTheFirstEndWins() public {
+        vm.warp(DATE - 1 hours);
+        uint256 lateScore = _create();
+        uint256 lateVoid = _create();
+        uint256 releasedFirst = _create();
+        _startBy(first, lateScore, START);
+        _startBy(first, lateVoid, START);
+        _startBy(first, releasedFirst, START);
+        vm.warp(DATE + DAY30 - 1); // the clock's last second, nothing released
+
+        vm.recordLogs();
+        _take(address(later), _scoreReportTo(lateScore, payout));
+        _assertOneCredit(vm.getRecordedLogs(), lateScore, payout, FEE);
+        (uint32 h, uint32 a) = games.getGameScores(lateScore);
+        assertEq(h, HOME, "the late score pays on its result");
+        assertEq(a, AWAY, "the late score pays on its result");
+        vm.recordLogs();
+        _take(address(first), _voidReportTo(lateVoid, payout));
+        _assertOneCredit(vm.getRecordedLogs(), lateVoid, payout, FEE);
+
+        vm.warp(DATE + DAY30);
+        (bool ok, bytes memory err) = _tryRelease(stranger, lateScore);
+        assertFalse(ok, "a release discarded a score that landed first");
+        assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__GameEnded.selector, lateScore, GameStatus.Scored));
+        (ok, err) = _tryRelease(creator, lateVoid);
+        assertFalse(ok, "a release discarded a void that landed first");
+        assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__GameEnded.selector, lateVoid, GameStatus.Voided));
+
+        vm.recordLogs();
+        _releaseBy(stranger, releasedFirst);
+        _assertOneCredit(vm.getRecordedLogs(), releasedFirst, creator, FEE);
+        assertEq(uint8(_status(releasedFirst)), uint8(GameStatus.Released), "released");
+        bytes memory releasedErr =
+            abi.encodeWithSelector(OspexGames.OspexGames__GameEnded.selector, releasedFirst, GameStatus.Released);
+        (ok, err) = _send(address(later), _scoreReportTo(releasedFirst, payout));
+        assertFalse(ok, "a score after a release was taken");
+        assertEq(err, releasedErr, "named as ended, not as past the clock");
+        (ok, err) = _send(address(first), _voidReportTo(releasedFirst, payout));
+        assertFalse(ok, "a void after a release was taken");
+        assertEq(err, releasedErr, "named as ended, not as past the clock");
+        (ok, err) = _tryRelease(creator, releasedFirst);
+        assertFalse(ok, "a released game was released again");
+        assertEq(err, releasedErr);
+
+        assertEq(games.getCredit(payout), 2 * uint256(FEE), "the two late ends paid their payout address");
+        assertEq(games.getCredit(creator), FEE, "the release paid the creator");
+        assertEq(_held(lateScore) + _held(lateVoid) + _held(releasedFirst), 0, "every game ended");
+        assertEq(token.balanceOf(address(games)), 3 * uint256(FEE), "three fees, all credited");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "From the day-30 clock the release is the only door." Not in the spec's text; ruled as a correction to it:
+    //  a start, a score, a void, a dispute record or an update at or after the game's date plus the day-30 clock
+    //  is refused, and a game still open then ends as a release.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// A game with no start, a started game and a disputed game, at the day-30 clock, a week after it and a year
+    /// after it: every report the game could otherwise take is refused by the clock's name, from a reporter of
+    /// either kind, with nothing written, nothing emitted and no money moved: a start on the first, a score, a
+    /// void and a dispute record on the second, a score, a void and an update on the third. A second before the
+    /// clock the same reports are taken on three other games. In the clock's first second a start and then a
+    /// void are refused on a fourth game with no start, and its release lands. Then anyone releases each open
+    /// game, and the creator alone is credited: no payout address was paid past the clock.
+    /// Break: in _writeScore(), delete `_checkDay30(g, r.gameId);`. A score at the day-30 clock is then taken.
+    function test_neverLine_afterDay30TheOnlyDoorIsTheRelease() public {
+        address[] memory accounts = new address[](4);
+        (accounts[0], accounts[1], accounts[2], accounts[3]) = (creator, payout, stranger, address(games));
+        vm.warp(DATE - 1 hours);
+        uint256 open = _create();
+        uint256 started = _create();
+        uint256 disputed = _create();
+        uint256 open2 = _create();
+        uint256 started2 = _create();
+        uint256 disputed2 = _create();
+        uint256 raced = _create();
+        _startBy(first, started, START);
+        _startBy(first, disputed, START);
+        _startBy(first, started2, START);
+        _startBy(first, disputed2, START);
+        vm.warp(START + 1);
+        _disputeBy(first, disputed);
+        _disputeBy(first, disputed2);
+
+        // A second before the clock: taken.
+        vm.warp(DATE + DAY30 - 1);
+        _startBy(first, open2, DATE + DAY);
+        _take(address(later), _scoreReportTo(started2, payout));
+        _take(address(first), _disputeReport(disputed2)); // an update
+        _take(address(later), _voidReportTo(disputed2, payout)); // the day-7 void, long open
+        assertEq(games.getCredit(payout), 2 * uint256(FEE), "the two ends before the clock paid their payout");
+
+        // At the clock, a week after it and a year after it: refused by the clock's name.
+        uint64[3] memory hours_ = [DATE + DAY30, DATE + DAY30 + DAY7, DATE + DAY30 + 365 days];
+        MockReporter[2] memory kinds = [first, later];
+        for (uint256 t; t < hours_.length; ++t) {
+            vm.warp(hours_[t]);
+            _assertReportRefused(address(first), _startReport(open, START), _pastDay30(open), accounts);
+            for (uint256 w; w < kinds.length; ++w) {
+                Report[6] memory reports = [
+                    _scoreReport(started, HOME, AWAY),
+                    _voidReport(started),
+                    _disputeReport(started),
+                    _scoreReport(disputed, HOME, AWAY),
+                    _voidReport(disputed),
+                    _disputeReport(disputed)
+                ];
+                for (uint256 k; k < reports.length; ++k) {
+                    _assertReportRefused(address(kinds[w]), reports[k], _pastDay30(reports[k].gameId), accounts);
+                }
+            }
+        }
+        // The race in the clock's first second: a start, then a void, both refused; the release lands.
+        vm.warp(DATE + DAY30);
+        (bool ok, bytes memory err) = _send(address(first), _startReport(raced, DATE + DAY));
+        assertFalse(ok, "a start at the clock was taken");
+        assertEq(err, _pastDay30(raced));
+        (ok, err) = _send(address(later), _voidReportTo(raced, payout));
+        assertFalse(ok, "a void at the clock was taken");
+        assertEq(err, _err1(OspexGames.OspexGames__StartNotWritten.selector, raced));
+        vm.recordLogs();
+        _releaseBy(creator, raced);
+        _assertOneCredit(vm.getRecordedLogs(), raced, creator, FEE);
+
+        // Then anyone releases each open game, and the creator alone is credited.
+        vm.warp(DATE + DAY30 + 365 days);
+        vm.recordLogs();
+        _releaseBy(stranger, open);
+        _assertOneCredit(vm.getRecordedLogs(), open, creator, FEE);
+        _releaseBy(stranger, started);
+        _releaseBy(makeAddr("anyone"), disputed);
+        _releaseBy(stranger, open2);
+        uint256[5] memory released = [open, started, disputed, open2, raced];
+        for (uint256 i; i < released.length; ++i) {
+            assertEq(uint8(_status(released[i])), uint8(GameStatus.Released), "released");
+            assertEq(_held(released[i]), 0, "a released game holds its fee");
+        }
+        assertEq(games.getCredit(creator), 5 * uint256(FEE), "the creator, each released game's fee");
+        assertEq(games.getCredit(payout), 2 * uint256(FEE), "a report past the clock paid its payout");
+        assertEq(games.getCredit(stranger), 0, "a releaser was credited");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "No write after creation moves a clock." The day-30 clock counts from the date given at creation: a start
+    //  written late or early, a dispute record and an update move it neither way.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// The two directions. Late: with no start written, the release is refused a second before the date's clock;
+    /// a start at the far end of its bound after the date, written in that second, leaves the release open at the
+    /// clock, where the score and the void that follow are refused and the release lands: the creator, not the
+    /// payout address, is credited. Early: at the date plus 29 days, with no start, a release is refused; a start
+    /// at the far end of its bound before the date is written, and the release stays refused until the date's
+    /// clock, with the same second named; a score in the clock's last second is taken and pays its payout. A
+    /// dispute record and an update move the clock neither way.
+    /// Break: in _day30(), change `return uint256(g.date) + g.terms.day30Clock;` to
+    /// `return uint256(g.start != 0 ? g.start : g.date) + g.terms.day30Clock;`. A late start then moves the
+    /// release a day out, and an early one a day in.
+    function test_neverLine_noWriteMovesTheDay30Clock() public {
+        vm.warp(DATE - 1 hours);
+        uint256 lateGame = _create();
+        uint256 earlyGame = _create();
+        uint256 disputedGame = _create();
+        _startBy(first, disputedGame, START);
+        vm.warp(START + 1);
+        _disputeBy(first, disputedGame);
+        uint256 opensAt = uint256(DATE) + DAY30;
+
+        // Late.
+        vm.warp(DATE + DAY30 - 1);
+        (bool ok, bytes memory err) = _tryRelease(creator, lateGame);
+        assertFalse(ok, "the release opened before the date's clock");
+        assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__ReleaseNotOpen.selector, lateGame, opensAt));
+        _startBy(first, lateGame, DATE + DAY);
+        _take(address(first), _disputeReport(disputedGame)); // an update, in the same second
+        vm.warp(DATE + DAY30);
+        (ok, err) = _send(address(first), _scoreReportTo(lateGame, payout));
+        assertFalse(ok, "a late start moved the clock: a score landed at it");
+        assertEq(err, _pastDay30(lateGame));
+        (ok, err) = _send(address(later), _voidReportTo(lateGame, payout));
+        assertFalse(ok, "a late start moved the clock: a void landed at it");
+        assertEq(err, _pastDay30(lateGame));
+        vm.recordLogs();
+        _releaseBy(creator, lateGame);
+        _assertOneCredit(vm.getRecordedLogs(), lateGame, creator, FEE);
+        assertEq(games.getCredit(payout), 0, "a result past the clock took the fee");
+        _releaseBy(stranger, disputedGame); // the record and the update moved nothing: open at the date's clock
+        assertEq(uint8(_status(disputedGame)), uint8(GameStatus.Released), "released at the date's clock");
+
+        // Early.
+        vm.warp(DATE + 29 days);
+        bytes memory notOpen =
+            abi.encodeWithSelector(OspexGames.OspexGames__ReleaseNotOpen.selector, earlyGame, opensAt);
+        (ok, err) = _tryRelease(creator, earlyGame);
+        assertFalse(ok);
+        assertEq(err, notOpen);
+        _startBy(first, earlyGame, DATE - DAY);
+        (ok, err) = _tryRelease(creator, earlyGame);
+        assertFalse(ok, "an early start opened the release a day early");
+        assertEq(err, notOpen, "the same second named");
+        vm.warp(DATE + DAY30 - 1);
+        (ok, err) = _tryRelease(creator, earlyGame);
+        assertFalse(ok, "the release opened before the date's clock");
+        assertEq(err, notOpen);
+        vm.recordLogs();
+        _take(address(later), _scoreReportTo(earlyGame, payout));
+        _assertOneCredit(vm.getRecordedLogs(), earlyGame, payout, FEE);
+        (ok, err) = _tryRelease(creator, earlyGame);
+        assertFalse(ok, "a release discarded a score that landed first");
+        assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__GameEnded.selector, earlyGame, GameStatus.Scored));
+        assertEq(games.getCredit(creator), 2 * uint256(FEE), "the two releases");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A dispute still open at the day-30 clock ends as a release, like any other game."
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// A dispute record a second before the day-30 clock: its day-7 clock would run a week past it. At the
+    /// day-30 clock the void is refused by that clock's name, not the day-7 clock's, and so are an update and a
+    /// score; anyone releases the game and the creator is credited; the record's time still reads. Control: a
+    /// record written a week and a second before the clock gets its day-7 void in the clock's last second.
+    /// Break: in release(), add `if (g.disputedAt != 0 && block.timestamp < uint256(g.disputedAt) +
+    /// g.terms.day7Clock) revert OspexGames__InsideDay7Clock(gameId, uint256(g.disputedAt) + g.terms.day7Clock);`
+    /// before `_release(g, gameId);`. The release then waits out a late dispute's day-7 clock.
+    function test_neverLine_aDisputeOpenAtDay30ReleasesLikeAnyOther() public {
+        vm.warp(DATE - 1 hours);
+        uint256 lateRecord = _create();
+        uint256 inTime = _create();
+        _startBy(first, lateRecord, START);
+        _startBy(first, inTime, START);
+        vm.warp(DATE + DAY30 - DAY7 - 1);
+        _disputeBy(later, inTime);
+        vm.warp(DATE + DAY30 - 1);
+        _disputeBy(first, lateRecord);
+        assertEq(games.getGameDisputedAt(lateRecord), DATE + DAY30 - 1, "the record's time");
+        vm.recordLogs();
+        _take(address(later), _voidReportTo(inTime, payout)); // the day-7 void, in the clock's last second
+        _assertOneCredit(vm.getRecordedLogs(), inTime, payout, FEE);
+
+        vm.warp(DATE + DAY30);
+        bytes memory closed = _pastDay30(lateRecord);
+        (bool ok, bytes memory err) = _send(address(later), _voidReport(lateRecord));
+        assertFalse(ok, "a void landed at the clock");
+        assertEq(err, closed, "the void was refused by the day-7 clock, not the day-30 clock");
+        (ok, err) = _send(address(first), _disputeReport(lateRecord));
+        assertFalse(ok, "an update landed at the clock");
+        assertEq(err, closed);
+        (ok, err) = _send(address(first), _scoreReportTo(lateRecord, payout));
+        assertFalse(ok, "a score landed at the clock");
+        assertEq(err, closed);
+        vm.recordLogs();
+        _releaseBy(stranger, lateRecord);
+        _assertOneCredit(vm.getRecordedLogs(), lateRecord, creator, FEE);
+        assertEq(uint8(_status(lateRecord)), uint8(GameStatus.Released), "a dispute open at the clock released");
+        assertEq(games.getGameDisputedAt(lateRecord), DATE + DAY30 - 1, "the record reads as history");
+        assertEq(games.getCredit(stranger), 0, "the releaser was credited");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "Two readings in one report name the same seat." Ruled: the games set refuses a report its own readings
+    //  contradict; a seat read twice is the first such shape.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// A report of every kind, a start, a score, a dispute record, an update and a void, carrying two readings
+    /// for one seat is refused by name with the second one's index, wherever the pair sits, for a seat at either
+    /// end of the range; nothing is written, nothing credited. Controls: the same reports with seats 0 and 255
+    /// beside the usual ones are taken.
+    /// Break: in _checkReadings(), delete `seats |= seat;`. A repeated seat is then never seen.
+    function test_neverLine_noTwoReadingsShareASeat() public {
+        address[] memory accounts = new address[](3);
+        (accounts[0], accounts[1], accounts[2]) = (creator, payout, address(games));
+        uint8[3][3] memory pairs = [[0, 1, 1], [0, 3, 0], [1, 2, 255]]; // (first index, second index, the seat)
+        for (uint256 k; k < 5; ++k) {
+            for (uint256 p; p < pairs.length; ++p) {
+                vm.warp(DATE - 1 hours);
+                uint256 game = _create();
+                Report memory r = _startReport(game, START);
+                if (k != 0) {
+                    _startBy(first, game, START);
+                    vm.warp(START + 1);
+                    if (k == 1) r = _scoreReport(game, HOME, AWAY);
+                    else if (k == 2) r = _disputeReport(game);
+                    else if (k == 3) {
+                        _disputeBy(first, game);
+                        r = _disputeReport(game);
+                    } else {
+                        vm.warp(START + WINDOW);
+                        r = _voidReport(game);
+                    }
+                }
+                r.readings[pairs[p][0]].seat = pairs[p][2];
+                r.readings[pairs[p][1]].seat = pairs[p][2];
+                _assertReportRefused(
+                    address(first),
+                    r,
+                    abi.encodeWithSelector(OspexGames.OspexGames__ReadingSeatRepeated.selector, uint256(pairs[p][1])),
+                    accounts
+                );
+            }
+        }
+        // Controls: the two ends of the seat range beside the usual seats.
+        vm.warp(DATE - 1 hours);
+        uint256 game2 = _create();
+        Report memory s = _startReport(game2, START);
+        s.readings[0].seat = 0;
+        s.readings[3].seat = 255;
+        _take(address(first), s);
+        vm.warp(START + 1);
+        Report memory sc = _scoreReport(game2, HOME, AWAY);
+        sc.readings[0].seat = 255;
+        sc.readings[3].seat = 0;
+        _take(address(first), sc);
+        assertEq(uint8(_status(game2)), uint8(GameStatus.Scored), "control: taken");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A score is written that no final among its readings reads." Ruled: the games set refuses a report its own
+    //  readings contradict.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// A score whose numbers no reading reads as a final is refused by name, on a game with no dispute record
+    /// and on a disputed game, inside n from a first-n reporter and after n from an after-n one: a 1-0 over three
+    /// finals of 104-97; a score over readings with no final at all; a score whose numbers appear only in a
+    /// reading answered without a final; the home and away swapped; one score of the two off by one, either way.
+    /// Nothing is written, nothing credited. Control: the same score with one reading a final at its numbers is
+    /// taken on the game with no record.
+    /// Break: in _writeScore(), change `disputed ? AGREE : 1` to `disputed ? AGREE : 0`. A score no final reads is
+    /// then taken on a game with no dispute record.
+    function test_neverLine_aScoreNoFinalReadsIsRefused() public {
+        address[] memory accounts = new address[](3);
+        (accounts[0], accounts[1], accounts[2]) = (creator, payout, address(games));
+        vm.warp(DATE - 1 hours);
+        uint256 plain = _create();
+        uint256 disputed = _create();
+        _startBy(first, plain, START);
+        _startBy(first, disputed, START);
+        vm.warp(START + 1);
+        _disputeBy(first, disputed);
+        uint256[2] memory ids = [plain, disputed];
+        uint256[2] memory needed = [uint256(1), 3];
+        uint64[2] memory hours_ = [START + 2, START + WINDOW];
+        MockReporter[2] memory kinds = [first, later];
+        Reading[] memory noFinals = _voidReadings();
+        Reading[] memory onlyNoFinal = _voidReadings();
+        onlyNoFinal[1] = Reading({seat: 2, kind: ReadingKind.AnsweredNoFinal, homeScore: 88, awayScore: 90});
+        for (uint256 i; i < ids.length; ++i) {
+            for (uint256 t; t < hours_.length; ++t) {
+                vm.warp(hours_[t]);
+                Report[6] memory reports = [
+                    _scoreReport(ids[i], 1, 0),
+                    _scoreReport(ids[i], HOME, AWAY),
+                    _scoreReport(ids[i], 88, 90),
+                    _scoreReport(ids[i], AWAY, HOME),
+                    _scoreReport(ids[i], HOME, AWAY + 1),
+                    _scoreReport(ids[i], HOME + 1, AWAY)
+                ];
+                reports[0].readings = _scoreReadings(HOME, AWAY);
+                reports[1].readings = noFinals;
+                reports[2].readings = onlyNoFinal;
+                reports[3].readings = _scoreReadings(HOME, AWAY);
+                reports[4].readings = _scoreReadings(HOME, AWAY);
+                reports[5].readings = _scoreReadings(HOME, AWAY);
+                for (uint256 k; k < reports.length; ++k) {
+                    _assertReportRefused(
+                        address(kinds[t]),
+                        reports[k],
+                        abi.encodeWithSelector(OspexGames.OspexGames__TooFewFinalsAgree.selector, 0, needed[i]),
+                        accounts
+                    );
+                }
+            }
+        }
+        // Control: one final at the score's numbers, on the game with no record.
+        Report memory one = _scoreReportTo(plain, payout);
+        one.readings = _voidReadings();
+        one.readings[2] = Reading({seat: 3, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY});
+        vm.recordLogs();
+        _take(address(later), one);
+        _assertOneCredit(vm.getRecordedLogs(), plain, payout, FEE);
+        (uint32 h, uint32 a) = games.getGameScores(plain);
+        assertEq(h, HOME);
+        assertEq(a, AWAY);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "The hour-24 void posts while any answering feed shows a final." The games set's half: a void over AGREE
+    //  finals that read the same is refused at every clock, hour 24 and day 7 alike, since that is a score's
+    //  agreement and the program scores on it; the readings a void does carry ride in its event as given.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// A void whose readings hold three finals that agree is refused by name with the agreed numbers, from a
+    /// reporter of either kind, at hour 24 on a game with no record and at day 7 on a disputed game: three 104-97s
+    /// beside a silent fourth; four 104-97s; three 104-97s among finals that differ. Nothing is written, nothing
+    /// credited. Controls, at hour 24: a void over a 2-2 split is taken, and one over two 104-97s beside a 104-90
+    /// (the same home score is not the same final); at day 7: a void over two 104-97s beside a 97-104 and a
+    /// silent fourth, the program's own day-7 shape, and one over the 2-2 split.
+    /// Break: in _writeVoid(), delete `_checkVoidReadings(r.readings);`. The void over three agreeing finals is
+    /// then taken at both clocks.
+    function test_neverLine_aVoidOverAgreeingFinalsIsRefused() public {
+        address[] memory accounts = new address[](3);
+        (accounts[0], accounts[1], accounts[2]) = (creator, payout, address(games));
+        vm.warp(DATE - 1 hours);
+        uint256 game = _create();
+        uint256 split = _create();
+        uint256 sameHome = _create();
+        uint256 day7 = _create();
+        uint256 day7Program = _create();
+        uint256 day7Split = _create();
+        _startBy(first, game, START);
+        _startBy(first, split, START);
+        _startBy(first, sameHome, START);
+        _startBy(first, day7, START);
+        _startBy(first, day7Program, START);
+        _startBy(first, day7Split, START);
+        vm.warp(START + 1);
+        _disputeBy(first, day7);
+        _disputeBy(first, day7Program);
+        _disputeBy(first, day7Split);
+        Reading[] memory four = new Reading[](4);
+        Reading[] memory among = new Reading[](5);
+        Reading[] memory twoTwo = new Reading[](4);
+        for (uint256 i; i < 4; ++i) {
+            four[i] = Reading({seat: uint8(i + 1), kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY});
+            twoTwo[i] = Reading({seat: uint8(i + 1), kind: ReadingKind.AnsweredFinal, homeScore: AWAY, awayScore: HOME});
+        }
+        twoTwo[0] = four[0];
+        twoTwo[1] = four[1];
+        among[0] = Reading({seat: 1, kind: ReadingKind.AnsweredFinal, homeScore: 50, awayScore: 40});
+        among[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY});
+        among[2] = Reading({seat: 3, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY});
+        among[3] = Reading({seat: 4, kind: ReadingKind.AnsweredFinal, homeScore: 60, awayScore: 61});
+        among[4] = Reading({seat: 5, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY});
+        bytes memory want = abi.encodeWithSelector(OspexGames.OspexGames__FinalsAgree.selector, HOME, AWAY);
+        MockReporter[2] memory kinds = [first, later];
+
+        // Hour 24, on the game with no record: the three shapes, from either kind.
+        vm.warp(START + WINDOW);
+        for (uint256 w; w < kinds.length; ++w) {
+            Report memory r = _voidReportTo(game, payout);
+            r.readings = _scoreReadings(HOME, AWAY);
+            _assertReportRefused(address(kinds[w]), r, want, accounts);
+            r.readings = four;
+            _assertReportRefused(address(kinds[w]), r, want, accounts);
+            r.readings = among;
+            _assertReportRefused(address(kinds[w]), r, want, accounts);
+        }
+        assertEq(uint8(_status(game)), uint8(GameStatus.Verified), "still open");
+        // Controls at hour 24: the 2-2 split; two that agree beside one with the same home score only.
+        Report memory s = _voidReportTo(split, payout);
+        s.readings = twoTwo;
+        _take(address(first), s);
+        Report memory h = _voidReportTo(sameHome, payout);
+        h.readings = _scoreReadings(HOME, AWAY);
+        h.readings[2] = Reading({seat: 3, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: 90});
+        _take(address(later), h);
+
+        // Day 7, on the disputed game: the same three shapes, refused by the same name, from either kind.
+        vm.warp(START + 1 + DAY7);
+        for (uint256 w; w < kinds.length; ++w) {
+            Report memory d = _voidReportTo(day7, payout);
+            d.readings = _scoreReadings(HOME, AWAY);
+            _assertReportRefused(address(kinds[w]), d, want, accounts);
+            d.readings = four;
+            _assertReportRefused(address(kinds[w]), d, want, accounts);
+            d.readings = among;
+            _assertReportRefused(address(kinds[w]), d, want, accounts);
+        }
+        assertEq(uint8(_status(day7)), uint8(GameStatus.Disputed), "still disputed");
+        // Controls at day 7: the program's own shape, two that agree beside a third that differs and a silent
+        // fourth; and the 2-2 split.
+        Report memory p = _voidReportTo(day7Program, payout);
+        p.readings = _scoreReadings(HOME, AWAY);
+        p.readings[2] = Reading({seat: 3, kind: ReadingKind.AnsweredFinal, homeScore: AWAY, awayScore: HOME});
+        _take(address(later), p);
+        Report memory ds = _voidReportTo(day7Split, payout);
+        ds.readings = twoTwo;
+        _take(address(first), ds);
+        assertEq(uint8(_status(split)), uint8(GameStatus.Voided), "control: the 2-2 split voids at hour 24");
+        assertEq(uint8(_status(sameHome)), uint8(GameStatus.Voided), "control: the same home score is not the same final");
+        assertEq(uint8(_status(day7Program)), uint8(GameStatus.Voided), "control: the program's day-7 void");
+        assertEq(uint8(_status(day7Split)), uint8(GameStatus.Voided), "control: the 2-2 split voids at day 7");
+        assertEq(games.getCredit(payout), 4 * uint256(FEE), "each void credited once");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A disputed game settles on fewer than three agreeing recorded sources." The games set's half, with the
+    //  readings: a disputed game's score needs AGREE finals reading it, and before its day-7 clock no final
+    //  reading otherwise; the reporter gate is test_neverLine_aDisputedGameScoresOnlyThroughTheReporterGate's.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// On a disputed game, inside n from a first-n reporter and after n from an after-n one, before the day-7
+    /// clock: a score on two agreeing finals beside two silents is refused by name (two of three), as is one on
+    /// two finals beside a reading answered without a final, and one on three agreeing finals beside a dissenting
+    /// fourth is refused by the dissent's name; a score beside a dissenting final is refused on a game with no
+    /// record too. Nothing is written, nothing credited. Controls: three agreeing finals beside a silent spare
+    /// settle the disputed game at either hour, and at the day-7 clock the dissenting shape settles it.
+    /// Break: in _writeScore(), change `disputed ? AGREE : 1` to `disputed ? 2 : 1`. A disputed game then
+    /// settles on two finals.
+    function test_neverLine_aDisputedGameSettlesOnlyOnAgreement() public {
+        address[] memory accounts = new address[](3);
+        (accounts[0], accounts[1], accounts[2]) = (creator, payout, address(games));
+        vm.warp(DATE - 1 hours);
+        uint256 disputed = _create();
+        uint256 plain = _create();
+        uint256 settled = _create();
+        uint256 atDay7 = _create();
+        _startBy(first, disputed, START);
+        _startBy(first, plain, START);
+        _startBy(first, settled, START);
+        _startBy(first, atDay7, START);
+        vm.warp(START + 1);
+        _disputeBy(first, disputed);
+        _disputeBy(first, settled);
+        _disputeBy(first, atDay7);
+        bytes memory twoOfThree = abi.encodeWithSelector(OspexGames.OspexGames__TooFewFinalsAgree.selector, 2, 3);
+        bytes memory dissents = abi.encodeWithSelector(OspexGames.OspexGames__FinalDissents.selector, 3);
+
+        uint64[2] memory hours_ = [START + 2, START + WINDOW];
+        MockReporter[2] memory kinds = [first, later];
+        for (uint256 t; t < hours_.length; ++t) {
+            vm.warp(hours_[t]);
+            Report memory two = _scoreReportTo(disputed, payout);
+            two.readings[2] = Reading({seat: 3, kind: ReadingKind.Silent, homeScore: 0, awayScore: 0});
+            _assertReportRefused(address(kinds[t]), two, twoOfThree, accounts);
+            two.readings[2] = Reading({seat: 3, kind: ReadingKind.AnsweredNoFinal, homeScore: 88, awayScore: 90});
+            _assertReportRefused(address(kinds[t]), two, twoOfThree, accounts);
+            Report memory dissent = _scoreReportTo(disputed, payout);
+            dissent.readings[3] = Reading({seat: 4, kind: ReadingKind.AnsweredFinal, homeScore: AWAY, awayScore: HOME});
+            _assertReportRefused(address(kinds[t]), dissent, dissents, accounts);
+            Report memory plainDissent = _scoreReportTo(plain, payout);
+            plainDissent.readings[3] = Reading({seat: 4, kind: ReadingKind.AnsweredFinal, homeScore: 1, awayScore: 1});
+            _assertReportRefused(address(kinds[t]), plainDissent, dissents, accounts);
+        }
+        assertEq(uint8(_status(disputed)), uint8(GameStatus.Disputed), "still disputed");
+        // Controls.
+        vm.warp(START + 2);
+        vm.recordLogs();
+        _take(address(second), _scoreReportTo(settled, payout)); // three agree, the spare silent, inside n
+        _assertOneCredit(vm.getRecordedLogs(), settled, payout, FEE);
+        vm.warp(START + WINDOW);
+        _take(address(later), _scoreReportTo(disputed, payout)); // the same after n
+        vm.warp(START + 1 + DAY7);
+        Report memory day7 = _scoreReportTo(atDay7, payout);
+        day7.readings[3] = Reading({seat: 4, kind: ReadingKind.AnsweredFinal, homeScore: AWAY, awayScore: HOME});
+        _take(address(first), day7); // three of four, one dissenting: the day-7 settlement
+        assertEq(uint8(_status(settled)), uint8(GameStatus.Scored), "control: agreement inside n");
+        assertEq(uint8(_status(disputed)), uint8(GameStatus.Scored), "control: agreement after n");
+        assertEq(uint8(_status(atDay7)), uint8(GameStatus.Scored), "control: the day-7 settlement");
+        assertEq(games.getCredit(payout), 3 * uint256(FEE), "each score credited once");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A disputed game settles on fewer than three agreeing recorded sources." The games set's other half: a
+    //  disputed game's score comes through the reporter gate like any other.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// On a disputed game, inside n and after it, before the day-7 clock and after: a score from a stranger, a
+    /// retired reporter, a reporter whose code changed, a reporter approved after the game was made, and an
+    /// after-n reporter inside n is refused by name and changes nothing; a score from a permitted reporter is
+    /// taken at any of those hours, credits the payout address once, and nothing more is written.
+    /// Break: in report(), change `if (kind == ReporterKind.None) revert OspexGames__NotAReporter(r.gameId,
+    /// msg.sender);` to `if (kind == ReporterKind.None && g.status != GameStatus.Disputed) revert
+    /// OspexGames__NotAReporter(r.gameId, msg.sender);`. A stranger then scores the disputed game.
+    function test_neverLine_aDisputedGameScoresOnlyThroughTheReporterGate() public {
+        address[] memory accounts = new address[](3);
+        (accounts[0], accounts[1], accounts[2]) = (creator, payout, stranger);
+        MockReporter swapped = new MockReporter(games);
+        _approve(address(swapped), ReporterKind.FirstN);
+        MockReporter retiredOne = new MockReporter(games);
+        _approve(address(retiredOne), ReporterKind.FirstN);
+        vm.warp(DATE - 1 hours);
+        uint256 game = _create(); // copies first, later, second, swapped and retiredOne
+        _startBy(first, game, START);
+        vm.warp(START + 1);
+        _disputeBy(first, game);
+        _retire(address(retiredOne));
+        bytes32 approvedHash = address(swapped).codehash;
+        vm.etch(address(swapped), address(new SwappedRelay(games)).code);
+        bytes32 foundHash = address(swapped).codehash;
+        MockReporter lateComer = new MockReporter(games);
+        _approve(address(lateComer), ReporterKind.FirstN);
+
+        uint64[4] memory times = [START + 2, START + WINDOW - 1, START + WINDOW, START + 1 + DAY7 + 1];
+        for (uint256 t; t < times.length; ++t) {
+            vm.warp(times[t]);
+            address[5] memory senders =
+                [stranger, address(retiredOne), address(swapped), address(lateComer), address(later)];
+            bytes[5] memory why = [
+                abi.encodeWithSelector(OspexGames.OspexGames__NotAReporter.selector, game, stranger),
+                abi.encodeWithSelector(OspexGames.OspexGames__ReporterRetired.selector, address(retiredOne)),
+                abi.encodeWithSelector(
+                    OspexGames.OspexGames__CodeChanged.selector, address(swapped), approvedHash, foundHash
+                ),
+                abi.encodeWithSelector(OspexGames.OspexGames__NotAReporter.selector, game, address(lateComer)),
+                abi.encodeWithSelector(OspexGames.OspexGames__InsideWindow.selector, game, uint256(START) + WINDOW)
+            ];
+            uint256 count = t < 2 ? 5 : 4; // from start + n the after-n reporter is permitted
+            for (uint256 s; s < count; ++s) {
+                _assertReportRefused(senders[s], _scoreReportTo(game, payout), why[s], accounts);
+            }
+        }
+        // Permitted: a first-n reporter, inside n and before the day-7 clock.
+        vm.warp(START + 2);
+        vm.recordLogs();
+        _take(address(second), _scoreReportTo(game, payout));
+        _assertOneCredit(vm.getRecordedLogs(), game, payout, FEE);
+        assertEq(uint8(_status(game)), uint8(GameStatus.Scored), "scored");
+        bytes32 afterEnd = _viewAll();
+        (bool okMore, bytes memory errMore) = _send(address(first), _disputeReport(game));
+        assertFalse(okMore, "an update after the score was taken");
+        assertEq(errMore, abi.encodeWithSelector(OspexGames.OspexGames__GameEnded.selector, game, GameStatus.Scored));
+        assertEq(_viewAll(), afterEnd, "something was written after the end");
+        // Permitted too: an after-n reporter from start + n, and a first-n reporter past the day-7 clock.
+        vm.warp(DATE - 1 hours);
+        uint256 atN = _create();
+        uint256 pastDay7 = _create();
+        _startBy(first, atN, START);
+        _startBy(first, pastDay7, START);
+        vm.warp(START + 1);
+        _disputeBy(first, atN);
+        _disputeBy(first, pastDay7);
+        vm.warp(START + WINDOW);
+        _take(address(later), _scoreReportTo(atN, payout));
+        vm.warp(START + 1 + DAY7 + 1);
+        _take(address(first), _scoreReportTo(pastDay7, payout));
+        assertEq(games.getCredit(payout), 3 * uint256(FEE), "each score credited once");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "The hour-24 void posts while any answering feed shows a final." The readings a void carries ride in its
+    //  event exactly as given, so the record can show them; the agreement rule behind them is the scoring
+    //  program's, and the games set's own check of them is test_neverLine_aVoidOverAgreeingFinalsIsRefused.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// A void whose readings show two finals that agree, short of the three the games set refuses, is taken, and
+    /// its event carries those readings exactly, feed by feed; the game reads Voided, no score, and its storage
+    /// holds no reading.
+    /// Break: in report(), change the emit's `r.readings` to `new Reading[](0)`. The void's readings are then
+    /// lost.
+    function test_neverLine_aVoidsReadingsRideInItsEventAsGiven() public {
+        uint256 game = _create();
+        vm.warp(DATE - 1 hours);
+        _startBy(first, game, START);
+        vm.warp(START + WINDOW);
+        Report memory r = _voidReport(game);
+        r.readings = _readings(); // two feeds show a final
+        bytes memory raw = _rawGame(game);
+        vm.recordLogs();
+        _take(address(first), r);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 2, "the credit and the report");
+        assertEq(logs[1].topics[0], IOspexGames.GameReported.selector);
+        assertEq(uint256(logs[1].topics[1]), game);
+        assertEq(uint256(logs[1].topics[3]), uint256(ReportKind.Void));
+        (uint64 start, uint32 h, uint32 a, Reading[] memory readings, address pay) =
+            abi.decode(logs[1].data, (uint64, uint32, uint32, Reading[], address));
+        assertEq(uint256(start) + h + a, 0, "a void carries no start and no score");
+        assertEq(pay, payout);
+        assertEq(abi.encode(readings), abi.encode(_readings()), "the readings, as given");
+        assertEq(uint8(_status(game)), uint8(GameStatus.Voided));
+        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__NotScored.selector, game, GameStatus.Voided));
+        games.getGameScores(game);
+        // The void wrote the status byte and nothing else of the game: no reading is stored.
+        bytes memory rawAfter = _rawGame(game);
+        assertEq(rawAfter.length, raw.length, "the game's storage grew");
+        assertEq(uint8(rawAfter[31]), uint8(GameStatus.Voided), "the status byte");
+        rawAfter[31] = raw[31];
+        assertEq(rawAfter, raw, "a void wrote more than the status");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A void is taken before start + n."
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// A void is refused by name with no start written, at any hour; and before the start, at the start, inside
+    /// n and at start + n - 1, from a first-n reporter and from an after-n one, on a game with the default n and
+    /// on one whose league gave it another. At start + n each kind's void is taken, credits the payout address
+    /// and ends the game. A start written late, at start + n, opens the void at once.
+    /// Break: in _writeVoid(), delete `if (block.timestamp < voidOpensAt) revert OspexGames__InsideWindow(
+    /// r.gameId, voidOpensAt);`. A first-n reporter then voids at the start.
+    function test_neverLine_noVoidBeforeStartPlusN() public {
+        address[] memory accounts = new address[](3);
+        (accounts[0], accounts[1], accounts[2]) = (creator, payout, address(games));
+        _setTerms("nhl", _terms(3 hours));
+        vm.warp(DATE - 1 hours);
+        uint256 unstarted = _create();
+        uint256 game = _create();
+        vm.prank(creator, creator);
+        uint256 short_ = games.createGame("nhl", "Home", "Away", DATE, _hints(), ANY_FEE);
+        _startBy(first, game, START);
+        _startBy(first, short_, START);
+        MockReporter[2] memory kinds = [first, later];
+
+        uint64[3] memory anyHour = [DATE - 1 hours, START + WINDOW, START + DAY30];
+        for (uint256 t; t < anyHour.length; ++t) {
+            vm.warp(anyHour[t]);
+            for (uint256 w; w < kinds.length; ++w) {
+                (bool ok, bytes memory err) = _send(address(kinds[w]), _voidReport(unstarted));
+                assertFalse(ok, "a game with no start was voided");
+                assertEq(err, _err1(OspexGames.OspexGames__StartNotWritten.selector, unstarted));
+            }
+        }
+        uint256[2] memory ids = [game, short_];
+        uint64[2] memory windows = [WINDOW, 3 hours];
+        for (uint256 i; i < ids.length; ++i) {
+            uint64[4] memory early = [DATE - 1 hours, START, START + windows[i] / 2, START + windows[i] - 1];
+            for (uint256 t; t < early.length; ++t) {
+                vm.warp(early[t]);
+                for (uint256 w; w < kinds.length; ++w) {
+                    _assertReportRefused(
+                        address(kinds[w]),
+                        _voidReport(ids[i]),
+                        abi.encodeWithSelector(
+                            OspexGames.OspexGames__InsideWindow.selector, ids[i], uint256(START) + windows[i]
+                        ),
+                        accounts
+                    );
+                }
+            }
+            vm.warp(START + windows[i]);
+            vm.recordLogs();
+            _take(address(kinds[i]), _voidReportTo(ids[i], payout));
+            _assertOneCredit(vm.getRecordedLogs(), ids[i], payout, FEE);
+            assertEq(uint8(_status(ids[i])), uint8(GameStatus.Voided), "voided at start + n");
+        }
+        vm.warp(DATE - 1 hours);
+        uint256 lateStart = _create();
+        vm.warp(START + WINDOW);
+        _startBy(first, lateStart, START);
+        _take(address(later), _voidReport(lateStart));
+        assertEq(uint8(_status(lateStart)), uint8(GameStatus.Voided), "a late start opens the void at once");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A void is stored as a scored 0-0." Here, the void itself.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// A void carrying a score is refused by name. A real void reads Voided, its score read refuses by name,
+    /// and its storage holds no score; beside it a real 0-0 score reads Scored and 0-0, and a release reads
+    /// Released: the three ends read apart by status, which is all the betting set reads.
+    /// Break: in _writeVoid(), change `_end(g, r.gameId, GameStatus.Voided, r.payout);` to
+    /// `_end(g, r.gameId, GameStatus.Scored, r.payout);`. The void is then stored as a scored 0-0.
+    function test_neverLine_aVoidIsAStatusNotAScore() public {
+        vm.warp(DATE - 1 hours);
+        uint256 voided = _create();
+        uint256 nil = _create();
+        uint256 released = _create();
+        _startBy(first, voided, START);
+        _startBy(first, nil, START);
+        _startBy(first, released, START);
+        vm.warp(START + WINDOW);
+        uint32[2][3] memory scores = [[HOME, AWAY], [uint32(0), uint32(1)], [uint32(1), uint32(0)]];
+        for (uint256 i; i < scores.length; ++i) {
+            Report memory r = _voidReport(voided);
+            r.homeScore = scores[i][0];
+            r.awayScore = scores[i][1];
+            (bool ok, bytes memory err) = _send(address(first), r);
+            assertFalse(ok, "a void carrying a score was taken");
+            assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Void));
+        }
+        _voidBy(first, voided);
+        _scoreBy(first, nil, 0, 0);
+        vm.warp(START + DAY30);
+        _releaseBy(stranger, released);
+
+        assertEq(uint8(_status(voided)), uint8(GameStatus.Voided), "a void is a status");
+        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__NotScored.selector, voided, GameStatus.Voided));
+        games.getGameScores(voided);
+        bytes memory raw = _rawGame(voided);
+        uint256 word0;
+        assembly ("memory-safe") {
+            word0 := mload(add(raw, 0x20))
+        }
+        assertEq((word0 >> 136) & 0xffffffff, 0, "a void stored a home score");
+        assertEq((word0 >> 168) & 0xffffffff, 0, "a void stored an away score");
+        assertEq(uint8(word0), uint8(GameStatus.Voided), "the status byte");
+
+        assertEq(uint8(_status(nil)), uint8(GameStatus.Scored), "a written 0-0 is a score");
+        (uint32 h, uint32 a) = games.getGameScores(nil);
+        assertEq(uint256(h) + a, 0, "a written 0-0 reads 0-0");
+        assertEq(uint8(_status(released)), uint8(GameStatus.Released), "a release is a status of its own");
+        vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__NotScored.selector, released, GameStatus.Released));
+        games.getGameScores(released);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "An update credits anything, or moves the day-7 clock."
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// A disputed game takes updates from its reporters of both kinds, inside n (the first-n kind), at
+    /// start + n and a second before the day-7 clock runs: each is taken and emitted with its readings, credits
+    /// nothing (no credit event, no credit moves, the fee stays held), writes nothing (the status, the record's
+    /// time and the storage word for word are unchanged), and an update naming a payout is refused by name. The
+    /// day-7 void opens at the first record plus the clock, not at the last update plus the clock: refused a
+    /// second before, taken at it. On a second game an update past the day-7 clock is taken too, and the void
+    /// after it.
+    /// Break: in _writeDispute(), change `if (status == GameStatus.Verified) {` to
+    /// `if (status <= GameStatus.Disputed) {`. Every update then moves the day-7 clock.
+    function test_neverLine_anUpdateCreditsNothingAndMovesNoClock() public {
+        vm.warp(DATE - 1 hours);
+        uint256 game = _create();
+        uint256 other = _create();
+        _startBy(first, game, START);
+        _startBy(first, other, START);
+        vm.warp(START + 1);
+        _disputeBy(first, game);
+        _disputeBy(second, other);
+        uint64 recordedAt = START + 1;
+        assertEq(games.getGameDisputedAt(game), recordedAt, "the record's time");
+        address[] memory accounts = new address[](7);
+        (accounts[0], accounts[1], accounts[2], accounts[3]) = (creator, payout, stranger, address(first));
+        (accounts[4], accounts[5], accounts[6]) = (address(later), address(second), address(games));
+        bytes memory raw = _rawGame(game);
+
+        uint64[3] memory times = [START + 2, START + WINDOW, recordedAt + DAY7 - 1];
+        MockReporter[3] memory reporters = [first, later, second];
+        for (uint256 t; t < times.length; ++t) {
+            vm.warp(times[t]);
+            for (uint256 w; w < reporters.length; ++w) {
+                if (reporters[w] == later && times[t] < START + WINDOW) continue; // held by the hour, not here
+                Report memory u = _disputeReport(game);
+                u.readings[1].homeScore = HOME + uint32(t); // a reading changed since the record
+                _assertUpdateTaken(address(reporters[w]), u, accounts, raw, recordedAt);
+            }
+        }
+        Report memory paid = _disputeReport(game);
+        paid.payout = payout;
+        (bool okPaid, bytes memory errPaid) = _send(address(first), paid);
+        assertFalse(okPaid, "an update naming a payout was taken");
+        assertEq(errPaid, abi.encodeWithSelector(OspexGames.OspexGames__FieldNotEmpty.selector, ReportKind.Dispute));
+
+        // The void opens at the first record plus the clock, whatever the updates since.
+        vm.warp(recordedAt + DAY7 - 1);
+        (bool okEarly, bytes memory errEarly) = _send(address(later), _voidReport(game));
+        assertFalse(okEarly, "the day-7 void opened early");
+        assertEq(
+            errEarly,
+            abi.encodeWithSelector(
+                OspexGames.OspexGames__InsideDay7Clock.selector, game, uint256(recordedAt) + DAY7
+            )
+        );
+        vm.warp(recordedAt + DAY7);
+        vm.recordLogs();
+        _take(address(later), _voidReportTo(game, payout));
+        _assertOneCredit(vm.getRecordedLogs(), game, payout, FEE);
+        assertEq(uint8(_status(game)), uint8(GameStatus.Voided), "the day-7 void");
+
+        // Past the day-7 clock a disputed game still takes an update, and then its void.
+        vm.warp(recordedAt + DAY7 + 3 days);
+        _take(address(first), _disputeReport(other));
+        assertEq(games.getGameDisputedAt(other), recordedAt, "a late update moved the clock");
+        assertEq(_held(other), FEE, "a late update credited the fee");
+        _take(address(second), _voidReportTo(other, payout));
+        assertEq(games.getCredit(payout), 2 * uint256(FEE), "each void credited once");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "The creation fee goes to an address where it literally can't be withdrawn." Here, for a void: the same
+    //  refusals as a score's.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// A void naming as its payout address 0, a reserved address, the games set, the coin, the sending
+    /// reporter, another of the game's reporters or a retired reporter is refused by name, with the void's kind
+    /// in the refusal; nothing is emitted, no money moves and the game keeps its fee. The hour-24 void and the
+    /// day-7 void alike. Control: the same void naming the payout address is taken, credits it, and it withdraws.
+    /// Break: in _writeVoid(), delete `_checkPayout(ReportKind.Void, r.payout);`. A void naming address 0 is then
+    /// taken and the fee credited to 0, which nothing can withdraw.
+    function test_neverLine_aVoidRefusesThePayoutsAScoreRefuses() public {
+        _assertVoidPayoutsRefused(false);
+        _assertVoidPayoutsRefused(true);
+    }
+
+    /// @dev The seven refusals, for the hour-24 void (`disputed` false) or the day-7 void (`disputed` true).
+    function _assertVoidPayoutsRefused(bool disputed) internal {
+        MockReporter retiredOne = new MockReporter(games);
+        _approve(address(retiredOne), ReporterKind.AfterN);
+        _retire(address(retiredOne));
+        address[7] memory bad = [
+            address(0), address(0x1010), address(games), address(token), address(first), address(second), address(retiredOne)
+        ];
+        bytes[7] memory why = [
+            abi.encodeWithSelector(OspexGames.OspexGames__NoPayout.selector, ReportKind.Void),
+            abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsReserved.selector, ReportKind.Void, address(0x1010)),
+            abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsTheGamesSet.selector, ReportKind.Void),
+            abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsTheCoin.selector, ReportKind.Void),
+            abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsAReporter.selector, ReportKind.Void, address(first)),
+            abi.encodeWithSelector(OspexGames.OspexGames__PayoutIsAReporter.selector, ReportKind.Void, address(second)),
+            abi.encodeWithSelector(
+                OspexGames.OspexGames__PayoutIsAReporter.selector, ReportKind.Void, address(retiredOne)
+            )
+        ];
+        address[] memory accounts = new address[](5);
+        (accounts[0], accounts[1], accounts[2], accounts[3], accounts[4]) =
+            (creator, payout, address(first), address(games), address(0));
+        uint256 paid;
+        for (uint256 i; i < bad.length; ++i) {
+            vm.warp(DATE - 1 hours);
+            uint256 game = _create();
+            _startBy(first, game, START);
+            if (disputed) {
+                vm.warp(START + 1);
+                _disputeBy(first, game);
+                vm.warp(START + 1 + DAY7);
+            } else {
+                vm.warp(START + WINDOW);
+            }
+            bytes32 money = _money(accounts);
+            bytes32 state = _viewAll();
+            vm.recordLogs();
+            (bool ok, bytes memory err) = _send(address(first), _voidReportTo(game, bad[i]));
+            assertFalse(ok, "a payout address that can never withdraw was taken for a void");
+            assertEq(err, why[i], "the refusal");
+            assertEq(vm.getRecordedLogs().length, 0, "a refused void emitted");
+            assertEq(_money(accounts), money, "a refused void moved money");
+            assertEq(_viewAll(), state, "a refused void changed a game");
+            assertEq(_held(game), FEE, "the game keeps its fee");
+            _take(address(first), _voidReportTo(game, payout));
+            assertEq(uint8(_status(game)), uint8(GameStatus.Voided), "control: voided");
+            vm.prank(payout);
+            paid += games.withdraw();
+        }
+        assertEq(paid, bad.length * uint256(FEE), "control: each void credited the payout address, and it withdrew");
+    }
+
     // ──────────────────────────── Helpers ──────────────────────────────
+
+    /// @dev One refused report: who sends what, at what hour, and the refusal it must get.
+    struct Refusal {
+        Report report;
+        address from;
+        bytes why;
+        uint64 when;
+    }
+
+    function _refusal(Report memory report, address from, bytes memory why, uint64 when)
+        internal
+        pure
+        returns (Refusal memory c)
+    {
+        c.report = report;
+        c.from = from;
+        c.why = why;
+        c.when = when;
+    }
+
+    /// @dev The case is refused by name at its hour, emits nothing, changes no read and moves no money.
+    function _assertRefused(Refusal memory c, address[] memory accounts, uint256 i) internal {
+        vm.warp(c.when);
+        bytes32 before = _viewAll();
+        bytes32 money = _money(accounts);
+        vm.recordLogs();
+        (bool ok, bytes memory err) = _send(c.from, c.report);
+        assertFalse(ok, string.concat("a rejected report was taken, case ", vm.toString(i)));
+        assertEq(err, c.why, string.concat("refusal reason, case ", vm.toString(i)));
+        assertEq(vm.getRecordedLogs().length, 0, string.concat("a rejected report emitted, case ", vm.toString(i)));
+        assertEq(_viewAll(), before, string.concat("a rejected report changed state, case ", vm.toString(i)));
+        assertEq(_money(accounts), money, string.concat("a rejected report moved money, case ", vm.toString(i)));
+    }
+
+    /// @dev `who`'s report is refused with `want`, emits nothing, changes no read and moves no money.
+    function _assertReportRefused(address who, Report memory r, bytes memory want, address[] memory accounts)
+        internal
+    {
+        bytes32 before = _viewAll();
+        bytes32 money = _money(accounts);
+        vm.recordLogs();
+        (bool ok, bytes memory err) = _send(who, r);
+        assertFalse(ok, "a report that must be refused was taken");
+        assertEq(err, want, "the refusal");
+        assertEq(vm.getRecordedLogs().length, 0, "a refused report emitted");
+        assertEq(_viewAll(), before, "a refused report changed state");
+        assertEq(_money(accounts), money, "a refused report moved money");
+    }
+
+    /// @dev `who`'s update `u` to the disputed `game` is taken and emitted with its readings and no payout, and
+    ///      credits nothing, writes nothing and moves no clock: the money, the storage word for word, the
+    ///      record's time, the status and the fee held read as before.
+    function _assertUpdateTaken(
+        address who,
+        Report memory u,
+        address[] memory accounts,
+        bytes memory raw,
+        uint64 recordedAt
+    ) internal {
+        uint256 game = u.gameId;
+        bytes32 money = _money(accounts);
+        vm.recordLogs();
+        _take(who, u);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1, "an update emitted more than its report");
+        assertEq(logs[0].topics[0], IOspexGames.GameReported.selector, "the report's event");
+        assertEq(logs[0].topics[2], bytes32(uint256(uint160(who))), "the reporter");
+        assertEq(uint256(logs[0].topics[3]), uint256(ReportKind.Dispute), "an update is a dispute report");
+        (,,, Reading[] memory readings, address pay) =
+            abi.decode(logs[0].data, (uint64, uint32, uint32, Reading[], address));
+        assertEq(abi.encode(readings), abi.encode(u.readings), "the update's readings, as given");
+        assertEq(pay, address(0), "an update names no payout");
+        assertEq(_money(accounts), money, "an update moved money");
+        assertEq(_rawGame(game), raw, "an update wrote the game");
+        assertEq(games.getGameDisputedAt(game), recordedAt, "an update moved the day-7 clock");
+        assertEq(uint8(_status(game)), uint8(GameStatus.Disputed), "an update moved the status");
+        assertEq(_held(game), FEE, "an update credited the fee");
+    }
+
+    /// @dev A release of `game` at `when`, by a stranger and by the creator, is refused with `why`, emits
+    ///      nothing, changes no read and moves no money.
+    function _assertReleaseRefused(uint256 game, uint64 when, bytes memory why, address[] memory accounts) internal {
+        address[2] memory callers = [stranger, creator];
+        for (uint256 c; c < callers.length; ++c) {
+            vm.warp(when);
+            bytes32 before = _viewAll();
+            bytes32 money = _money(accounts);
+            vm.recordLogs();
+            (bool ok, bytes memory err) = _tryRelease(callers[c], game);
+            assertFalse(ok, "a rejected release was taken");
+            assertEq(err, why, "refusal reason, release");
+            assertEq(vm.getRecordedLogs().length, 0, "a rejected release emitted");
+            assertEq(_viewAll(), before, "a rejected release changed state");
+            assertEq(_money(accounts), money, "a rejected release moved money");
+        }
+    }
 
     /// @dev `by` scores a new game naming `bad` as the payout address: see _assertPayoutRefusedOn.
     function _assertPayoutRefused(MockReporter by, address bad, bytes memory why) internal {
@@ -1773,16 +3208,15 @@ contract OspexGamesNeverLinesTest is GamesBase {
     }
 
     /// @dev Every report kind a reporter could send to two games, one unstarted and one started: a start, a
-    ///      score, a report of each kind this contract does not take yet, and a start with a malformed reading.
+    ///      score, a void, a dispute record, a report with no kind, and a start with a malformed reading.
     function _everyKind(uint256 unstarted, uint256 started) internal view returns (Report[] memory out) {
         out = new Report[](6);
         out[0] = _startReport(unstarted, START);
         out[1] = _scoreReport(started, HOME, AWAY);
-        ReportKind[3] memory others = [ReportKind.None, ReportKind.Void, ReportKind.Dispute];
-        for (uint256 i; i < others.length; ++i) {
-            out[2 + i] = _scoreReport(started, HOME, AWAY);
-            out[2 + i].kind = others[i];
-        }
+        out[2] = _voidReport(started);
+        out[3] = _disputeReport(started);
+        out[4] = _scoreReport(started, HOME, AWAY);
+        out[4].kind = ReportKind.None;
         out[5] = _startReport(unstarted, START);
         out[5].readings[3] = Reading({seat: 4, kind: ReadingKind.Silent, homeScore: 1, awayScore: 0});
     }

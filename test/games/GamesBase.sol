@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {OspexGames} from "../../src/games/OspexGames.sol";
 import {
@@ -38,31 +39,33 @@ contract MockReporter is IOspexReporter {
     }
 }
 
+/// @dev The six arguments of the games contract's constructor as one value. The harness's constructor takes them
+///      this way so that it holds one word for them where the contract's own holds six: compiled through the IR
+///      pipeline, the harness's creation code, the base constructor's loop inlined into it, sat one stack slot
+///      from the limit, and a one-line change anywhere in the contract could fail the harness's build while the
+///      contract itself built. The contract's constructor is unchanged.
+struct Deploy {
+    address timelock;
+    IERC20 token;
+    Terms defaultTerms;
+    address[] reporters;
+    ReporterKind[] kinds;
+    bytes32[] codeHashes;
+}
+
 /// @dev The games contract with test-only hooks. It overrides nothing, so every inherited call runs the
-///      production code. The hooks stand in for what later work adds: the ends that write the statuses this
-///      contract cannot write yet.
+///      production code. No hook writes a status: every status a test needs is reached through the production
+///      paths (a start, a score, a void, a dispute record, a release).
 contract OspexGamesHarness is OspexGames {
-    constructor(
-        address timelock,
-        IERC20 token,
-        Terms memory defaultTerms,
-        address[] memory reporters,
-        ReporterKind[] memory kinds,
-        bytes32[] memory codeHashes
-    ) OspexGames(timelock, token, defaultTerms, reporters, kinds, codeHashes) {}
+    constructor(Deploy memory d)
+        OspexGames(d.timelock, d.token, d.defaultTerms, d.reporters, d.kinds, d.codeHashes)
+    {}
 
-    /// @dev Puts a game in a status, as the ends will. It credits nothing: a test that plants an end this way
-    ///      is not about the fee.
-    function harnessSetStatus(uint256 gameId, GameStatus status) external {
-        s_games[gameId].status = status;
-    }
-
-    /// @dev Releases a game through the production code's release credit, `_release`, as the release call will.
-    ///      The release call's own rules, who may release and from when, are not built yet and are not modelled.
-    ///      Nothing is checked here: the gate every end shares, that the game exists and has not ended, is the
-    ///      production code's (`_end`).
-    function harnessRelease(uint256 gameId) external {
-        _release(s_games[gameId], gameId);
+    /// @dev Reaches `_end`, the one place an end is written and the fee credited, with whatever status and
+    ///      account a test names, and none of the checks its production callers make first: the gate under test
+    ///      is `_end`'s own (not a game, already ended, not an end).
+    function harnessEnd(uint256 gameId, GameStatus end, address account) external {
+        _end(s_games[gameId], gameId, end, account);
     }
 
     /// @dev Plants score fields without the status, to show the read does not trust them.
@@ -72,11 +75,47 @@ contract OspexGamesHarness is OspexGames {
     }
 }
 
+/// @dev A game's storage, word for word, as any test or handler reads it. Where OspexGames keeps its games and
+///      their reporter copies, from `forge inspect OspexGames storageLayout`;
+///      test_storage_aGameLiesWhereTheSnapshotsReadIt pins it, so a layout change turns that test red instead
+///      of leaving these reads looking at empty slots.
+library GameWords {
+    Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+    uint256 internal constant GAMES_SLOT = 6;
+    uint256 internal constant GAME_REPORTERS_SLOT = 7;
+
+    /// @dev One game's storage: its four words (status, date, start and scores; then its terms, two words;
+    ///      then its creator and the time of its dispute record) and its reporters' copy. The reads show what a
+    ///      game says; this shows every field a write could touch, the date included, which no read returns.
+    function raw(address games, uint256 gameId) internal view returns (bytes memory out) {
+        uint256 base = uint256(keccak256(abi.encode(gameId, GAMES_SLOT)));
+        for (uint256 i; i < 4; ++i) {
+            out = abi.encodePacked(out, vm.load(games, bytes32(base + i)));
+        }
+        bytes32 lengthSlot = keccak256(abi.encode(gameId, GAME_REPORTERS_SLOT));
+        uint256 length = uint256(vm.load(games, lengthSlot));
+        out = abi.encodePacked(out, length);
+        uint256 firstEntry = uint256(keccak256(abi.encode(lengthSlot)));
+        for (uint256 i; i < length; ++i) {
+            out = abi.encodePacked(out, vm.load(games, bytes32(firstEntry + i)));
+        }
+    }
+
+    /// @dev A game's date as stored: the eight bytes after the status byte in its first word.
+    function date(address games, uint256 gameId) internal view returns (uint64) {
+        bytes32 word = vm.load(games, keccak256(abi.encode(gameId, GAMES_SLOT)));
+        return uint64(uint256(word) >> 8);
+    }
+}
+
 /// @dev Shared setup: a stock timelock, three reporters of mixed kinds, a date, the launch terms, and helpers.
 abstract contract GamesBase is Test {
     /// @dev The day-0 delay of the Polygon timelock.
     uint256 internal constant DELAY = 60;
     uint64 internal constant WINDOW = 1 days;
+    /// @dev The launch day-7 and day-30 clocks, written out rather than read from the contract.
+    uint64 internal constant DAY7 = 7 days;
+    uint64 internal constant DAY30 = 30 days;
     /// @dev A scheduled start that is not round, so a start equal to it cannot pass for a start written as given.
     uint64 internal constant DATE = 1_800_000_037;
     /// @dev The start written in most tests: inside the window of DATE, and not equal to it.
@@ -131,8 +170,16 @@ abstract contract GamesBase is Test {
         kinds[0] = ReporterKind.FirstN;
         kinds[1] = ReporterKind.AfterN;
         kinds[2] = ReporterKind.FirstN;
-        games =
-            new OspexGamesHarness(address(timelock), token, _launchTerms(), reporters, kinds, _hashes(reporters));
+        games = new OspexGamesHarness(
+            Deploy({
+                timelock: address(timelock),
+                token: token,
+                defaultTerms: _launchTerms(),
+                reporters: reporters,
+                kinds: kinds,
+                codeHashes: _hashes(reporters)
+            })
+        );
         vm.stopPrank();
         assertEq(address(games), predicted, "games address as predicted");
         // The two addresses most tests create from can pay the fee.
@@ -152,6 +199,13 @@ abstract contract GamesBase is Test {
     /// @dev The launch terms, written out: n 24 hours, the day-7 clock 7 days, the day-30 clock 30 days, 1 USDC.
     function _launchTerms() internal pure returns (Terms memory) {
         return Terms({window: WINDOW, day7Clock: 604_800, day30Clock: 2_592_000, fee: 1_000_000});
+    }
+
+    /// @dev The launch terms with another day-7 clock and day-30 clock.
+    function _clockTerms(uint64 day7Clock, uint64 day30Clock) internal pure returns (Terms memory t) {
+        t = _launchTerms();
+        t.day7Clock = day7Clock;
+        t.day30Clock = day30Clock;
     }
 
     function _terms(uint64 window) internal pure returns (Terms memory t) {
@@ -226,11 +280,23 @@ abstract contract GamesBase is Test {
 
     // ──────────────────────────── Reports ──────────────────────────────
 
+    /// @dev Readings a start rides on, and the shape of a game still in play after n: two feeds show the same
+    ///      final, one answered without a final, one is silent.
     function _readings() internal pure returns (Reading[] memory readings) {
         readings = new Reading[](4);
         readings[0] = Reading({seat: 1, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY});
         readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY});
         readings[2] = Reading({seat: 3, kind: ReadingKind.AnsweredNoFinal, homeScore: 88, awayScore: 90});
+        readings[3] = Reading({seat: 4, kind: ReadingKind.Silent, homeScore: 0, awayScore: 0});
+    }
+
+    /// @dev Readings as a score rests on them: the three counting seats show the same final, the spare is
+    ///      silent. Three agreeing finals settle a game at any status and any hour the reporter may write.
+    function _scoreReadings(uint32 home, uint32 away) internal pure returns (Reading[] memory readings) {
+        readings = new Reading[](4);
+        readings[0] = Reading({seat: 1, kind: ReadingKind.AnsweredFinal, homeScore: home, awayScore: away});
+        readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: home, awayScore: away});
+        readings[2] = Reading({seat: 3, kind: ReadingKind.AnsweredFinal, homeScore: home, awayScore: away});
         readings[3] = Reading({seat: 4, kind: ReadingKind.Silent, homeScore: 0, awayScore: 0});
     }
 
@@ -247,8 +313,51 @@ abstract contract GamesBase is Test {
         r.kind = ReportKind.Score;
         r.homeScore = home;
         r.awayScore = away;
-        r.readings = _readings();
+        r.readings = _scoreReadings(home, away);
         r.payout = payout;
+    }
+
+    /// @dev Readings as the hour-24 void rests on them: the feeds that answer all show no final, and one is
+    ///      silent. The games set reads a void's readings only for three finals that agree; the shape is what
+    ///      the program would send.
+    function _voidReadings() internal pure returns (Reading[] memory readings) {
+        readings = new Reading[](4);
+        readings[0] = Reading({seat: 1, kind: ReadingKind.AnsweredNoFinal, homeScore: 0, awayScore: 0});
+        readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredNoFinal, homeScore: 51, awayScore: 49});
+        readings[2] = Reading({seat: 3, kind: ReadingKind.Silent, homeScore: 0, awayScore: 0});
+        readings[3] = Reading({seat: 4, kind: ReadingKind.AnsweredNoFinal, homeScore: 0, awayScore: 0});
+    }
+
+    /// @dev Readings as a dispute record rests on them: two feeds show finals that disagree, one shows no final
+    ///      and one is silent.
+    function _disputeReadings() internal pure returns (Reading[] memory readings) {
+        readings = new Reading[](4);
+        readings[0] = Reading({seat: 1, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY});
+        readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: HOME + 3, awayScore: AWAY});
+        readings[2] = Reading({seat: 3, kind: ReadingKind.AnsweredNoFinal, homeScore: 88, awayScore: 90});
+        readings[3] = Reading({seat: 4, kind: ReadingKind.Silent, homeScore: 0, awayScore: 0});
+    }
+
+    /// @dev A void: no start, no scores, the void's readings, and the payout address the end credits.
+    function _voidReport(uint256 gameId) internal view returns (Report memory r) {
+        r.gameId = gameId;
+        r.kind = ReportKind.Void;
+        r.readings = _voidReadings();
+        r.payout = payout;
+    }
+
+    /// @dev A void whose payout address is `to`.
+    function _voidReportTo(uint256 gameId, address to) internal view returns (Report memory r) {
+        r = _voidReport(gameId);
+        r.payout = to;
+    }
+
+    /// @dev A dispute record, or an update to one: no start, no scores, the readings that disagree, and no
+    ///      payout, since it credits nothing.
+    function _disputeReport(uint256 gameId) internal pure returns (Report memory r) {
+        r.gameId = gameId;
+        r.kind = ReportKind.Dispute;
+        r.readings = _disputeReadings();
     }
 
     /// @dev Sends a report from `who` and returns whether it was taken and the revert data. A MockReporter
@@ -280,6 +389,61 @@ abstract contract GamesBase is Test {
 
     function _scoreBy(MockReporter who, uint256 gameId, uint32 home, uint32 away) internal {
         _take(address(who), _scoreReport(gameId, home, away));
+    }
+
+    function _voidBy(MockReporter who, uint256 gameId) internal {
+        _take(address(who), _voidReport(gameId));
+    }
+
+    function _disputeBy(MockReporter who, uint256 gameId) internal {
+        _take(address(who), _disputeReport(gameId));
+    }
+
+    /// @dev `who` releases the game, as sender and origin. Reverts with the release's own refusal if refused.
+    function _releaseBy(address who, uint256 gameId) internal {
+        vm.prank(who, who);
+        games.release(gameId);
+    }
+
+    /// @dev The same, with its result: for refusals whose name a test checks.
+    function _tryRelease(address who, uint256 gameId) internal returns (bool ok, bytes memory err) {
+        vm.prank(who, who);
+        (ok, err) = address(games).call(abi.encodeCall(IOspexGames.release, (gameId)));
+    }
+
+    /// @dev A game in a status, reached through the production paths: a fresh game for Unverified; otherwise a
+    ///      game whose start is written at START by `first`, then disputed or scored at START + 1, voided at
+    ///      start + n, or released by a stranger once its day-30 clock has run from its date. The clock is left
+    ///      where the path needed it; a caller that cares sets it after.
+    function _inStatus(GameStatus s) internal returns (uint256 game) {
+        game = _create();
+        if (s == GameStatus.Unverified) return game;
+        _startBy(first, game, START);
+        if (s == GameStatus.Verified) return game;
+        if (s == GameStatus.Disputed) {
+            vm.warp(START + 1);
+            _disputeBy(first, game);
+        } else if (s == GameStatus.Scored) {
+            vm.warp(START + 1);
+            _scoreBy(first, game, HOME, AWAY);
+        } else if (s == GameStatus.Voided) {
+            vm.warp(START + WINDOW);
+            _voidBy(first, game);
+        } else {
+            vm.warp(_day30(game));
+            _releaseBy(stranger, game);
+        }
+    }
+
+    /// @dev The second a game's day-30 clock runs: its date as stored plus its own copied clock. From it the
+    ///      release is open and every report is refused.
+    function _day30(uint256 gameId) internal view returns (uint256) {
+        return uint256(_rawDate(gameId)) + games.getGameTerms(gameId).day30Clock;
+    }
+
+    /// @dev The refusal of any report to `gameId` at or after its day-30 clock.
+    function _pastDay30(uint256 gameId) internal view returns (bytes memory) {
+        return abi.encodeWithSelector(OspexGames.OspexGames__PastDay30Clock.selector, gameId, _day30(gameId));
     }
 
     // ──────────────────────────── The creation fee ─────────────────────
@@ -327,7 +491,7 @@ abstract contract GamesBase is Test {
     /// @dev Every read of one game, each as (taken, answer or refusal): what any contract or agent can see.
     function _view(uint256 gameId) internal view returns (bytes memory) {
         bytes memory out;
-        bytes[8] memory calls = [
+        bytes[9] memory calls = [
             abi.encodeCall(IOspexGames.getGameStatus, (gameId)),
             abi.encodeCall(IOspexGames.getGameStart, (gameId)),
             abi.encodeCall(games.getGameReporters, (gameId)),
@@ -335,7 +499,8 @@ abstract contract GamesBase is Test {
             abi.encodeCall(IOspexGames.getGameWindow, (gameId)),
             abi.encodeCall(IOspexGames.getGameTerms, (gameId)),
             abi.encodeCall(IOspexGames.isEveryReporterRetired, (gameId)),
-            abi.encodeCall(IOspexGames.getGameFee, (gameId))
+            abi.encodeCall(IOspexGames.getGameFee, (gameId)),
+            abi.encodeCall(IOspexGames.getGameDisputedAt, (gameId))
         ];
         for (uint256 i; i < calls.length; ++i) {
             (bool ok, bytes memory answer) = address(games).staticcall(calls[i]);
@@ -356,33 +521,14 @@ abstract contract GamesBase is Test {
 
     // ──────────────────────────── What lies in storage ──────────────────
 
-    /// @dev Where OspexGames keeps its games and their reporter copies, from `forge inspect OspexGames
-    ///      storageLayout`. test_storage_aGameLiesWhereTheSnapshotsReadIt pins it, so a layout change turns that
-    ///      test red instead of leaving these reads looking at empty slots.
-    uint256 internal constant GAMES_SLOT = 6;
-    uint256 internal constant GAME_REPORTERS_SLOT = 7;
-
-    /// @dev One game's storage, word for word: its four words (status, date, start and scores; then its terms,
-    ///      two words; then its creator) and its reporters' copy. The reads show what a game says; this shows
-    ///      every field a write could touch, the date included, which no read returns.
-    function _rawGame(uint256 gameId) internal view returns (bytes memory out) {
-        uint256 base = uint256(keccak256(abi.encode(gameId, GAMES_SLOT)));
-        for (uint256 i; i < 4; ++i) {
-            out = abi.encodePacked(out, vm.load(address(games), bytes32(base + i)));
-        }
-        bytes32 lengthSlot = keccak256(abi.encode(gameId, GAME_REPORTERS_SLOT));
-        uint256 length = uint256(vm.load(address(games), lengthSlot));
-        out = abi.encodePacked(out, length);
-        uint256 firstEntry = uint256(keccak256(abi.encode(lengthSlot)));
-        for (uint256 i; i < length; ++i) {
-            out = abi.encodePacked(out, vm.load(address(games), bytes32(firstEntry + i)));
-        }
+    /// @dev One game's storage, word for word, and its reporters' copy: see GameWords.
+    function _rawGame(uint256 gameId) internal view returns (bytes memory) {
+        return GameWords.raw(address(games), gameId);
     }
 
-    /// @dev A game's date as stored: the eight bytes after the status byte in its first word.
+    /// @dev A game's date as stored, which no read returns.
     function _rawDate(uint256 gameId) internal view returns (uint64) {
-        bytes32 word = vm.load(address(games), keccak256(abi.encode(gameId, GAMES_SLOT)));
-        return uint64(uint256(word) >> 8);
+        return GameWords.date(address(games), gameId);
     }
 
     /// @dev The approved list and the default terms as they read now.

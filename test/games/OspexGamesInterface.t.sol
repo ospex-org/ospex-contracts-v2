@@ -26,21 +26,23 @@ contract OspexGamesInterfaceTest is GamesBase {
         impl = _artifact("OspexGames");
     }
 
-    /// The contract has exactly these functions: the three writes anyone may send (create, report, withdraw),
-    /// the timelock's three calls, the five reads, the other reads, ten constants and the two addresses fixed
-    /// at deploy. So it has no owner, no pause, no setter but the timelock's three, no fee receiver and no
-    /// setter for one, and nothing else writes a game, the list or a credit.
+    /// The contract has exactly these functions: the four writes anyone may send (create, report, release,
+    /// withdraw), the timelock's three calls, the five reads, the other reads, eleven constants and the two
+    /// addresses fixed at deploy. So it has no owner, no pause, no setter but the timelock's three, no fee
+    /// receiver and no setter for one, and nothing else writes a game, the list or a credit.
     /// Break: add any external function to OspexGames, such as one that pushes onto a game's reporters.
     function test_theFunctionsAreExactlyThese() public view {
         string[] memory want = vm.split(
-            "MAX_CLOCK();MAX_DATE_AHEAD();MAX_HINTS();MAX_HINT_ID_LENGTH();MAX_LEAGUE_LENGTH();MAX_REPORTERS();"
-            "MAX_RESERVED_ADDRESS();MAX_SCORE();MAX_TEAM_LENGTH();START_BOUND();i_timelock();i_token();"
+            "AGREE();MAX_CLOCK();MAX_DATE_AHEAD();MAX_HINTS();MAX_HINT_ID_LENGTH();MAX_LEAGUE_LENGTH();"
+            "MAX_REPORTERS();MAX_RESERVED_ADDRESS();MAX_SCORE();MAX_TEAM_LENGTH();START_BOUND();i_timelock();i_token();"
             "approveReporter(address,uint8,bytes32);retireReporter(address);"
             "setTerms(string,(uint64,uint64,uint64,uint96));"
             "createGame(string,string,string,uint64,(uint8,string)[],uint256);"
             "report((uint256,uint8,uint64,uint32,uint32,(uint8,uint8,uint32,uint32)[],address));withdraw();"
+            "release(uint256);"
             "gameCount();getGameReporters(uint256);getGameScores(uint256);getGameStart(uint256);"
             "getGameStatus(uint256);getGameWindow(uint256);getGameTerms(uint256);isEveryReporterRetired(uint256);"
+            "getGameDisputedAt(uint256);"
             "getApprovedReporters();getReporter(address);getTerms(string);getCredit(address);getGameFee(uint256)",
             ";"
         );
@@ -82,9 +84,14 @@ contract OspexGamesInterfaceTest is GamesBase {
             "OspexGames__SilentReadingNotEmpty(uint256);OspexGames__GameEnded(uint256,uint8);"
             "OspexGames__StartAlreadyWritten(uint256);OspexGames__NotFirstN(uint256,address);"
             "OspexGames__StartOutOfRange(uint256,uint64);OspexGames__StartNotWritten(uint256);"
-            "OspexGames__Disputed(uint256);OspexGames__BeforeStart(uint256,uint64);"
+            "OspexGames__BeforeStart(uint256,uint64);"
             "OspexGames__InsideWindow(uint256,uint256);OspexGames__ScoreOutOfRange(uint32,uint32);"
-            "OspexGames__NotScored(uint256,uint8)",
+            "OspexGames__NotScored(uint256,uint8);"
+            "OspexGames__InsideDay7Clock(uint256,uint256);OspexGames__ReleaseNotOpen(uint256,uint256);"
+            "OspexGames__NotDisputed(uint256);OspexGames__NotAnEnd(uint8);"
+            "OspexGames__PastDay30Clock(uint256,uint256);OspexGames__ReadingSeatRepeated(uint256);"
+            "OspexGames__TooFewFinalsAgree(uint256,uint256);OspexGames__FinalDissents(uint256);"
+            "OspexGames__FinalsAgree(uint32,uint32)",
             ";"
         );
         _assertSameSet(_errorSignatures(impl, false), want, "error");
@@ -135,10 +142,17 @@ contract OspexGamesInterfaceTest is GamesBase {
             "OspexGames__GameEnded(uint256 gameId,uint8 status);OspexGames__StartAlreadyWritten(uint256 gameId);"
             "OspexGames__NotFirstN(uint256 gameId,address reporter);"
             "OspexGames__StartOutOfRange(uint256 gameId,uint64 start);OspexGames__StartNotWritten(uint256 gameId);"
-            "OspexGames__Disputed(uint256 gameId);OspexGames__BeforeStart(uint256 gameId,uint64 start);"
+            "OspexGames__BeforeStart(uint256 gameId,uint64 start);"
             "OspexGames__InsideWindow(uint256 gameId,uint256 opensAt);"
             "OspexGames__ScoreOutOfRange(uint32 homeScore,uint32 awayScore);"
-            "OspexGames__NotScored(uint256 gameId,uint8 status)",
+            "OspexGames__NotScored(uint256 gameId,uint8 status);"
+            "OspexGames__InsideDay7Clock(uint256 gameId,uint256 opensAt);"
+            "OspexGames__ReleaseNotOpen(uint256 gameId,uint256 opensAt);"
+            "OspexGames__NotDisputed(uint256 gameId);OspexGames__NotAnEnd(uint8 status);"
+            "OspexGames__PastDay30Clock(uint256 gameId,uint256 closedAt);"
+            "OspexGames__ReadingSeatRepeated(uint256 index);"
+            "OspexGames__TooFewFinalsAgree(uint256 agreeing,uint256 needed);OspexGames__FinalDissents(uint256 index);"
+            "OspexGames__FinalsAgree(uint32 homeScore,uint32 awayScore)",
             ";"
         );
         _assertSameSet(_errorSignatures(impl, true), want, "named error");
@@ -157,7 +171,8 @@ contract OspexGamesInterfaceTest is GamesBase {
         assertEq(games.MAX_TEAM_LENGTH(), 64);
         assertEq(games.MAX_HINTS(), 8);
         assertEq(games.MAX_HINT_ID_LENGTH(), 64);
-        string[9] memory names = [
+        assertEq(games.AGREE(), 3);
+        string[10] memory names = [
             "MAX_SCORE",
             "START_BOUND",
             "MAX_DATE_AHEAD",
@@ -166,10 +181,11 @@ contract OspexGamesInterfaceTest is GamesBase {
             "MAX_LEAGUE_LENGTH",
             "MAX_TEAM_LENGTH",
             "MAX_HINTS",
-            "MAX_HINT_ID_LENGTH"
+            "MAX_HINT_ID_LENGTH",
+            "AGREE"
         ];
-        string[9] memory types =
-            ["uint32", "uint64", "uint64", "uint64", "uint256", "uint256", "uint256", "uint256", "uint256"];
+        string[10] memory types =
+            ["uint32", "uint64", "uint64", "uint64", "uint256", "uint256", "uint256", "uint256", "uint256", "uint256"];
         for (uint256 i; i < names.length; ++i) {
             string memory at = string.concat("$.abi[?(@.name == '", names[i], "')]");
             _assertParams(impl, string.concat(at, ".outputs"), "", types[i]);
@@ -201,6 +217,8 @@ contract OspexGamesInterfaceTest is GamesBase {
         assertEq(IOspexGames.withdraw.selector, bytes4(keccak256("withdraw()")));
         assertEq(IOspexGames.getCredit.selector, bytes4(keccak256("getCredit(address)")));
         assertEq(IOspexGames.getGameFee.selector, bytes4(keccak256("getGameFee(uint256)")));
+        assertEq(IOspexGames.release.selector, bytes4(keccak256("release(uint256)")));
+        assertEq(IOspexGames.getGameDisputedAt.selector, bytes4(keccak256("getGameDisputedAt(uint256)")));
     }
 
     /// Break: in IOspexGames.sol, change GameCreated's `uint64 date,` to `uint256 date,`.
@@ -222,6 +240,7 @@ contract OspexGamesInterfaceTest is GamesBase {
         assertEq(IOspexGames.TokenSet.selector, keccak256("TokenSet(address)"));
         assertEq(IOspexGames.FeeCredited.selector, keccak256("FeeCredited(uint256,address,uint256)"));
         assertEq(IOspexGames.Withdrawn.selector, keccak256("Withdrawn(address,uint256)"));
+        assertEq(IOspexGames.GameReleased.selector, keccak256("GameReleased(uint256,address)"));
 
         string[2] memory artifacts = [iface, impl];
         for (uint256 a; a < artifacts.length; ++a) {
@@ -282,11 +301,15 @@ contract OspexGamesInterfaceTest is GamesBase {
             string memory withdrawn = "$.abi[?(@.name == 'Withdrawn')].inputs";
             _assertParams(json, withdrawn, "account;amount", "address;uint256");
             _assertIndexed(json, withdrawn, "true;false");
+
+            string memory released = "$.abi[?(@.name == 'GameReleased')].inputs";
+            _assertParams(json, released, "gameId;caller", "uint256;address");
+            _assertIndexed(json, released, "true;false");
         }
-        // The events are exactly these nine, in the deploying contract's ABI.
+        // The events are exactly these ten, in the deploying contract's ABI.
         string[] memory events = vm.split(
             "GameCreated;GameReported;ReporterApproved;ReporterRetired;TermsSet;TimelockSet;TokenSet;FeeCredited;"
-            "Withdrawn",
+            "Withdrawn;GameReleased",
             ";"
         );
         string[] memory found = new string[](16);
@@ -355,14 +378,15 @@ contract OspexGamesInterfaceTest is GamesBase {
     /// other's names, for anyone who decodes the contract's own ABI by name.
     function test_theReadsAnswerThese() public view {
         string[2] memory artifacts = [iface, impl];
-        string[7] memory gameReads = [
+        string[8] memory gameReads = [
             "getGameStatus",
             "getGameStart",
             "getGameReporters",
             "getGameScores",
             "getGameWindow",
             "getGameTerms",
-            "isEveryReporterRetired"
+            "isEveryReporterRetired",
+            "getGameDisputedAt"
         ];
         for (uint256 a; a < artifacts.length; ++a) {
             string memory json = artifacts[a];
@@ -392,6 +416,11 @@ contract OspexGamesInterfaceTest is GamesBase {
             _assertParams(json, "$.abi[?(@.name == 'getTerms')].outputs", "", "tuple");
             _assertParams(json, "$.abi[?(@.name == 'getTerms')].outputs[0].components", TERMS_NAMES, TERMS_TYPES);
             _assertParams(json, "$.abi[?(@.name == 'isEveryReporterRetired')].outputs", "", "bool");
+            _assertParams(json, "$.abi[?(@.name == 'getGameDisputedAt')].outputs", "", "uint64");
+            // The release: the game, nothing back, and not payable.
+            _assertParams(json, "$.abi[?(@.name == 'release')].inputs", "gameId", "uint256");
+            assertFalse(vm.keyExistsJson(json, "$.abi[?(@.name == 'release')].outputs[0]"), "release returns nothing");
+            assertEq(vm.parseJsonString(json, "$.abi[?(@.name == 'release')].stateMutability"), "nonpayable");
             _assertParams(
                 json, "$.abi[?(@.name == 'getApprovedReporters')].outputs", "reporters;kinds", "address[];uint8[]"
             );

@@ -580,7 +580,8 @@ contract OspexGamesFeeTest is GamesBase {
     // ──────────────────────────── The read ─────────────────────────────
 
     /// What a game holds: its fee while it has not ended (created, started, disputed), and 0 once it has
-    /// (scored, voided, released). The creator reads back throughout. An id that is not a game is refused.
+    /// (scored, voided, released), each status reached through its own path. The creator reads back throughout.
+    /// An id that is not a game is refused.
     function test_getGameFee_readsWhatAGameHolds() public {
         vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__UnknownGame.selector, 0));
         games.getGameFee(0);
@@ -593,8 +594,9 @@ contract OspexGamesFeeTest is GamesBase {
             GameStatus.Released
         ];
         for (uint256 i; i < statuses.length; ++i) {
-            uint256 game = _create();
-            games.harnessSetStatus(game, statuses[i]);
+            vm.warp(DATE - 1 hours);
+            uint256 game = _inStatus(statuses[i]);
+            assertEq(uint8(_status(game)), uint8(statuses[i]), "status");
             (uint96 held, address recorded) = games.getGameFee(game);
             assertEq(held, i < 3 ? FEE : 0, "held");
             assertEq(recorded, creator, "creator");
@@ -623,8 +625,8 @@ contract OspexGamesFeeTest is GamesBase {
         vm.warp(START + 10);
         _take(address(first), _scoreReportTo(a, payout));
         _take(address(first), _scoreReportTo(b, payout));
-        vm.prank(stranger);
-        games.harnessRelease(c);
+        vm.warp(DATE + DAY30);
+        _releaseBy(stranger, c);
         assertEq(games.getCredit(payout), 2 * uint256(max), "past one fee's width");
         assertEq(games.getCredit(creator), max);
         vm.prank(payout);
@@ -636,10 +638,11 @@ contract OspexGamesFeeTest is GamesBase {
     // ──────────────────────────── One end per game, for the fee ─────────
 
     /// The gate every end shares, in the production code: an end of an id that is not a game, or of a game
-    /// already ended (scored, voided or released), is refused, credits nothing and moves no coin. Here through
-    /// the release, the end whose own call is not built yet; the score reaches the same gate behind its own.
+    /// already ended (scored, voided or released), is refused, credits nothing and moves no coin. Reached
+    /// through the test harness's hook, which calls `_end` with none of the checks its callers make first, so the
+    /// gate under test is `_end`'s own; the score, the void and the release each reach it behind their own.
     /// Break: in _end(), delete `if (status >= GameStatus.Scored) revert OspexGames__GameEnded(gameId, status);`.
-    /// A second release then credits the creator a second fee, out of another game's.
+    /// A second end then credits the creator a second fee, out of another game's.
     function test_end_refusesAGameAlreadyEnded() public {
         uint256 scored = _create();
         uint256 released = _create();
@@ -647,32 +650,39 @@ contract OspexGamesFeeTest is GamesBase {
         uint256 open = _create(); // holds a fee another end could be paid from
         vm.warp(DATE - 1 hours);
         _startBy(first, scored, START);
+        _startBy(first, voided, START);
         vm.warp(START + 10);
         _take(address(first), _scoreReportTo(scored, payout));
-        vm.prank(stranger);
-        games.harnessRelease(released);
-        games.harnessSetStatus(voided, GameStatus.Voided);
+        vm.warp(START + WINDOW);
+        _take(address(first), _voidReportTo(voided, payout));
+        vm.warp(DATE + DAY30);
+        _releaseBy(stranger, released);
 
         address[] memory accounts = new address[](3);
         (accounts[0], accounts[1], accounts[2]) = (creator, payout, stranger);
         uint256[3] memory ended = [scored, released, voided];
         GameStatus[3] memory statuses = [GameStatus.Scored, GameStatus.Released, GameStatus.Voided];
+        GameStatus[3] memory ends = [GameStatus.Released, GameStatus.Voided, GameStatus.Scored];
         for (uint256 i; i < ended.length; ++i) {
-            bytes32 money = _money(accounts);
-            vm.recordLogs();
-            vm.prank(stranger);
-            (bool ok, bytes memory err) =
-                address(games).call(abi.encodeCall(games.harnessRelease, (ended[i])));
-            assertFalse(ok, "an ended game was released");
-            assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__GameEnded.selector, ended[i], statuses[i]));
-            assertEq(vm.getRecordedLogs().length, 0, "a refused end emitted");
-            assertEq(_money(accounts), money, "a refused end moved money");
+            for (uint256 e; e < ends.length; ++e) {
+                bytes32 money = _money(accounts);
+                vm.recordLogs();
+                vm.prank(stranger);
+                (bool ok, bytes memory err) =
+                    address(games).call(abi.encodeCall(games.harnessEnd, (ended[i], ends[e], creator)));
+                assertFalse(ok, "an ended game was ended again");
+                assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__GameEnded.selector, ended[i], statuses[i]));
+                assertEq(vm.getRecordedLogs().length, 0, "a refused end emitted");
+                assertEq(_money(accounts), money, "a refused end moved money");
+                assertEq(uint8(_status(ended[i])), uint8(statuses[i]), "a refused end changed the status");
+            }
         }
         assertEq(games.getCredit(creator), FEE, "the creator, once");
+        assertEq(games.getCredit(payout), 2 * uint256(FEE), "the payout address, twice");
         assertEq(_held(open), FEE, "the open game keeps its fee");
-        // Control: the open game releases.
+        // Control: the open game ends through the same hook.
         vm.prank(stranger);
-        games.harnessRelease(open);
+        games.harnessEnd(open, GameStatus.Released, creator);
         assertEq(games.getCredit(creator), 2 * uint256(FEE));
     }
 
@@ -684,13 +694,54 @@ contract OspexGamesFeeTest is GamesBase {
         uint256[2] memory ids = [uint256(0), games.gameCount() + 1];
         for (uint256 i; i < ids.length; ++i) {
             vm.prank(stranger);
-            (bool ok, bytes memory err) = address(games).call(abi.encodeCall(games.harnessRelease, (ids[i])));
+            (bool ok, bytes memory err) =
+                address(games).call(abi.encodeCall(games.harnessEnd, (ids[i], GameStatus.Released, creator)));
             assertFalse(ok, "an id that is not a game was released");
             assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__UnknownGame.selector, ids[i]));
             vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__UnknownGame.selector, ids[i]));
             games.getGameStatus(ids[i]);
         }
         assertEq(games.gameCount(), 1, "the count moved");
+    }
+
+    /// The gate's third part: `_end` handed a status that is not an end (None, Unverified, Verified, Disputed)
+    /// is refused by name, credits nothing, writes no status and leaves the game open, so no caller can credit a
+    /// fee without ending the game, or move a status back. Control: the three ends are taken, each crediting.
+    /// Break: in _end(), delete `if (end < GameStatus.Scored) revert OspexGames__NotAnEnd(end);`. A game is then
+    /// "ended" as Disputed: the fee is credited, the status stays below an end, and a second end credits again.
+    function test_end_refusesAStatusThatIsNotAnEnd() public {
+        GameStatus[4] memory notEnds =
+            [GameStatus.None, GameStatus.Unverified, GameStatus.Verified, GameStatus.Disputed];
+        GameStatus[3] memory ends = [GameStatus.Scored, GameStatus.Voided, GameStatus.Released];
+        for (uint256 e; e < ends.length; ++e) {
+            vm.warp(DATE - 1 hours);
+            uint256 game = _inStatus(GameStatus.Disputed);
+            address[] memory accounts = new address[](3);
+            (accounts[0], accounts[1], accounts[2]) = (creator, payout, stranger);
+            for (uint256 i; i < notEnds.length; ++i) {
+                bytes32 money = _money(accounts);
+                bytes32 state = _viewAll();
+                vm.recordLogs();
+                vm.prank(stranger);
+                (bool ok, bytes memory err) =
+                    address(games).call(abi.encodeCall(games.harnessEnd, (game, notEnds[i], payout)));
+                assertFalse(ok, "a status that is not an end was written as one");
+                assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__NotAnEnd.selector, notEnds[i]));
+                assertEq(vm.getRecordedLogs().length, 0, "a refused end emitted");
+                assertEq(_money(accounts), money, "a refused end moved money");
+                assertEq(_viewAll(), state, "a refused end changed a game");
+                assertEq(uint8(_status(game)), uint8(GameStatus.Disputed), "the status moved");
+                assertEq(_held(game), FEE, "the game keeps its fee");
+            }
+            // Control: the end is taken, credits once, and a second end of any kind is refused.
+            vm.prank(stranger);
+            games.harnessEnd(game, ends[e], payout);
+            assertEq(uint8(_status(game)), uint8(ends[e]), "the end");
+            assertEq(games.getCredit(payout), (e + 1) * uint256(FEE), "credited once per game");
+            vm.prank(stranger);
+            (bool okAgain,) = address(games).call(abi.encodeCall(games.harnessEnd, (game, ends[e], payout)));
+            assertFalse(okAgain, "ended twice");
+        }
     }
 
     function _assertRefusedWith(MockReporter by, Report memory r, bytes memory why) internal {
