@@ -594,9 +594,10 @@ contract DeployGames is Script {
     ///         active, under the build's name. It moves to a fork of `registryRpc` for the read and comes back.
     function requireRegistered(Inputs memory in_, Workflow memory w, string memory registryRpc) public {
         uint256 home = vm.activeFork();
-        vm.createSelectFork(registryRpc);
+        uint256 head = _headOf(registryRpc);
+        require(head > REGISTRY_LAG, "the registry RPC has no head");
+        vm.createSelectFork(registryRpc, head - REGISTRY_LAG);
         require(block.chainid == in_.registryChainId, "the registry RPC is not on the registry's chain");
-        vm.rollFork(block.number - REGISTRY_LAG);
         IWorkflowRegistryRead registry = IWorkflowRegistryRead(in_.registry);
         require(
             keccak256(bytes(registry.typeAndVersion())) == keccak256("WorkflowRegistry 2.0.0"),
@@ -762,6 +763,14 @@ contract DeployGames is Script {
     /// @dev The code at `account` in block `blockNumber`, from the RPC. Overridable, as _logsOf is.
     function _codeAt(address account, uint256 blockNumber) internal virtual returns (bytes memory) {
         return vm.rpc("eth_getCode", string.concat('["', vm.toString(account), '","', _hex(blockNumber), '"]'));
+    }
+
+    /// @dev The head block of the chain behind `rpc`, asked before a fork of it is made, so the fork can be
+    ///      pinned behind the head. The number comes back as its bytes, high byte first.
+    function _headOf(string memory rpc) internal returns (uint256) {
+        bytes memory n = vm.rpc(rpc, "eth_blockNumber", "[]");
+        require(n.length != 0 && n.length <= 32, "the RPC gave no block number");
+        return uint256(bytes32(n) >> (8 * (32 - n.length)));
     }
 
     // ──────────────────────────── Helpers ──────────────────────────────

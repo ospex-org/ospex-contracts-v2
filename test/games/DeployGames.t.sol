@@ -88,14 +88,11 @@ contract DeployGamesHarness is DeployGames {
         } else {
             uint256 home = vm.activeFork();
             if (!logsForkMade) {
-                logsFork = vm.createFork(logsRpc);
-                logsForkMade = true;
-                vm.selectFork(logsFork);
                 // A few blocks behind the head, where every node behind the endpoint has the block.
-                vm.rollFork(block.number - REGISTRY_LAG);
-            } else {
-                vm.selectFork(logsFork);
+                logsFork = vm.createFork(logsRpc, _headOf(logsRpc) - REGISTRY_LAG);
+                logsForkMade = true;
             }
+            vm.selectFork(logsFork);
             logs = super._timelockLogs(timelock, creationBlock);
             vm.selectFork(home);
         }

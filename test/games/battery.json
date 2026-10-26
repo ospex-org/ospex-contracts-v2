@@ -2852,7 +2852,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 613,
+     "line": 614,
      "find": "        require(got.owner == w.owner, \"the registry holds the id under another owner\");\n",
      "replace": ""
     }
@@ -2866,7 +2866,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 605,
+     "line": 606,
      "find": "        require(registry.isOwnerLinked(w.owner), \"the workflow owner is not linked at the registry\");\n",
      "replace": ""
     }
@@ -2880,7 +2880,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 598,
+     "line": 600,
      "find": "        require(block.chainid == in_.registryChainId, \"the registry RPC is not on the registry's chain\");\n",
      "replace": ""
     }
@@ -2922,7 +2922,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 662,
+     "line": 663,
      "find": "        require(w.receiver == p.reporter, \"the build's receiver is not the predicted reporter\");\n",
      "replace": ""
     }
@@ -2936,7 +2936,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 663,
+     "line": 664,
      "find": "        require(w.watched == p.games, \"the build's event source is not the predicted games contract\");\n",
      "replace": ""
     }
@@ -2950,7 +2950,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 654,
+     "line": 655,
      "find": "        require(w.owner == p.workflowOwner, \"the build's owner is not the predicted workflow owner\");\n",
      "replace": ""
     }
@@ -2964,7 +2964,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 652,
+     "line": 653,
      "find": "        require(w.id[0] == 0, \"the workflow id's first byte is not zero: not an id the registry computes\");\n",
      "replace": ""
     }
@@ -3020,7 +3020,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 862,
+     "line": 871,
      "find": "        list[0] = ReporterKind.FirstN;\n    }\n}\n",
      "replace": "        list[0] = ReporterKind.AfterN;\n    }\n}\n"
     }
@@ -3188,7 +3188,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 614,
+     "line": 615,
      "find": "        require(got.status == IWorkflowRegistryRead.WorkflowStatus.ACTIVE, \"the registry holds the id paused\");\n",
      "replace": ""
     }
@@ -3202,7 +3202,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 615,
+     "line": 616,
      "find": "        require(keccak256(bytes(got.workflowName)) == keccak256(bytes(w.name)), \"the registry's name for the id is not the build's\");\n",
      "replace": ""
     }
@@ -3216,7 +3216,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 649,
+     "line": 650,
      "find": "        w.configHash = _sha256Text(vm.parseJsonString(json, \".hashes.config\"), \"the build's config hash is not a sha256\");\n",
      "replace": "        w.configHash = bytes32(0);\n"
     }
@@ -3230,7 +3230,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 658,
+     "line": 659,
      "find": "        require(vm.keyExistsJson(json, receiverKey), \"the build's config has no receiver key\");\n",
      "replace": ""
     }
