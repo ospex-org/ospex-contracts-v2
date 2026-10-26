@@ -1,5 +1,5 @@
 {
- "about": "One-line breaks of the games contract and its interface, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; line is where it starts; a find of several lines is one anchor, chosen where the line alone occurs more than once), run the named test alone and see it fail, restore the file byte for byte and see it pass. The whole games suite fails on each too. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis; one ending in $ matches nothing and passes with no test run. Check that exactly one test ran. Ids: N, F, G, L, W, R, M are the creation fee's; E the ends'; P the earlier never-lines' and the interface's; C the day-30 clock's and the retirement's; A the readings' checks; X the four one-line mutants an independent read found surviving before them; H the scoring program's own shapes (test/games/shapes.json), each run through the report door; Q the Chainlink reporter's (src/games/OspexChainlinkReporter.sol); D the deploy script's (script/DeployGames.s.sol), whose tests run on a fork and need POLYGON_RPC_URL and ETHEREUM_RPC_URL in the environment, with the same command.",
+ "about": "One-line breaks of the games contract and its interface, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; line is where it starts; a find of several lines is one anchor, chosen where the line alone occurs more than once), run the named test alone and see it fail, restore the file byte for byte and see it pass. The whole games suite fails on each too. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis; one ending in $ matches nothing and passes with no test run. Check that exactly one test ran. Ids: N, F, G, L, W, R, M are the creation fee's; E the ends'; P the earlier never-lines' and the interface's; C the day-30 clock's and the retirement's; A the readings' checks; X the four one-line mutants an independent read found surviving before them; H the scoring program's own shapes (test/games/shapes.json), each run through the report door; Q the Chainlink reporter's (src/games/OspexChainlinkReporter.sol); Y the deploy script's (script/DeployGames.s.sol, and Y25 in script/DeployPolygonTimelock.s.sol, whose verify the deploy calls), whose tests run on a fork and need POLYGON_RPC_URL, ETHEREUM_RPC_URL and POLYGON_LOGS_RPC_URL in the environment, with the same command.",
  "command": "FOUNDRY_SRC=src/games FOUNDRY_TEST=test/games FOUNDRY_SCRIPT=none forge test --via-ir --optimize --match-path <testPath> --match-test '^<test>\\('",
  "breaks": [
   {
@@ -2572,7 +2572,7 @@
    "file": "src/games/OspexChainlinkReporter.sol",
    "edits": [
     {
-     "line": 125,
+     "line": 136,
      "find": "        if (msg.sender != i_forwarder) revert OspexChainlinkReporter__NotTheForwarder(msg.sender);\n",
      "replace": ""
     }
@@ -2586,7 +2586,7 @@
    "file": "src/games/OspexChainlinkReporter.sol",
    "edits": [
     {
-     "line": 128,
+     "line": 139,
      "find": "        if (workflowOwner != i_workflowOwner) revert OspexChainlinkReporter__NotTheWorkflowOwner(workflowOwner);\n",
      "replace": ""
     }
@@ -2600,7 +2600,7 @@
    "file": "src/games/OspexChainlinkReporter.sol",
    "edits": [
     {
-     "line": 130,
+     "line": 141,
      "find": "        if (workflowId != i_workflowId) revert OspexChainlinkReporter__NotTheWorkflowId(workflowId);\n",
      "replace": ""
     }
@@ -2614,7 +2614,7 @@
    "file": "src/games/OspexChainlinkReporter.sol",
    "edits": [
     {
-     "line": 126,
+     "line": 137,
      "find": "        if (metadata.length < METADATA_LENGTH) revert OspexChainlinkReporter__MetadataTooShort(metadata.length);\n",
      "replace": ""
     }
@@ -2628,7 +2628,7 @@
    "file": "src/games/OspexChainlinkReporter.sol",
    "edits": [
     {
-     "line": 133,
+     "line": 148,
      "find": "        i_games.report(r);\n",
      "replace": "        r.payout = tx.origin;\n        i_games.report(r);\n"
     }
@@ -2642,7 +2642,7 @@
    "file": "src/games/OspexChainlinkReporter.sol",
    "edits": [
     {
-     "line": 133,
+     "line": 148,
      "find": "        i_games.report(r);\n",
      "replace": "        r.payout = msg.sender;\n        i_games.report(r);\n"
     }
@@ -2656,7 +2656,7 @@
    "file": "src/games/OspexChainlinkReporter.sol",
    "edits": [
     {
-     "line": 133,
+     "line": 148,
      "find": "        i_games.report(r);\n",
      "replace": "        r.payout = address(this);\n        i_games.report(r);\n"
     }
@@ -2670,7 +2670,7 @@
    "file": "src/games/OspexChainlinkReporter.sol",
    "edits": [
     {
-     "line": 133,
+     "line": 148,
      "find": "        i_games.report(r);\n",
      "replace": "        (r.homeScore, r.awayScore) = (r.awayScore, r.homeScore);\n        i_games.report(r);\n"
     }
@@ -2684,7 +2684,7 @@
    "file": "src/games/OspexChainlinkReporter.sol",
    "edits": [
     {
-     "line": 133,
+     "line": 148,
      "find": "        i_games.report(r);\n        emit ReportRelayed(r.gameId, r.kind, bytes2(metadata[62:64]), r.payout);\n",
      "replace": "        emit ReportRelayed(r.gameId, r.kind, bytes2(metadata[62:64]), r.payout);\n        i_games.report(r);\n"
     }
@@ -2698,7 +2698,7 @@
    "file": "src/games/OspexChainlinkReporter.sol",
    "edits": [
     {
-     "line": 150,
+     "line": 165,
      "find": "        return interfaceId == type(IReceiver).interfaceId || interfaceId == type(IERC165).interfaceId;\n",
      "replace": "        return true;\n"
     }
@@ -2712,7 +2712,7 @@
    "file": "src/games/OspexChainlinkReporter.sol",
    "edits": [
     {
-     "line": 143,
+     "line": 158,
      "find": "        return abi.encode(i_forwarder, i_workflowOwner, i_workflowId);\n",
      "replace": "        return abi.encode(i_forwarder, i_workflowOwner);\n"
     }
@@ -2726,8 +2726,8 @@
    "file": "src/games/OspexChainlinkReporter.sol",
    "edits": [
     {
-     "line": 107,
-     "find": "        if (forwarder.code.length == 0) revert OspexChainlinkReporter__ForwarderNotAContract(forwarder);\n",
+     "line": 115,
+     "find": "        if (forwarder.code.length == 0 || _isDelegated(forwarder)) {\n            revert OspexChainlinkReporter__ForwarderNotAContract(forwarder);\n        }\n",
      "replace": ""
     }
    ],
@@ -2740,7 +2740,7 @@
    "file": "src/games/OspexChainlinkReporter.sol",
    "edits": [
     {
-     "line": 132,
+     "line": 143,
      "find": "        Report memory r = abi.decode(report, (Report));\n",
      "replace": "        Report memory r = abi.decode(report, (Report));\n        assembly {\n            sstore(0, 1)\n        }\n"
     }
@@ -2754,7 +2754,7 @@
    "file": "src/games/OspexChainlinkReporter.sol",
    "edits": [
     {
-     "line": 132,
+     "line": 143,
      "find": "        Report memory r = abi.decode(report, (Report));\n",
      "replace": "        Report memory r = abi.decode(report, (Report));\n        assembly {\n            pop(delegatecall(gas(), address(), 0, 0, 0, 0))\n        }\n"
     }
@@ -2764,26 +2764,54 @@
    "breaks": "the reporter delegates"
   },
   {
-   "id": "Y1-nonce",
+   "id": "Q15-one-shape",
+   "file": "src/games/OspexChainlinkReporter.sol",
+   "edits": [
+    {
+     "line": 145,
+     "find": "        if (encoded.length != report.length || keccak256(encoded) != keccak256(report)) {\n            revert OspexChainlinkReporter__NotTheOneShape(report.length, encoded.length);\n        }\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/OspexChainlinkReporter.t.sol",
+   "test": "test_neverLine_theReportShapeIsTheOneShape",
+   "breaks": "a report in a second shape that decodes (a field long, a reading wide, an outer tuple) is taken"
+  },
+  {
+   "id": "Q16-ctor-delegated",
+   "file": "src/games/OspexChainlinkReporter.sol",
+   "edits": [
+    {
+     "line": 115,
+     "find": "        if (forwarder.code.length == 0 || _isDelegated(forwarder)) {\n",
+     "replace": "        if (forwarder.code.length == 0) {\n"
+    }
+   ],
+   "testPath": "test/games/OspexChainlinkReporter.t.sol",
+   "test": "test_constructor_refusesAMissingValue",
+   "breaks": "a forwarder that is a wallet with delegated code (EIP-7702) is taken at deploy"
+  },
+  {
+   "id": "Y1-nonce-skip",
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 310,
-     "find": "        require(vm.getNonce(sender) == p.nonce, \"the nonce moved since the prediction: nothing sent\");\n",
+     "line": 382,
+     "find": "            require(\n                _feeSentToKey(in_, p), \"the nonce moved since the prediction and the chain shows no coin check: nothing sent\"\n            );\n",
      "replace": ""
     }
    ],
    "testPath": "test/games/DeployGames.t.sol",
    "test": "test_neverLine_aMovedNonceStopsTheDeployBeforeAnySend",
-   "breaks": "a moved nonce is not read before the first send"
+   "breaks": "a moved nonce skips the coin check without the chain showing it"
   },
   {
    "id": "Y2-coin-deliver",
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 316,
-     "find": "        require(coin.balanceOf(in_.k) == keyBefore + LAUNCH_FEE, \"the coin did not deliver exactly the fee\");\n",
+     "line": 395,
+     "find": "            require(coin.balanceOf(in_.k) == keyBefore + LAUNCH_FEE, \"the coin did not deliver exactly the fee\");\n",
      "replace": ""
     }
    ],
@@ -2796,8 +2824,8 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 315,
-     "find": "        require(coin.balanceOf(sender) + LAUNCH_FEE == senderBefore, \"the coin did not take exactly the fee\");\n",
+     "line": 394,
+     "find": "            require(coin.balanceOf(sender) + LAUNCH_FEE == senderBefore, \"the coin did not take exactly the fee\");\n",
      "replace": ""
     }
    ],
@@ -2810,9 +2838,9 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 314,
-     "find": "        require(coin.transfer(in_.k, LAUNCH_FEE), \"the coin refused the fee\");\n",
-     "replace": "        coin.transfer(in_.k, LAUNCH_FEE);\n"
+     "line": 393,
+     "find": "            require(coin.transfer(in_.k, LAUNCH_FEE), \"the coin refused the fee\");\n",
+     "replace": "            coin.transfer(in_.k, LAUNCH_FEE);\n"
     }
    ],
    "testPath": "test/games/DeployGames.t.sol",
@@ -2824,8 +2852,8 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 516,
-     "find": "        require(w.owner == owner, \"the registry holds the id under another owner\");\n",
+     "line": 613,
+     "find": "        require(got.owner == w.owner, \"the registry holds the id under another owner\");\n",
      "replace": ""
     }
    ],
@@ -2838,8 +2866,8 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 508,
-     "find": "        require(registry.isOwnerLinked(owner), \"the workflow owner is not linked at the registry\");\n",
+     "line": 605,
+     "find": "        require(registry.isOwnerLinked(w.owner), \"the workflow owner is not linked at the registry\");\n",
      "replace": ""
     }
    ],
@@ -2852,7 +2880,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 502,
+     "line": 598,
      "find": "        require(block.chainid == in_.registryChainId, \"the registry RPC is not on the registry's chain\");\n",
      "replace": ""
     }
@@ -2866,7 +2894,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 246,
+     "line": 302,
      "find": "        require(!vm.exists(string.concat(dir, \"/prediction.json\")), \"a prediction exists: a new one means a new id\");\n",
      "replace": ""
     }
@@ -2880,7 +2908,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 254,
+     "line": 311,
      "find": "            reporter: vm.computeCreateAddress(deployer, nonce + 1),\n",
      "replace": "            reporter: vm.computeCreateAddress(deployer, nonce),\n"
     }
@@ -2894,35 +2922,35 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 564,
-     "find": "        require(namesReporter, \"the build's config does not name the predicted reporter\");\n",
+     "line": 662,
+     "find": "        require(w.receiver == p.reporter, \"the build's receiver is not the predicted reporter\");\n",
      "replace": ""
     }
    ],
    "testPath": "test/games/DeployGames.t.sol",
    "test": "test_workflow_theIdComesFromTheBuildAndFromNothingLess",
-   "breaks": "a build whose config does not name the reporter is taken"
+   "breaks": "a build whose receiver key does not name the reporter is taken"
   },
   {
    "id": "Y11-config-games",
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 565,
-     "find": "        require(namesGames, \"the build's config does not name the predicted games contract\");\n",
+     "line": 663,
+     "find": "        require(w.watched == p.games, \"the build's event source is not the predicted games contract\");\n",
      "replace": ""
     }
    ],
    "testPath": "test/games/DeployGames.t.sol",
    "test": "test_workflow_theIdComesFromTheBuildAndFromNothingLess",
-   "breaks": "a build whose config does not name the games contract is taken"
+   "breaks": "a build whose event key does not name the games contract is taken"
   },
   {
    "id": "Y12-config-owner",
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 552,
+     "line": 654,
      "find": "        require(w.owner == p.workflowOwner, \"the build's owner is not the predicted workflow owner\");\n",
      "replace": ""
     }
@@ -2936,7 +2964,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 551,
+     "line": 652,
      "find": "        require(w.id[0] == 0, \"the workflow id's first byte is not zero: not an id the registry computes\");\n",
      "replace": ""
     }
@@ -2950,7 +2978,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 306,
+     "line": 373,
      "find": "        require(sender == p.deployer, \"the sender is not the predicted deployer\");\n",
      "replace": ""
     }
@@ -2960,25 +2988,25 @@
    "breaks": "another sender deploys on a stranger's prediction"
   },
   {
-   "id": "Y15-twice",
+   "id": "Y15-done",
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 299,
-     "find": "        require(!vm.exists(string.concat(dir, \"/deploy.json\")), \"deployed already: this script runs once\");\n",
+     "line": 368,
+     "find": "        require(!(reporterUp && gamesUp), \"deployed already: both predicted addresses hold code\");\n",
      "replace": ""
     }
    ],
    "testPath": "test/games/DeployGames.t.sol",
-   "test": "test_deploy_refusesToRunTwice",
-   "breaks": "the script runs twice"
+   "test": "test_neverLine_aSecondRunFinishesWhatIsMissingAndRefusesWhatIsDone",
+   "breaks": "a run after the whole deploy is refused for another reason, with the sends skipped"
   },
   {
    "id": "Y16-timelock",
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 326,
+     "line": 419,
      "find": "            in_.timelock, coin, launchTerms(), _one(address(reporter)), _firstN(), _one32(address(reporter).codehash)\n",
      "replace": "            p.deployer, coin, launchTerms(), _one(address(reporter)), _firstN(), _one32(address(reporter).codehash)\n"
     }
@@ -2992,7 +3020,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 748,
+     "line": 862,
      "find": "        list[0] = ReporterKind.FirstN;\n    }\n}\n",
      "replace": "        list[0] = ReporterKind.AfterN;\n    }\n}\n"
     }
@@ -3002,26 +3030,26 @@
    "breaks": "the reporter is admitted after-n (the constructor refuses a list with no first-n reporter: red by refusal)"
   },
   {
-   "id": "Y18-signpost-code",
+   "id": "Y18-signpost-block",
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 411,
-     "find": "        require(d.games.codehash == d.gamesCodeHash && d.reporter.codehash == d.reporterCodeHash, \"the code is not the deployed code\");\n",
+     "line": 508,
+     "find": "        require(keccak256(_codeAt(p.games, deployBlock)) == gamesCodeHash, \"the games contract is not in the deploy block\");\n",
      "replace": ""
     }
    ],
    "testPath": "test/games/DeployGames.t.sol",
    "test": "test_signpostCall_writesTheCallAndTheTimelockListsTheSet",
-   "breaks": "the signpost call is written for code other than the deployed code"
+   "breaks": "a deploy block before the creation is taken"
   },
   {
    "id": "Y19-signpost-before",
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 412,
-     "find": "        require(_codeAt(d.games, deployBlock - 1).length == 0, \"the games contract existed before the deploy block\");\n",
+     "line": 507,
+     "find": "        require(_codeAt(p.games, deployBlock - 1).length == 0, \"the games contract existed before the deploy block\");\n",
      "replace": ""
     }
    ],
@@ -3034,7 +3062,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 370,
+     "line": 463,
      "find": "        _requireTerms(games.getTerms(\"\"), launchTerms());\n",
      "replace": ""
     }
@@ -3048,7 +3076,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 376,
+     "line": 469,
      "find": "        require(listed.length == 1 && listed[0] == address(reporter), \"the approved list is not the reporter alone\");\n",
      "replace": ""
     }
@@ -3062,7 +3090,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 382,
+     "line": 475,
      "find": "        require(logs.length == 4, \"the set has other logs\");\n",
      "replace": "        require(logs.length >= 3, \"the set has other logs\");\n"
     }
@@ -3076,7 +3104,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 469,
+     "line": 574,
      "find": "        require(IDecimals(in_.coin).decimals() == COIN_DECIMALS, \"the coin does not have six decimals\");\n",
      "replace": ""
     }
@@ -3090,7 +3118,7 @@
    "file": "script/DeployGames.s.sol",
    "edits": [
     {
-     "line": 472,
+     "line": 577,
      "find": "        require(IForwarderRead(in_.forwarder).isForwarder(in_.forwarder), \"the forwarder does not name itself one\");\n",
      "replace": ""
     }
@@ -3101,17 +3129,115 @@
   },
   {
    "id": "Y25-chain-roles",
-   "file": "script/DeployGames.s.sol",
+   "file": "script/DeployPolygonTimelock.s.sol",
    "edits": [
     {
-     "line": 489,
-     "find": "                require(t.hasRole(roles[j], who[i]) == ruled[i][j], \"the timelock's roles are not as ruled\");\n",
+     "line": 99,
+     "find": "                require(timelock.hasRole(roles[j], who[i]) == ruled[i][j], \"a role is not as ruled\");\n",
      "replace": ""
     }
    ],
    "testPath": "test/games/DeployGames.t.sol",
    "test": "test_inputs_eachFixedAddressIsCheckedAgainstTheChain",
-   "breaks": "a timelock with other roles is taken"
+   "breaks": "a timelock with other roles is taken by the matrix (its logs still refuse it)"
+  },
+  {
+   "id": "Y26-timelock-delay",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 589,
+     "find": "        require(delay != 0, \"the timelock has no delay\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_inputs_eachFixedAddressIsCheckedAgainstTheChain",
+   "breaks": "a timelock with no delay is taken"
+  },
+  {
+   "id": "Y27-timelock-verify",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 590,
+     "find": "        timelockDeploy.verify(TimelockController(payable(timelock)), k, deployer, delay, _timelockLogs(timelock, creationBlock));\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_inputs_eachFixedAddressIsCheckedAgainstTheChain",
+   "breaks": "a timelock with a second proposer, or whose creator kept a role, is taken"
+  },
+  {
+   "id": "Y28-skip-reporter-check",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 408,
+     "find": "            require(\n                reporter.i_forwarder() == in_.forwarder && reporter.i_workflowOwner() == p.workflowOwner\n                    && reporter.i_workflowId() == w.id && address(reporter.i_games()) == p.games,\n                \"the code at the predicted reporter is not this deploy's reporter\"\n            );\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_neverLine_aSecondRunFinishesWhatIsMissingAndRefusesWhatIsDone",
+   "breaks": "a games contract is sent against another reporter's code at the predicted address"
+  },
+  {
+   "id": "Y29-registry-status",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 614,
+     "find": "        require(got.status == IWorkflowRegistryRead.WorkflowStatus.ACTIVE, \"the registry holds the id paused\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_neverLine_theDeployWaitsForTheRegistryToHoldTheId",
+   "breaks": "a paused entry passes"
+  },
+  {
+   "id": "Y30-registry-name",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 615,
+     "find": "        require(keccak256(bytes(got.workflowName)) == keccak256(bytes(w.name)), \"the registry's name for the id is not the build's\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_neverLine_theDeployWaitsForTheRegistryToHoldTheId",
+   "breaks": "an entry under another name passes"
+  },
+  {
+   "id": "Y31-config-hash",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 649,
+     "find": "        w.configHash = _sha256Text(vm.parseJsonString(json, \".hashes.config\"), \"the build's config hash is not a sha256\");\n",
+     "replace": "        w.configHash = bytes32(0);\n"
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_workflow_theIdComesFromTheBuildAndFromNothingLess",
+   "breaks": "a record whose config hash is not a sha256 is taken, the hash unread"
+  },
+  {
+   "id": "Y32-config-key",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 658,
+     "find": "        require(vm.keyExistsJson(json, receiverKey), \"the build's config has no receiver key\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_workflow_theIdComesFromTheBuildAndFromNothingLess",
+   "breaks": "a config without the receiver key is refused by the parser, under no name"
   }
  ]
 }
