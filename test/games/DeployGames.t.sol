@@ -14,10 +14,22 @@ import {OspexSignpost} from "../../src/signpost/OspexSignpost.sol";
 import {MockReporter} from "./GamesBase.sol";
 import {TestCoin, TrickCoin, FalseCoin} from "./CoinFixtures.sol";
 
-/// @dev Lets a test run each phase with inputs, records and a directory of its own, and stands in for the two
-///      reads of the RPC that cannot see a deploy made on a local fork: the code at a past block, and the logs.
+/// @dev Lets a test run each phase with inputs, a plan and a directory of its own, and stands in for the reads
+///      of the RPC that cannot see what a test did on its fork: the code at a past block, a transfer the test
+///      sent, and the logs of a timelock the test built.
 contract DeployGamesHarness is DeployGames {
     uint256 internal localFrom;
+    bytes internal timelockLogs;
+    bool internal timelockLogsSet;
+    /// @dev An endpoint that serves log ranges, for the timelock's logs: an archive endpoint that serves the
+    ///      state at the pinned block may not serve a log range over the timelock's life. Empty: the fork's own.
+    string internal logsRpc;
+    uint256 internal logsFork;
+    bool internal logsForkMade;
+
+    function setLogsRpc(string memory rpc) external {
+        logsRpc = rpc;
+    }
 
     function predictFor(Inputs memory in_, address deployer, address workflowOwner, string memory dir)
         external
@@ -26,23 +38,87 @@ contract DeployGamesHarness is DeployGames {
         return _predict(in_, deployer, workflowOwner, dir);
     }
 
-    function deployFrom(Inputs memory in_, Prediction memory p, Workflow memory w, string memory dir)
+    function deployFrom(Inputs memory in_, Prediction memory p, Workflow memory w)
         external
         returns (OspexChainlinkReporter, OspexGames)
     {
-        return _deploy(in_, p, w, dir);
+        return _deploy(in_, p, w);
     }
 
-    function signpostCallFor(Inputs memory in_, Deployed memory d, uint256 deployBlock, bytes20 commit, string memory dir)
+    function signpostCallFor(Inputs memory in_, Prediction memory p, uint256 deployBlock, bytes20 commit, string memory dir)
         external
         returns (bytes memory, bytes32)
     {
-        return _signpostCall(in_, d, deployBlock, commit, dir);
+        return _signpostCall(in_, p, deployBlock, commit, dir);
     }
 
     /// @dev From this block on, the code at an address is the fork's own: a local creation the RPC never saw.
     function setLocalFrom(uint256 blockNumber) external {
         localFrom = blockNumber;
+    }
+
+    /// @dev Stands a timelock of the test's own, with the logs it emitted, in the Polygon timelock's place.
+    function setTimelockLogs(VmSafe.Log[] memory logs) external {
+        timelockLogs = abi.encode(logs);
+        timelockLogsSet = true;
+    }
+
+    function useTheChainsTimelockLogs() external {
+        timelockLogsSet = false;
+    }
+
+    bytes internal chainLogs;
+    address internal chainLogsOf;
+    uint256 internal chainLogsFrom;
+
+    /// @dev The test's own timelock's logs if set; else the chain's, read with the script's own read (in its
+    ///      windows), through a fork of the log-serving endpoint if one is given, once per test: the suite's
+    ///      tests run side by side, and every read is forty-odd requests.
+    function _timelockLogs(address timelock, uint256 creationBlock) internal override returns (VmSafe.Log[] memory logs) {
+        if (timelockLogsSet) {
+            bytes memory encoded = timelockLogs;
+            return abi.decode(encoded, (VmSafe.Log[]));
+        }
+        if (chainLogsOf == timelock && chainLogsFrom == creationBlock) {
+            bytes memory cached = chainLogs;
+            return abi.decode(cached, (VmSafe.Log[]));
+        }
+        if (bytes(logsRpc).length == 0) {
+            logs = super._timelockLogs(timelock, creationBlock);
+        } else {
+            uint256 home = vm.activeFork();
+            if (!logsForkMade) {
+                logsFork = vm.createFork(logsRpc);
+                logsForkMade = true;
+                vm.selectFork(logsFork);
+                // A few blocks behind the head, where every node behind the endpoint has the block.
+                vm.rollFork(block.number - REGISTRY_LAG);
+            } else {
+                vm.selectFork(logsFork);
+            }
+            logs = super._timelockLogs(timelock, creationBlock);
+            vm.selectFork(home);
+        }
+        chainLogs = abi.encode(logs);
+        chainLogsOf = timelock;
+        chainLogsFrom = creationBlock;
+    }
+
+    /// @dev The RPC cannot see a transfer the test sent on its fork: the logs the test recorded stand in for the
+    ///      chain's, read with the same filter.
+    function _feeSentToKey(Inputs memory in_, Prediction memory p) internal override returns (bool) {
+        if (localFrom == 0) return super._feeSentToKey(in_, p);
+        VmSafe.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; ++i) {
+            VmSafe.Log memory l = logs[i];
+            if (
+                l.emitter == in_.coin && l.topics.length == 3 && l.topics[0] == IERC20.Transfer.selector
+                    && l.topics[1] == bytes32(uint256(uint160(p.deployer)))
+                    && l.topics[2] == bytes32(uint256(uint160(in_.k))) && l.data.length == 32
+                    && abi.decode(l.data, (uint256)) == LAUNCH_FEE
+            ) return true;
+        }
+        return false;
     }
 
     function _codeAt(address account, uint256 blockNumber) internal override returns (bytes memory) {
@@ -59,13 +135,16 @@ contract DeployGamesHarness is DeployGames {
  * @notice Tests for script/DeployGames.s.sol on a fork of Polygon mainnet at FORK_BLOCK, after the signpost's
  *         creation, with the Polygon timelock, the signpost, USDC and Chainlink's forwarder there, and a fork
  *         of Ethereum mainnet for the registry. They need POLYGON_RPC_URL and ETHEREUM_RPC_URL; without both
- *         (CI has no RPC) every test here is skipped, which is how a run reports that no fork was used.
+ *         (CI has no RPC) every test here is skipped, which is how a run reports that no fork was used. The
+ *         timelock's logs, which the script reads over the timelock's whole life, come through a fork of
+ *         POLYGON_LOGS_RPC_URL when it is set, since an archive endpoint that serves the pinned block's state
+ *         may hang on a log range; unset, they come from the fork's own endpoint, as on deploy day.
  *
  *         The registry on Ethereum holds one workflow this repository can name, v2's, under its owner: the
  *         tests that need "an id the registry holds under the owner" use that pair, and the deploy they
  *         rehearse fixes v2's id in the reporter. The id's binding to a build with the predicted addresses in
  *         its config is the reproducible build's, rehearsed on the anvil forks; here the record is written as
- *         that build writes it.
+ *         that build writes it, with v2's hashes.
  *
  *         Tests named test_neverLine_... are the spec's lines under "Must never happen" ("Keys, deploys and
  *         the signpost", and "Games and reporters") as they reach the deploy, each with the one-line break in
@@ -80,9 +159,13 @@ contract DeployGamesTest is Test {
     address internal constant FORWARDER = 0x76c9cf548b4179F8901cda1f8623568b58215E62;
     /// @dev An address that holds USDC at the fork block: the deployer and a creator are funded from it.
     address internal constant HOLDER = 0x16Dc5D67D080a5521ef2c79680dBfC2aBf724D30;
-    /// @dev v2's workflow at the registry on Ethereum, and the owner it is held under.
+    /// @dev v2's workflow at the registry on Ethereum, the owner it is held under, and its name.
     bytes32 internal constant V2_ID = 0x0097efdade80ff0a9557d927a1c07075a453bba9cd0fae7e22519c613ec47805;
     address internal constant V2_OWNER = 0x40047BAFcdEd16C938058b7b67186299a2893561;
+    string internal constant V2_NAME = "osverify";
+    /// @dev v2's build's two hashes, as the reproducible build records them.
+    string internal constant V2_CONFIG_HASH = "9a7ab7e33948b572aa6dd0c9762f444573cadd564addb804f594536b57d4724b";
+    string internal constant V2_BINARY_HASH = "5929b9c675ae03ec67e6a5b4adba8ff2be5164e41e7dcdbe7b670954638da755";
     uint96 internal constant FEE = 1_000_000;
 
     DeployGamesHarness internal script;
@@ -104,6 +187,7 @@ contract DeployGamesTest is Test {
         polygonFork = vm.createSelectFork(rpc, FORK_BLOCK);
         script = new DeployGamesHarness();
         script.setLocalFrom(FORK_BLOCK);
+        script.setLogsRpc(vm.envOr("POLYGON_LOGS_RPC_URL", string("")));
         polygon = script.inputs(137);
         // The deployer holds coin for the check.
         vm.prank(HOLDER);
@@ -114,12 +198,14 @@ contract DeployGamesTest is Test {
     // The chain's fixed addresses
     // ---------------------------------------------------------------------------------------------------
 
-    /// The fork is Polygon at the pinned block, and it holds the inputs as pinned.
-    function test_fork_isPolygonWithTheFixedAddresses() public view {
+    /// The fork is Polygon at the pinned block, and it holds the inputs as pinned: the timelock's whole layout
+    /// read from the chain, its five logs included, and its delay above zero.
+    function test_fork_isPolygonWithTheFixedAddresses() public {
         assertEq(block.chainid, 137, "chain id");
         assertEq(block.number, FORK_BLOCK, "fork block");
         assertEq(polygon.timelock, TIMELOCK, "timelock");
         assertEq(polygon.k, K, "K");
+        assertEq(polygon.timelockDeployer, HOLDER, "the timelock's creator");
         assertEq(polygon.signpost, SIGNPOST, "signpost");
         assertEq(polygon.coin, USDC, "coin");
         assertEq(polygon.forwarder, FORWARDER, "forwarder");
@@ -129,8 +215,11 @@ contract DeployGamesTest is Test {
         assertEq(OspexSignpost(SIGNPOST).entryCount(), 1, "the signpost lists v2 alone");
     }
 
-    /// Each fixed address is checked against the chain: another timelock, another signpost, a coin with other
-    /// decimals, a forwarder that is not one, each refused by name before anything is sent.
+    /// Each fixed address is checked against the chain: another timelock, another key, another creator, a
+    /// timelock with no delay, one with a second proposer, one whose creator kept the admin role, another
+    /// signpost, a coin with other decimals, a forwarder that is not one, each refused by name before anything
+    /// is sent.
+    /// Break: in requireTimelock(), delete `require(delay != 0, ...)`. The zero-delay timelock then passes.
     function test_inputs_eachFixedAddressIsCheckedAgainstTheChain() public {
         DeployGames.Inputs memory in_;
         in_ = polygon;
@@ -139,8 +228,40 @@ contract DeployGamesTest is Test {
         script.requireChain(in_);
         in_ = polygon;
         in_.k = stranger;
-        vm.expectRevert(bytes("the timelock's roles are not as ruled"));
+        vm.expectRevert(bytes("a role is not as ruled"));
         script.requireChain(in_);
+        in_ = polygon;
+        in_.timelockDeployer = stranger;
+        vm.expectRevert(bytes("a role log is not as ruled"));
+        script.requireChain(in_);
+
+        // A timelock of the test's own, the pinned build with no delay: refused before its logs are read.
+        uint256 here = vm.getBlockNumber();
+        address t = address(new TimelockController(0, _one(K), _one(address(0)), address(0)));
+        vm.expectRevert(bytes("the timelock has no delay"));
+        script.requireTimelock(t, K, address(this), here);
+        // One with a second proposer: the roles the layout names are as ruled; the logs show the other grant.
+        address[] memory two = new address[](2);
+        two[0] = K;
+        two[1] = stranger;
+        vm.recordLogs();
+        t = address(new TimelockController(60, two, _one(address(0)), address(0)));
+        script.setTimelockLogs(vm.getRecordedLogs());
+        vm.expectRevert(bytes("the timelock has other logs"));
+        script.requireTimelock(t, K, address(this), here);
+        // One whose creator kept the admin role: refused by the roles.
+        vm.recordLogs();
+        t = address(new TimelockController(60, _one(K), _one(address(0)), address(this)));
+        script.setTimelockLogs(vm.getRecordedLogs());
+        vm.expectRevert(bytes("a role is not as ruled"));
+        script.requireTimelock(t, K, address(this), here);
+        // Control: one built as ruled, with its own logs, passes.
+        vm.recordLogs();
+        t = address(new TimelockController(60, _one(K), _one(address(0)), address(0)));
+        script.setTimelockLogs(vm.getRecordedLogs());
+        script.requireTimelock(t, K, address(this), here);
+        script.useTheChainsTimelockLogs();
+
         in_ = polygon;
         in_.signpost = TIMELOCK;
         vm.expectRevert(bytes("the signpost is not the pinned code"));
@@ -178,7 +299,7 @@ contract DeployGamesTest is Test {
     // ---------------------------------------------------------------------------------------------------
 
     /// predict reads the deployer's nonce k and names the coin check at k, the reporter at k + 1 and the games
-    /// contract at k + 2, writes the record, and sends nothing.
+    /// contract at k + 2, writes the plan with the block it was made in, and sends nothing.
     function test_predict_predictsByNonceAndSendsNothing() public {
         string memory dir = _fresh("predict");
         uint64 nonce = vm.getNonce(deployer);
@@ -187,6 +308,8 @@ contract DeployGamesTest is Test {
         VmSafe.AccountAccess[] memory diff = vm.stopAndReturnStateDiff();
         for (uint256 i; i < diff.length; ++i) {
             assertTrue(diff[i].kind != VmSafe.AccountAccessKind.Create, "a contract was created");
+            // The harness keeps the chain's timelock logs for the test; the chain itself is not written.
+            if (diff[i].account == address(script)) continue;
             for (uint256 j; j < diff[i].storageAccesses.length; ++j) {
                 assertFalse(diff[i].storageAccesses[j].isWrite, "something was written");
             }
@@ -195,6 +318,7 @@ contract DeployGamesTest is Test {
         assertEq(p.chainId, 137, "chain");
         assertEq(p.deployer, deployer, "deployer");
         assertEq(p.nonce, nonce, "k");
+        assertEq(p.blockNumber, FORK_BLOCK, "the block of the plan");
         assertEq(p.workflowOwner, V2_OWNER, "owner");
         assertEq(p.reporter, vm.computeCreateAddress(deployer, nonce + 1), "the reporter at k + 1");
         assertEq(p.games, vm.computeCreateAddress(deployer, nonce + 2), "the games contract at k + 2");
@@ -202,7 +326,7 @@ contract DeployGamesTest is Test {
         assertEq(p.games.code.length, 0, "no code yet at the games address");
 
         DeployGames.Prediction memory back = script.readPrediction(dir);
-        assertEq(keccak256(abi.encode(back)), keccak256(abi.encode(p)), "the record reads back as predicted");
+        assertEq(keccak256(abi.encode(back)), keccak256(abi.encode(p)), "the plan reads back as predicted");
 
         // A second prediction in the same place is refused: a new prediction means a new id.
         vm.expectRevert(bytes("a prediction exists: a new one means a new id"));
@@ -219,7 +343,7 @@ contract DeployGamesTest is Test {
         script.predictFor(polygon, deployer, deployer, dir);
         vm.expectRevert(bytes("the deployer is the key"));
         script.predictFor(polygon, K, V2_OWNER, dir);
-        assertFalse(vm.exists(string.concat(dir, "/prediction.json")), "a record was written");
+        assertFalse(vm.exists(string.concat(dir, "/prediction.json")), "a plan was written");
         vm.chainId(80002);
         vm.expectRevert(bytes("the RPC is not on the inputs' chain"));
         script.predictFor(polygon, deployer, V2_OWNER, dir);
@@ -228,12 +352,15 @@ contract DeployGamesTest is Test {
     }
 
     // ---------------------------------------------------------------------------------------------------
-    // The build's output: the id comes from it and from nothing less
+    // The build's record: the id comes from it and from nothing less, and it is read in full
     // ---------------------------------------------------------------------------------------------------
 
-    /// readWorkflow takes the id from the reproducible build's output and refuses an output whose owner is not
-    /// the predicted one, whose config does not name both predicted addresses, or whose id is not one the
-    /// registry computes.
+    /// readWorkflow takes the id from the reproducible build's output and reads the record in full: it refuses
+    /// an output whose owner is not the predicted one, whose receiver key does not name the predicted reporter
+    /// or whose event key does not name the predicted games contract (the addresses under other keys, or
+    /// swapped, count for nothing), whose hashes are not a sha256 each, or whose id is not one the registry
+    /// computes.
+    /// Break: in readWorkflow(), delete `require(w.receiver == p.reporter, ...)`. The swapped record is taken.
     function test_workflow_theIdComesFromTheBuildAndFromNothingLess() public {
         string memory dir = _fresh("workflow");
         DeployGames.Prediction memory p = script.predictFor(polygon, deployer, V2_OWNER, dir);
@@ -242,17 +369,53 @@ contract DeployGamesTest is Test {
         DeployGames.Workflow memory w = script.readWorkflow(dir, p);
         assertEq(w.id, V2_ID, "the id");
         assertEq(w.owner, V2_OWNER, "the owner");
-        assertEq(w.name, "osgames", "the name");
+        assertEq(w.name, V2_NAME, "the name");
+        assertEq(w.receiver, p.reporter, "the reporter, under the receiver key");
+        assertEq(w.watched, p.games, "the games contract, under the event key");
+        assertEq(w.configHash, vm.parseBytes32(string.concat("0x", V2_CONFIG_HASH)), "the config hash as recorded");
+        assertEq(w.binaryHash, vm.parseBytes32(string.concat("0x", V2_BINARY_HASH)), "the binary hash as recorded");
+        assertEq(w.cre, "CRE CLI version v1.22.0", "the tool");
+        script.printWorkflow(w);
 
+        // The two addresses under each other's keys: refused, since the keys are the ones the program reads.
+        _writeWorkflow(dir, V2_ID, V2_OWNER, p.games, p.reporter);
+        vm.expectRevert(bytes("the build's receiver is not the predicted reporter"));
+        script.readWorkflow(dir, p);
         _writeWorkflow(dir, V2_ID, V2_OWNER, p.reporter, stranger);
-        vm.expectRevert(bytes("the build's config does not name the predicted games contract"));
+        vm.expectRevert(bytes("the build's event source is not the predicted games contract"));
         script.readWorkflow(dir, p);
         _writeWorkflow(dir, V2_ID, V2_OWNER, stranger, p.games);
-        vm.expectRevert(bytes("the build's config does not name the predicted reporter"));
+        vm.expectRevert(bytes("the build's receiver is not the predicted reporter"));
         script.readWorkflow(dir, p);
-        _writeWorkflow(dir, V2_ID, V2_OWNER, p.games, p.reporter);
-        DeployGames.Workflow memory swapped = script.readWorkflow(dir, p);
-        assertEq(swapped.id, V2_ID, "both named, in either field");
+        // Both addresses present, under keys the program does not read, the read keys zero.
+        _writeRecord(
+            dir,
+            _record(
+                V2_ID,
+                V2_OWNER,
+                V2_NAME,
+                string.concat(
+                    '{"receiverAddress":"0x0000000000000000000000000000000000000000","eventAddress":"0x0000000000000000000000000000000000000000","unusedReporter":"',
+                    vm.toString(p.reporter),
+                    '","unusedGames":"',
+                    vm.toString(p.games),
+                    '"}'
+                ),
+                V2_CONFIG_HASH,
+                V2_BINARY_HASH
+            )
+        );
+        vm.expectRevert(bytes("the build's receiver is not the predicted reporter"));
+        script.readWorkflow(dir, p);
+        // A config without the receiver key at all.
+        _writeRecord(
+            dir,
+            _record(V2_ID, V2_OWNER, V2_NAME, string.concat('{"eventAddress":"', vm.toString(p.games), '"}'), V2_CONFIG_HASH, V2_BINARY_HASH)
+        );
+        vm.expectRevert(bytes("the build's config has no receiver key"));
+        script.readWorkflow(dir, p);
+
+        // The owner, the id, the hashes.
         _writeWorkflow(dir, V2_ID, K, p.reporter, p.games);
         vm.expectRevert(bytes("the build's owner is not the predicted workflow owner"));
         script.readWorkflow(dir, p);
@@ -261,6 +424,15 @@ contract DeployGamesTest is Test {
         script.readWorkflow(dir, p);
         _writeWorkflow(dir, bytes32(uint256(V2_ID) | (uint256(1) << 255)), V2_OWNER, p.reporter, p.games);
         vm.expectRevert(bytes("the workflow id's first byte is not zero: not an id the registry computes"));
+        script.readWorkflow(dir, p);
+        _writeRecord(dir, _record(V2_ID, V2_OWNER, V2_NAME, _config(p.reporter, p.games), "not-a-hash", V2_BINARY_HASH));
+        vm.expectRevert(bytes("the build's config hash is not a sha256"));
+        script.readWorkflow(dir, p);
+        _writeRecord(dir, _record(V2_ID, V2_OWNER, V2_NAME, _config(p.reporter, p.games), V2_CONFIG_HASH, "not-a-build"));
+        vm.expectRevert(bytes("the build's binary hash is not a sha256"));
+        script.readWorkflow(dir, p);
+        _writeRecord(dir, _record(V2_ID, V2_OWNER, "", _config(p.reporter, p.games), V2_CONFIG_HASH, V2_BINARY_HASH));
+        vm.expectRevert(bytes("the build's name is empty"));
         script.readWorkflow(dir, p);
         vm.removeFile(string.concat(dir, "/workflow.json"));
         vm.expectRevert(bytes("no workflow.json: the reproducible build's output, saved beside the prediction"));
@@ -272,14 +444,14 @@ contract DeployGamesTest is Test {
     // The registry: the script stops before the reporter's deploy unless the registry holds the id
     // ---------------------------------------------------------------------------------------------------
 
-    /// The registry on Ethereum, read from a fork of it: v2's id under v2's owner passes and the script is back
-    /// on Polygon after; an unlinked owner, an id the registry does not hold, and a registry RPC on the wrong
-    /// chain each stop it.
+    /// The registry on Ethereum, read from a fork of it: v2's id under v2's owner, active, under v2's name
+    /// passes and the script is back on Polygon after; an unlinked owner, an id the registry does not hold, an
+    /// id held under another owner, a registry RPC on the wrong chain, and, on a stand-in registry, an entry
+    /// paused or under another name each stop it.
     /// Break: in deploy(), delete the `requireRegistered(...)` line. The deploy then goes ahead on an id the
     /// registry does not hold.
     function test_neverLine_theDeployWaitsForTheRegistryToHoldTheId() public {
-        IWorkflowRegistryRead.WorkflowStatus status = script.requireRegistered(polygon, V2_ID, V2_OWNER, ethRpc);
-        assertEq(uint8(status), uint8(IWorkflowRegistryRead.WorkflowStatus.ACTIVE), "v2's workflow is active");
+        script.requireRegistered(polygon, _workflow(V2_ID, V2_OWNER, V2_NAME), ethRpc);
         assertEq(block.chainid, 137, "back on Polygon");
         assertEq(block.number, FORK_BLOCK, "back at the fork block");
 
@@ -294,25 +466,41 @@ contract DeployGamesTest is Test {
         assertTrue(other != address(0), "the registry lists another linked owner");
         // A refusal ends a script run where it stands; a test goes on, so it steps back to the Polygon fork.
         vm.expectRevert(bytes("the registry holds the id under another owner"));
-        script.requireRegistered(polygon, V2_ID, other, ethRpc);
+        script.requireRegistered(polygon, _workflow(V2_ID, other, V2_NAME), ethRpc);
         vm.selectFork(polygonFork);
         vm.expectRevert(bytes("the workflow owner is not linked at the registry"));
-        script.requireRegistered(polygon, V2_ID, K, ethRpc);
+        script.requireRegistered(polygon, _workflow(V2_ID, K, V2_NAME), ethRpc);
         vm.selectFork(polygonFork);
         vm.expectRevert(bytes("the registry does not hold the id"));
-        script.requireRegistered(polygon, bytes32(uint256(V2_ID) ^ 1), V2_OWNER, ethRpc);
+        script.requireRegistered(polygon, _workflow(bytes32(uint256(V2_ID) ^ 1), V2_OWNER, V2_NAME), ethRpc);
+        vm.selectFork(polygonFork);
+        vm.expectRevert(bytes("the registry's name for the id is not the build's"));
+        script.requireRegistered(polygon, _workflow(V2_ID, V2_OWNER, "osgames"), ethRpc);
         vm.selectFork(polygonFork);
         DeployGames.Inputs memory in_ = polygon;
         in_.registryChainId = 137;
         vm.expectRevert(bytes("the registry RPC is not on the registry's chain"));
-        script.requireRegistered(in_, V2_ID, V2_OWNER, ethRpc);
+        script.requireRegistered(in_, _workflow(V2_ID, V2_OWNER, V2_NAME), ethRpc);
         vm.selectFork(polygonFork);
         in_ = polygon;
         in_.registry = V2_OWNER; // a contract on Ethereum that is not the registry
         vm.expectRevert();
-        script.requireRegistered(in_, V2_ID, V2_OWNER, ethRpc);
+        script.requireRegistered(in_, _workflow(V2_ID, V2_OWNER, V2_NAME), ethRpc);
         vm.selectFork(polygonFork);
         assertEq(block.chainid, 137, "back on Polygon");
+
+        // The entry's status, on a stand-in registry that answers as the real one does and sits on every fork.
+        StandInRegistry standIn = new StandInRegistry();
+        vm.makePersistent(address(standIn));
+        in_ = polygon;
+        in_.registry = address(standIn);
+        standIn.set(V2_ID, V2_OWNER, IWorkflowRegistryRead.WorkflowStatus.PAUSED, V2_NAME);
+        vm.expectRevert(bytes("the registry holds the id paused"));
+        script.requireRegistered(in_, _workflow(V2_ID, V2_OWNER, V2_NAME), ethRpc);
+        vm.selectFork(polygonFork);
+        standIn.set(V2_ID, V2_OWNER, IWorkflowRegistryRead.WorkflowStatus.ACTIVE, V2_NAME);
+        script.requireRegistered(in_, _workflow(V2_ID, V2_OWNER, V2_NAME), ethRpc);
+        assertEq(block.chainid, 137, "back on Polygon after the stand-in");
 
         // The whole deploy, with the registry's answer missing: stopped before anything is sent.
         string memory dir = _fresh("registry");
@@ -321,7 +509,7 @@ contract DeployGamesTest is Test {
         _writeWorkflow(dir, unregistered, V2_OWNER, p.reporter, p.games);
         DeployGames.Workflow memory w = script.readWorkflow(dir, p);
         vm.expectRevert(bytes("the registry does not hold the id"));
-        script.requireRegistered(polygon, w.id, p.workflowOwner, ethRpc);
+        script.requireRegistered(polygon, w, ethRpc);
         vm.selectFork(polygonFork);
         assertEq(p.reporter.code.length, 0, "nothing deployed");
         _clean(dir);
@@ -333,18 +521,19 @@ contract DeployGamesTest is Test {
 
     /// deploy sends three things and nothing else, each at its predicted nonce: one fee through the coin, the
     /// reporter, the games contract; both land at their predicted addresses; the games contract records the
-    /// reporter as first-n with its code hash and the launch terms; the record is written.
+    /// reporter as first-n with its code hash and the launch terms; no record is written, the plan and the
+    /// build's record are the only files.
     function test_deploy_deploysAtThePredictedAddresses() public {
         string memory dir = _fresh("deploy");
         DeployGames.Prediction memory p = script.predictFor(polygon, deployer, V2_OWNER, dir);
         _writeWorkflow(dir, V2_ID, V2_OWNER, p.reporter, p.games);
         DeployGames.Workflow memory w = script.readWorkflow(dir, p);
-        script.requireRegistered(polygon, w.id, p.workflowOwner, ethRpc);
+        script.requireRegistered(polygon, w, ethRpc);
 
         uint256 deployerCoin = IERC20(USDC).balanceOf(deployer);
         uint256 keyCoin = IERC20(USDC).balanceOf(K);
         vm.startStateDiffRecording();
-        (OspexChainlinkReporter reporter, OspexGames games) = script.deployFrom(polygon, p, w, dir);
+        (OspexChainlinkReporter reporter, OspexGames games) = script.deployFrom(polygon, p, w);
         VmSafe.AccountAccess[] memory diff = vm.stopAndReturnStateDiff();
 
         assertEq(address(reporter), p.reporter, "the reporter at its predicted address");
@@ -389,12 +578,10 @@ contract DeployGamesTest is Test {
         assertEq(reporter.i_workflowId(), V2_ID, "the id");
         assertEq(address(reporter.i_games()), address(games), "the games contract");
 
-        DeployGames.Deployed memory d = script.readDeployed(dir);
-        assertEq(d.reporter, address(reporter), "recorded reporter");
-        assertEq(d.games, address(games), "recorded games");
-        assertEq(d.workflowId, V2_ID, "recorded id");
-        assertEq(d.reporterCodeHash, address(reporter).codehash, "recorded reporter code hash");
-        assertEq(d.gamesCodeHash, address(games).codehash, "recorded games code hash");
+        // No record of the deploy is written: the chain is the record, the receipts are forge's.
+        VmSafe.DirEntry[] memory files = vm.readDir(dir);
+        assertEq(files.length, 2, "the plan and the build's record, nothing else");
+        assertFalse(vm.exists(string.concat(dir, "/deploy.json")), "a deploy record was written");
         _clean(dir);
     }
 
@@ -408,7 +595,7 @@ contract DeployGamesTest is Test {
         (, OspexChainlinkReporter reporter, OspexGames games, string memory dir) = _deployed("keeps-nothing");
         assertEq(games.i_timelock(), TIMELOCK, "the games contract answers to the Polygon timelock");
         assertEq(games.getCredit(deployer), 0, "no credit");
-        script.requireTimelock(TIMELOCK, K, polygon.timelockCodeHash);
+        script.requireTimelock(TIMELOCK, K, polygon.timelockDeployer, polygon.timelockCreationBlock);
         assertFalse(TimelockController(payable(TIMELOCK)).hasRole(keccak256("PROPOSER_ROLE"), deployer), "a role");
 
         MockReporter extra = new MockReporter(IOspexGames(address(games)));
@@ -475,17 +662,35 @@ contract DeployGamesTest is Test {
     }
 
     /// Done when: a nonce moved by one stops the script before it sends. The deployer sent one transaction
-    /// since the prediction; deploy stops at its first read of the nonce, creating nothing and moving no coin.
-    /// Break: in _deploy(), delete `require(vm.getNonce(sender) == p.nonce, ...)`. The deploy then runs, and
-    /// the reporter lands at k + 2 instead of its predicted address (refused there, after the coin moved).
+    /// since the prediction that was not the coin check; deploy stops at its first read of the nonce, creating
+    /// nothing and moving no coin. A transfer of another amount, or from someone else, is not the coin check.
+    /// Break: in _deploy(), delete `require(_feeSentToKey(in_, p), ...)`. The deploy then runs on the moved
+    /// nonce with the check skipped, and lands the set with the coin unchecked.
     function test_neverLine_aMovedNonceStopsTheDeployBeforeAnySend() public {
         string memory dir = _fresh("nonce");
         DeployGames.Prediction memory p = script.predictFor(polygon, deployer, V2_OWNER, dir);
         _writeWorkflow(dir, V2_ID, V2_OWNER, p.reporter, p.games);
         DeployGames.Workflow memory w = script.readWorkflow(dir, p);
+        string memory reason = "the nonce moved since the prediction and the chain shows no coin check: nothing sent";
+
+        vm.recordLogs();
         vm.setNonce(deployer, p.nonce + 1);
-        _expectDeployStopped(polygon, p, w, dir, "the nonce moved since the prediction: nothing sent");
+        _expectDeployStopped(polygon, p, w, reason);
         assertEq(vm.getNonce(deployer), p.nonce + 1, "nothing sent");
+
+        // Two fees from the deployer to the key: not the check.
+        vm.recordLogs();
+        vm.prank(deployer);
+        IERC20(USDC).transfer(K, 2 * FEE);
+        vm.setNonce(deployer, p.nonce + 1);
+        _expectDeployStopped(polygon, p, w, reason);
+        // One fee to the key from someone else: not the check.
+        vm.recordLogs();
+        vm.prank(HOLDER);
+        IERC20(USDC).transfer(K, FEE);
+        vm.setNonce(deployer, p.nonce + 1);
+        _expectDeployStopped(polygon, p, w, reason);
+        assertEq(p.reporter.code.length, 0, "nothing deployed");
         _clean(dir);
     }
 
@@ -505,45 +710,120 @@ contract DeployGamesTest is Test {
         DeployGames.Workflow memory w = script.readWorkflow(dir, p);
 
         trick.setCut(1);
-        _expectDeployStopped(other, p, w, dir, "the coin did not deliver exactly the fee");
+        _expectDeployStopped(other, p, w, "the coin did not deliver exactly the fee");
         trick.setCut(0);
         trick.setCharge(1);
-        _expectDeployStopped(other, p, w, dir, "the coin did not take exactly the fee");
+        _expectDeployStopped(other, p, w, "the coin did not take exactly the fee");
         trick.setCharge(0);
         trick.setRefund(1);
-        _expectDeployStopped(other, p, w, dir, "the coin did not take exactly the fee");
+        _expectDeployStopped(other, p, w, "the coin did not take exactly the fee");
         trick.setRefund(0);
 
         FalseCoin refusing = new FalseCoin();
         refusing.mint(deployer, 10 * FEE);
         refusing.setRefusing(true);
         other.coin = address(refusing);
-        _expectDeployStopped(other, p, w, dir, "the coin refused the fee");
+        _expectDeployStopped(other, p, w, "the coin refused the fee");
 
         TestCoin empty = new TestCoin();
         other.coin = address(empty);
-        _expectDeployStopped(other, p, w, dir, "the deployer holds less than one fee of the coin");
+        _expectDeployStopped(other, p, w, "the deployer holds less than one fee of the coin");
 
         // Control: the trick coin, tricking nothing, passes the check and the set deploys.
         other.coin = address(trick);
-        (OspexChainlinkReporter reporter, OspexGames games) = script.deployFrom(other, p, w, dir);
+        (OspexChainlinkReporter reporter, OspexGames games) = script.deployFrom(other, p, w);
         assertEq(address(reporter), p.reporter, "deployed as predicted");
         assertEq(address(games.i_token()), address(trick), "on the coin that moved exactly the fee");
         assertEq(trick.balanceOf(K), FEE, "the key has the fee");
         _clean(dir);
     }
 
-    /// deploy refuses to run twice: once a deploy record exists, and, that record gone, by the nonce.
-    function test_deploy_refusesToRunTwice() public {
+    /// The chain decides what is left: a second run after the whole deploy is refused, with nothing sent; a run
+    /// after the coin check alone landed skips the check and sends the reporter and the games contract; a run
+    /// after the coin check and the reporter landed sends the games contract alone; code at the reporter's
+    /// address that is not this deploy's reporter stops the run before the games contract.
+    /// Break: in _deploy(), delete `require(!(reporterUp && gamesUp), "deployed already: ...")`. The second run
+    /// is then refused for another reason, after the sends were skipped.
+    function test_neverLine_aSecondRunFinishesWhatIsMissingAndRefusesWhatIsDone() public {
+        // Done: refused, nothing sent, nothing written.
         (DeployGames.Prediction memory p,,, string memory dir) = _deployed("twice");
         DeployGames.Workflow memory w = script.readWorkflow(dir, p);
         uint64 nonce = vm.getNonce(deployer);
-        vm.expectRevert(bytes("deployed already: this script runs once"));
-        script.deployFrom(polygon, p, w, dir);
-        vm.removeFile(string.concat(dir, "/deploy.json"));
-        vm.expectRevert(bytes("the nonce moved since the prediction: nothing sent"));
-        script.deployFrom(polygon, p, w, dir);
+        uint256 coin = IERC20(USDC).balanceOf(deployer);
+        vm.expectRevert(bytes("deployed already: both predicted addresses hold code"));
+        script.deployFrom(polygon, p, w);
+        _resetAfterStop(nonce);
         assertEq(vm.getNonce(deployer), nonce, "something was sent");
+        assertEq(IERC20(USDC).balanceOf(deployer), coin, "coin moved");
+        assertEq(vm.readDir(dir).length, 2, "something was written");
+        _clean(dir);
+
+        // The coin check landed and the run stopped there: the next run skips it and sends the two contracts.
+        dir = _fresh("after-the-coin-check");
+        p = script.predictFor(polygon, deployer, V2_OWNER, dir);
+        _writeWorkflow(dir, V2_ID, V2_OWNER, p.reporter, p.games);
+        w = script.readWorkflow(dir, p);
+        vm.recordLogs();
+        vm.prank(deployer);
+        IERC20(USDC).transfer(K, FEE);
+        vm.setNonce(deployer, p.nonce + 1);
+        coin = IERC20(USDC).balanceOf(deployer);
+        uint256 keyCoin = IERC20(USDC).balanceOf(K);
+        (OspexChainlinkReporter reporter, OspexGames games) = script.deployFrom(polygon, p, w);
+        assertEq(address(reporter), p.reporter, "the reporter at its predicted address");
+        assertEq(address(games), p.games, "the games contract at its predicted address");
+        assertEq(vm.getNonce(deployer), p.nonce + 3, "two sends");
+        assertEq(IERC20(USDC).balanceOf(deployer), coin, "the run moved coin: the check was sent again");
+        assertEq(IERC20(USDC).balanceOf(K), keyCoin, "the key received coin from the run");
+        _clean(dir);
+
+        // The coin check and the reporter landed: the next run sends the games contract alone.
+        dir = _fresh("after-the-reporter");
+        p = script.predictFor(polygon, deployer, V2_OWNER, dir);
+        _writeWorkflow(dir, V2_ID, V2_OWNER, p.reporter, p.games);
+        w = script.readWorkflow(dir, p);
+        vm.recordLogs();
+        vm.prank(deployer);
+        IERC20(USDC).transfer(K, FEE);
+        vm.setNonce(deployer, p.nonce + 1);
+        vm.prank(deployer);
+        OspexChainlinkReporter landed = new OspexChainlinkReporter(FORWARDER, V2_OWNER, V2_ID, IOspexGames(p.games));
+        assertEq(address(landed), p.reporter, "the reporter the earlier run landed");
+        assertEq(vm.getNonce(deployer), p.nonce + 2, "the nonce after the reporter");
+        coin = IERC20(USDC).balanceOf(deployer);
+        vm.startStateDiffRecording();
+        (reporter, games) = script.deployFrom(polygon, p, w);
+        VmSafe.AccountAccess[] memory diff = vm.stopAndReturnStateDiff();
+        uint256 creates;
+        for (uint256 i; i < diff.length; ++i) {
+            if (diff[i].kind == VmSafe.AccountAccessKind.Create) ++creates;
+        }
+        assertEq(creates, 1, "one creation: the games contract");
+        assertEq(address(reporter), address(landed), "the reporter as landed");
+        assertEq(address(games), p.games, "the games contract at its predicted address");
+        assertEq(vm.getNonce(deployer), p.nonce + 3, "one send");
+        assertEq(IERC20(USDC).balanceOf(deployer), coin, "the run moved coin");
+        (ReporterKind kind,, bytes32 codeHash) = games.getReporter(address(landed));
+        assertEq(uint8(kind), uint8(ReporterKind.FirstN), "the landed reporter is first-n");
+        assertEq(codeHash, address(landed).codehash, "its code hash");
+        _clean(dir);
+
+        // Code at the reporter's address that is another reporter: stopped before the games contract.
+        dir = _fresh("another-reporter");
+        p = script.predictFor(polygon, deployer, V2_OWNER, dir);
+        _writeWorkflow(dir, V2_ID, V2_OWNER, p.reporter, p.games);
+        w = script.readWorkflow(dir, p);
+        vm.recordLogs();
+        vm.prank(deployer);
+        IERC20(USDC).transfer(K, FEE);
+        vm.setNonce(deployer, p.nonce + 1);
+        vm.prank(deployer);
+        new OspexChainlinkReporter(FORWARDER, V2_OWNER, bytes32(uint256(V2_ID) ^ 1), IOspexGames(p.games));
+        nonce = vm.getNonce(deployer);
+        vm.expectRevert(bytes("the code at the predicted reporter is not this deploy's reporter"));
+        script.deployFrom(polygon, p, w);
+        _resetAfterStop(nonce);
+        assertEq(p.games.code.length, 0, "the games contract was deployed against another reporter");
         _clean(dir);
     }
 
@@ -554,9 +834,9 @@ contract DeployGamesTest is Test {
         DeployGames.Prediction memory p = script.predictFor(polygon, stranger, V2_OWNER, dir);
         _writeWorkflow(dir, V2_ID, V2_OWNER, p.reporter, p.games);
         DeployGames.Workflow memory w = script.readWorkflow(dir, p);
-        _expectDeployStopped(polygon, p, w, dir, "the sender is not the predicted deployer");
+        _expectDeployStopped(polygon, p, w, "the sender is not the predicted deployer");
         p.chainId = 80002;
-        _expectDeployStopped(polygon, p, w, dir, "the RPC is not on the prediction's chain");
+        _expectDeployStopped(polygon, p, w, "the RPC is not on the prediction's chain");
         _clean(dir);
     }
 
@@ -628,43 +908,51 @@ contract DeployGamesTest is Test {
     // Phase 3: the signpost call, and the Polygon timelock running it
     // ---------------------------------------------------------------------------------------------------
 
-    /// signpostCall checks the deployed code and the deploy block, proves the entry on the fork, and writes the
-    /// call. The key schedules it on the Polygon timelock; it runs only after the delay; the signpost then lists
-    /// the games set as building with both code hashes read from the chain; after a game is created, the move
-    /// to live goes through, since the games contract records each game's reporters.
+    /// signpostCall reads the plan and the chain (both addresses hold code, the games contract appears in the
+    /// deploy block and not before, the two point at each other), proves the entry on the fork, and writes the
+    /// call. The key schedules it on the Polygon timelock; it runs only after the delay; the signpost then
+    /// lists the games set as building with both code hashes read from the chain; after a game is created,
+    /// the move to live goes through, since the games contract records each game's reporters.
+    /// Break: in _signpostCall(), delete `require(keccak256(_codeAt(p.games, deployBlock)) == gamesCodeHash,
+    /// ...)`. A deploy block before the creation is then taken.
     function test_signpostCall_writesTheCallAndTheTimelockListsTheSet() public {
-        (, OspexChainlinkReporter reporter, OspexGames games, string memory dir) = _deployed("signpost");
+        (DeployGames.Prediction memory p, OspexChainlinkReporter reporter, OspexGames games, string memory dir) =
+            _deployed("signpost");
         // The block read through the cheatcode: under via-IR a `block.number` read beside a vm.roll can be
         // merged with the one after it, as a `block.timestamp` read beside a vm.warp can.
         uint256 deployBlock = vm.getBlockNumber();
         vm.roll(deployBlock + 1);
         assertEq(vm.getBlockNumber(), deployBlock + 1, "rolled one past the deploy block");
-        DeployGames.Deployed memory d = script.readDeployed(dir);
         bytes20 commit = bytes20(hex"61f4dbb7358f31f3fe3778e67f98659b2709c9f7");
 
         vm.expectRevert(bytes("the commit is missing"));
-        script.signpostCallFor(polygon, d, deployBlock, bytes20(0), dir);
+        script.signpostCallFor(polygon, p, deployBlock, bytes20(0), dir);
         vm.expectRevert(bytes("the deploy block is not a past block"));
-        script.signpostCallFor(polygon, d, deployBlock + 1, commit, dir);
+        script.signpostCallFor(polygon, p, deployBlock + 1, commit, dir);
         vm.expectRevert(bytes("the games contract is not in the deploy block"));
-        script.signpostCallFor(polygon, d, deployBlock - 5, commit, dir);
+        script.signpostCallFor(polygon, p, deployBlock - 5, commit, dir);
         vm.roll(deployBlock + 2);
         vm.expectRevert(bytes("the games contract existed before the deploy block"));
-        script.signpostCallFor(polygon, d, deployBlock + 1, commit, dir);
+        script.signpostCallFor(polygon, p, deployBlock + 1, commit, dir);
         vm.roll(deployBlock + 1);
-        DeployGames.Deployed memory wrong = script.readDeployed(dir);
-        wrong.reporterCodeHash = bytes32(uint256(d.reporterCodeHash) ^ 1);
-        vm.expectRevert(bytes("the code is not the deployed code"));
-        script.signpostCallFor(polygon, wrong, deployBlock, commit, dir);
+        // A plan whose addresses hold no code: nothing to list.
+        DeployGames.Prediction memory empty = _copyOf(p);
+        empty.reporter = vm.computeCreateAddress(stranger, 1);
+        empty.games = vm.computeCreateAddress(stranger, 2);
+        vm.expectRevert(bytes("the predicted addresses do not both hold code"));
+        script.signpostCallFor(polygon, empty, deployBlock, commit, dir);
 
         uint256 entries = OspexSignpost(SIGNPOST).entryCount();
-        (bytes memory call, bytes32 operationId) = script.signpostCallFor(polygon, d, deployBlock, commit, dir);
+        (bytes memory call, bytes32 operationId) = script.signpostCallFor(polygon, p, deployBlock, commit, dir);
         assertEq(OspexSignpost(SIGNPOST).entryCount(), entries, "the proof on the fork left no entry");
         string memory json = vm.readFile(string.concat(dir, "/signpost-call.json"));
         bytes memory add = vm.parseJsonBytes(json, ".addEntry");
         bytes32 salt = vm.parseJsonBytes32(json, ".salt");
         assertEq(vm.parseJsonBytes(json, ".schedule"), call, "the call as written");
         assertEq(vm.parseJsonBytes32(json, ".operationId"), operationId, "the operation id as written");
+        assertEq(vm.parseJsonAddress(json, ".games"), address(games), "the games contract as written");
+        assertEq(vm.parseJsonBytes32(json, ".gamesCodeHash"), address(games).codehash, "its code hash, from the chain");
+        assertEq(vm.parseJsonBytes32(json, ".reporterCodeHash"), address(reporter).codehash, "the reporter's, from the chain");
 
         TimelockController timelock = TimelockController(payable(TIMELOCK));
         vm.prank(K);
@@ -729,28 +1017,60 @@ contract DeployGamesTest is Test {
         p = script.predictFor(polygon, deployer, V2_OWNER, dir);
         _writeWorkflow(dir, V2_ID, V2_OWNER, p.reporter, p.games);
         DeployGames.Workflow memory w = script.readWorkflow(dir, p);
-        script.requireRegistered(polygon, w.id, p.workflowOwner, ethRpc);
-        (reporter, games) = script.deployFrom(polygon, p, w, dir);
+        script.requireRegistered(polygon, w, ethRpc);
+        (reporter, games) = script.deployFrom(polygon, p, w);
     }
 
-    /// @dev The build's output as its tool writes it, with the config naming the two addresses.
+    /// @dev The build's output as its tool writes it, v2's hashes, with the config naming the two addresses
+    ///      under the keys the program reads.
     function _writeWorkflow(string memory dir, bytes32 id, address owner, address reporter, address games) internal {
-        string memory json = string.concat(
-            '{"spec":"build/games.json","name":"osgames","owner":"',
-            vm.toString(owner),
-            '","config":{"receiverAddress":"',
+        _writeRecord(dir, _record(id, owner, V2_NAME, _config(reporter, games), V2_CONFIG_HASH, V2_BINARY_HASH));
+    }
+
+    function _config(address reporter, address games) internal pure returns (string memory) {
+        return string.concat(
+            '{"receiverAddress":"',
             vm.toString(reporter),
             '","eventAddress":"',
             vm.toString(games),
-            '","secretOwner":"',
+            '","secretOwner":"0x40047BAFcdEd16C938058b7b67186299a2893561"}'
+        );
+    }
+
+    function _record(
+        bytes32 id,
+        address owner,
+        string memory name,
+        string memory config,
+        string memory configHash,
+        string memory binaryHash
+    ) internal pure returns (string memory) {
+        return string.concat(
+            '{"spec":"build/games.json","name":"',
+            name,
+            '","owner":"',
             vm.toString(owner),
-            '"},"tools":{"cre":"CRE CLI version v1.22.0","bun":"1.3.14"},"hashes":{"config":"',
-            "9a7ab7e33948b572aa6dd0c9762f444573cadd564addb804f594536b57d4724b",
-            '","binary":"5929b9c675ae03ec67e6a5b4adba8ff2be5164e41e7dcdbe7b670954638da755","id":"',
+            '","config":',
+            config,
+            ',"tools":{"cre":"CRE CLI version v1.22.0","bun":"1.3.14"},"hashes":{"config":"',
+            configHash,
+            '","binary":"',
+            binaryHash,
+            '","id":"',
             vm.toString(id),
             '"},"matches":{"config":"no expectation","binary":"no expectation","id":"no expectation"},"notes":[]}'
         );
+    }
+
+    function _writeRecord(string memory dir, string memory json) internal {
         vm.writeFile(string.concat(dir, "/workflow.json"), json);
+    }
+
+    /// @dev A build's record as the registry check reads it: the id, the owner, the name.
+    function _workflow(bytes32 id, address owner, string memory name) internal pure returns (DeployGames.Workflow memory w) {
+        w.id = id;
+        w.owner = owner;
+        w.name = name;
     }
 
     /// @dev Expects the deploy to stop for `reason`, with nothing created, nothing sent and no coin moved.
@@ -758,14 +1078,13 @@ contract DeployGamesTest is Test {
         DeployGames.Inputs memory in_,
         DeployGames.Prediction memory p,
         DeployGames.Workflow memory w,
-        string memory dir,
         string memory reason
     ) internal {
         uint64 nonce = vm.getNonce(deployer);
         uint256 coin = IERC20(in_.coin).balanceOf(deployer);
         vm.startStateDiffRecording();
         vm.expectRevert(bytes(reason));
-        script.deployFrom(in_, p, w, dir);
+        script.deployFrom(in_, p, w);
         VmSafe.AccountAccess[] memory diff = vm.stopAndReturnStateDiff();
         for (uint256 i; i < diff.length; ++i) {
             assertTrue(diff[i].kind != VmSafe.AccountAccessKind.Create || diff[i].reverted, "a contract was created");
@@ -773,10 +1092,13 @@ contract DeployGamesTest is Test {
         assertEq(IERC20(in_.coin).balanceOf(deployer), coin, "coin moved");
         assertEq(p.reporter.code.length, 0, "the reporter was deployed");
         assertEq(p.games.code.length, 0, "the games contract was deployed");
-        assertFalse(vm.exists(string.concat(dir, "/deploy.json")), "a deploy record was written");
-        // In a test, forge counts a broadcast call against the sender's nonce even when the call then reverts,
-        // and leaves the broadcast switched on; on chain a reverted simulation sends nothing and the nonce
-        // stays. Put both back for the next attempt.
+        _resetAfterStop(nonce);
+    }
+
+    /// @dev In a test, forge counts a broadcast call against the sender's nonce even when the call then reverts,
+    ///      and leaves the broadcast switched on; on chain a reverted simulation sends nothing and the nonce
+    ///      stays. Put both back for the next attempt.
+    function _resetAfterStop(uint64 nonce) internal {
         vm.setNonceUnsafe(deployer, nonce);
         (VmSafe.CallerMode mode,,) = vm.readCallers();
         if (mode == VmSafe.CallerMode.RecurrentBroadcast || mode == VmSafe.CallerMode.Broadcast) vm.stopBroadcast();
@@ -786,6 +1108,7 @@ contract DeployGamesTest is Test {
         q.chainId = p.chainId;
         q.deployer = p.deployer;
         q.nonce = p.nonce;
+        q.blockNumber = p.blockNumber;
         q.workflowOwner = p.workflowOwner;
         q.reporter = p.reporter;
         q.games = p.games;
@@ -910,5 +1233,39 @@ contract EighteenDecimals is ERC20 {
 
     function decimals() public pure override returns (uint8) {
         return 18;
+    }
+}
+
+/// @dev A registry that answers as WorkflowRegistry 2.0.0 does, for the entries a test sets: every owner
+///      linked, each entry's status and name as set. Made persistent, it sits on every fork a test selects.
+contract StandInRegistry {
+    struct Entry {
+        address owner;
+        IWorkflowRegistryRead.WorkflowStatus status;
+        string name;
+    }
+
+    mapping(bytes32 => Entry) internal entries;
+
+    function typeAndVersion() external pure returns (string memory) {
+        return "WorkflowRegistry 2.0.0";
+    }
+
+    function isOwnerLinked(address) external pure returns (bool) {
+        return true;
+    }
+
+    function set(bytes32 id, address owner, IWorkflowRegistryRead.WorkflowStatus status, string memory name) external {
+        entries[id] = Entry(owner, status, name);
+    }
+
+    function getWorkflowById(bytes32 id) external view returns (IWorkflowRegistryRead.WorkflowMetadataView memory v) {
+        Entry memory e = entries[id];
+        require(e.owner != address(0), "WorkflowDoesNotExist");
+        v.workflowId = id;
+        v.owner = e.owner;
+        v.status = e.status;
+        v.workflowName = e.name;
+        v.donFamily = "zone-a";
     }
 }

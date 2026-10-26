@@ -4,7 +4,6 @@ pragma solidity ^0.8.26;
 import {Script} from "forge-std/Script.sol";
 import {VmSafe} from "forge-std/Vm.sol";
 import {console} from "forge-std/console.sol";
-import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {OspexGames} from "../src/games/OspexGames.sol";
@@ -12,6 +11,7 @@ import {IOspexGames, ReporterKind, Terms} from "../src/games/IOspexGames.sol";
 import {OspexChainlinkReporter} from "../src/games/OspexChainlinkReporter.sol";
 import {IReceiver} from "../src/interfaces/cre/IReceiver.sol";
 import {OspexSignpost} from "../src/signpost/OspexSignpost.sol";
+import {DeployPolygonTimelock} from "./DeployPolygonTimelock.s.sol";
 
 /// @dev The reads the script makes of Chainlink's workflow registry, which lives on another chain.
 interface IWorkflowRegistryRead {
@@ -60,37 +60,55 @@ interface IDecimals {
  *         1. `predict(address workflowOwner)`, with `--sender` the deploying address and no `--broadcast`. It
  *            reads the deployer's nonce k and predicts, by nonce alone, the coin check at k, the reporter at
  *            k + 1 and the games contract at k + 2. It checks the chain's fixed addresses (the Polygon timelock
- *            and its roles, the signpost, the coin, the forwarder), sends nothing, and writes the prediction to
+ *            and its whole layout, the signpost, the coin, the forwarder), sends nothing, and writes the plan to
  *            deployments/games-set/<chain id>/prediction.json. It then prints the command that builds the
  *            workflow's config naming both predicted addresses and computes its id (the scoring program's
- *            reproducible build, in ospex-cre), whose JSON output is saved beside the prediction as
- *            workflow.json. The deploying address sends nothing else from here to the second deploy.
+ *            reproducible build, in ospex-cre), whose JSON output is saved beside the plan as workflow.json. The
+ *            deploying address sends nothing else from here to the second deploy.
  *
  *            Then the owner registers that id at Chainlink. Not here: a reporter deployed first would show the
  *            id in its constructor arguments, and an id someone else registers first can never be ours.
  *
- *         2. `deploy()`, with `--broadcast` and ETHEREUM_RPC_URL in the environment. It reads the prediction and
- *            workflow.json, requires the workflow's config to name both predicted addresses and its owner to be
- *            the predicted one, reads the registry on its own chain and stops unless it holds the id under that
- *            owner, and refuses to run twice. Then, reading the nonce before each send: one fee through the coin,
- *            from the deployer to the key, both balances by exactly the fee or it stops; the reporter, with the
- *            forwarder, the owner, the id and the games contract's predicted address fixed; the games contract,
- *            with the timelock, the coin, the launch terms (the fee among them) and the reporter as its one
- *            first-n reporter, its code hash checked by the constructor. Each address is checked against its
- *            prediction, the deployed state is read back, and deploy.json is written. A failed check reverts the
- *            simulation, so nothing is sent.
+ *         2. `deploy()`, with `--broadcast` and ETHEREUM_RPC_URL in the environment. It reads the plan and the
+ *            build's record. The record is checked in full: the id whole (non-zero, first byte zero as the
+ *            registry computes it), the owner the predicted one, the reporter under the key the program reads
+ *            its receiver from and the games contract under the key it reads its event source from, the two
+ *            hashes as recorded (a sha256 each), and all of it printed. The registry, read on its own chain,
+ *            must hold that id under that owner, active, under that name, or the script stops. Then, in one
+ *            broadcast, the chain decides what is left to send: the coin check is sent at nonce k, or skipped
+ *            when the chain already shows the fee from the deployer to the key since the plan; the reporter is
+ *            sent at k + 1, or skipped when its predicted address holds this deploy's reporter; the games
+ *            contract is sent at k + 2, or the whole run is refused when both addresses hold code already.
+ *            Re-running finishes what is missing and refuses what is done. The deployed set is read back
+ *            before the script returns. No record is written here: the plan is prediction.json, and the
+ *            receipts are forge's broadcast log (broadcast/DeployGames.s.sol/<chain id>/deploy-latest.json),
+ *            written by forge from the receipts and only with `--broadcast`; a dry run writes no receipt and
+ *            nothing this script reads. A failed check reverts the simulation, so nothing is sent.
  *
- *         3. `signpostCall(uint256 deployBlock, bytes20 commit)`, no `--broadcast`. It checks the deployed code
- *            and the deploy block on chain, proves on the fork that the signpost takes the entry from the
- *            timelock, and writes the call the key schedules: `addEntry` for the games set, marked building,
- *            listed after the timelock's delay.
+ *         3. `signpostCall(uint256 deployBlock, bytes20 commit)`, no `--broadcast`. It reads the plan and the
+ *            chain: both predicted addresses hold code, the games contract did not exist the block before the
+ *            deploy block and does in it, the two point at each other. It proves on the fork that the signpost
+ *            takes the entry from the timelock, and writes the call the key schedules: `addEntry` for the games
+ *            set, marked building, listed after the timelock's delay.
  *
  *         `check(address games, address reporter, uint256 creationBlock)` reads a deployed set back from the
- *         chain, its state now and every log from its creation.
+ *         chain, its state now and every log from its creation, and prints the timelock's delay, the build's
+ *         record in full if it sits beside the plan, and the registry's entry if ETHEREUM_RPC_URL is set.
  *
- *         The deployer keeps nothing: the games contract answers to the timelock, the reporter to no one. The
- *         fixed addresses sit in one table per chain, each checked against the chain before anything is sent,
- *         so the same script runs on another chain once its row is filled.
+ *         The coin check. One fee moves from the deployer to the key through the coin at the pinned address,
+ *         and both balances must move by exactly the fee. That proves the coin at the pinned address behaves:
+ *         a transfer of the fee arrives as the fee. It proves nothing about a coin this script would never be
+ *         pointed at: a coin that rounds a displayed balance, or charges only above some amount, passes one
+ *         transfer and breaks the set later. The deploy-day line: a coin other than Polygon USDC gets its own
+ *         review (exact transfer, no fee, no rebase, decimals) before this script is pointed at it, and that
+ *         day, a redeploy on another stable, is this check's real customer.
+ *
+ *         The deployer is Flow A, the operator's working wallet, the address the box's lanes send from; it
+ *         created the timelock. Its nonce moves on a timer, so the deploy-day checklist (README) stops whatever
+ *         sends from it on the box before the plan is written and keeps it stopped until the three sends are
+ *         mined. The deployer keeps nothing: the games contract answers to the timelock, the reporter to no
+ *         one. The fixed addresses sit in one table per chain, each checked against the chain before anything
+ *         is sent, so the same script runs on another chain once its row is filled.
  */
 contract DeployGames is Script {
     // ──────────────────────────── The launch terms ─────────────────────
@@ -109,16 +127,36 @@ contract DeployGames is Script {
     /// @dev Forge's default sender. A prediction for it would be for an address nobody deploys from.
     address public constant FORGE_DEFAULT_SENDER = 0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38;
 
+    /// @dev The widest block range one log read asks the RPC for: the public endpoints' cap. A read over a
+    ///      longer range goes in windows of this size.
+    uint256 public constant LOG_WINDOW = 10_000;
+    /// @dev How many blocks behind its head the registry's chain is read: at the head, a node behind a shared
+    ///      endpoint may not have the block yet, and the registration this read waits for is older than that.
+    uint256 public constant REGISTRY_LAG = 8;
+
+    /// @dev The keys of the workflow's config under which the program reads its two addresses: the receiver it
+    ///      writes to through the forwarder (the reporter), and the contract whose logs it watches (the games
+    ///      contract). The build's record carries the config's values under these keys. A program that reads
+    ///      other keys changes these two constants with it.
+    string public constant RECEIVER_KEY = "receiverAddress";
+    string public constant EVENT_KEY = "eventAddress";
+
+    /// @dev The Polygon timelock's own deploy script: its verify is the whole layout, read from the code, the
+    ///      delay, the roles and every log the timelock ever emitted.
+    DeployPolygonTimelock public immutable timelockDeploy;
+
     // ──────────────────────────── The fixed addresses, per chain ───────
 
-    /// @notice What the deploy reads from the chain and never sends: the timelock and its key, the signpost,
-    ///         the coin, the forwarder, and the registry on its own chain.
+    /// @notice What the deploy reads from the chain and never sends: the timelock, its key, its creator and
+    ///         creation block, the signpost, the coin, the forwarder, and the registry on its own chain.
     struct Inputs {
         uint256 chainId;
         address timelock;
         address k;
-        /// @dev keccak256 of the timelock's runtime code, as pinned by its own deploy script.
-        bytes32 timelockCodeHash;
+        /// @dev The address that created the timelock: it holds no role, and its name is in every grant log.
+        address timelockDeployer;
+        /// @dev The block the timelock was created in: its logs are read from there to now.
+        uint256 timelockCreationBlock;
         address signpost;
         /// @dev keccak256 of the signpost's runtime code, as pinned by its own deploy script.
         bytes32 signpostCodeHash;
@@ -134,10 +172,11 @@ contract DeployGames is Script {
             in_ = Inputs({
                 chainId: 137,
                 // OpenZeppelin's TimelockController v5.5.0, created in block 95761553 by
-                // script/DeployPolygonTimelock.s.sol, with K its one proposer and canceller.
+                // script/DeployPolygonTimelock.s.sol from Flow A, with K its one proposer and canceller.
                 timelock: 0x8CED8e82cf1488B7365C0726aEeD795b6C07582C,
                 k: 0x3BD1e22Dc38376b776072a20c581DDb716e21d8E,
-                timelockCodeHash: 0x1f4a487e94bf4ae08bcad7a0fda749625eb1fb682e5edd89400ee412b93833e7,
+                timelockDeployer: 0x16Dc5D67D080a5521ef2c79680dBfC2aBf724D30,
+                timelockCreationBlock: 95761553,
                 // The signpost, created in block 95817955 by script/DeploySignpost.s.sol, owned by the timelock.
                 signpost: 0x6A487d62aA9D803cF465F3d8fcF363d6cEb1602A,
                 signpostCodeHash: 0x8e9825eee784d86186f78673b1cec491425dd517e4663e73dd7c72bea19cf9e8,
@@ -156,12 +195,14 @@ contract DeployGames is Script {
 
     // ──────────────────────────── The records ──────────────────────────
 
-    /// @notice What `predict` writes and `deploy` reads back.
+    /// @notice The plan: what `predict` writes and the other phases read back.
     struct Prediction {
         uint256 chainId;
         address deployer;
         /// @dev k: the deployer's nonce at the prediction. The coin check is sent at k.
         uint64 nonce;
+        /// @dev The block at the prediction. The coin check is looked for on the chain from here.
+        uint256 blockNumber;
         address workflowOwner;
         /// @dev The reporter, at k + 1.
         address reporter;
@@ -175,20 +216,18 @@ contract DeployGames is Script {
         address owner;
         string name;
         string cre;
-        string configHash;
-        string binaryHash;
+        /// @dev sha256 of the config's bytes, as recorded.
+        bytes32 configHash;
+        /// @dev sha256 of the compiled program's bytes, as recorded.
+        bytes32 binaryHash;
+        /// @dev The config's value under RECEIVER_KEY: the reporter.
+        address receiver;
+        /// @dev The config's value under EVENT_KEY: the games contract.
+        address watched;
     }
 
-    /// @notice What `deploy` writes and `signpostCall` reads back.
-    struct Deployed {
-        uint256 chainId;
-        address deployer;
-        address reporter;
-        bytes32 reporterCodeHash;
-        address games;
-        bytes32 gamesCodeHash;
-        bytes32 workflowId;
-        address workflowOwner;
+    constructor() {
+        timelockDeploy = new DeployPolygonTimelock();
     }
 
     // ──────────────────────────── The phases ───────────────────────────
@@ -206,18 +245,21 @@ contract DeployGames is Script {
         string memory dir = _dir(block.chainid);
         Prediction memory p = readPrediction(dir);
         Workflow memory w = readWorkflow(dir, p);
-        requireRegistered(in_, w.id, p.workflowOwner, vm.envString("ETHEREUM_RPC_URL"));
-        return _deploy(in_, p, w, dir);
+        printWorkflow(w);
+        requireRegistered(in_, w, vm.envString("ETHEREUM_RPC_URL"));
+        return _deploy(in_, p, w);
     }
 
     /// @notice Phase 3. `--sig "signpostCall(uint256,bytes20)" <deploy block> <commit>`, no broadcast.
     function signpostCall(uint256 deployBlock, bytes20 commit) external returns (bytes memory call, bytes32 id) {
         string memory dir = _dir(block.chainid);
-        return _signpostCall(inputs(block.chainid), readDeployed(dir), deployBlock, commit, dir);
+        return _signpostCall(inputs(block.chainid), readPrediction(dir), deployBlock, commit, dir);
     }
 
     /// @notice Reads a deployed set back from the chain: its state now, and every log the games contract and
     ///         the reporter emitted from `creationBlock` to now. For right after the deploy, before any game.
+    ///         Prints the timelock's delay; the build's record in full, if workflow.json sits beside the plan;
+    ///         the registry's entry, if ETHEREUM_RPC_URL is set.
     function check(address games, address reporter, uint256 creationBlock) external {
         Inputs memory in_ = inputs(block.chainid);
         OspexChainlinkReporter r = OspexChainlinkReporter(reporter);
@@ -229,11 +271,25 @@ contract DeployGames is Script {
         VmSafe.Log[] memory logs = _logsOf(games, reporter, creationBlock);
         verify(OspexGames(games), r, in_, p, r.i_workflowId(), logs);
         console.log("read back as ruled", games, reporter);
+        console.log("the timelock's delay, seconds:", TimelockController(payable(in_.timelock)).getMinDelay());
+
+        string memory dir = _dir(block.chainid);
+        if (vm.exists(string.concat(dir, "/workflow.json"))) {
+            Prediction memory plan = readPrediction(dir);
+            require(plan.reporter == reporter && plan.games == games, "the plan beside the record is another set's");
+            Workflow memory w = readWorkflow(dir, plan);
+            require(w.id == r.i_workflowId(), "the record's id is not the reporter's");
+            printWorkflow(w);
+            string memory rpc = vm.envOr("ETHEREUM_RPC_URL", string(""));
+            if (bytes(rpc).length != 0) requireRegistered(in_, w, rpc);
+        } else {
+            console.log("no workflow.json beside the plan: the build's record is not printed");
+        }
     }
 
     // ──────────────────────────── Phase 1 ──────────────────────────────
 
-    /// @dev Checks the chain, predicts by nonce, writes the record. Sends nothing.
+    /// @dev Checks the chain, predicts by nonce, writes the plan. Sends nothing.
     function _predict(Inputs memory in_, address deployer, address workflowOwner, string memory dir)
         internal
         returns (Prediction memory p)
@@ -250,6 +306,7 @@ contract DeployGames is Script {
             chainId: in_.chainId,
             deployer: deployer,
             nonce: nonce,
+            blockNumber: block.number,
             workflowOwner: workflowOwner,
             reporter: vm.computeCreateAddress(deployer, nonce + 1),
             games: vm.computeCreateAddress(deployer, nonce + 2)
@@ -260,6 +317,7 @@ contract DeployGames is Script {
         vm.serializeUint(key, "chainId", p.chainId);
         vm.serializeAddress(key, "deployer", p.deployer);
         vm.serializeUint(key, "nonce", p.nonce);
+        vm.serializeUint(key, "blockNumber", p.blockNumber);
         vm.serializeAddress(key, "workflowOwner", p.workflowOwner);
         vm.serializeAddress(key, "reporter", p.reporter);
         string memory json = vm.serializeAddress(key, "games", p.games);
@@ -274,9 +332,13 @@ contract DeployGames is Script {
         console.log("next, in ospex-cre, the config naming both addresses and its id, saved as workflow.json:");
         console.log(
             string.concat(
-                "  bun build/fingerprint.ts <spec> --set <the reporter's field>=",
+                "  bun build/fingerprint.ts <spec> --set ",
+                RECEIVER_KEY,
+                "=",
                 vm.toString(p.reporter),
-                " --set <the games contract's field>=",
+                " --set ",
+                EVENT_KEY,
+                "=",
                 vm.toString(p.games),
                 " --owner ",
                 vm.toString(workflowOwner),
@@ -290,35 +352,66 @@ contract DeployGames is Script {
 
     // ──────────────────────────── Phase 2 ──────────────────────────────
 
-    /// @dev The three sends, each after a read of the nonce, inside the broadcast; then the read-back.
-    function _deploy(Inputs memory in_, Prediction memory p, Workflow memory w, string memory dir)
+    /// @dev The sends the chain says are missing, each after a read of the nonce, inside the broadcast; then
+    ///      the read-back. Writes no record.
+    function _deploy(Inputs memory in_, Prediction memory p, Workflow memory w)
         internal
         returns (OspexChainlinkReporter reporter, OspexGames games)
     {
         require(block.chainid == in_.chainId && p.chainId == in_.chainId, "the RPC is not on the prediction's chain");
-        require(!vm.exists(string.concat(dir, "/deploy.json")), "deployed already: this script runs once");
         requireChain(in_);
         IERC20 coin = IERC20(in_.coin);
 
-        vm.recordLogs();
+        // What the chain holds already. Both addresses with code is the whole deploy, done.
+        bool reporterUp = p.reporter.code.length != 0;
+        bool gamesUp = p.games.code.length != 0;
+        require(!(reporterUp && gamesUp), "deployed already: both predicted addresses hold code");
+        require(reporterUp || !gamesUp, "the games contract has code and the reporter none: not this plan's deploy");
+
         vm.startBroadcast();
         (, address sender,) = vm.readCallers();
         require(sender == p.deployer, "the sender is not the predicted deployer");
 
-        // The coin check, at k. One fee from the deployer to the key: the sender's balance falls by exactly
-        // the fee and the key's rises by exactly the fee, or nothing is deployed on this coin.
-        require(vm.getNonce(sender) == p.nonce, "the nonce moved since the prediction: nothing sent");
-        uint256 senderBefore = coin.balanceOf(sender);
-        uint256 keyBefore = coin.balanceOf(in_.k);
-        require(senderBefore >= LAUNCH_FEE, "the deployer holds less than one fee of the coin");
-        require(coin.transfer(in_.k, LAUNCH_FEE), "the coin refused the fee");
-        require(coin.balanceOf(sender) + LAUNCH_FEE == senderBefore, "the coin did not take exactly the fee");
-        require(coin.balanceOf(in_.k) == keyBefore + LAUNCH_FEE, "the coin did not deliver exactly the fee");
+        // The coin check, at k: sent when the nonce is k. When the nonce has moved, the chain must show the
+        // fee from the deployer to the key since the plan, or nothing is sent: a stray transaction in the
+        // check's slot is not the check.
+        uint64 nonce = vm.getNonce(sender);
+        bool coinChecked = nonce != p.nonce;
+        if (coinChecked) {
+            require(nonce > p.nonce, "the nonce is below the prediction's: not the prediction's chain");
+            require(
+                _feeSentToKey(in_, p), "the nonce moved since the prediction and the chain shows no coin check: nothing sent"
+            );
+        }
+        vm.recordLogs();
+        if (!coinChecked) {
+            // One fee from the deployer to the key: the sender's balance falls by exactly the fee and the
+            // key's rises by exactly the fee, or nothing is deployed on this coin.
+            uint256 senderBefore = coin.balanceOf(sender);
+            uint256 keyBefore = coin.balanceOf(in_.k);
+            require(senderBefore >= LAUNCH_FEE, "the deployer holds less than one fee of the coin");
+            require(coin.transfer(in_.k, LAUNCH_FEE), "the coin refused the fee");
+            require(coin.balanceOf(sender) + LAUNCH_FEE == senderBefore, "the coin did not take exactly the fee");
+            require(coin.balanceOf(in_.k) == keyBefore + LAUNCH_FEE, "the coin did not deliver exactly the fee");
+        } else {
+            console.log("the coin check is on the chain since the prediction: skipped");
+        }
 
-        // The reporter, at k + 1, with the games contract's address fixed before it exists.
-        require(vm.getNonce(sender) == p.nonce + 1, "the nonce is not the reporter's: nothing more sent");
-        reporter = new OspexChainlinkReporter(in_.forwarder, p.workflowOwner, w.id, IOspexGames(p.games));
-        require(address(reporter) == p.reporter, "the reporter is not at its predicted address");
+        // The reporter, at k + 1, with the games contract's address fixed before it exists; or, if its address
+        // holds code, that code is this deploy's reporter and nothing is sent for it.
+        if (!reporterUp) {
+            require(vm.getNonce(sender) == p.nonce + 1, "the nonce is not the reporter's: nothing more sent");
+            reporter = new OspexChainlinkReporter(in_.forwarder, p.workflowOwner, w.id, IOspexGames(p.games));
+            require(address(reporter) == p.reporter, "the reporter is not at its predicted address");
+        } else {
+            reporter = OspexChainlinkReporter(p.reporter);
+            require(
+                reporter.i_forwarder() == in_.forwarder && reporter.i_workflowOwner() == p.workflowOwner
+                    && reporter.i_workflowId() == w.id && address(reporter.i_games()) == p.games,
+                "the code at the predicted reporter is not this deploy's reporter"
+            );
+            console.log("the reporter holds code as deployed: skipped");
+        }
 
         // The games contract, at k + 2: the launch terms and the reporter as its one first-n reporter.
         require(vm.getNonce(sender) == p.nonce + 2, "the nonce is not the games contract's: nothing more sent");
@@ -329,15 +422,15 @@ contract DeployGames is Script {
         vm.stopBroadcast();
 
         verify(games, reporter, in_, p, w.id, _from(vm.getRecordedLogs(), address(games), address(reporter)));
-        _writeDeployed(in_, p, w, reporter, games, dir);
 
         console.log("reporter", address(reporter));
         console.log("games", address(games));
         console.log("workflow id", vm.toString(w.id));
+        console.log("the timelock's delay, seconds:", TimelockController(payable(in_.timelock)).getMinDelay());
         console.log("constructor arguments for the verification, the reporter's then the games contract's:");
         console.logBytes(abi.encode(in_.forwarder, p.workflowOwner, w.id, p.games));
         console.logBytes(gamesConstructorArgs(in_, address(reporter)));
-        console.log("written:", string.concat(dir, "/deploy.json"));
+        console.log("the receipts: broadcast/DeployGames.s.sol/<chain id>/deploy-latest.json, written by forge");
         console.log("next: signpostCall(<creation block of the games contract>, <commit>)");
     }
 
@@ -350,7 +443,7 @@ contract DeployGames is Script {
         Prediction memory p,
         bytes32 workflowId,
         VmSafe.Log[] memory logs
-    ) public view {
+    ) public {
         requireChain(in_);
         require(address(games) == p.games && address(reporter) == p.reporter, "not the predicted addresses");
 
@@ -399,22 +492,29 @@ contract DeployGames is Script {
 
     // ──────────────────────────── Phase 3 ──────────────────────────────
 
-    /// @dev Checks the deployed code and the deploy block on chain, proves the entry on the fork, writes the call.
-    function _signpostCall(Inputs memory in_, Deployed memory d, uint256 deployBlock, bytes20 commit, string memory dir)
+    /// @dev Reads the plan and the chain, proves the entry on the fork, writes the call.
+    function _signpostCall(Inputs memory in_, Prediction memory p, uint256 deployBlock, bytes20 commit, string memory dir)
         internal
         returns (bytes memory call, bytes32 operationId)
     {
-        require(block.chainid == in_.chainId && d.chainId == in_.chainId, "the RPC is not on the deploy's chain");
+        require(block.chainid == in_.chainId && p.chainId == in_.chainId, "the RPC is not on the prediction's chain");
         require(commit != bytes20(0), "the commit is missing");
         require(deployBlock != 0 && deployBlock < block.number, "the deploy block is not a past block");
         requireChain(in_);
-        require(d.games.codehash == d.gamesCodeHash && d.reporter.codehash == d.reporterCodeHash, "the code is not the deployed code");
-        require(_codeAt(d.games, deployBlock - 1).length == 0, "the games contract existed before the deploy block");
-        require(keccak256(_codeAt(d.games, deployBlock)) == d.gamesCodeHash, "the games contract is not in the deploy block");
+        require(p.games.code.length != 0 && p.reporter.code.length != 0, "the predicted addresses do not both hold code");
+        bytes32 gamesCodeHash = p.games.codehash;
+        bytes32 reporterCodeHash = p.reporter.codehash;
+        require(_codeAt(p.games, deployBlock - 1).length == 0, "the games contract existed before the deploy block");
+        require(keccak256(_codeAt(p.games, deployBlock)) == gamesCodeHash, "the games contract is not in the deploy block");
+        // The two point at each other: the reporter at the games contract, the games contract at the
+        // reporter's code as it is.
+        require(address(OspexChainlinkReporter(p.reporter).i_games()) == p.games, "the reporter is not this set's");
+        (ReporterKind kind,, bytes32 recorded) = OspexGames(p.games).getReporter(p.reporter);
+        require(kind == ReporterKind.FirstN && recorded == reporterCodeHash, "the games contract does not list the reporter as deployed");
 
         address[] memory set = new address[](2);
-        set[0] = d.games;
-        set[1] = d.reporter;
+        set[0] = p.games;
+        set[1] = p.reporter;
         bytes memory add = abi.encodeCall(
             OspexSignpost.addEntry, (OspexSignpost.Kind.Games, address(0), set, commit, uint64(deployBlock))
         );
@@ -425,12 +525,12 @@ contract DeployGames is Script {
         vm.prank(in_.timelock);
         uint256 id = signpost.addEntry(OspexSignpost.Kind.Games, address(0), set, commit, uint64(deployBlock));
         OspexSignpost.Entry memory e = signpost.getEntry(id);
-        require(e.codeHashes[0] == d.gamesCodeHash && e.codeHashes[1] == d.reporterCodeHash, "the entry's code hashes");
+        require(e.codeHashes[0] == gamesCodeHash && e.codeHashes[1] == reporterCodeHash, "the entry's code hashes");
         require(e.status == OspexSignpost.Status.Building, "the entry is not building");
         vm.revertToState(before);
 
         TimelockController timelock = TimelockController(payable(in_.timelock));
-        bytes32 salt = keccak256(abi.encode("games set", d.games));
+        bytes32 salt = keccak256(abi.encode("games set", p.games));
         uint256 delay = timelock.getMinDelay();
         operationId = timelock.hashOperation(in_.signpost, 0, add, bytes32(0), salt);
         call = abi.encodeCall(TimelockController.schedule, (in_.signpost, 0, add, bytes32(0), salt, delay));
@@ -439,6 +539,11 @@ contract DeployGames is Script {
         string memory key = "signpostCall";
         vm.serializeAddress(key, "timelock", in_.timelock);
         vm.serializeAddress(key, "signpost", in_.signpost);
+        vm.serializeAddress(key, "games", p.games);
+        vm.serializeAddress(key, "reporter", p.reporter);
+        vm.serializeBytes32(key, "gamesCodeHash", gamesCodeHash);
+        vm.serializeBytes32(key, "reporterCodeHash", reporterCodeHash);
+        vm.serializeUint(key, "deployBlock", deployBlock);
         vm.serializeUint(key, "entryId", id);
         vm.serializeUint(key, "delay", delay);
         vm.serializeBytes32(key, "salt", salt);
@@ -458,11 +563,11 @@ contract DeployGames is Script {
 
     // ──────────────────────────── The chain's fixed addresses ──────────
 
-    /// @notice Fails unless the chain holds the inputs as pinned: the timelock's code and roles, the signpost's
+    /// @notice Fails unless the chain holds the inputs as pinned: the timelock's whole layout, the signpost's
     ///         code and owner, a coin with six decimals, a forwarder that names itself one.
-    function requireChain(Inputs memory in_) public view {
+    function requireChain(Inputs memory in_) public {
         require(block.chainid == in_.chainId, "the RPC is not on the inputs' chain");
-        requireTimelock(in_.timelock, in_.k, in_.timelockCodeHash);
+        requireTimelock(in_.timelock, in_.k, in_.timelockDeployer, in_.timelockCreationBlock);
         require(in_.signpost.codehash == in_.signpostCodeHash, "the signpost is not the pinned code");
         require(OspexSignpost(in_.signpost).i_timelock() == in_.timelock, "the signpost is not the timelock's");
         require(in_.coin.code.length != 0, "the coin has no code");
@@ -473,50 +578,43 @@ contract DeployGames is Script {
         require(in_.registry != address(0) && in_.registryChainId != 0, "the registry is missing");
     }
 
-    /// @notice Fails unless `timelock` holds the pinned code, K proposes and cancels, anyone may run a ready
-    ///         call, and the timelock is its own admin. The delay is a setting and not checked.
-    function requireTimelock(address timelock, address k, bytes32 codeHash) public view {
-        require(timelock.codehash == codeHash, "the timelock is not the pinned code");
-        IAccessControl t = IAccessControl(timelock);
-        address[3] memory who = [k, address(0), timelock];
-        bytes32[4] memory roles =
-            [keccak256("PROPOSER_ROLE"), keccak256("CANCELLER_ROLE"), keccak256("EXECUTOR_ROLE"), bytes32(0)];
-        // Rows: K, address(0), the timelock. Columns: proposer, canceller, executor, admin.
-        bool[4][3] memory ruled =
-            [[true, true, false, false], [false, false, true, false], [false, false, false, true]];
-        for (uint256 i; i < 3; ++i) {
-            for (uint256 j; j < 4; ++j) {
-                require(t.hasRole(roles[j], who[i]) == ruled[i][j], "the timelock's roles are not as ruled");
-            }
-        }
+    /// @notice Fails unless `timelock` is the Polygon timelock's ruled layout, judged by its own deploy
+    ///         script's verify: the pinned code, a delay above zero (read here, and the one the layout is
+    ///         checked against), K its one proposer and canceller, anyone its executor, itself its admin, its
+    ///         creator holding nothing, and the five constructor logs the only logs it ever emitted: no other
+    ///         address was ever granted a role.
+    function requireTimelock(address timelock, address k, address deployer, uint256 creationBlock) public {
+        require(keccak256(timelock.code) == timelockDeploy.EXACT_CODE_HASH(), "the timelock is not the pinned code");
+        uint256 delay = TimelockController(payable(timelock)).getMinDelay();
+        require(delay != 0, "the timelock has no delay");
+        timelockDeploy.verify(TimelockController(payable(timelock)), k, deployer, delay, _timelockLogs(timelock, creationBlock));
     }
 
-    /// @notice Fails unless the registry, on its own chain, holds `id` under `owner`. It moves to a fork of
-    ///         `registryRpc` for the read and comes back.
-    function requireRegistered(Inputs memory in_, bytes32 id, address owner, string memory registryRpc)
-        public
-        returns (IWorkflowRegistryRead.WorkflowStatus status)
-    {
+    /// @notice Fails unless the registry, on its own chain, holds the build's id under the build's owner,
+    ///         active, under the build's name. It moves to a fork of `registryRpc` for the read and comes back.
+    function requireRegistered(Inputs memory in_, Workflow memory w, string memory registryRpc) public {
         uint256 home = vm.activeFork();
         vm.createSelectFork(registryRpc);
         require(block.chainid == in_.registryChainId, "the registry RPC is not on the registry's chain");
+        vm.rollFork(block.number - REGISTRY_LAG);
         IWorkflowRegistryRead registry = IWorkflowRegistryRead(in_.registry);
         require(
             keccak256(bytes(registry.typeAndVersion())) == keccak256("WorkflowRegistry 2.0.0"),
             "the registry is not WorkflowRegistry 2.0.0"
         );
-        require(registry.isOwnerLinked(owner), "the workflow owner is not linked at the registry");
-        IWorkflowRegistryRead.WorkflowMetadataView memory w;
-        try registry.getWorkflowById(id) returns (IWorkflowRegistryRead.WorkflowMetadataView memory got) {
-            w = got;
+        require(registry.isOwnerLinked(w.owner), "the workflow owner is not linked at the registry");
+        IWorkflowRegistryRead.WorkflowMetadataView memory got;
+        try registry.getWorkflowById(w.id) returns (IWorkflowRegistryRead.WorkflowMetadataView memory view_) {
+            got = view_;
         } catch {
             revert("the registry does not hold the id");
         }
-        require(w.workflowId == id && w.owner != address(0), "the registry does not hold the id");
-        require(w.owner == owner, "the registry holds the id under another owner");
-        status = w.status;
-        console.log("the registry holds the id under the owner:", w.workflowName, w.donFamily);
-        console.log("status", uint256(status), "(0 active, 1 paused), registered at", w.createdAt);
+        require(got.workflowId == w.id && got.owner != address(0), "the registry does not hold the id");
+        require(got.owner == w.owner, "the registry holds the id under another owner");
+        require(got.status == IWorkflowRegistryRead.WorkflowStatus.ACTIVE, "the registry holds the id paused");
+        require(keccak256(bytes(got.workflowName)) == keccak256(bytes(w.name)), "the registry's name for the id is not the build's");
+        console.log("the registry holds the id under the owner, active:", got.workflowName, got.donFamily);
+        console.log("registered at", got.createdAt, "tag", got.tag);
         vm.selectFork(home);
     }
 
@@ -529,14 +627,17 @@ contract DeployGames is Script {
         p.chainId = vm.parseJsonUint(json, ".chainId");
         p.deployer = vm.parseJsonAddress(json, ".deployer");
         p.nonce = uint64(vm.parseJsonUint(json, ".nonce"));
+        p.blockNumber = vm.parseJsonUint(json, ".blockNumber");
         p.workflowOwner = vm.parseJsonAddress(json, ".workflowOwner");
         p.reporter = vm.parseJsonAddress(json, ".reporter");
         p.games = vm.parseJsonAddress(json, ".games");
     }
 
-    /// @notice Reads the reproducible build's output, workflow.json beside the prediction, and requires its
-    ///         owner to be the predicted one and its config to name both predicted addresses. The id is taken
-    ///         from it and from nothing else.
+    /// @notice Reads the reproducible build's output, workflow.json beside the plan, in full: the id whole, the
+    ///         owner the predicted one, the reporter under RECEIVER_KEY and the games contract under EVENT_KEY,
+    ///         the two hashes as recorded. The id is taken from it and from nothing else. What the script cannot
+    ///         check is that the hashes are the reviewed program's: that is the build's, rebuilt from BUILD.md
+    ///         in ospex-cre by whoever checks.
     function readWorkflow(string memory dir, Prediction memory p) public view returns (Workflow memory w) {
         string memory path = string.concat(dir, "/workflow.json");
         require(vm.exists(path), "no workflow.json: the reproducible build's output, saved beside the prediction");
@@ -545,68 +646,33 @@ contract DeployGames is Script {
         w.owner = vm.parseJsonAddress(json, ".owner");
         w.name = vm.parseJsonString(json, ".name");
         w.cre = vm.parseJsonString(json, ".tools.cre");
-        w.configHash = vm.parseJsonString(json, ".hashes.config");
-        w.binaryHash = vm.parseJsonString(json, ".hashes.binary");
+        w.configHash = _sha256Text(vm.parseJsonString(json, ".hashes.config"), "the build's config hash is not a sha256");
+        w.binaryHash = _sha256Text(vm.parseJsonString(json, ".hashes.binary"), "the build's binary hash is not a sha256");
         require(w.id != bytes32(0), "the workflow id is zero");
         require(w.id[0] == 0, "the workflow id's first byte is not zero: not an id the registry computes");
+        require(bytes(w.name).length != 0, "the build's name is empty");
         require(w.owner == p.workflowOwner, "the build's owner is not the predicted workflow owner");
 
-        string[] memory keys = vm.parseJsonKeys(json, ".config");
-        bool namesReporter = false;
-        bool namesGames = false;
-        for (uint256 i; i < keys.length; ++i) {
-            string memory value = vm.parseJsonString(json, string.concat(".config.", keys[i]));
-            if (!_isAddressText(value)) continue;
-            address a = vm.parseAddress(value);
-            if (a == p.reporter) namesReporter = true;
-            if (a == p.games) namesGames = true;
-        }
-        require(namesReporter, "the build's config does not name the predicted reporter");
-        require(namesGames, "the build's config does not name the predicted games contract");
+        string memory receiverKey = string.concat(".config.", RECEIVER_KEY);
+        string memory eventKey = string.concat(".config.", EVENT_KEY);
+        require(vm.keyExistsJson(json, receiverKey), "the build's config has no receiver key");
+        require(vm.keyExistsJson(json, eventKey), "the build's config has no event key");
+        w.receiver = vm.parseJsonAddress(json, receiverKey);
+        w.watched = vm.parseJsonAddress(json, eventKey);
+        require(w.receiver == p.reporter, "the build's receiver is not the predicted reporter");
+        require(w.watched == p.games, "the build's event source is not the predicted games contract");
     }
 
-    function readDeployed(string memory dir) public view returns (Deployed memory d) {
-        string memory path = string.concat(dir, "/deploy.json");
-        require(vm.exists(path), "no deploy.json: run deploy first");
-        string memory json = vm.readFile(path);
-        d.chainId = vm.parseJsonUint(json, ".chainId");
-        d.deployer = vm.parseJsonAddress(json, ".deployer");
-        d.reporter = vm.parseJsonAddress(json, ".reporter");
-        d.reporterCodeHash = vm.parseJsonBytes32(json, ".reporterCodeHash");
-        d.games = vm.parseJsonAddress(json, ".games");
-        d.gamesCodeHash = vm.parseJsonBytes32(json, ".gamesCodeHash");
-        d.workflowId = vm.parseJsonBytes32(json, ".workflowId");
-        d.workflowOwner = vm.parseJsonAddress(json, ".workflowOwner");
-    }
-
-    function _writeDeployed(
-        Inputs memory in_,
-        Prediction memory p,
-        Workflow memory w,
-        OspexChainlinkReporter reporter,
-        OspexGames games,
-        string memory dir
-    ) internal {
-        string memory key = "deployed";
-        vm.serializeUint(key, "chainId", in_.chainId);
-        vm.serializeAddress(key, "deployer", p.deployer);
-        vm.serializeUint(key, "nonce", p.nonce);
-        vm.serializeAddress(key, "reporter", address(reporter));
-        vm.serializeBytes32(key, "reporterCodeHash", address(reporter).codehash);
-        vm.serializeAddress(key, "games", address(games));
-        vm.serializeBytes32(key, "gamesCodeHash", address(games).codehash);
-        vm.serializeBytes32(key, "workflowId", w.id);
-        vm.serializeAddress(key, "workflowOwner", p.workflowOwner);
-        vm.serializeString(key, "workflowName", w.name);
-        vm.serializeString(key, "cre", w.cre);
-        vm.serializeString(key, "configHash", w.configHash);
-        vm.serializeString(key, "binaryHash", w.binaryHash);
-        vm.serializeAddress(key, "forwarder", in_.forwarder);
-        vm.serializeAddress(key, "timelock", in_.timelock);
-        vm.serializeAddress(key, "signpost", in_.signpost);
-        vm.serializeAddress(key, "coin", in_.coin);
-        string memory json = vm.serializeUint(key, "simulatedBlock", block.number);
-        vm.writeJson(json, string.concat(dir, "/deploy.json"));
+    /// @notice The build's record, in full, as read.
+    function printWorkflow(Workflow memory w) public pure {
+        console.log("the build's record:");
+        console.log("  workflow id", vm.toString(w.id));
+        console.log("  owner", w.owner, "name", w.name);
+        console.log(string.concat("  ", RECEIVER_KEY), w.receiver);
+        console.log(string.concat("  ", EVENT_KEY), w.watched);
+        console.log("  config sha256", vm.toString(w.configHash));
+        console.log("  binary sha256", vm.toString(w.binaryHash));
+        console.log("  built with", w.cre);
     }
 
     // ──────────────────────────── Values ───────────────────────────────
@@ -624,6 +690,78 @@ contract DeployGames is Script {
     /// @notice Where this chain's records live.
     function _dir(uint256 chainId) internal view returns (string memory) {
         return string.concat(vm.projectRoot(), "/deployments/games-set/", vm.toString(chainId));
+    }
+
+    // ──────────────────────────── Reads of the chain ───────────────────
+
+    /// @dev True when the chain shows the fee going from the deployer to the key through the coin since the
+    ///      plan's block: the coin check, on chain. Overridable, so a test on a fork can stand in for an RPC
+    ///      that cannot see a transfer made locally.
+    function _feeSentToKey(Inputs memory in_, Prediction memory p) internal virtual returns (bool) {
+        bytes32[] memory topics = new bytes32[](3);
+        topics[0] = IERC20.Transfer.selector;
+        topics[1] = _topic(p.deployer);
+        topics[2] = _topic(in_.k);
+        VmSafe.Log[] memory logs = _logsIn(in_.coin, p.blockNumber, block.number, topics);
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].data.length == 32 && abi.decode(logs[i].data, (uint256)) == LAUNCH_FEE) return true;
+        }
+        return false;
+    }
+
+    /// @dev Every log the timelock emitted from its creation to now, read from the chain. Overridable, so a test
+    ///      can stand a timelock of its own, with its own logs, in the Polygon timelock's place.
+    function _timelockLogs(address timelock, uint256 creationBlock) internal virtual returns (VmSafe.Log[] memory) {
+        return _logsIn(timelock, creationBlock, block.number, new bytes32[](0));
+    }
+
+    /// @dev Every log the two contracts emitted from `fromBlock` to now, read from the chain. Overridable, so a
+    ///      test on a fork can stand in for an RPC that cannot see a local deploy.
+    function _logsOf(address games, address reporter, uint256 fromBlock)
+        internal
+        virtual
+        returns (VmSafe.Log[] memory logs)
+    {
+        VmSafe.Log[] memory g = _logsIn(games, fromBlock, block.number, new bytes32[](0));
+        VmSafe.Log[] memory r = _logsIn(reporter, fromBlock, block.number, new bytes32[](0));
+        logs = new VmSafe.Log[](g.length + r.length);
+        for (uint256 i; i < g.length; ++i) {
+            logs[i] = g[i];
+        }
+        for (uint256 i; i < r.length; ++i) {
+            logs[g.length + i] = r[i];
+        }
+    }
+
+    /// @dev The logs of `emitter` under `topics` from `fromBlock` to `toBlock`, read from the RPC in windows of
+    ///      LOG_WINDOW blocks, in order.
+    function _logsIn(address emitter, uint256 fromBlock, uint256 toBlock, bytes32[] memory topics)
+        internal
+        returns (VmSafe.Log[] memory logs)
+    {
+        require(fromBlock <= toBlock, "the log range is empty");
+        uint256 windows = (toBlock - fromBlock) / LOG_WINDOW + 1;
+        VmSafe.EthGetLogs[][] memory raw = new VmSafe.EthGetLogs[][](windows);
+        uint256 count;
+        for (uint256 w; w < windows; ++w) {
+            uint256 from = fromBlock + w * LOG_WINDOW;
+            uint256 to = from + LOG_WINDOW - 1;
+            if (to > toBlock) to = toBlock;
+            raw[w] = vm.eth_getLogs(from, to, emitter, topics);
+            count += raw[w].length;
+        }
+        logs = new VmSafe.Log[](count);
+        uint256 n;
+        for (uint256 w; w < windows; ++w) {
+            for (uint256 i; i < raw[w].length; ++i) {
+                logs[n++] = VmSafe.Log(raw[w][i].topics, raw[w][i].data, raw[w][i].emitter);
+            }
+        }
+    }
+
+    /// @dev The code at `account` in block `blockNumber`, from the RPC. Overridable, as _logsOf is.
+    function _codeAt(address account, uint256 blockNumber) internal virtual returns (bytes memory) {
+        return vm.rpc("eth_getCode", string.concat('["', vm.toString(account), '","', _hex(blockNumber), '"]'));
     }
 
     // ──────────────────────────── Helpers ──────────────────────────────
@@ -668,30 +806,6 @@ contract DeployGames is Script {
         }
     }
 
-    /// @dev Every log the two contracts emitted from `fromBlock` to now, read from the chain. Overridable, so a
-    ///      test on a fork can stand in for an RPC that cannot see a local deploy.
-    function _logsOf(address games, address reporter, uint256 fromBlock)
-        internal
-        virtual
-        returns (VmSafe.Log[] memory)
-    {
-        VmSafe.EthGetLogs[] memory g = vm.eth_getLogs(fromBlock, block.number, games, new bytes32[](0));
-        VmSafe.EthGetLogs[] memory r = vm.eth_getLogs(fromBlock, block.number, reporter, new bytes32[](0));
-        VmSafe.Log[] memory logs = new VmSafe.Log[](g.length + r.length);
-        for (uint256 i; i < g.length; ++i) {
-            logs[i] = VmSafe.Log(g[i].topics, g[i].data, g[i].emitter);
-        }
-        for (uint256 i; i < r.length; ++i) {
-            logs[g.length + i] = VmSafe.Log(r[i].topics, r[i].data, r[i].emitter);
-        }
-        return logs;
-    }
-
-    /// @dev The code at `account` in block `blockNumber`, from the RPC. Overridable, as _logsOf is.
-    function _codeAt(address account, uint256 blockNumber) internal virtual returns (bytes memory) {
-        return vm.rpc("eth_getCode", string.concat('["', vm.toString(account), '","', _hex(blockNumber), '"]'));
-    }
-
     /// @dev A number as the RPC takes a block: 0x, then its hex digits with no leading zero.
     function _hex(uint256 n) private pure returns (string memory) {
         if (n == 0) return "0x0";
@@ -709,18 +823,18 @@ contract DeployGames is Script {
         return string.concat("0x", string(trimmed));
     }
 
-    /// @dev True for "0x" and forty hex digits.
-    function _isAddressText(string memory s) private pure returns (bool) {
+    /// @dev A sha256 as the build writes one: sixty-four hex digits, no 0x. Fails with `reason` otherwise.
+    function _sha256Text(string memory s, string memory reason) private pure returns (bytes32) {
         bytes memory b = bytes(s);
-        if (b.length != 42 || b[0] != "0" || b[1] != "x") return false;
-        for (uint256 i = 2; i < 42; ++i) {
+        require(b.length == 64, reason);
+        for (uint256 i; i < 64; ++i) {
             bytes1 c = b[i];
             bool digit = c >= 0x30 && c <= 0x39;
             bool lower = c >= 0x61 && c <= 0x66;
             bool upper = c >= 0x41 && c <= 0x46;
-            if (!digit && !lower && !upper) return false;
+            require(digit || lower || upper, reason);
         }
-        return true;
+        return vm.parseBytes32(string.concat("0x", s));
     }
 
     function _startsWith(string memory s, string memory prefix) private pure returns (bool) {
