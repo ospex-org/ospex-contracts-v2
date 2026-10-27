@@ -1,5 +1,5 @@
 {
- "about": "One-line breaks of the games contract and its interface, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; line is where it starts; a find of several lines is one anchor, chosen where the line alone occurs more than once), run the named test alone and see it fail, restore the file byte for byte and see it pass. The whole games suite fails on each too. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis; one ending in $ matches nothing and passes with no test run. Check that exactly one test ran. Ids: N, F, G, L, W, R, M are the creation fee's; E the ends'; P the earlier never-lines' and the interface's; C the day-30 clock's and the retirement's; A the readings' checks; X the four one-line mutants an independent read found surviving before them; H the scoring program's own shapes (test/games/shapes.json), each run through the report door.",
+ "about": "One-line breaks of the games contract and its interface, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; line is where it starts; a find of several lines is one anchor, chosen where the line alone occurs more than once), run the named test alone and see it fail, restore the file byte for byte and see it pass. The whole games suite fails on each too. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis; one ending in $ matches nothing and passes with no test run. Check that exactly one test ran. Ids: N, F, G, L, W, R, M are the creation fee's; E the ends'; P the earlier never-lines' and the interface's; C the day-30 clock's and the retirement's; A the readings' checks; X the four one-line mutants an independent read found surviving before them; H the scoring program's own shapes (test/games/shapes.json), each run through the report door; Q the Chainlink reporter's (src/games/OspexChainlinkReporter.sol); Y the deploy script's (script/DeployGames.s.sol), whose tests run on a fork and need POLYGON_RPC_URL, ETHEREUM_RPC_URL and POLYGON_LOGS_RPC_URL in the environment, with the same command.",
  "command": "FOUNDRY_SRC=src/games FOUNDRY_TEST=test/games FOUNDRY_SCRIPT=none forge test --via-ir --optimize --match-path <testPath> --match-test '^<test>\\('",
  "breaks": [
   {
@@ -2566,6 +2566,804 @@
    "testPath": "test/games/OspexGamesShapes.t.sol",
    "test": "test_shapes_everyReportTheProgramSendsIsTaken",
    "breaks": "the record's time is written a second late, so the day-7 clock runs a second long"
+  },
+  {
+   "id": "Q1-forwarder",
+   "file": "src/games/OspexChainlinkReporter.sol",
+   "edits": [
+    {
+     "line": 136,
+     "find": "        if (msg.sender != i_forwarder) revert OspexChainlinkReporter__NotTheForwarder(msg.sender);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/OspexChainlinkReporter.t.sol",
+   "test": "test_neverLine_onlyTheForwarderIsHeard",
+   "breaks": "any sender's report is taken"
+  },
+  {
+   "id": "Q2-owner",
+   "file": "src/games/OspexChainlinkReporter.sol",
+   "edits": [
+    {
+     "line": 139,
+     "find": "        if (workflowOwner != i_workflowOwner) revert OspexChainlinkReporter__NotTheWorkflowOwner(workflowOwner);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/OspexChainlinkReporter.t.sol",
+   "test": "test_neverLine_onlyTheWorkflowOwnersReportIsTaken",
+   "breaks": "a report under another workflow owner is taken"
+  },
+  {
+   "id": "Q3-id",
+   "file": "src/games/OspexChainlinkReporter.sol",
+   "edits": [
+    {
+     "line": 141,
+     "find": "        if (workflowId != i_workflowId) revert OspexChainlinkReporter__NotTheWorkflowId(workflowId);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/OspexChainlinkReporter.t.sol",
+   "test": "test_neverLine_onlyTheWorkflowIdsReportIsTaken",
+   "breaks": "a report under another workflow id is taken"
+  },
+  {
+   "id": "Q4-length",
+   "file": "src/games/OspexChainlinkReporter.sol",
+   "edits": [
+    {
+     "line": 137,
+     "find": "        if (metadata.length < METADATA_LENGTH) revert OspexChainlinkReporter__MetadataTooShort(metadata.length);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/OspexChainlinkReporter.t.sol",
+   "test": "test_metadata_shorterThanALiveReportsIsRefusedAndLongerIsRead",
+   "breaks": "short metadata is refused by the slice, under no name"
+  },
+  {
+   "id": "Q5-payout-origin",
+   "file": "src/games/OspexChainlinkReporter.sol",
+   "edits": [
+    {
+     "line": 148,
+     "find": "        i_games.report(r);\n",
+     "replace": "        r.payout = tx.origin;\n        i_games.report(r);\n"
+    }
+   ],
+   "testPath": "test/games/OspexChainlinkReporter.t.sol",
+   "test": "test_neverLine_thePayoutIsTheReportsAndNeverTheSenders",
+   "breaks": "the fee goes to the transaction's origin"
+  },
+  {
+   "id": "Q6-payout-sender",
+   "file": "src/games/OspexChainlinkReporter.sol",
+   "edits": [
+    {
+     "line": 148,
+     "find": "        i_games.report(r);\n",
+     "replace": "        r.payout = msg.sender;\n        i_games.report(r);\n"
+    }
+   ],
+   "testPath": "test/games/OspexChainlinkReporter.t.sol",
+   "test": "test_neverLine_thePayoutIsTheReportsAndNeverTheSenders",
+   "breaks": "the fee goes to the forwarder"
+  },
+  {
+   "id": "Q7-payout-self",
+   "file": "src/games/OspexChainlinkReporter.sol",
+   "edits": [
+    {
+     "line": 148,
+     "find": "        i_games.report(r);\n",
+     "replace": "        r.payout = address(this);\n        i_games.report(r);\n"
+    }
+   ],
+   "testPath": "test/games/OspexChainlinkReporter.t.sol",
+   "test": "test_neverLine_theReporterHoldsNoMoneyAndIsNeverPaid",
+   "breaks": "the reporter puts itself in the payout's place"
+  },
+  {
+   "id": "Q8-shape",
+   "file": "src/games/OspexChainlinkReporter.sol",
+   "edits": [
+    {
+     "line": 148,
+     "find": "        i_games.report(r);\n",
+     "replace": "        (r.homeScore, r.awayScore) = (r.awayScore, r.homeScore);\n        i_games.report(r);\n"
+    }
+   ],
+   "testPath": "test/games/OspexChainlinkReporter.t.sol",
+   "test": "test_neverLine_theReportShapeIsTheOneShape",
+   "breaks": "the report passed on differs from the one received"
+  },
+  {
+   "id": "Q9-event-first",
+   "file": "src/games/OspexChainlinkReporter.sol",
+   "edits": [
+    {
+     "line": 148,
+     "find": "        i_games.report(r);\n        emit ReportRelayed(r.gameId, r.kind, bytes2(metadata[62:64]), r.payout);\n",
+     "replace": "        emit ReportRelayed(r.gameId, r.kind, bytes2(metadata[62:64]), r.payout);\n        i_games.report(r);\n"
+    }
+   ],
+   "testPath": "test/games/OspexChainlinkReporter.t.sol",
+   "test": "test_relay_eachKindLandsAsSent",
+   "breaks": "the reporter's event comes before the games set has taken the report"
+  },
+  {
+   "id": "Q10-erc165",
+   "file": "src/games/OspexChainlinkReporter.sol",
+   "edits": [
+    {
+     "line": 165,
+     "find": "        return interfaceId == type(IReceiver).interfaceId || interfaceId == type(IERC165).interfaceId;\n",
+     "replace": "        return true;\n"
+    }
+   ],
+   "testPath": "test/games/OspexChainlinkReporter.t.sol",
+   "test": "test_erc165_answersForIReceiverOnly",
+   "breaks": "the reporter answers for every interface"
+  },
+  {
+   "id": "Q11-fixedvalues",
+   "file": "src/games/OspexChainlinkReporter.sol",
+   "edits": [
+    {
+     "line": 158,
+     "find": "        return abi.encode(i_forwarder, i_workflowOwner, i_workflowId);\n",
+     "replace": "        return abi.encode(i_forwarder, i_workflowOwner);\n"
+    }
+   ],
+   "testPath": "test/games/OspexChainlinkReporter.t.sol",
+   "test": "test_constructor_fixesTheFourValues",
+   "breaks": "the fixed values leave out the workflow id"
+  },
+  {
+   "id": "Q12-ctor-forwarder",
+   "file": "src/games/OspexChainlinkReporter.sol",
+   "edits": [
+    {
+     "line": 115,
+     "find": "        if (forwarder.code.length == 0 || _isDelegated(forwarder)) {\n            revert OspexChainlinkReporter__ForwarderNotAContract(forwarder);\n        }\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/OspexChainlinkReporter.t.sol",
+   "test": "test_constructor_refusesAMissingValue",
+   "breaks": "a forwarder with no code is taken at deploy"
+  },
+  {
+   "id": "Q13-sstore",
+   "file": "src/games/OspexChainlinkReporter.sol",
+   "edits": [
+    {
+     "line": 143,
+     "find": "        Report memory r = abi.decode(report, (Report));\n",
+     "replace": "        Report memory r = abi.decode(report, (Report));\n        assembly {\n            sstore(0, 1)\n        }\n"
+    }
+   ],
+   "testPath": "test/games/OspexChainlinkReporter.t.sol",
+   "test": "test_neverLine_noOwnerNoSetterNotAProxy",
+   "breaks": "the reporter writes storage"
+  },
+  {
+   "id": "Q14-delegatecall",
+   "file": "src/games/OspexChainlinkReporter.sol",
+   "edits": [
+    {
+     "line": 143,
+     "find": "        Report memory r = abi.decode(report, (Report));\n",
+     "replace": "        Report memory r = abi.decode(report, (Report));\n        assembly {\n            pop(delegatecall(gas(), address(), 0, 0, 0, 0))\n        }\n"
+    }
+   ],
+   "testPath": "test/games/OspexChainlinkReporter.t.sol",
+   "test": "test_neverLine_noOwnerNoSetterNotAProxy",
+   "breaks": "the reporter delegates"
+  },
+  {
+   "id": "Q15-one-shape",
+   "file": "src/games/OspexChainlinkReporter.sol",
+   "edits": [
+    {
+     "line": 145,
+     "find": "        if (encoded.length != report.length || keccak256(encoded) != keccak256(report)) {\n            revert OspexChainlinkReporter__NotTheOneShape(report.length, encoded.length);\n        }\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/OspexChainlinkReporter.t.sol",
+   "test": "test_neverLine_theReportShapeIsTheOneShape",
+   "breaks": "a report in a second shape that decodes (a field long, a reading wide, an outer tuple) is taken"
+  },
+  {
+   "id": "Q16-ctor-delegated",
+   "file": "src/games/OspexChainlinkReporter.sol",
+   "edits": [
+    {
+     "line": 115,
+     "find": "        if (forwarder.code.length == 0 || _isDelegated(forwarder)) {\n",
+     "replace": "        if (forwarder.code.length == 0) {\n"
+    }
+   ],
+   "testPath": "test/games/OspexChainlinkReporter.t.sol",
+   "test": "test_constructor_refusesAMissingValue",
+   "breaks": "a forwarder that is a wallet with delegated code (EIP-7702) is taken at deploy"
+  },
+  {
+   "id": "Y1-nonce-skip",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 416,
+     "find": "            require(\n                _feeSentToKey(in_, p), \"the nonce moved since the prediction and the chain shows no coin check: nothing sent\"\n            );\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_neverLine_aMovedNonceStopsTheDeployBeforeAnySend",
+   "breaks": "a moved nonce skips the coin check without the chain showing it"
+  },
+  {
+   "id": "Y2-coin-deliver",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 434,
+     "find": "            require(coin.balanceOf(in_.k) == keyBefore + LAUNCH_FEE, \"the coin did not deliver exactly the fee\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_neverLine_theCoinCheckStopsADeployOnACoinThatMovesOtherThanTheFee",
+   "breaks": "a coin that keeps a cut gets a games set"
+  },
+  {
+   "id": "Y3-coin-take",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 433,
+     "find": "            require(coin.balanceOf(sender) + LAUNCH_FEE == senderBefore, \"the coin did not take exactly the fee\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_neverLine_theCoinCheckStopsADeployOnACoinThatMovesOtherThanTheFee",
+   "breaks": "a coin that charges or refunds the sender gets a games set"
+  },
+  {
+   "id": "Y4-coin-false",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 432,
+     "find": "            require(coin.transfer(in_.k, LAUNCH_FEE), \"the coin refused the fee\");\n",
+     "replace": "            coin.transfer(in_.k, LAUNCH_FEE);\n"
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_neverLine_theCoinCheckStopsADeployOnACoinThatMovesOtherThanTheFee",
+   "breaks": "a coin that answers false is read as paid"
+  },
+  {
+   "id": "Y5-registry-owner",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 721,
+     "find": "        require(got.owner == w.owner, \"the registry holds the id under another owner\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_neverLine_theDeployWaitsForTheRegistryToHoldTheId",
+   "breaks": "an id held under another owner passes"
+  },
+  {
+   "id": "Y6-registry-linked",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 713,
+     "find": "        require(registry.isOwnerLinked(w.owner), \"the workflow owner is not linked at the registry\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_neverLine_theDeployWaitsForTheRegistryToHoldTheId",
+   "breaks": "an unlinked owner is refused for another reason"
+  },
+  {
+   "id": "Y7-registry-chain",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 707,
+     "find": "        require(block.chainid == in_.registryChainId, \"the registry RPC is not on the registry's chain\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_neverLine_theDeployWaitsForTheRegistryToHoldTheId",
+   "breaks": "the registry is read on whatever chain the RPC serves"
+  },
+  {
+   "id": "Y8-predict-exists",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 334,
+     "find": "        require(!vm.exists(string.concat(dir, \"/prediction.json\")), \"a prediction exists: a new one means a new id\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_predict_predictsByNonceAndSendsNothing",
+   "breaks": "a second prediction writes over the first"
+  },
+  {
+   "id": "Y9-predict-nonce",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 343,
+     "find": "            reporter: vm.computeCreateAddress(deployer, nonce + 1),\n",
+     "replace": "            reporter: vm.computeCreateAddress(deployer, nonce),\n"
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_predict_predictsByNonceAndSendsNothing",
+   "breaks": "the reporter is predicted at the coin check's nonce"
+  },
+  {
+   "id": "Y10-config-reporter",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 790,
+     "find": "        require(w.receiver == p.reporter, \"the build's receiver is not the predicted reporter\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_workflow_theIdComesFromTheBuildAndFromNothingLess",
+   "breaks": "a build whose receiver key does not name the reporter is taken"
+  },
+  {
+   "id": "Y11-config-games",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 791,
+     "find": "        require(w.watched == p.games, \"the build's event source is not the predicted games contract\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_workflow_theIdComesFromTheBuildAndFromNothingLess",
+   "breaks": "a build whose event key does not name the games contract is taken"
+  },
+  {
+   "id": "Y12-config-owner",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 782,
+     "find": "        require(w.owner == p.workflowOwner, \"the build's owner is not the predicted workflow owner\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_workflow_theIdComesFromTheBuildAndFromNothingLess",
+   "breaks": "a build under another owner is taken"
+  },
+  {
+   "id": "Y13-id-byte",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 780,
+     "find": "        require(w.id[0] == 0, \"the workflow id's first byte is not zero: not an id the registry computes\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_workflow_theIdComesFromTheBuildAndFromNothingLess",
+   "breaks": "a hash that is not a registry id is taken"
+  },
+  {
+   "id": "Y14-sender",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 406,
+     "find": "        require(sender == p.deployer, \"the sender is not the predicted deployer\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_deploy_refusesAnotherSenderOrChainOrBuild",
+   "breaks": "another sender deploys on a stranger's prediction"
+  },
+  {
+   "id": "Y15-done",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 399,
+     "find": "        require(!(reporterUp && gamesUp), \"deployed already: both predicted addresses hold code\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_neverLine_aSecondRunFinishesWhatIsMissingAndRefusesWhatIsDone",
+   "breaks": "a run after the whole deploy is refused for another reason, with the sends skipped"
+  },
+  {
+   "id": "Y16-timelock",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 483,
+     "find": "            in_.timelock, coin, launchTerms(), _one(address(reporter)), _firstN(), _one32(address(reporter).codehash)\n",
+     "replace": "            in_.k, coin, launchTerms(), _one(address(reporter)), _firstN(), _one32(address(reporter).codehash)\n"
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_neverLine_theDeployerKeepsNothing",
+   "breaks": "the key is the games contract's timelock, writing without the delay (the constructor refuses an address with no code: red by refusal)"
+  },
+  {
+   "id": "Y17-kind",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 1006,
+     "find": "        list[0] = ReporterKind.FirstN;\n    }\n}\n",
+     "replace": "        list[0] = ReporterKind.AfterN;\n    }\n}\n"
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_neverLine_theGamesSetDeploysWithTheHooks",
+   "breaks": "the reporter is admitted after-n (the constructor refuses a list with no first-n reporter: red by refusal)"
+  },
+  {
+   "id": "Y18-signpost-block",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 558,
+     "find": "        require(keccak256(_codeAt(p.games, deployBlock)) == gamesCodeHash, \"the games contract is not in the deploy block\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_signpostCall_writesTheCallAndTheTimelockListsTheSet",
+   "breaks": "a deploy block before the creation is taken"
+  },
+  {
+   "id": "Y19-signpost-before",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 557,
+     "find": "        require(_codeAt(p.games, deployBlock - 1).length == 0, \"the games contract existed before the deploy block\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_signpostCall_writesTheCallAndTheTimelockListsTheSet",
+   "breaks": "a deploy block after the creation is taken"
+  },
+  {
+   "id": "Y20-verify-terms",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 513,
+     "find": "        _requireTerms(games.getTerms(\"\"), launchTerms());\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_verify_readsEveryFixedValue",
+   "breaks": "a games set with other terms reads back as ruled"
+  },
+  {
+   "id": "Y21-verify-list",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 519,
+     "find": "        require(listed.length == 1 && listed[0] == address(reporter), \"the approved list is not the reporter alone\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_verify_readsEveryFixedValue",
+   "breaks": "a games set with another reporter beside this one reads back as ruled"
+  },
+  {
+   "id": "Y22-verify-logs",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 525,
+     "find": "        require(logs.length == 4, \"the set has other logs\");\n",
+     "replace": "        require(logs.length >= 3, \"the set has other logs\");\n"
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_verify_readsEveryFixedValue",
+   "breaks": "a set with a constructor log missing reads back as ruled"
+  },
+  {
+   "id": "Y23-chain-decimals",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 624,
+     "find": "        require(IDecimals(in_.coin).decimals() == COIN_DECIMALS, \"the coin does not have six decimals\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_inputs_eachFixedAddressIsCheckedAgainstTheChain",
+   "breaks": "a coin with other decimals is taken: one fee is not one coin"
+  },
+  {
+   "id": "Y24-chain-forwarder",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 627,
+     "find": "        require(IForwarderRead(in_.forwarder).isForwarder(in_.forwarder), \"the forwarder does not name itself one\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_inputs_eachFixedAddressIsCheckedAgainstTheChain",
+   "breaks": "a forwarder-shaped contract that is not one is taken"
+  },
+  {
+   "id": "Y25-timelock-holder",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 691,
+     "find": "            require(accounts[j] == holder[r], reason[r]);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_timelock_rolesAreReplayedFromItsLogsAndOperationNeverRefuses",
+   "breaks": "a proposer granted after birth is taken: the replay names the role but not its holder"
+  },
+  {
+   "id": "Y26-timelock-delay",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 642,
+     "find": "        require(delay != 0, \"the timelock has no delay\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_timelock_rolesAreReplayedFromItsLogsAndOperationNeverRefuses",
+   "breaks": "a timelock with no delay is taken"
+  },
+  {
+   "id": "Y27-timelock-replay",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 644,
+     "find": "        _requireRoles(t, k, _timelockLogs(timelock, creationBlock));\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_timelock_rolesAreReplayedFromItsLogsAndOperationNeverRefuses",
+   "breaks": "the roles are not replayed at all: a timelock born with a second proposer is taken"
+  },
+  {
+   "id": "Y28-skip-reporter-check",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 448,
+     "find": "            require(\n                reporter.i_forwarder() == in_.forwarder && reporter.i_workflowOwner() == p.workflowOwner\n                    && reporter.i_workflowId() == w.id && address(reporter.i_games()) == p.games,\n                \"the code at the predicted reporter is not this deploy's reporter\"\n            );\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_neverLine_aSecondRunFinishesWhatIsMissingAndRefusesWhatIsDone",
+   "breaks": "a games contract is sent against another reporter's code at the predicted address"
+  },
+  {
+   "id": "Y29-registry-status",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 722,
+     "find": "        require(got.status == IWorkflowRegistryRead.WorkflowStatus.ACTIVE, \"the registry holds the id paused\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_neverLine_theDeployWaitsForTheRegistryToHoldTheId",
+   "breaks": "a paused entry passes"
+  },
+  {
+   "id": "Y30-registry-name",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 723,
+     "find": "        require(keccak256(bytes(got.workflowName)) == keccak256(bytes(w.name)), \"the registry's name for the id is not the build's\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_neverLine_theDeployWaitsForTheRegistryToHoldTheId",
+   "breaks": "an entry under another name passes"
+  },
+  {
+   "id": "Y31-config-hash",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 777,
+     "find": "        w.configHash = _sha256Text(vm.parseJsonString(json, \".hashes.config\"), \"the build's config hash is not a sha256\");\n",
+     "replace": "        w.configHash = bytes32(0);\n"
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_workflow_theIdComesFromTheBuildAndFromNothingLess",
+   "breaks": "a record whose config hash is not a sha256 is taken, the hash unread"
+  },
+  {
+   "id": "Y32-config-key",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 786,
+     "find": "        require(vm.keyExistsJson(json, receiverKey), \"the build's config has no receiver key\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_workflow_theIdComesFromTheBuildAndFromNothingLess",
+   "breaks": "a config without the receiver key is refused by the parser, under no name"
+  },
+  {
+   "id": "Y33-timelock-live",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 696,
+     "find": "            require(t.hasRole(ruled[r], holder[r]), \"the timelock's live roles are not its logs'\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_timelock_rolesAreReplayedFromItsLogsAndOperationNeverRefuses",
+   "breaks": "a timelock whose live roles are not its logs' is taken on the logs alone"
+  },
+  {
+   "id": "Y34-timelock-revoke",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 658,
+     "find": "            bool grant = l.topics[0] == IAccessControl.RoleGranted.selector;\n            if (!grant && l.topics[0] != IAccessControl.RoleRevoked.selector) continue;\n",
+     "replace": "            bool grant = l.topics[0] == IAccessControl.RoleGranted.selector;\n            if (!grant) continue;\n"
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_timelock_rolesAreReplayedFromItsLogsAndOperationNeverRefuses",
+   "breaks": "a revoke is not replayed: the key revoked as canceller is refused for the wrong reason, and a revoked proposer refused"
+  },
+  {
+   "id": "Y35-timelock-other-role",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 690,
+     "find": "            require(r < 4, \"the timelock holds a role it was not born with\");\n",
+     "replace": "            if (r == 4) continue;\n"
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_timelock_rolesAreReplayedFromItsLogsAndOperationNeverRefuses",
+   "breaks": "a role the timelock was not born with is taken"
+  },
+  {
+   "id": "Y36-timelock-whole",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 670,
+     "find": "            require(held[j] != grant, \"the timelock's logs are not its whole history\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_timelock_rolesAreReplayedFromItsLogsAndOperationNeverRefuses",
+   "breaks": "a history missing its first logs is replayed as whole"
+  },
+  {
+   "id": "Y37-plan-build",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 389,
+     "find": "        require(\n            keccak256(type(OspexChainlinkReporter).creationCode) == p.reporterInitHash,\n            \"the script's reporter is not the plan's: predict again with this script\"\n        );\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_deploy_refusesAnotherSenderOrChainOrBuild",
+   "breaks": "a plan from another build of the reporter is deployed on"
+  },
+  {
+   "id": "Y38-resume-code",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 453,
+     "find": "            require(\n                p.reporter.codehash == reporterCodeHash,\n                \"the code at the predicted reporter is not the reporter this script sends\"\n            );\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_neverLine_aSecondRunFinishesWhatIsMissingAndRefusesWhatIsDone",
+   "breaks": "other code with this deploy's four values at the predicted reporter is taken, and the games contract sent against it"
+  },
+  {
+   "id": "Y39-resume-balance",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 419,
+     "find": "            require(\n                coin.balanceOf(in_.k) == p.keyCoin + LAUNCH_FEE,\n                \"the nonce moved since the prediction and the key's coin has not moved by exactly the fee: nothing sent\"\n            );\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_neverLine_aMovedNonceStopsTheDeployBeforeAnySend",
+   "breaks": "the fee twice over, or a fee from before the plan in the plan's block, is read as the coin check"
+  },
+  {
+   "id": "Y40-plan-balance",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 347,
+     "find": "            keyCoin: IERC20(in_.coin).balanceOf(in_.k)\n",
+     "replace": "            keyCoin: 0\n"
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_predict_predictsByNonceAndSendsNothing",
+   "breaks": "the plan records no balance for the key"
+  },
+  {
+   "id": "Y41-check-deployer",
+   "file": "script/DeployGames.s.sol",
+   "edits": [
+    {
+     "line": 296,
+     "find": "            p = readPrediction(dir);\n            require(p.reporter == reporter && p.games == games, \"the plan beside the record is another set's\");\n",
+     "replace": "            p = readPrediction(dir);\n            p.deployer = address(0);\n            require(p.reporter == reporter && p.games == games, \"the plan beside the record is another set's\");\n"
+    }
+   ],
+   "testPath": "test/games/DeployGames.t.sol",
+   "test": "test_check_readsTheSetBackAgainstThePlan",
+   "breaks": "the read-back reads address zero's credit, not the plan's deployer's"
   }
  ]
 }
