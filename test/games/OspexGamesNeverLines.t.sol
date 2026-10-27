@@ -16,7 +16,8 @@ import {
     Reading,
     Report,
     Hint,
-    Terms
+    Terms,
+    OpenGame
 } from "../../src/games/IOspexGames.sol";
 import {GamesBase, MockReporter, OspexGamesHarness} from "./GamesBase.sol";
 
@@ -3450,19 +3451,25 @@ contract OspexGamesNeverLinesTest is GamesBase {
         _assertOpenList(new uint256[](0), "a second release moves nothing");
     }
 
-    /// @dev The open list is exactly `want`, in that order; every page of it agrees with the whole; and every
-    ///      game made is on it exactly when its status is before Scored, each once.
+    /// @dev The open list is exactly `want`, in that order; each row of it, whole or paged, is the game's own
+    ///      words; every page of it agrees with the whole; and every game made is on it exactly when its status
+    ///      is before Scored, each once.
     function _assertOpenList(uint256[] memory want, string memory when) internal view {
-        (uint256[] memory got, uint256 total) = games.getOpenGames(0, type(uint256).max);
+        (OpenGame[] memory rows, uint256 total) = games.getOpenGames(0, type(uint256).max);
+        uint256[] memory got = _idsOf(rows);
         assertEq(got, want, string.concat(when, ": the list"));
         assertEq(total, want.length, string.concat(when, ": the total"));
+        for (uint256 i; i < rows.length; ++i) {
+            _assertRowIsTheGame(rows[i], string.concat(when, ": a row"));
+        }
         for (uint256 offset; offset <= want.length; ++offset) {
-            (uint256[] memory page, uint256 t) = games.getOpenGames(offset, 2);
+            (OpenGame[] memory page, uint256 t) = games.getOpenGames(offset, 2);
             assertEq(t, want.length, string.concat(when, ": a page's total"));
             uint256 n = offset >= want.length ? 0 : want.length - offset < 2 ? want.length - offset : 2;
             assertEq(page.length, n, string.concat(when, ": a page's length"));
             for (uint256 i; i < n; ++i) {
-                assertEq(page[i], want[offset + i], string.concat(when, ": a page's entry"));
+                assertEq(page[i].gameId, want[offset + i], string.concat(when, ": a page's entry"));
+                _assertRowIsTheGame(page[i], string.concat(when, ": a page's row"));
             }
         }
         uint256 count = games.gameCount();
@@ -3832,7 +3839,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
                 out = abi.encodePacked(out, ok, answer);
             }
         }
-        out = abi.encodePacked(out, abi.encode(_openGames()));
+        out = abi.encodePacked(out, abi.encode(_openRows()));
         return keccak256(out);
     }
 

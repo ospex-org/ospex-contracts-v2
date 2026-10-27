@@ -423,7 +423,15 @@ contract OspexGamesInterfaceTest is GamesBase {
             _assertParams(json, string.concat(readings, "[0].components"), "seat;kind;homeScore;awayScore", "uint8;uint8;uint32;uint32");
             _assertParams(json, string.concat(readings, "[1].components"), "seat;kind;homeScore;awayScore", "uint8;uint8;uint32;uint32");
             _assertParams(json, "$.abi[?(@.name == 'getOpenGames')].inputs", "offset;count", "uint256;uint256");
-            _assertParams(json, "$.abi[?(@.name == 'getOpenGames')].outputs", "gameIds;total", "uint256[];uint256");
+            _assertParams(json, "$.abi[?(@.name == 'getOpenGames')].outputs", "rows;total", "tuple[];uint256");
+            string memory row = "$.abi[?(@.name == 'getOpenGames')].outputs[0].components";
+            _assertParams(
+                json,
+                row,
+                "gameId;status;start;window;day7Clock;disputedAt;league;hints",
+                "uint256;uint8;uint64;uint64;uint64;uint64;string;tuple[]"
+            );
+            _assertParams(json, string.concat(row, "[7].components"), "seat;id", "uint8;string");
             assertFalse(vm.keyExistsJson(json, "$.abi[?(@.name == 'gameCount')].inputs[0]"), "gameCount takes nothing");
             assertFalse(
                 vm.keyExistsJson(json, "$.abi[?(@.name == 'getApprovedReporters')].inputs[0]"),

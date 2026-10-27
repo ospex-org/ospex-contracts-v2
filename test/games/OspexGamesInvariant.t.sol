@@ -12,7 +12,8 @@ import {
     Reading,
     Report,
     Hint,
-    Terms
+    Terms,
+    OpenGame
 } from "../../src/games/IOspexGames.sol";
 import {GamesBase, GameWords, MockReporter, OspexGamesHarness} from "./GamesBase.sol";
 import {SwappedRelay} from "./ReporterFixtures.sol";
@@ -847,32 +848,44 @@ contract OspexGamesInvariantTest is GamesBase {
         }
     }
 
-    /// The open list is exactly the games the model has not ended, each once, with its total; every page of it
-    /// is a slice of the whole; and no id on it is outside the games made.
+    /// The open list is exactly the games the model has not ended, each once, with its total; each row's words
+    /// are the model's (its status, start, window, day-7 clock, record time and league; the handler gives no
+    /// hint); every page of it is a slice of the whole; and no id on it is outside the games made.
     /// forge-config: default.invariant.runs = 64
     /// forge-config: default.invariant.depth = 80
     function invariant_theOpenListIsTheGamesNotEnded() public view {
         uint256 count = handler.created();
-        (uint256[] memory open, uint256 total) = games.getOpenGames(0, type(uint256).max);
-        assertEq(open.length, total, "the whole list and its total");
+        (OpenGame[] memory rows, uint256 total) = games.getOpenGames(0, type(uint256).max);
+        assertEq(rows.length, total, "the whole list and its total");
         uint256 notEnded;
         for (uint256 id = 1; id <= count; ++id) {
             bool expectedOpen = !handler.ended(id);
             if (expectedOpen) ++notEnded;
             uint256 seen;
-            for (uint256 i; i < open.length; ++i) {
-                if (open[i] == id) ++seen;
+            for (uint256 i; i < rows.length; ++i) {
+                if (rows[i].gameId == id) ++seen;
             }
             assertEq(seen, expectedOpen ? 1 : 0, "a game on the open list other than once while not ended");
         }
         assertEq(total, notEnded, "the open list's total is the games not ended");
-        for (uint256 i; i < open.length; ++i) {
-            assertTrue(open[i] != 0 && open[i] <= count, "an id that is not a game on the open list");
+        for (uint256 i; i < rows.length; ++i) {
+            uint256 id = rows[i].gameId;
+            assertTrue(id != 0 && id <= count, "an id that is not a game on the open list");
+            GamesHandler.Ghost memory g = handler.ghostOf(id);
+            GameStatus status =
+                g.disputed ? GameStatus.Disputed : g.started ? GameStatus.Verified : GameStatus.Unverified;
+            assertEq(uint8(rows[i].status), uint8(status), "a row's status is not the model's");
+            assertEq(rows[i].start, g.started ? g.start : 0, "a row's start is not the model's");
+            assertEq(rows[i].window, g.terms.window, "a row's window is not the model's");
+            assertEq(rows[i].day7Clock, g.terms.day7Clock, "a row's day-7 clock is not the model's");
+            assertEq(rows[i].disputedAt, g.disputedAt, "a row's record time is not the model's");
+            assertEq(rows[i].league, g.league, "a row's league is not the model's");
+            assertEq(rows[i].hints.length, 0, "a row's hints, where the creation gave none");
         }
         for (uint256 offset; offset < total; offset += 3) {
-            (uint256[] memory page,) = games.getOpenGames(offset, 3);
+            (OpenGame[] memory page,) = games.getOpenGames(offset, 3);
             for (uint256 i; i < page.length; ++i) {
-                assertEq(page[i], open[offset + i], "a page is not a slice of the whole");
+                assertEq(page[i].gameId, rows[offset + i].gameId, "a page is not a slice of the whole");
             }
         }
     }

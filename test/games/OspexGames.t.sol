@@ -12,7 +12,8 @@ import {
     Reading,
     Report,
     Hint,
-    Terms
+    Terms,
+    OpenGame
 } from "../../src/games/IOspexGames.sol";
 import {GamesBase, GameWords, MockReporter, OspexGamesHarness} from "./GamesBase.sol";
 
@@ -907,36 +908,139 @@ contract OspexGamesTest is GamesBase {
     /// The open list pages: the total beside every page, a page clipped at the end, an empty page past it, the
     /// whole list under the largest count, and the total alone under a count of 0.
     function test_reads_openGamesPagesClipAndCount() public {
-        (uint256[] memory none, uint256 zero) = games.getOpenGames(0, type(uint256).max);
+        (OpenGame[] memory none, uint256 zero) = games.getOpenGames(0, type(uint256).max);
         assertEq(none.length, 0, "no games yet");
         assertEq(zero, 0, "no games yet: the total");
         uint256[] memory made = new uint256[](5);
         for (uint256 i; i < 5; ++i) {
             made[i] = _create();
         }
-        (uint256[] memory all, uint256 total) = games.getOpenGames(0, type(uint256).max);
-        assertEq(all, made, "the whole list, in creation order");
+        (OpenGame[] memory all, uint256 total) = games.getOpenGames(0, type(uint256).max);
+        assertEq(_idsOf(all), made, "the whole list, in creation order");
         assertEq(total, 5, "the total");
-        (uint256[] memory page, uint256 t2) = games.getOpenGames(1, 2);
+        (OpenGame[] memory page, uint256 t2) = games.getOpenGames(1, 2);
         assertEq(page.length, 2, "a page of two");
-        assertEq(page[0], made[1], "the page's first");
-        assertEq(page[1], made[2], "the page's second");
+        assertEq(page[0].gameId, made[1], "the page's first");
+        assertEq(page[1].gameId, made[2], "the page's second");
         assertEq(t2, 5, "the total beside a page");
-        (uint256[] memory tail,) = games.getOpenGames(3, 10);
+        (OpenGame[] memory tail,) = games.getOpenGames(3, 10);
         assertEq(tail.length, 2, "a page clipped at the end");
-        assertEq(tail[0], made[3], "the clipped page's first");
-        assertEq(tail[1], made[4], "the clipped page's second");
-        (uint256[] memory past, uint256 t3) = games.getOpenGames(5, 1);
+        assertEq(tail[0].gameId, made[3], "the clipped page's first");
+        assertEq(tail[1].gameId, made[4], "the clipped page's second");
+        (OpenGame[] memory past, uint256 t3) = games.getOpenGames(5, 1);
         assertEq(past.length, 0, "a page past the end");
         assertEq(t3, 5, "the total past the end");
-        (uint256[] memory far,) = games.getOpenGames(type(uint256).max, type(uint256).max);
+        (OpenGame[] memory far,) = games.getOpenGames(type(uint256).max, type(uint256).max);
         assertEq(far.length, 0, "a page far past the end");
-        (uint256[] memory onlyTotal, uint256 t4) = games.getOpenGames(0, 0);
+        (OpenGame[] memory onlyTotal, uint256 t4) = games.getOpenGames(0, 0);
         assertEq(onlyTotal.length, 0, "a count of 0");
         assertEq(t4, 5, "the total under a count of 0");
-        (uint256[] memory one,) = games.getOpenGames(4, 1);
+        (OpenGame[] memory one,) = games.getOpenGames(4, 1);
         assertEq(one.length, 1, "the last alone");
-        assertEq(one[0], made[4], "the last alone");
+        assertEq(one[0].gameId, made[4], "the last alone");
+    }
+
+    /// Each row of the open list is the game's own words: three games, one in a league with other terms and
+    /// no hint, one started with the usual two hints, one disputed with eight hints of the longest ids. Each
+    /// field against the read that answers it alone, then against the literal the test put there, so a row that
+    /// swaps two of a game's words (the start for the date, the window for the day-7 clock, the record's time
+    /// for the start) or leaves one out is caught.
+    function test_reads_openGamesRowsAreTheGamesOwnWords() public {
+        Terms memory other = _terms(WINDOW + 1 hours);
+        other.day7Clock = DAY7 + 1 hours;
+        _setTerms("abcdefghijklmnop", other);
+        vm.warp(DATE - 1 hours);
+        uint256 bare = _createIn("abcdefghijklmnop", new Hint[](0));
+        uint256 plain = _create();
+        uint256 full = _createIn("nba", _eightHints());
+        _startBy(first, plain, START);
+        _startBy(first, full, START);
+        vm.warp(START + 1);
+        _disputeBy(first, full);
+
+        (OpenGame[] memory rows, uint256 total) = games.getOpenGames(0, type(uint256).max);
+        assertEq(total, 3, "the total");
+        assertEq(rows.length, 3, "three rows");
+        for (uint256 i; i < 3; ++i) {
+            _assertRowIsTheGame(rows[i], "a row");
+        }
+        assertEq(rows[0].gameId, bare, "the first row's game");
+        assertEq(uint8(rows[0].status), uint8(GameStatus.Unverified), "an unstarted game's status");
+        assertEq(rows[0].start, 0, "an unstarted game's start");
+        assertEq(rows[0].window, WINDOW + 1 hours, "the other league's window");
+        assertEq(rows[0].day7Clock, DAY7 + 1 hours, "the other league's day-7 clock");
+        assertEq(rows[0].disputedAt, 0, "no record");
+        assertEq(rows[0].league, "abcdefghijklmnop", "the other league");
+        assertEq(rows[0].hints.length, 0, "no hint");
+        assertEq(rows[1].gameId, plain, "the second row's game");
+        assertEq(uint8(rows[1].status), uint8(GameStatus.Verified), "a started game's status");
+        assertEq(rows[1].start, START, "a started game's start, as written, not its date");
+        assertEq(rows[1].window, WINDOW, "the launch window");
+        assertEq(rows[1].day7Clock, DAY7, "the launch day-7 clock");
+        assertEq(rows[1].disputedAt, 0, "no record yet");
+        assertEq(rows[1].league, "nba", "the league");
+        Hint[] memory two = _hints();
+        assertEq(rows[1].hints.length, 2, "two hints");
+        for (uint256 i; i < 2; ++i) {
+            assertEq(rows[1].hints[i].seat, two[i].seat, "a hint's seat");
+            assertEq(rows[1].hints[i].id, two[i].id, "a hint's id");
+        }
+        assertEq(rows[2].gameId, full, "the third row's game");
+        assertEq(uint8(rows[2].status), uint8(GameStatus.Disputed), "a disputed game's status");
+        assertEq(rows[2].start, START, "a disputed game's start");
+        assertEq(rows[2].disputedAt, START + 1, "the record's time");
+        assertEq(rows[2].hints.length, 8, "eight hints");
+        Hint[] memory eight = _eightHints();
+        for (uint256 i; i < 8; ++i) {
+            assertEq(rows[2].hints[i].seat, eight[i].seat, "a hint's seat at the limit");
+            assertEq(rows[2].hints[i].id, eight[i].id, "a hint's id at the limit");
+        }
+    }
+
+    /// A page's answer is bounded by its rows, measured on the call's return data: a row encodes to 384 bytes
+    /// with no hint, 704 with the usual two hints (ids of 32 bytes or fewer), 1,920 at the limits (eight hints
+    /// with ids of 64 bytes), beside 96 bytes for the answer's own words. So a reader that may take 25,000
+    /// bytes asks 12 rows a page whatever the games are, 35 of typical ones.
+    function test_reads_openGamesPageBytesAreBoundedByTheRows() public {
+        vm.warp(DATE - 1 hours);
+        for (uint256 i; i < 13; ++i) {
+            _createIn("nba", _eightHints());
+        }
+        assertEq(_answerBytes(0, 12), 96 + 12 * 1920, "twelve rows at the limits");
+        assertEq(_answerBytes(0, 13), 96 + 13 * 1920, "thirteen rows at the limits");
+        for (uint256 i; i < 35; ++i) {
+            _create();
+        }
+        assertEq(_answerBytes(13, 35), 96 + 35 * 704, "thirty-five typical rows");
+        _createIn("nba", new Hint[](0));
+        assertEq(_answerBytes(48, 1), 96 + 384, "a row with no hint");
+        assertEq(_answerBytes(49, 1), 96, "an empty page: the answer's own words");
+    }
+
+    /// @dev The length of the open list read's return data for a page.
+    function _answerBytes(uint256 offset, uint256 count) internal view returns (uint256) {
+        (bool ok, bytes memory answer) =
+            address(games).staticcall(abi.encodeCall(IOspexGames.getOpenGames, (offset, count)));
+        assertTrue(ok, "the read");
+        return answer.length;
+    }
+
+    /// @dev A creation in `league` with `hints`, the usual teams and date, at the league's fee.
+    function _createIn(string memory league, Hint[] memory hints) internal returns (uint256 gameId) {
+        uint256 fee = games.getTerms(league).fee;
+        vm.prank(creator, creator);
+        gameId = games.createGame(league, "Denver Nuggets", "Utah Jazz", DATE, hints, fee);
+    }
+
+    /// @dev Eight hints, each with an id of 64 characters: the most a creation may give.
+    function _eightHints() internal pure returns (Hint[] memory hints) {
+        hints = new Hint[](8);
+        for (uint256 i; i < 8; ++i) {
+            hints[i] = Hint({
+                seat: uint8(i + 1),
+                id: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            });
+        }
     }
 
     function test_reads_startRefusedUntilWritten() public {

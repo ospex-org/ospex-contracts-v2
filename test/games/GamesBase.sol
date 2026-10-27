@@ -14,7 +14,8 @@ import {
     Reading,
     Report,
     Hint,
-    Terms
+    Terms,
+    OpenGame
 } from "../../src/games/IOspexGames.sol";
 import {IOspexReporter} from "../../src/games/IOspexReporter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -105,6 +106,13 @@ library GameWords {
     function date(address games, uint256 gameId) internal view returns (uint64) {
         bytes32 word = vm.load(games, keccak256(abi.encode(gameId, GAMES_SLOT)));
         return uint64(uint256(word) >> 8);
+    }
+
+    /// @dev A game's start as stored: the eight bytes after the date in its first word; 0 until the start is
+    ///      written, which the read of the start refuses to say.
+    function start(address games, uint256 gameId) internal view returns (uint64) {
+        bytes32 word = vm.load(games, keccak256(abi.encode(gameId, GAMES_SLOT)));
+        return uint64(uint256(word) >> 72);
     }
 
     /// @dev A game's place on the open list plus one, as stored: the four bytes after the creator and the time
@@ -553,13 +561,26 @@ abstract contract GamesBase is Test {
         for (uint256 id; id <= count + 1; ++id) {
             out = abi.encodePacked(out, _view(id));
         }
-        out = abi.encodePacked(out, abi.encode(_openGames()));
+        out = abi.encodePacked(out, abi.encode(_openRows()));
         return keccak256(out);
     }
 
-    /// @dev The open list whole, in its order.
+    /// @dev The open list whole, in its order: its rows.
+    function _openRows() internal view returns (OpenGame[] memory rows) {
+        (rows,) = games.getOpenGames(0, type(uint256).max);
+    }
+
+    /// @dev The open list whole, in its order: its ids.
     function _openGames() internal view returns (uint256[] memory ids) {
-        (ids,) = games.getOpenGames(0, type(uint256).max);
+        ids = _idsOf(_openRows());
+    }
+
+    /// @dev The ids of a page of rows, in the page's order.
+    function _idsOf(OpenGame[] memory rows) internal pure returns (uint256[] memory ids) {
+        ids = new uint256[](rows.length);
+        for (uint256 i; i < rows.length; ++i) {
+            ids[i] = rows[i].gameId;
+        }
     }
 
     /// @dev Whether a game is on the open list, by reading the list whole.
@@ -569,6 +590,26 @@ abstract contract GamesBase is Test {
             if (ids[i] == gameId) return true;
         }
         return false;
+    }
+
+    /// @dev A row of the open list is the game's own words: each field against the read that answers it alone
+    ///      (the start against the game's stored word, since the read of the start refuses an unstarted game).
+    function _assertRowIsTheGame(OpenGame memory row, string memory what) internal view {
+        uint256 id = row.gameId;
+        assertEq(uint8(row.status), uint8(games.getGameStatus(id)), string.concat(what, ": status"));
+        assertEq(row.start, GameWords.start(address(games), id), string.concat(what, ": start"));
+        Terms memory t = games.getGameTerms(id);
+        assertEq(row.window, t.window, string.concat(what, ": window"));
+        assertEq(row.day7Clock, t.day7Clock, string.concat(what, ": day-7 clock"));
+        (,, uint64 disputedAt) = games.getGameReadings(id);
+        assertEq(row.disputedAt, disputedAt, string.concat(what, ": disputed at"));
+        (string memory league,,,, Hint[] memory hints) = games.getGameIdentity(id);
+        assertEq(row.league, league, string.concat(what, ": league"));
+        assertEq(row.hints.length, hints.length, string.concat(what, ": hints"));
+        for (uint256 i; i < hints.length; ++i) {
+            assertEq(row.hints[i].seat, hints[i].seat, string.concat(what, ": a hint's seat"));
+            assertEq(row.hints[i].id, hints[i].id, string.concat(what, ": a hint's id"));
+        }
     }
 
     /// @dev Two lists of readings are the same, entry for entry.

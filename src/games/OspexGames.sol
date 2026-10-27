@@ -10,7 +10,8 @@ import {
     Reading,
     Report,
     Hint,
-    Terms
+    Terms,
+    OpenGame
 } from "./IOspexGames.sol";
 import {IOspexReporter} from "./IOspexReporter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -107,7 +108,8 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
  *         with each seat's last vote, which every dispute record and update writes for each seat whose reading
  *         is not silent while a silent reading leaves a seat's vote as it was, beside the time of the dispute
  *         record (getGameReadings); and the list of games not yet ended, which a game joins at creation and
- *         leaves at its end, read whole or by page (getOpenGames). A dispute report whose readings are those of
+ *         leaves at its end, read whole or by page as rows that carry, beside the id, the words a reader decides
+ *         on (getOpenGames). A dispute report whose readings are those of
  *         a dispute report the game already took, in the same order, is refused, so an old decision delivered
  *         again cannot become the newest vote; this contract keeps the hash of every dispute report's readings
  *         it takes for the game. A seat's vote on record is what the day-7 run reads for a seat that no longer
@@ -893,19 +895,32 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
 
     /// @inheritdoc IOspexGames
     /// @dev The page is clipped before any arithmetic on `count`, so a count of type(uint256).max reads the
-    ///      whole list from `offset` and overflows nothing.
+    ///      whole list from `offset` and overflows nothing. Each row is filled from the game's own words and its
+    ///      identity, the same storage the per-game reads answer from.
     function getOpenGames(uint256 offset, uint256 count)
         external
         view
-        returns (uint256[] memory gameIds, uint256 total)
+        returns (OpenGame[] memory rows, uint256 total)
     {
         total = s_open.length;
-        if (offset >= total) return (gameIds, total);
+        if (offset >= total) return (rows, total);
         uint256 left = total - offset;
         uint256 length = count < left ? count : left;
-        gameIds = new uint256[](length);
+        rows = new OpenGame[](length);
         for (uint256 i; i < length; ++i) {
-            gameIds[i] = s_open[offset + i];
+            uint256 gameId = s_open[offset + i];
+            Game storage g = s_games[gameId];
+            Identity storage identity = s_identities[gameId];
+            rows[i] = OpenGame({
+                gameId: gameId,
+                status: g.status,
+                start: g.start,
+                window: g.terms.window,
+                day7Clock: g.terms.day7Clock,
+                disputedAt: g.disputedAt,
+                league: identity.league,
+                hints: identity.hints
+            });
         }
     }
 

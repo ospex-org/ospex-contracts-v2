@@ -139,6 +139,29 @@ struct Terms {
     uint96 fee;
 }
 
+/// @notice One row of the open list (getOpenGames): beside the game's id, what whatever picks a game up decides
+///         on, so a page of the list is one read and no game on it needs another before it is probed. Every
+///         word is the game's own, as its other reads give it (getGameStatus, getGameStart, getGameTerms,
+///         getGameReadings, getGameIdentity), read together.
+/// @param gameId The game.
+/// @param status The game's status: Unverified, Verified or Disputed, the three a game not yet ended has.
+/// @param start The start as the start report wrote it; 0 until then.
+/// @param window n, in seconds, from the game's terms.
+/// @param day7Clock The day-7 clock, in seconds, from the game's terms.
+/// @param disputedAt When the game's dispute record was written; 0 until then.
+/// @param league The league, as the creator gave it.
+/// @param hints The hints, as the creator gave them.
+struct OpenGame {
+    uint256 gameId;
+    GameStatus status;
+    uint64 start;
+    uint64 window;
+    uint64 day7Clock;
+    uint64 disputedAt;
+    string league;
+    Hint[] hints;
+}
+
 /**
  * @title IOspexGames
  * @author ospex.org
@@ -426,15 +449,21 @@ interface IOspexGames is IGameReporters {
         view
         returns (Reading[] memory startReadings, Reading[] memory votes, uint64 disputedAt);
 
-    /// @notice The games not yet ended, whole or by page. `total` is how many there are now; `gameIds` is the
-    ///         page that starts at `offset`, at most `count` long and clipped at the list's end (empty from it),
-    ///         so (0, type(uint256).max) is the whole list and (0, 0) the total alone. A game joins the list at
-    ///         its creation and leaves it at its end: a score, a void or a release. The order is creation order,
-    ///         except that an end moves the last game on the list into the ended game's place. A page is one
-    ///         block's answer: a reader paging across blocks sees a game that moved meanwhile at most once, and a
-    ///         game it missed on its next pass.
+    /// @notice The games not yet ended, whole or by page, as rows. `total` is how many there are now; `rows` is
+    ///         the page that starts at `offset`, at most `count` long and clipped at the list's end (empty from
+    ///         it), so (0, type(uint256).max) is the whole list and (0, 0) the total alone. A row carries, beside
+    ///         the id, what a reader decides on: the status, the start as written (0 until then), the window and
+    ///         the day-7 clock from the game's terms, when its dispute record was written (0 until then), and the
+    ///         league and the hints from its identity, each the game's own word as its other reads give it. A
+    ///         game joins the list at its creation and leaves it at its end: a score, a void or a release. The
+    ///         order is creation order, except that an end moves the last game on the list into the ended game's
+    ///         place. A page is one block's answer: a reader paging across blocks sees a game that moved meanwhile
+    ///         at most once, and a game it missed on its next pass. A row encodes to at most 1,920 bytes (eight
+    ///         hints with ids of 64 bytes) and to 704 with two hints of 32 bytes or fewer, beside 96 bytes for
+    ///         the answer's own words: a reader that may take 25,000 bytes asks 12 rows a page whatever the
+    ///         games, 35 of typical ones.
     function getOpenGames(uint256 offset, uint256 count)
         external
         view
-        returns (uint256[] memory gameIds, uint256 total);
+        returns (OpenGame[] memory rows, uint256 total);
 }
