@@ -917,7 +917,8 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
                 window: g.terms.window,
                 day7Clock: g.terms.day7Clock,
                 disputedAt: g.disputedAt,
-                league: s_identities[gameId].league
+                league: s_identities[gameId].league,
+                date: g.date
             });
         }
     }

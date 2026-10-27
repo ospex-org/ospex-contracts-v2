@@ -151,6 +151,8 @@ struct Terms {
 /// @param day7Clock The day-7 clock, in seconds, from the game's terms.
 /// @param disputedAt When the game's dispute record was written; 0 until then.
 /// @param league The league, as the creator gave it: 1 to 16 bytes.
+/// @param date The game's date, as the creator gave it: what a reader times an unverified game from, since
+///        its start is 0 until written.
 struct OpenGame {
     uint256 gameId;
     GameStatus status;
@@ -159,6 +161,7 @@ struct OpenGame {
     uint64 day7Clock;
     uint64 disputedAt;
     string league;
+    uint64 date;
 }
 
 /**
@@ -453,13 +456,14 @@ interface IOspexGames is IGameReporters {
     ///         it), so (0, type(uint256).max) is the whole list and (0, 0) the total alone. A row carries, beside
     ///         the id, what a reader decides on: the status, the start as written (0 until then), the window and
     ///         the day-7 clock from the game's terms, when its dispute record was written (0 until then), and the
-    ///         league from its identity, each the game's own word as its other reads give it; the hints are in
+    ///         league and the date from its identity (the date is what a reader times an unverified game from,
+    ///         its start being 0), each the game's own word as its other reads give it; the hints are in
     ///         getGameIdentity, read once per game a reader probes. A game joins the list at its creation and
     ///         leaves it at its end: a score, a void or a release. The order is creation order, except that an
     ///         end moves the last game on the list into the ended game's place. A page is one block's answer: a
     ///         reader paging across blocks sees a game that moved meanwhile at most once, and a game it missed on
-    ///         its next pass. A row encodes to 320 bytes whatever the game (its league is one word), beside 96
-    ///         bytes for the answer's own words: a reader that may take 25,000 bytes asks 77 rows a page.
+    ///         its next pass. A row encodes to 352 bytes whatever the game (its league is one word), beside 96
+    ///         bytes for the answer's own words: a reader that may take 25,000 bytes asks 70 rows a page.
     function getOpenGames(uint256 offset, uint256 count)
         external
         view

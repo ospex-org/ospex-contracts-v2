@@ -849,7 +849,7 @@ contract OspexGamesInvariantTest is GamesBase {
     }
 
     /// The open list is exactly the games the model has not ended, each once, with its total; each row's words
-    /// are the model's (its status, start, window, day-7 clock, record time and league); every page of it is a
+    /// are the model's (its status, start, window, day-7 clock, record time, league and date); every page of it is a
     /// slice of the whole; and no id on it is outside the games made.
     /// forge-config: default.invariant.runs = 64
     /// forge-config: default.invariant.depth = 80
@@ -880,6 +880,7 @@ contract OspexGamesInvariantTest is GamesBase {
             assertEq(rows[i].day7Clock, g.terms.day7Clock, "a row's day-7 clock is not the model's");
             assertEq(rows[i].disputedAt, g.disputedAt, "a row's record time is not the model's");
             assertEq(rows[i].league, g.league, "a row's league is not the model's");
+            assertEq(rows[i].date, g.date, "a row's date is not the model's");
         }
         for (uint256 offset; offset < total; offset += 3) {
             (OpenGame[] memory page,) = games.getOpenGames(offset, 3);

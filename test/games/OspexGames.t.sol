@@ -944,15 +944,17 @@ contract OspexGamesTest is GamesBase {
     /// no hint, one started with the usual two hints, one disputed with eight hints of the longest ids (the
     /// hints stay in the identity read; a row has none). Each field against the read that answers it alone,
     /// then against the literal the test put there, so a row that swaps two of a game's words (the start for
-    /// the date, the window for the day-7 clock, the record's time for the start) or leaves one out is caught.
+    /// the date or the date for the start, the window for the day-7 clock, the record's time for the start) or
+    /// leaves one out is caught. The third game's date is its own, two hours from the others', so its date
+    /// and its start differ from every other word on the page.
     function test_reads_openGamesRowsAreTheGamesOwnWords() public {
         Terms memory other = _terms(WINDOW + 1 hours);
         other.day7Clock = DAY7 + 1 hours;
         _setTerms("abcdefghijklmnop", other);
         vm.warp(DATE - 1 hours);
-        uint256 bare = _createIn("abcdefghijklmnop", new Hint[](0));
+        uint256 bare = _createIn("abcdefghijklmnop", new Hint[](0), DATE);
         uint256 plain = _create();
-        uint256 full = _createIn("nba", _eightHints());
+        uint256 full = _createIn("nba", _eightHints(), DATE + 2 hours);
         _startBy(first, plain, START);
         _startBy(first, full, START);
         vm.warp(START + 1);
@@ -971,6 +973,7 @@ contract OspexGamesTest is GamesBase {
         assertEq(rows[0].day7Clock, DAY7 + 1 hours, "the other league's day-7 clock");
         assertEq(rows[0].disputedAt, 0, "no record");
         assertEq(rows[0].league, "abcdefghijklmnop", "the other league");
+        assertEq(rows[0].date, DATE, "the date as given, with no start written");
         assertEq(rows[1].gameId, plain, "the second row's game");
         assertEq(uint8(rows[1].status), uint8(GameStatus.Verified), "a started game's status");
         assertEq(rows[1].start, START, "a started game's start, as written, not its date");
@@ -978,30 +981,32 @@ contract OspexGamesTest is GamesBase {
         assertEq(rows[1].day7Clock, DAY7, "the launch day-7 clock");
         assertEq(rows[1].disputedAt, 0, "no record yet");
         assertEq(rows[1].league, "nba", "the league");
+        assertEq(rows[1].date, DATE, "the date as given, beside a start 613 seconds after it");
         assertEq(rows[2].gameId, full, "the third row's game");
         assertEq(uint8(rows[2].status), uint8(GameStatus.Disputed), "a disputed game's status");
         assertEq(rows[2].start, START, "a disputed game's start");
         assertEq(rows[2].disputedAt, START + 1, "the record's time");
         assertEq(rows[2].league, "nba", "the league of the game with eight hints");
+        assertEq(rows[2].date, DATE + 2 hours, "a date of its own, not the start");
     }
 
-    /// A row encodes to 320 bytes whatever the game, measured on the call's return data: its league is one to
+    /// A row encodes to 352 bytes whatever the game, measured on the call's return data: its league is one to
     /// sixteen bytes, one word, and its hints stay in the identity read; the answer's own words are 96 bytes.
-    /// So a reader that may take 25,000 bytes asks 77 rows a page (24,736 bytes); 78 rows are 25,056.
+    /// So a reader that may take 25,000 bytes asks 70 rows a page (24,736 bytes); 71 rows are 25,088.
     function test_reads_openGamesPageBytesAreBoundedByTheRows() public {
         _setTerms("a", _terms(WINDOW));
         _setTerms("abcdefghijklmnop", _terms(WINDOW));
         vm.warp(DATE - 1 hours);
-        _createIn("a", new Hint[](0));
-        _createIn("abcdefghijklmnop", _eightHints());
-        assertEq(_answerBytes(0, 1), 96 + 320, "a row with a league of one byte and no hint");
-        assertEq(_answerBytes(1, 1), 96 + 320, "a row with a league of sixteen bytes and eight hints");
-        for (uint256 i; i < 76; ++i) {
+        _createIn("a", new Hint[](0), DATE);
+        _createIn("abcdefghijklmnop", _eightHints(), DATE);
+        assertEq(_answerBytes(0, 1), 96 + 352, "a row with a league of one byte and no hint");
+        assertEq(_answerBytes(1, 1), 96 + 352, "a row with a league of sixteen bytes and eight hints");
+        for (uint256 i; i < 69; ++i) {
             _create();
         }
-        assertEq(_answerBytes(0, 77), 96 + 77 * 320, "seventy-seven rows");
-        assertEq(_answerBytes(0, 78), 96 + 78 * 320, "seventy-eight rows");
-        assertEq(_answerBytes(78, 1), 96, "an empty page: the answer's own words");
+        assertEq(_answerBytes(0, 70), 96 + 70 * 352, "seventy rows");
+        assertEq(_answerBytes(0, 71), 96 + 71 * 352, "seventy-one rows");
+        assertEq(_answerBytes(71, 1), 96, "an empty page: the answer's own words");
     }
 
     /// @dev The length of the open list read's return data for a page.
@@ -1012,11 +1017,11 @@ contract OspexGamesTest is GamesBase {
         return answer.length;
     }
 
-    /// @dev A creation in `league` with `hints`, the usual teams and date, at the league's fee.
-    function _createIn(string memory league, Hint[] memory hints) internal returns (uint256 gameId) {
+    /// @dev A creation in `league` with `hints` on `date`, the usual teams, at the league's fee.
+    function _createIn(string memory league, Hint[] memory hints, uint64 date) internal returns (uint256 gameId) {
         uint256 fee = games.getTerms(league).fee;
         vm.prank(creator, creator);
-        gameId = games.createGame(league, "Denver Nuggets", "Utah Jazz", DATE, hints, fee);
+        gameId = games.createGame(league, "Denver Nuggets", "Utah Jazz", date, hints, fee);
     }
 
     /// @dev Eight hints, each with an id of 64 characters: the most a creation may give.
