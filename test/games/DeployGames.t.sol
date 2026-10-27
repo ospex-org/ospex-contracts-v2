@@ -189,6 +189,9 @@ contract DeployGamesTest is Test {
     string internal constant V2_CONFIG_HASH = "9a7ab7e33948b572aa6dd0c9762f444573cadd564addb804f594536b57d4724b";
     string internal constant V2_BINARY_HASH = "5929b9c675ae03ec67e6a5b4adba8ff2be5164e41e7dcdbe7b670954638da755";
     uint96 internal constant FEE = 1_000_000;
+    /// @dev What the key holds before any plan: an amount no count of fees lands on, so a plan that records a
+    /// stand-in for the key's balance reads back wrong, and a resume that forgets the recorded balance refuses.
+    uint256 internal constant KEY_COIN = 2_500_000;
 
     DeployGamesHarness internal script;
     DeployGames.Inputs internal polygon;
@@ -214,6 +217,10 @@ contract DeployGamesTest is Test {
         // The deployer holds coin for the checks: one test stages five.
         vm.prank(HOLDER);
         IERC20(USDC).transfer(deployer, 6 * FEE);
+        // The key holds coin before any plan (it holds none at the fork block): the plan's record of its balance
+        // is read against a value, not against zero.
+        vm.prank(HOLDER);
+        IERC20(USDC).transfer(K, KEY_COIN);
     }
 
     // ---------------------------------------------------------------------------------------------------
@@ -416,7 +423,8 @@ contract DeployGamesTest is Test {
         assertEq(p.games.code.length, 0, "no code yet at the games address");
         assertEq(p.reporterInitHash, keccak256(type(OspexChainlinkReporter).creationCode), "the reporter the script sends");
         assertEq(p.deployerCoin, IERC20(USDC).balanceOf(deployer), "the deployer's coin at the plan");
-        assertEq(p.keyCoin, IERC20(USDC).balanceOf(K), "the key's coin at the plan");
+        assertEq(IERC20(USDC).balanceOf(K), KEY_COIN, "the fixture: the key holds the funded coin before the plan");
+        assertEq(p.keyCoin, KEY_COIN, "the key's coin at the plan");
         assertGe(p.deployerCoin, 6 * FEE, "the deployer holds at least the six fees the test gave it");
 
         DeployGames.Prediction memory back = script.readPrediction(dir);
