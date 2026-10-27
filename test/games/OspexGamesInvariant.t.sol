@@ -385,8 +385,11 @@ contract GamesHandler is Test {
     /// @dev A dispute record, or an update to one, with no payout; one time in seven it names a payout, which is
     ///      refused. Taken after the start, for an after-n reporter from start + n, and refused from the game's
     ///      day-30 clock. The first record writes the time the day-7 clock counts from; an update writes no
-    ///      status and moves no clock. Seat 1's vote takes one of four values from the seed, so a run repeats a
-    ///      game's earlier report often: a repeat is refused, whoever sends it and at whatever hour.
+    ///      status and moves no clock. Seat 1's vote takes one of four values from the seed, so that a report can
+    ///      repeat a game's earlier one: a repeat is refused, whoever sends it and at whatever hour. Few sequences
+    ///      reach a dispute at all (time moves past most start windows: in one sequence of 5,000 calls, 95 games
+    ///      were created, 3 started and none disputed), so the repeat refusal is proven by the never-line test and
+    ///      by the scripted path below, not by the campaign.
     function reportDispute(uint256 gameSeed, uint256 whoSeed, uint256 shapeSeed) external {
         uint256 id = _pickGame(gameSeed);
         Ghost storage g = ghosts[id];
@@ -641,8 +644,8 @@ contract GamesHandler is Test {
                 }
             }
         } else {
-            // A dispute report's seat 1 votes one of four finals, by the seed's high bits, so a run repeats a
-            // game's earlier report often and changes its vote often too.
+            // A dispute report's seat 1 votes one of four finals, by the seed's high bits, so that a later report
+            // can repeat a game's earlier one or change its vote.
             uint32 vote = 7 + uint32((shapeSeed >> 16) % 4);
             readings[0] = Reading({seat: 1, kind: ReadingKind.AnsweredFinal, homeScore: vote, awayScore: 3});
             readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: 7, awayScore: 4});
