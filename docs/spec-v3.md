@@ -186,7 +186,7 @@ Each line gets a test with the one-line break that turns it red. Each restates a
 * A release pays anyone anything but their own stake, and the creator their own creation fee. *(The scorer ruling, section 4; answer 1.)*
 * A release touches a game that has a score or a void; a score or a void is accepted after a release. *(Section 4.)*
 * A disputed game scores on fewer than three agreeing finals among the readings of the report that scores it, at any clock; or, before its day-7 clock, other than by the rule a game without a record scores by, applied to every feed's vote, or beside a final that reads otherwise. From the day-7 clock, three agreeing votes settle over one that reads otherwise. *(Section 4; 10/24; 10/25; 10/27.)*
-* The hour-24 void posts while any answering feed shows a final; the games set takes a void, at hour 24 or at day 7, whose readings hold finals that read the same in the count the program scores on at that clock — three inside n, two after it. *(Section 4, as edited; answer 3; 10/25; 10/27.)*
+* The hour-24 void posts while any answering feed shows a final; the games set takes a void, at hour 24 or at day 7, whose readings hold finals that read the same in the count the program scores on at that clock — three inside n, two after it, three on a disputed game. *(Section 4, as edited; answer 3; 10/25; 10/27.)*
 * A void is taken before start + n. *(Section 4.)*
 * An update to a dispute record credits anything, or moves the day-7 clock. *(10/24.)*
 * A report of any kind is taken at or after a game's day-30 clock; a write after creation moves any of a game's three clocks. *(10/25.)*
