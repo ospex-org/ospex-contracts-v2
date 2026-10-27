@@ -27,13 +27,13 @@ contract OspexGamesInterfaceTest is GamesBase {
     }
 
     /// The contract has exactly these functions: the four writes anyone may send (create, report, release,
-    /// withdraw), the timelock's three calls, the five reads, the other reads, eleven constants and the two
+    /// withdraw), the timelock's three calls, the five reads, the other reads, twelve constants and the two
     /// addresses fixed at deploy. So it has no owner, no pause, no setter but the timelock's three, no fee
     /// receiver and no setter for one, and nothing else writes a game, the list or a credit.
     /// Break: add any external function to OspexGames, such as one that pushes onto a game's reporters.
     function test_theFunctionsAreExactlyThese() public view {
         string[] memory want = vm.split(
-            "AGREE();MAX_CLOCK();MAX_DATE_AHEAD();MAX_HINTS();MAX_HINT_ID_LENGTH();MAX_LEAGUE_LENGTH();"
+            "AGREE();AGREE_AFTER_N();MAX_CLOCK();MAX_DATE_AHEAD();MAX_HINTS();MAX_HINT_ID_LENGTH();MAX_LEAGUE_LENGTH();"
             "MAX_REPORTERS();MAX_RESERVED_ADDRESS();MAX_SCORE();MAX_TEAM_LENGTH();START_BOUND();i_timelock();i_token();"
             "approveReporter(address,uint8,bytes32);retireReporter(address);"
             "setTerms(string,(uint64,uint64,uint64,uint96));"
@@ -172,7 +172,8 @@ contract OspexGamesInterfaceTest is GamesBase {
         assertEq(games.MAX_HINTS(), 8);
         assertEq(games.MAX_HINT_ID_LENGTH(), 64);
         assertEq(games.AGREE(), 3);
-        string[10] memory names = [
+        assertEq(games.AGREE_AFTER_N(), 2);
+        string[11] memory names = [
             "MAX_SCORE",
             "START_BOUND",
             "MAX_DATE_AHEAD",
@@ -182,10 +183,22 @@ contract OspexGamesInterfaceTest is GamesBase {
             "MAX_TEAM_LENGTH",
             "MAX_HINTS",
             "MAX_HINT_ID_LENGTH",
-            "AGREE"
+            "AGREE",
+            "AGREE_AFTER_N"
         ];
-        string[10] memory types =
-            ["uint32", "uint64", "uint64", "uint64", "uint256", "uint256", "uint256", "uint256", "uint256", "uint256"];
+        string[11] memory types = [
+            "uint32",
+            "uint64",
+            "uint64",
+            "uint64",
+            "uint256",
+            "uint256",
+            "uint256",
+            "uint256",
+            "uint256",
+            "uint256",
+            "uint256"
+        ];
         for (uint256 i; i < names.length; ++i) {
             string memory at = string.concat("$.abi[?(@.name == '", names[i], "')]");
             _assertParams(impl, string.concat(at, ".outputs"), "", types[i]);

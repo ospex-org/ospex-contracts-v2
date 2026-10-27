@@ -365,30 +365,35 @@ contract OspexChainlinkReporterTest is GamesBase {
         assertEq(uint8(_status(second)), uint8(GameStatus.Verified), "untouched");
 
         // Bytes that are the one shape's encoding, written by another struct: a reading a field short with a
-        // zero word after it is a reading with a zero away score. The games set takes the report as that.
+        // zero word after it is a reading with a zero away score. The games set takes the report as that: an
+        // hour-24 void over one final reading HOME-0, the one report a single reading can carry (a score needs
+        // the program's count of finals, and several short readings would not decode).
+        vm.warp(START + WINDOW);
         ShortReport memory short_;
         short_.gameId = second;
-        short_.kind = 2;
-        short_.homeScore = HOME;
-        short_.awayScore = 0;
+        short_.kind = 3;
         short_.readings = new ShortReading[](1);
         short_.readings[0] = ShortReading(1, 2, HOME);
         short_.payout = named;
         bytes memory padded = bytes.concat(abi.encode(short_), new bytes(32));
         SpecReport memory asRead;
         asRead.gameId = second;
-        asRead.kind = 2;
-        asRead.homeScore = HOME;
-        asRead.awayScore = 0;
+        asRead.kind = 3;
         asRead.readings = new SpecReading[](1);
         asRead.readings[0] = SpecReading(1, 2, HOME, 0);
         asRead.payout = named;
         assertEq(padded, abi.encode(asRead), "the same bytes as the one shape with a zero away score");
+        vm.recordLogs();
         vm.prank(stranger, stranger);
         forwarder.report(address(chainlink), _good(), padded);
-        (uint32 h, uint32 a) = games.getGameScores(second);
-        assertEq(h, HOME, "home, as the bytes say");
-        assertEq(a, 0, "away zero, as the bytes say");
+        Vm.Log memory voided = _theLog(vm.getRecordedLogs(), address(games), IOspexGames.GameReported.selector);
+        (,,, Reading[] memory got,) = abi.decode(voided.data, (uint64, uint32, uint32, Reading[], address));
+        assertEq(got.length, 1, "one reading");
+        assertEq(uint8(got[0].kind), uint8(ReadingKind.AnsweredFinal), "a final, as the bytes say");
+        assertEq(got[0].homeScore, HOME, "home, as the bytes say");
+        assertEq(got[0].awayScore, 0, "away zero, as the bytes say");
+        assertEq(uint8(games.getGameStatus(second)), uint8(GameStatus.Voided), "taken as a void");
+        assertEq(games.getCredit(named), 2 * uint256(FEE), "credited as named, twice");
     }
 
     function _notTheOneShape(uint256 received, uint256 encoded) internal pure returns (bytes memory) {

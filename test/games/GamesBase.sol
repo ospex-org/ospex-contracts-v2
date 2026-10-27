@@ -300,6 +300,18 @@ abstract contract GamesBase is Test {
         readings[3] = Reading({seat: 4, kind: ReadingKind.Silent, homeScore: 0, awayScore: 0});
     }
 
+    /// @dev `count` finals reading HOME-AWAY on the first seats and the rest of four silent: the shapes the
+    ///      readings checks count. Three is the program's agreement inside n and on a disputed game, two its
+    ///      agreement from start + n on a game with no record; one is agreement in no count.
+    function _finals(uint256 count) internal pure returns (Reading[] memory readings) {
+        readings = new Reading[](4);
+        for (uint256 i; i < 4; ++i) {
+            readings[i] = i < count
+                ? Reading({seat: uint8(i + 1), kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY})
+                : Reading({seat: uint8(i + 1), kind: ReadingKind.Silent, homeScore: 0, awayScore: 0});
+        }
+    }
+
     /// @dev A start pays nothing, so its payout is empty.
     function _startReport(uint256 gameId, uint64 start) internal pure returns (Report memory r) {
         r.gameId = gameId;
@@ -318,8 +330,8 @@ abstract contract GamesBase is Test {
     }
 
     /// @dev Readings as the hour-24 void rests on them: the feeds that answer all show no final, and one is
-    ///      silent. The games set reads a void's readings only for three finals that agree; the shape is what
-    ///      the program would send.
+    ///      silent. The games set reads a void's readings only for finals that agree in the program's count at the
+    ///      clock, two at hour 24 and three at day 7 on a disputed game; the shape is what the program would send.
     function _voidReadings() internal pure returns (Reading[] memory readings) {
         readings = new Reading[](4);
         readings[0] = Reading({seat: 1, kind: ReadingKind.AnsweredNoFinal, homeScore: 0, awayScore: 0});

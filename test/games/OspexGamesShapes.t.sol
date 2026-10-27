@@ -97,18 +97,20 @@ contract OspexGamesShapesTest is GamesBase {
 
     /// The door is the real one: the same driver, handed a shape the program never sends, is refused by the
     /// games set's own names. A score shape with its points changed is a score no final reads; a day-7 void shape
-    /// with its finals made three alike is a void over agreement; an after-window score sent inside the window
-    /// from an after-n reporter is inside the window. Nothing is written to those games.
+    /// with its finals made three alike is a void over agreement; an after-window score on three finals (the
+    /// count inside the window, since the readings are read before the hour) sent inside the window from an
+    /// after-n reporter is inside the window. Nothing is written to those games.
     function test_shapes_theDriverReachesTheDoor() public {
         (, Shape[] memory shapes) = _load();
         uint256 scoreAt = _first(shapes, "after the window", "verified", "score");
+        uint256 threeAt = _firstWithFinals(shapes, "after the window", "verified", "score", 3);
         uint256 voidAt = _first(shapes, "day 7", "disputed", "void");
 
         Shape memory score = shapes[scoreAt]; // a reference into the list, so the change below is undone after
         score.home ^= 1;
         (bool ok, bytes memory err, uint256 game) = _feed(score, first);
         assertFalse(ok, "a score no final reads was taken");
-        assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__TooFewFinalsAgree.selector, 0, 1));
+        assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__TooFewFinalsAgree.selector, 0, 2)); // after n: two
         assertEq(uint8(_status(game)), uint8(GameStatus.Verified), "nothing written");
         score.home ^= 1;
 
@@ -123,7 +125,7 @@ contract OspexGamesShapesTest is GamesBase {
         assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__FinalsAgree.selector, 27, 20));
         assertEq(uint8(_status(game)), uint8(GameStatus.Disputed), "nothing written");
 
-        Shape memory early = shapes[scoreAt];
+        Shape memory early = shapes[threeAt];
         early.clock = "inside the window";
         (ok, err, game) = _feed(early, later);
         assertFalse(ok, "an after-n reporter wrote inside the window");
@@ -233,6 +235,27 @@ contract OspexGamesShapesTest is GamesBase {
             }
         }
         revert(string.concat("no shape: ", clock, ", ", game, ", ", decision));
+    }
+
+    /// @dev The index of the first shape at a clock, game and decision whose readings hold `finals` finals at
+    ///      least.
+    function _firstWithFinals(
+        Shape[] memory shapes,
+        string memory clock,
+        string memory game,
+        string memory decision,
+        uint256 finals
+    ) internal pure returns (uint256) {
+        for (uint256 i; i < shapes.length; ++i) {
+            Shape memory s = shapes[i];
+            if (!_is(s.clock, clock) || !_is(s.game, game) || !_is(s.decision, decision)) continue;
+            uint256 count;
+            for (uint256 r; r < s.readings.length; ++r) {
+                if (s.readings[r][1] == uint256(ReadingKind.AnsweredFinal)) ++count;
+            }
+            if (count >= finals) return i;
+        }
+        revert(string.concat("no shape with that many finals: ", clock, ", ", game, ", ", decision));
     }
 
     /// @dev The file's count key for a shape.
