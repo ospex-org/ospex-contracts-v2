@@ -39,9 +39,10 @@ contract NoRead {
 ///        within a day of the date, with no payout; a score once, after the start, and for an after-n reporter
 ///        from start + n of the game's own n; and no report takes a silent reading that carries a score, or two
 ///        readings for one seat;
-///      - a score's readings support it: one final reading the score on a game with no record, three on a
-///        disputed game, and no final reading otherwise except on a disputed game from its day-7 clock; a void
-///        carries no three finals that agree, at hour 24 or at day 7;
+///      - a score's readings support it: as many finals reading the score as the program scores on at the game's
+///        clock, three inside n and on a disputed game, two from start + n on a game with no record, and no final
+///        reading otherwise except on a disputed game from its day-7 clock; a void carries no finals that agree
+///        in that count, at hour 24 or at day 7;
 ///      - a void from start + n of the game's own n, for either kind, and on a disputed game only once its own
 ///        day-7 clock has run from the record; a dispute record after the start (an after-n reporter's from
 ///        start + n), with no payout, the first writing the record's time and every later one an update that
@@ -307,8 +308,8 @@ contract GamesHandler is Test {
     }
 
     /// @dev shapeSeed: one time in nine a silent reading carries a score, one time in eleven two readings name one
-    ///      seat; and by shapeSeed % 13 the readings behind the score: 1 one final reading it beside silents,
-    ///      which settles a game with no record and not a disputed one; 2 three finals reading it beside one
+    ///      seat; and by shapeSeed % 13 the readings behind the score: 1 two finals reading it beside silents,
+    ///      which settles a game with no record from start + n and nothing else; 2 three finals reading it beside one
     ///      reading otherwise, which settles a disputed game from its day-7 clock and nothing else; 3 three finals
     ///      reading something else, never taken; otherwise three finals reading it beside a silent. A disputed game
     ///      takes a score like any other, on those readings. Refused from the game's day-30 clock.
@@ -324,7 +325,9 @@ contract GamesHandler is Test {
         uint256 nowTs = vm.getBlockTimestamp();
         uint256 m = shapeSeed % 13;
         bool day7 = g.disputed && nowTs >= uint256(g.disputedAt) + g.terms.day7Clock;
-        bool supported = m == 1 ? !g.disputed : m == 2 ? day7 : m != 3;
+        bool supported = m == 1
+            ? !g.disputed && nowTs >= uint256(g.start) + g.terms.window
+            : m == 2 ? day7 : m != 3;
         bool expected = _exists(id) && kind != 0 && !retired[who] && _codeAsApproved(who) && g.started
             && !_ended(g) && home <= MAX_SCORE
             && away <= MAX_SCORE && _open(g) && nowTs >= g.start
@@ -557,7 +560,7 @@ contract GamesHandler is Test {
     ///      the score beside a silent; a void's three answers without a final beside a silent; a dispute report's
     ///      two finals that differ beside an answer without a final and a silent. Then shapeSeed's faults: % 9 == 1
     ///      a silent reading carrying a score; % 11 == 1 two readings naming seat 1; and for a score by % 13: 1
-    ///      one final beside silents, 2 a dissenting fourth final, 3 three finals reading another score; for a
+    ///      two finals beside silents, 2 a dissenting fourth final, 3 three finals reading another score; for a
     ///      void, % 13 == 1 three finals that agree. A start pays nothing; any other kind names a payout.
     function _report(uint256 id, ReportKind kind, uint64 start, uint32 home, uint32 away, uint256 shapeSeed)
         internal
@@ -579,10 +582,7 @@ contract GamesHandler is Test {
             }
             uint256 m = shapeSeed % 13;
             if (m == 1) {
-                readings[1].kind = ReadingKind.Silent;
                 readings[2].kind = ReadingKind.Silent;
-                readings[1].homeScore = 0;
-                readings[1].awayScore = 0;
                 readings[2].homeScore = 0;
                 readings[2].awayScore = 0;
             } else if (m == 2) {

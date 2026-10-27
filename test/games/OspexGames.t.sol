@@ -715,12 +715,14 @@ contract OspexGamesTest is GamesBase {
             }
         }
         // Controls, in a start and in a score: a silent reading at 0-0, a reading answered without a final at
-        // 0-0 and with scores, and a final at 0-0, which is the score the control reports.
-        Reading[] memory fine = new Reading[](4);
+        // 0-0 and with scores, and three finals at 0-0, which is the score the control reports, inside n.
+        Reading[] memory fine = new Reading[](6);
         fine[0] = Reading({seat: 1, kind: ReadingKind.Silent, homeScore: 0, awayScore: 0});
         fine[1] = Reading({seat: 2, kind: ReadingKind.AnsweredNoFinal, homeScore: 0, awayScore: 0});
         fine[2] = Reading({seat: 3, kind: ReadingKind.AnsweredNoFinal, homeScore: type(uint32).max, awayScore: 7});
         fine[3] = Reading({seat: 4, kind: ReadingKind.AnsweredFinal, homeScore: 0, awayScore: 0});
+        fine[4] = Reading({seat: 5, kind: ReadingKind.AnsweredFinal, homeScore: 0, awayScore: 0});
+        fine[5] = Reading({seat: 6, kind: ReadingKind.AnsweredFinal, homeScore: 0, awayScore: 0});
         vm.warp(DATE - 1 hours);
         uint256 game2 = _create();
         Report memory start = _startReport(game2, START);

@@ -423,7 +423,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
         uint64 day7 = START + 10 + DAY7;
         uint64 closed = DATE + DAY30;
 
-        Refusal[] memory cases = new Refusal[](68);
+        Refusal[] memory cases = new Refusal[](71);
         uint256 n;
         // The start's refusals.
         cases[n++] = _refusal(_startReport(0, START), address(first), _err1(OspexGames.OspexGames__UnknownGame.selector, 0), late);
@@ -530,15 +530,22 @@ contract OspexGamesNeverLinesTest is GamesBase {
         r.readings[3] = Reading({seat: 4, kind: ReadingKind.Silent, homeScore: 1, awayScore: 0});
         cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__SilentReadingNotEmpty.selector, 3), late);
         // The readings against the result: two readings for one seat; a score no final reads, on a game with no
-        // record and on a disputed one; a score beside a dissenting final; a disputed game's score on two finals
-        // (two of three) and on three finals beside a dissent before the day-7 clock; an hour-24 void over three
-        // finals that agree.
+        // record and on a disputed one; a game with no record's score on two finals inside n (two of three) and
+        // on one final from start + n (one of two); a score beside a dissenting final; a disputed game's score on
+        // two finals (two of three) and on three finals beside a dissent before the day-7 clock; an hour-24 void
+        // over three finals that agree, and over two.
         r = _startReport(open, START);
         r.readings[2].seat = 1;
         cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__ReadingSeatRepeated.selector, 2), late);
         r = _scoreReport(verified, 1, 0);
         r.readings = _scoreReadings(HOME, AWAY);
-        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__TooFewFinalsAgree.selector, 0, 1), late);
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__TooFewFinalsAgree.selector, 0, 3), late);
+        r = _scoreReport(verified, HOME, AWAY);
+        r.readings = _finals(2);
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__TooFewFinalsAgree.selector, 2, 3), late);
+        r = _scoreReport(verified, HOME, AWAY);
+        r.readings = _finals(1);
+        cases[n++] = _refusal(r, address(later), abi.encodeWithSelector(OspexGames.OspexGames__TooFewFinalsAgree.selector, 1, 2), START + WINDOW);
         r = _scoreReport(disputed, 1, 0);
         r.readings = _scoreReadings(HOME, AWAY);
         cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__TooFewFinalsAgree.selector, 0, 3), late);
@@ -554,6 +561,9 @@ contract OspexGamesNeverLinesTest is GamesBase {
         r = _voidReport(verified);
         r.readings = _scoreReadings(HOME, AWAY);
         cases[n++] = _refusal(r, address(later), abi.encodeWithSelector(OspexGames.OspexGames__FinalsAgree.selector, HOME, AWAY), START + WINDOW);
+        r = _voidReport(verified);
+        r.readings = _finals(2);
+        cases[n++] = _refusal(r, address(first), abi.encodeWithSelector(OspexGames.OspexGames__FinalsAgree.selector, HOME, AWAY), START + WINDOW);
         // The day-30 clock: a start, a score, a void, a dispute record and an update at the clock.
         cases[n++] = _refusal(_startReport(open, START), address(first), _pastDay30(open), closed);
         cases[n++] = _refusal(_scoreReport(verified, HOME, AWAY), address(first), _pastDay30(verified), closed);
@@ -715,16 +725,19 @@ contract OspexGamesNeverLinesTest is GamesBase {
     }
 
     /// A reporter built from the spec's text, not from this repository's types, sends a start and a score as
-    /// raw calldata in the spec's order. The contract reads the home score as the home score, and takes a seat
-    /// above the reading kinds' range where the seat goes. (A seat of 4 in the kind's place would not decode.)
+    /// raw calldata in the spec's order, the score over three finals, the count inside n. The contract reads the
+    /// home score as the home score, and takes a seat above the reading kinds' range where the seat goes. (A seat
+    /// of 4 in the kind's place would not decode.)
     /// Break: in IOspexGames.sol, swap the lines `uint32 homeScore;` and `uint32 awayScore;` in Report.
     function test_neverLine_aReportInTheSpecsOrderReadsBack() public {
         uint256 game = _create();
         bytes4 call =
             bytes4(keccak256("report((uint256,uint8,uint64,uint32,uint32,(uint8,uint8,uint32,uint32)[],address))"));
-        SpecReading[] memory readings = new SpecReading[](2);
+        SpecReading[] memory readings = new SpecReading[](4);
         readings[0] = SpecReading({seat: 4, kind: 2, homeScore: 104, awayScore: 97});
         readings[1] = SpecReading({seat: 3, kind: 0, homeScore: 0, awayScore: 0});
+        readings[2] = SpecReading({seat: 2, kind: 2, homeScore: 104, awayScore: 97});
+        readings[3] = SpecReading({seat: 1, kind: 2, homeScore: 104, awayScore: 97});
 
         bytes memory start = abi.encodeWithSelector(
             call,
@@ -762,10 +775,12 @@ contract OspexGamesNeverLinesTest is GamesBase {
         assertEq(h, 104);
         assertEq(a, 97);
         assertEq(pay, payout);
-        assertEq(got.length, 2);
+        assertEq(got.length, 4);
         assertEq(got[0].seat, 4);
         assertEq(got[0].kind, 2);
         assertEq(got[1].seat, 3);
+        assertEq(got[2].seat, 2);
+        assertEq(got[3].seat, 1);
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -2452,14 +2467,15 @@ contract OspexGamesNeverLinesTest is GamesBase {
     //  readings contradict.
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-    /// A score whose numbers no reading reads as a final is refused by name, on a game with no dispute record
-    /// and on a disputed game, inside n from a first-n reporter and after n from an after-n one: a 1-0 over three
-    /// finals of 104-97; a score over readings with no final at all; a score whose numbers appear only in a
-    /// reading answered without a final; the home and away swapped; one score of the two off by one, either way.
-    /// Nothing is written, nothing credited. Control: the same score with one reading a final at its numbers is
+    /// A score whose numbers no reading reads as a final is refused by name, with the count the game needs at
+    /// that clock (three inside n, two from start + n on a game with no record, three on a disputed game), inside
+    /// n from a first-n reporter and after n from an after-n one: a 1-0 over three finals of 104-97; a score over
+    /// readings with no final at all; a score whose numbers appear only in a reading answered without a final;
+    /// the home and away swapped; one score of the two off by one, either way. Nothing is written, nothing
+    /// credited. Control: the same score with two readings finals at its numbers, the count from start + n, is
     /// taken on the game with no record.
-    /// Break: in _writeScore(), change `disputed ? AGREE : 1` to `disputed ? AGREE : 0`. A score no final reads is
-    /// then taken on a game with no dispute record.
+    /// Break: in _agreement(), change `return AGREE_AFTER_N;` to `return 0;`. A score no final reads is then taken
+    /// on a game with no dispute record from start + n.
     function test_neverLine_aScoreNoFinalReadsIsRefused() public {
         address[] memory accounts = new address[](3);
         (accounts[0], accounts[1], accounts[2]) = (creator, payout, address(games));
@@ -2471,7 +2487,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
         vm.warp(START + 1);
         _disputeBy(first, disputed);
         uint256[2] memory ids = [plain, disputed];
-        uint256[2] memory needed = [uint256(1), 3];
+        uint256[2][2] memory needed = [[uint256(3), 2], [uint256(3), 3]]; // by game, then by hour
         uint64[2] memory hours_ = [START + 2, START + WINDOW];
         MockReporter[2] memory kinds = [first, later];
         Reading[] memory noFinals = _voidReadings();
@@ -2498,18 +2514,19 @@ contract OspexGamesNeverLinesTest is GamesBase {
                     _assertReportRefused(
                         address(kinds[t]),
                         reports[k],
-                        abi.encodeWithSelector(OspexGames.OspexGames__TooFewFinalsAgree.selector, 0, needed[i]),
+                        abi.encodeWithSelector(OspexGames.OspexGames__TooFewFinalsAgree.selector, 0, needed[i][t]),
                         accounts
                     );
                 }
             }
         }
-        // Control: one final at the score's numbers, on the game with no record.
-        Report memory one = _scoreReportTo(plain, payout);
-        one.readings = _voidReadings();
-        one.readings[2] = Reading({seat: 3, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY});
+        // Control: two finals at the score's numbers, the count from start + n, on the game with no record.
+        Report memory two = _scoreReportTo(plain, payout);
+        two.readings = _voidReadings();
+        two.readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY});
+        two.readings[2] = Reading({seat: 3, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY});
         vm.recordLogs();
-        _take(address(later), one);
+        _take(address(later), two);
         _assertOneCredit(vm.getRecordedLogs(), plain, payout, FEE);
         (uint32 h, uint32 a) = games.getGameScores(plain);
         assertEq(h, HOME);
@@ -2517,30 +2534,129 @@ contract OspexGamesNeverLinesTest is GamesBase {
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
-    // "The hour-24 void posts while any answering feed shows a final." The games set's half: a void over AGREE
-    //  finals that read the same is refused at every clock, hour 24 and day 7 alike, since that is a score's
-    //  agreement and the program scores on it; the readings a void does carry ride in its event as given.
+    // "An undisputed score is written with fewer finals reading it than the program needs at that clock." The
+    //  games set's half of "a score is written on fewer than two agreeing finals, or fewer than three inside the
+    //  window": on a game with no dispute record a score needs three finals reading it inside n and two from
+    //  start + n, the program's own counts, at the game's own n.
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-    /// A void whose readings hold three finals that agree is refused by name with the agreed numbers, from a
-    /// reporter of either kind, at hour 24 on a game with no record and at day 7 on a disputed game: three 104-97s
-    /// beside a silent fourth; four 104-97s; three 104-97s among finals that differ. Nothing is written, nothing
-    /// credited. Controls, at hour 24: a void over a 2-2 split is taken, and one over two 104-97s beside a 104-90
-    /// (the same home score is not the same final); at day 7: a void over two 104-97s beside a 97-104 and a
-    /// silent fourth, the program's own day-7 shape, and one over the 2-2 split.
-    /// Break: in _writeVoid(), delete `_checkVoidReadings(r.readings);`. The void over three agreeing finals is
-    /// then taken at both clocks.
+    /// On a game with no dispute record, a score on fewer finals than the program's count at that clock is
+    /// refused by name with both counts: inside n, from a first-n reporter, one final (one of three) and two
+    /// (two of three), at the start and a second before start + n; from start + n, that second included, from
+    /// either kind, one final (one of two), at start + n and a week on. Under a league's own n of two hours,
+    /// copied into the game, two finals are refused a second before the game's start + n and taken at it, while
+    /// the default's game at that same second still needs three. Nothing is written, nothing credited. Controls:
+    /// three finals inside n, and two from start + n from either kind, are taken.
+    /// Break: in _agreement(), change `if (disputed || block.timestamp < uint256(g.start) + g.terms.window)
+    /// return AGREE;` to `if (disputed) return AGREE;`. Two finals then settle a game with no record inside n.
+    function test_neverLine_aScoreShortOfTheProgramsCountIsRefused() public {
+        address[] memory accounts = new address[](3);
+        (accounts[0], accounts[1], accounts[2]) = (creator, payout, address(games));
+        vm.warp(DATE - 1 hours);
+        uint256 plain = _create();
+        uint256 inside = _create();
+        uint256 afterFirst = _create();
+        uint256 afterLater = _create();
+        _setTerms("nba", _terms(2 hours));
+        uint256 narrow = _create(); // n = 2 hours, copied at creation
+        _startBy(first, plain, START);
+        _startBy(first, inside, START);
+        _startBy(first, afterFirst, START);
+        _startBy(first, afterLater, START);
+        _startBy(first, narrow, START);
+        bytes memory oneOfThree = abi.encodeWithSelector(OspexGames.OspexGames__TooFewFinalsAgree.selector, 1, 3);
+        bytes memory twoOfThree = abi.encodeWithSelector(OspexGames.OspexGames__TooFewFinalsAgree.selector, 2, 3);
+        bytes memory oneOfTwo = abi.encodeWithSelector(OspexGames.OspexGames__TooFewFinalsAgree.selector, 1, 2);
+
+        // Inside n, from a first-n reporter: one final and two, at the start and a second before start + n.
+        uint64[2] memory insideHours = [START, START + WINDOW - 1];
+        for (uint256 t; t < insideHours.length; ++t) {
+            vm.warp(insideHours[t]);
+            Report memory one = _scoreReportTo(plain, payout);
+            one.readings = _finals(1);
+            _assertReportRefused(address(first), one, oneOfThree, accounts);
+            Report memory two = _scoreReportTo(plain, payout);
+            two.readings = _finals(2);
+            _assertReportRefused(address(first), two, twoOfThree, accounts);
+        }
+        // From start + n, from either kind: one final, at start + n and a week on.
+        uint64[2] memory afterHours = [START + WINDOW, START + WINDOW + 7 days];
+        MockReporter[2] memory kinds = [first, later];
+        for (uint256 t; t < afterHours.length; ++t) {
+            vm.warp(afterHours[t]);
+            for (uint256 w; w < kinds.length; ++w) {
+                Report memory one = _scoreReportTo(plain, payout);
+                one.readings = _finals(1);
+                _assertReportRefused(address(kinds[w]), one, oneOfTwo, accounts);
+            }
+        }
+        // The game's own n: two finals a second before the narrow game's start + n, and at it, where the
+        // default's game is still inside its n.
+        vm.warp(uint256(START) + 2 hours - 1);
+        Report memory early = _scoreReportTo(narrow, payout);
+        early.readings = _finals(2);
+        _assertReportRefused(address(first), early, twoOfThree, accounts);
+        vm.warp(uint256(START) + 2 hours);
+        Report memory wide = _scoreReportTo(plain, payout);
+        wide.readings = _finals(2);
+        _assertReportRefused(address(first), wide, twoOfThree, accounts);
+        Report memory atN = _scoreReportTo(narrow, payout);
+        atN.readings = _finals(2);
+        _take(address(first), atN);
+        assertEq(uint8(_status(plain)), uint8(GameStatus.Verified), "still open");
+        // Controls: three finals inside n; two from start + n, from either kind.
+        vm.warp(START + 2);
+        Report memory three = _scoreReportTo(inside, payout);
+        three.readings = _finals(3);
+        vm.recordLogs();
+        _take(address(first), three);
+        _assertOneCredit(vm.getRecordedLogs(), inside, payout, FEE);
+        vm.warp(START + WINDOW);
+        Report memory twoFirst = _scoreReportTo(afterFirst, payout);
+        twoFirst.readings = _finals(2);
+        _take(address(first), twoFirst);
+        Report memory twoLater = _scoreReportTo(afterLater, payout);
+        twoLater.readings = _finals(2);
+        _take(address(later), twoLater);
+        assertEq(uint8(_status(narrow)), uint8(GameStatus.Scored), "the narrow game scored at its own n");
+        assertEq(uint8(_status(inside)), uint8(GameStatus.Scored), "control: three finals inside n");
+        assertEq(uint8(_status(afterFirst)), uint8(GameStatus.Scored), "control: two finals from start + n, first-n");
+        assertEq(uint8(_status(afterLater)), uint8(GameStatus.Scored), "control: two finals from start + n, after-n");
+        assertEq(games.getCredit(payout), 4 * uint256(FEE), "each score credited once");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A void is written over finals that read the same in the count the program would have scored on." The
+    //  games set's half of "the hour-24 void posts while any answering feed shows a final": a void over finals
+    //  that agree in the program's count at the clock, two at hour 24 on a game with no record and three at day
+    //  7 on a disputed game, is refused, since that is a score's agreement and the program scores on it; the
+    //  readings a void does carry ride in its event as given.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// A void whose readings hold as many finals that agree as a score needs at that clock is refused by name
+    /// with the agreed numbers, from a reporter of either kind. At hour 24, on a game with no record, where two
+    /// agree: two 104-97s beside two silents; two beside a 97-104 and a silent; three beside a silent; four;
+    /// three among finals that differ. At day 7, on a disputed game, where three agree: three 104-97s beside a
+    /// silent fourth; four; three among finals that differ. Nothing is written, nothing credited. Controls at
+    /// hour 24: a void over one 104-97 beside three silents, one over a 104-97 beside a 97-104 and two silents,
+    /// and one over a 104-97 beside a 104-90 (the same home score is not the same final) are taken; at day 7: a
+    /// void over two 104-97s beside a 97-104 and a silent fourth, the program's own day-7 shape, and one over
+    /// the 2-2 split are taken.
+    /// Break: in _writeVoid(), delete `_checkVoidReadings(r.readings, _agreement(g, status ==
+    /// GameStatus.Disputed));`. Every void above is then taken, at both clocks.
     function test_neverLine_aVoidOverAgreeingFinalsIsRefused() public {
         address[] memory accounts = new address[](3);
         (accounts[0], accounts[1], accounts[2]) = (creator, payout, address(games));
         vm.warp(DATE - 1 hours);
         uint256 game = _create();
+        uint256 oneFinal = _create();
         uint256 split = _create();
         uint256 sameHome = _create();
         uint256 day7 = _create();
         uint256 day7Program = _create();
         uint256 day7Split = _create();
         _startBy(first, game, START);
+        _startBy(first, oneFinal, START);
         _startBy(first, split, START);
         _startBy(first, sameHome, START);
         _startBy(first, day7, START);
@@ -2564,13 +2680,19 @@ contract OspexGamesNeverLinesTest is GamesBase {
         among[2] = Reading({seat: 3, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY});
         among[3] = Reading({seat: 4, kind: ReadingKind.AnsweredFinal, homeScore: 60, awayScore: 61});
         among[4] = Reading({seat: 5, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY});
+        Reading[] memory twoAndOne = _finals(2); // two 104-97s beside a 97-104 and a silent
+        twoAndOne[2] = Reading({seat: 3, kind: ReadingKind.AnsweredFinal, homeScore: AWAY, awayScore: HOME});
         bytes memory want = abi.encodeWithSelector(OspexGames.OspexGames__FinalsAgree.selector, HOME, AWAY);
         MockReporter[2] memory kinds = [first, later];
 
-        // Hour 24, on the game with no record: the three shapes, from either kind.
+        // Hour 24, on the game with no record, where two agree: the five shapes, from either kind.
         vm.warp(START + WINDOW);
         for (uint256 w; w < kinds.length; ++w) {
             Report memory r = _voidReportTo(game, payout);
+            r.readings = _finals(2);
+            _assertReportRefused(address(kinds[w]), r, want, accounts);
+            r.readings = twoAndOne;
+            _assertReportRefused(address(kinds[w]), r, want, accounts);
             r.readings = _scoreReadings(HOME, AWAY);
             _assertReportRefused(address(kinds[w]), r, want, accounts);
             r.readings = four;
@@ -2579,16 +2701,21 @@ contract OspexGamesNeverLinesTest is GamesBase {
             _assertReportRefused(address(kinds[w]), r, want, accounts);
         }
         assertEq(uint8(_status(game)), uint8(GameStatus.Verified), "still open");
-        // Controls at hour 24: the 2-2 split; two that agree beside one with the same home score only.
+        // Controls at hour 24: one final beside silents; a 1-1 split; one 104-97 beside one 104-90.
+        Report memory o = _voidReportTo(oneFinal, payout);
+        o.readings = _finals(1);
+        _take(address(first), o);
         Report memory s = _voidReportTo(split, payout);
-        s.readings = twoTwo;
-        _take(address(first), s);
+        s.readings = _finals(1);
+        s.readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: AWAY, awayScore: HOME});
+        _take(address(later), s);
         Report memory h = _voidReportTo(sameHome, payout);
-        h.readings = _scoreReadings(HOME, AWAY);
-        h.readings[2] = Reading({seat: 3, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: 90});
+        h.readings = _finals(1);
+        h.readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: 90});
         _take(address(later), h);
 
-        // Day 7, on the disputed game: the same three shapes, refused by the same name, from either kind.
+        // Day 7, on the disputed game, where three agree: the three shapes, refused by the same name, from
+        // either kind; two that agree are not refused there (the controls below).
         vm.warp(START + 1 + DAY7);
         for (uint256 w; w < kinds.length; ++w) {
             Report memory d = _voidReportTo(day7, payout);
@@ -2603,17 +2730,17 @@ contract OspexGamesNeverLinesTest is GamesBase {
         // Controls at day 7: the program's own shape, two that agree beside a third that differs and a silent
         // fourth; and the 2-2 split.
         Report memory p = _voidReportTo(day7Program, payout);
-        p.readings = _scoreReadings(HOME, AWAY);
-        p.readings[2] = Reading({seat: 3, kind: ReadingKind.AnsweredFinal, homeScore: AWAY, awayScore: HOME});
+        p.readings = twoAndOne;
         _take(address(later), p);
         Report memory ds = _voidReportTo(day7Split, payout);
         ds.readings = twoTwo;
         _take(address(first), ds);
-        assertEq(uint8(_status(split)), uint8(GameStatus.Voided), "control: the 2-2 split voids at hour 24");
+        assertEq(uint8(_status(oneFinal)), uint8(GameStatus.Voided), "control: one final voids at hour 24");
+        assertEq(uint8(_status(split)), uint8(GameStatus.Voided), "control: the 1-1 split voids at hour 24");
         assertEq(uint8(_status(sameHome)), uint8(GameStatus.Voided), "control: the same home score is not the same final");
         assertEq(uint8(_status(day7Program)), uint8(GameStatus.Voided), "control: the program's day-7 void");
         assertEq(uint8(_status(day7Split)), uint8(GameStatus.Voided), "control: the 2-2 split voids at day 7");
-        assertEq(games.getCredit(payout), 4 * uint256(FEE), "each void credited once");
+        assertEq(games.getCredit(payout), 5 * uint256(FEE), "each void credited once");
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -2681,6 +2808,69 @@ contract OspexGamesNeverLinesTest is GamesBase {
         assertEq(uint8(_status(disputed)), uint8(GameStatus.Scored), "control: agreement after n");
         assertEq(uint8(_status(atDay7)), uint8(GameStatus.Scored), "control: the day-7 settlement");
         assertEq(games.getCredit(payout), 3 * uint256(FEE), "each score credited once");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A disputed game's checks change." The counts a game with no record is held to move with its clock; a
+    //  disputed game's do not: its score needs three finals reading it at every clock, and its day-7 void is
+    //  refused over three that agree and not over two.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// On a disputed game the count is three at every clock: a score on two agreeing finals beside two silents
+    /// is refused by name (two of three) inside n from a first-n reporter, at start + n and a week on from either
+    /// kind, and at the day-7 clock, where a game with no record needs two; a day-7 void over three agreeing
+    /// finals is refused by name, and one over two that agree beside a third that differs and a silent fourth is
+    /// taken. Nothing is written by a refusal, nothing credited. Controls: three agreeing finals settle a
+    /// disputed game at each of those clocks.
+    /// Break: in _writeScore(), change `_agreement(g, disputed)` to `_agreement(g, false)`. A disputed game then
+    /// settles on two finals from start + n.
+    function test_neverLine_aDisputedGamesChecksKeepTheirCount() public {
+        address[] memory accounts = new address[](3);
+        (accounts[0], accounts[1], accounts[2]) = (creator, payout, address(games));
+        vm.warp(DATE - 1 hours);
+        uint256 disputed = _create();
+        uint256 voided = _create();
+        uint256[4] memory settled = [_create(), _create(), _create(), _create()];
+        _startBy(first, disputed, START);
+        _startBy(first, voided, START);
+        for (uint256 i; i < settled.length; ++i) {
+            _startBy(first, settled[i], START);
+        }
+        vm.warp(START + 1);
+        _disputeBy(first, disputed);
+        _disputeBy(first, voided);
+        for (uint256 i; i < settled.length; ++i) {
+            _disputeBy(first, settled[i]);
+        }
+        bytes memory twoOfThree = abi.encodeWithSelector(OspexGames.OspexGames__TooFewFinalsAgree.selector, 2, 3);
+        bytes memory agree = abi.encodeWithSelector(OspexGames.OspexGames__FinalsAgree.selector, HOME, AWAY);
+        uint64[4] memory clocks = [START + 2, START + WINDOW, START + WINDOW + 7 days, START + 1 + DAY7];
+        MockReporter[2] memory kinds = [first, later];
+        for (uint256 t; t < clocks.length; ++t) {
+            vm.warp(clocks[t]);
+            for (uint256 w; w < kinds.length; ++w) {
+                if (t == 0 && w == 1) continue; // an after-n reporter writes from start + n
+                Report memory two = _scoreReportTo(disputed, payout);
+                two.readings = _finals(2);
+                _assertReportRefused(address(kinds[w]), two, twoOfThree, accounts);
+            }
+            // Control: three agreeing finals settle a disputed game at this clock.
+            Report memory three = _scoreReportTo(settled[t], payout);
+            three.readings = _finals(3);
+            _take(address(kinds[t == 0 ? 0 : 1]), three);
+            assertEq(uint8(_status(settled[t])), uint8(GameStatus.Scored), "control: three finals settle it");
+        }
+        assertEq(uint8(_status(disputed)), uint8(GameStatus.Disputed), "still disputed");
+        // The day-7 void: refused over three that agree, taken over two beside a third that differs.
+        vm.warp(START + 1 + DAY7);
+        Report memory v = _voidReportTo(voided, payout);
+        v.readings = _finals(3);
+        _assertReportRefused(address(later), v, agree, accounts);
+        v.readings = _finals(2);
+        v.readings[2] = Reading({seat: 3, kind: ReadingKind.AnsweredFinal, homeScore: AWAY, awayScore: HOME});
+        _take(address(later), v);
+        assertEq(uint8(_status(voided)), uint8(GameStatus.Voided), "the program's day-7 void");
+        assertEq(games.getCredit(payout), 5 * uint256(FEE), "each end credited once");
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -2766,9 +2956,9 @@ contract OspexGamesNeverLinesTest is GamesBase {
     //  program's, and the games set's own check of them is test_neverLine_aVoidOverAgreeingFinalsIsRefused.
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-    /// A void whose readings show two finals that agree, short of the three the games set refuses, is taken, and
-    /// its event carries those readings exactly, feed by feed; the game reads Voided, no score, and its storage
-    /// holds no reading.
+    /// A void whose readings show two finals that differ, beside an answer without a final and a silent, which is
+    /// agreement in no count, is taken, and its event carries those readings exactly, feed by feed; the game
+    /// reads Voided, no score, and its storage holds no reading.
     /// Break: in report(), change the emit's `r.readings` to `new Reading[](0)`. The void's readings are then
     /// lost.
     function test_neverLine_aVoidsReadingsRideInItsEventAsGiven() public {
@@ -2777,7 +2967,8 @@ contract OspexGamesNeverLinesTest is GamesBase {
         _startBy(first, game, START);
         vm.warp(START + WINDOW);
         Report memory r = _voidReport(game);
-        r.readings = _readings(); // two feeds show a final
+        r.readings = _readings(); // two feeds show a final, and here they differ
+        r.readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: AWAY, awayScore: HOME});
         bytes memory raw = _rawGame(game);
         vm.recordLogs();
         _take(address(first), r);
@@ -2790,7 +2981,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
             abi.decode(logs[1].data, (uint64, uint32, uint32, Reading[], address));
         assertEq(uint256(start) + h + a, 0, "a void carries no start and no score");
         assertEq(pay, payout);
-        assertEq(abi.encode(readings), abi.encode(_readings()), "the readings, as given");
+        assertEq(abi.encode(readings), abi.encode(r.readings), "the readings, as given");
         assertEq(uint8(_status(game)), uint8(GameStatus.Voided));
         vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__NotScored.selector, game, GameStatus.Voided));
         games.getGameScores(game);
