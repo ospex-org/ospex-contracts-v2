@@ -195,7 +195,9 @@ contract OspexGamesEndsTest is GamesBase {
         assertEq(_held(game), FEE, "a disputed game holds its fee");
 
         vm.warp(START + 3 hours);
-        _take(address(first), _disputeReport(game));
+        Report memory update = _disputeReport(game);
+        update.readings[1].homeScore = HOME + 1; // a vote changed: the same readings again are refused
+        _take(address(first), update);
         assertEq(games.getGameDisputedAt(game), START + 90 minutes, "an update moved the record's time");
         vm.warp(START + 4 hours);
         _take(address(first), _scoreReportTo(game, payout));
@@ -403,8 +405,13 @@ contract OspexGamesEndsTest is GamesBase {
                         if (action == 0) (ok,) = _send(address(kinds[w]), _startReport(game, START));
                         else if (action == 1) (ok,) = _send(address(kinds[w]), _scoreReport(game, HOME, AWAY));
                         else if (action == 2) (ok,) = _send(address(kinds[w]), _voidReport(game));
-                        else if (action == 3) (ok,) = _send(address(kinds[w]), _disputeReport(game));
-                        else (ok,) = _tryRelease(stranger, game);
+                        else if (action == 3) {
+                            // A vote changed since the record a disputed game was set up with: on such a game
+                            // the record's own readings again would be refused as a repeat, not taken.
+                            Report memory d = _disputeReport(game);
+                            d.readings[1].homeScore = HOME + 1;
+                            (ok,) = _send(address(kinds[w]), d);
+                        } else (ok,) = _tryRelease(stranger, game);
                         Vm.Log[] memory logs = vm.getRecordedLogs();
                         GameStatus next = _status(game);
                         assertGe(uint8(next), uint8(before), "the status moved back");

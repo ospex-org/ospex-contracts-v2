@@ -110,7 +110,8 @@ struct Report {
 }
 
 /// @notice A hint a game's creator gives: where one feed may list the game. A hint is not a lock. It rides
-///         in the creation event and is not stored, and nothing in the games set reads it.
+///         in the creation event and is stored with the game, read back by getGameIdentity; the games set reads
+///         it only to check its form.
 /// @param seat The feed's seat in the scoring program's feed table.
 /// @param id The game's id at that feed, as the creator gives it.
 struct Hint {
@@ -157,6 +158,11 @@ struct Terms {
  *         A game's creator pays its creation fee when it is created, and the games set holds it until the game
  *         ends. The report that ends the game credits it to the payout address inside that report; a release
  *         credits it back to the creator. Whoever is credited withdraws it later: no coin moves inside an end.
+ *
+ *         Whatever picks a game up to score it reads the game, never its events: three reads beside the five
+ *         return a game's identity as its creator gave it, the readings its start report carried with each
+ *         seat's last vote and the time of its dispute record, and the list of games not yet ended, whole or by
+ *         page. A dispute report whose readings are those of one the game already took is refused.
  */
 interface IOspexGames is IGameReporters {
     /// @notice Emitted once, by the constructor: the timelock that alone makes the three calls. It never
@@ -191,7 +197,8 @@ interface IOspexGames is IGameReporters {
     /// @param caller The address that released it, which pays the gas and gets nothing
     event GameReleased(uint256 indexed gameId, address caller);
 
-    /// @notice Emitted when a game is created. It carries the game's identity, which is not stored.
+    /// @notice Emitted when a game is created. It carries the game's identity, which the games set stores too
+    ///         and getGameIdentity reads back, word for word.
     /// @param gameId The new game's id
     /// @param creator The address that created it
     /// @param league The league's short text id
@@ -265,7 +272,9 @@ interface IOspexGames is IGameReporters {
     /// @param start The start, for a start; otherwise zero
     /// @param homeScore The home team's score, for a score; otherwise zero
     /// @param awayScore The away team's score, for a score; otherwise zero
-    /// @param readings The readings the report rests on, as given. They are not stored.
+    /// @param readings The readings the report rests on, as given. A start's are stored as given; a dispute
+    ///        record's or an update's replace each seat's last vote where the reading is not silent; a score's
+    ///        and a void's are not stored (see getGameReadings).
     /// @param payout The payout address in the report
     event GameReported(
         uint256 indexed gameId,
@@ -314,12 +323,17 @@ interface IOspexGames is IGameReporters {
     ///         record or not. A void ends the game the same way, with no score stored, from start + n for a
     ///         reporter of either kind, and on a disputed game only once its day-7 clock has run. A dispute
     ///         record carries a zero payout, credits nothing and ends nothing: the first one writes Disputed and
-    ///         starts the day-7 clock; every later one is an update, taken and emitted, writing nothing. Every
-    ///         report the games set takes is emitted with its readings, which are not stored. An update's event
-    ///         has the record's shape; a game's first dispute event is its record, and getGameDisputedAt gives
-    ///         the record's time. A game that has ended takes no report of any kind, and no game takes one at or
-    ///         after its day-30 clock (PastDay30Clock), counted from the date given at creation: from that second
-    ///         the release is the only door. A report its own readings contradict is refused (see Report).
+    ///         starts the day-7 clock; every later one is an update, taken and emitted, writing no status and
+    ///         moving no clock. Every report the games set takes is emitted with its readings. A start's readings
+    ///         are stored as given; a dispute record's and an update's replace each seat's last vote where the
+    ///         reading is not silent, and a silent reading leaves the seat's vote as it was (see getGameReadings).
+    ///         A dispute report whose readings are those of a dispute report the game already took, in the same
+    ///         order, is refused (DisputeReportRepeated): an old decision delivered again cannot become the
+    ///         newest vote. An update's event has the record's shape; a game's first dispute event is its record,
+    ///         and getGameDisputedAt gives the record's time. A game that has ended takes no report of any kind,
+    ///         and no game takes one at or after its day-30 clock (PastDay30Clock), counted from the date given at
+    ///         creation: from that second the release is the only door. A report its own readings contradict is
+    ///         refused (see Report).
     function report(Report calldata r) external;
 
     /// @notice Releases a game that has not ended: no score, no void, no release, a dispute record or not.
@@ -390,4 +404,37 @@ interface IOspexGames is IGameReporters {
     /// @notice The terms a game in `league` made now would copy: the league's own, or the default terms if it
     ///         has none. An empty `league` reads the default terms.
     function getTerms(string calldata league) external view returns (Terms memory);
+
+    /// @notice A game's identity, as its creator gave it and the creation event carried it: the league, the two
+    ///         teams, the date and the hints, word for word. Written at creation and never again, so no reader
+    ///         needs the event to know what a game is. The creator is in getGameFee, the terms in getGameTerms
+    ///         and the reporters in getGameReporters. Refuses an id that is not a game.
+    function getGameIdentity(uint256 gameId)
+        external
+        view
+        returns (string memory league, string memory homeTeam, string memory awayTeam, uint64 date, Hint[] memory hints);
+
+    /// @notice What a game's reports left for whatever picks it up. `startReadings`: the readings the start
+    ///         report carried, as given and in its order; empty until the start is written. `votes`: each seat's
+    ///         last vote, one entry per seat that has ever voted, in the order the seats first voted: every
+    ///         dispute record and update replaces the entry of each seat whose reading is not silent, and a silent
+    ///         reading leaves the seat's vote as it was; empty until a dispute record. `disputedAt`: when the
+    ///         dispute record was written, the second its day-7 clock counts from; 0 until then. Refuses only an
+    ///         id that is not a game, so one call serves a game in any status.
+    function getGameReadings(uint256 gameId)
+        external
+        view
+        returns (Reading[] memory startReadings, Reading[] memory votes, uint64 disputedAt);
+
+    /// @notice The games not yet ended, whole or by page. `total` is how many there are now; `gameIds` is the
+    ///         page that starts at `offset`, at most `count` long and clipped at the list's end (empty from it),
+    ///         so (0, type(uint256).max) is the whole list and (0, 0) the total alone. A game joins the list at
+    ///         its creation and leaves it at its end: a score, a void or a release. The order is creation order,
+    ///         except that an end moves the last game on the list into the ended game's place. A page is one
+    ///         block's answer: a reader paging across blocks sees a game that moved meanwhile at most once, and a
+    ///         game it missed on its next pass.
+    function getOpenGames(uint256 offset, uint256 count)
+        external
+        view
+        returns (uint256[] memory gameIds, uint256 total);
 }

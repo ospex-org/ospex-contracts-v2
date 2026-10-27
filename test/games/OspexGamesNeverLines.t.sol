@@ -40,6 +40,18 @@ struct SpecReport {
     address payout;
 }
 
+/// @dev GameCreated's data, field for field, decoded as one struct behind one offset.
+struct CreatedEvent {
+    string league;
+    string homeTeam;
+    string awayTeam;
+    uint64 date;
+    Hint[] hints;
+    Terms terms;
+    address[] reporters;
+    uint8[] kinds;
+}
+
 /// @dev A contract with code and nothing else.
 contract Plain {
     function ping() external pure returns (uint256) {
@@ -1883,7 +1895,9 @@ contract OspexGamesNeverLinesTest is GamesBase {
         _take(address(later), _scoreReportTo(disputed, payout));
         _take(address(first), _voidReportTo(started, payout));
         _take(address(later), _disputeReport(third));
-        _take(address(first), _disputeReport(third));
+        Report memory thirdUpdate = _disputeReport(third);
+        thirdUpdate.readings[1].homeScore = HOME + 9; // a vote changed since the record: not a repeat
+        _take(address(first), thirdUpdate);
         vm.warp(START + 1 + DAY7 + DAY7);
         _take(address(second), _voidReportTo(third, payout));
         assertEq(uint8(_status(disputed)), uint8(GameStatus.Scored), "the day-7 score");
@@ -1948,7 +1962,9 @@ contract OspexGamesNeverLinesTest is GamesBase {
             abi.encodeWithSelector(OspexGames.OspexGames__InsideWindow.selector, early, uint256(START) + WINDOW)
         );
         vm.warp(START + WINDOW);
-        _take(address(later), _disputeReport(early));
+        Report memory lateUpdate = _disputeReport(early);
+        lateUpdate.readings[1].homeScore = HOME + 9; // a vote changed since the record: not a repeat
+        _take(address(later), lateUpdate);
         assertEq(games.getGameDisputedAt(early), START, "the update moved the clock");
     }
 
@@ -2236,7 +2252,9 @@ contract OspexGamesNeverLinesTest is GamesBase {
         vm.warp(DATE + DAY30 - 1);
         _startBy(first, open2, DATE + DAY);
         _take(address(later), _scoreReportTo(started2, payout));
-        _take(address(first), _disputeReport(disputed2)); // an update
+        Report memory update2 = _disputeReport(disputed2); // an update: a vote changed, not a repeat
+        update2.readings[1].homeScore = HOME + 9;
+        _take(address(first), update2);
         _take(address(later), _voidReportTo(disputed2, payout)); // the day-7 void, long open
         assertEq(games.getCredit(payout), 2 * uint256(FEE), "the two ends before the clock paid their payout");
 
@@ -2321,7 +2339,9 @@ contract OspexGamesNeverLinesTest is GamesBase {
         assertFalse(ok, "the release opened before the date's clock");
         assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__ReleaseNotOpen.selector, lateGame, opensAt));
         _startBy(first, lateGame, DATE + DAY);
-        _take(address(first), _disputeReport(disputedGame)); // an update, in the same second
+        Report memory sameSecond = _disputeReport(disputedGame); // an update, in the same second: a vote changed
+        sameSecond.readings[1].homeScore = HOME + 9;
+        _take(address(first), sameSecond);
         vm.warp(DATE + DAY30);
         (ok, err) = _send(address(first), _scoreReportTo(lateGame, payout));
         assertFalse(ok, "a late start moved the clock: a score landed at it");
@@ -2985,12 +3005,19 @@ contract OspexGamesNeverLinesTest is GamesBase {
         assertEq(uint8(_status(game)), uint8(GameStatus.Voided));
         vm.expectRevert(abi.encodeWithSelector(OspexGames.OspexGames__NotScored.selector, game, GameStatus.Voided));
         games.getGameScores(game);
-        // The void wrote the status byte and nothing else of the game: no reading is stored.
+        // The void wrote the status byte, took the game off the open list (its place is the first four bytes of
+        // its fourth word, 0 from its end) and nothing else of the game: no reading is stored in the game's own
+        // words.
         bytes memory rawAfter = _rawGame(game);
         assertEq(rawAfter.length, raw.length, "the game's storage grew");
         assertEq(uint8(rawAfter[31]), uint8(GameStatus.Voided), "the status byte");
         rawAfter[31] = raw[31];
-        assertEq(rawAfter, raw, "a void wrote more than the status");
+        assertTrue(uint32(bytes4(abi.encodePacked(raw[96], raw[97], raw[98], raw[99]))) != 0, "the place before the void");
+        assertEq(uint32(bytes4(abi.encodePacked(rawAfter[96], rawAfter[97], rawAfter[98], rawAfter[99]))), 0, "the place after the void");
+        for (uint256 b = 96; b < 100; ++b) {
+            rawAfter[b] = raw[b];
+        }
+        assertEq(rawAfter, raw, "a void wrote more than the status and the place");
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -3144,7 +3171,8 @@ contract OspexGamesNeverLinesTest is GamesBase {
             for (uint256 w; w < reporters.length; ++w) {
                 if (reporters[w] == later && times[t] < START + WINDOW) continue; // held by the hour, not here
                 Report memory u = _disputeReport(game);
-                u.readings[1].homeScore = HOME + uint32(t); // a reading changed since the record
+                // A reading changed since the record, and since every update before: a repeat is refused.
+                u.readings[1].homeScore = HOME + 10 + uint32(t * 3 + w);
                 _assertUpdateTaken(address(reporters[w]), u, accounts, raw, recordedAt);
             }
         }
@@ -3172,11 +3200,359 @@ contract OspexGamesNeverLinesTest is GamesBase {
 
         // Past the day-7 clock a disputed game still takes an update, and then its void.
         vm.warp(recordedAt + DAY7 + 3 days);
-        _take(address(first), _disputeReport(other));
+        Report memory lateUpdate = _disputeReport(other);
+        lateUpdate.readings[1].homeScore = HOME + 9; // a reading changed since the record
+        _take(address(first), lateUpdate);
         assertEq(games.getGameDisputedAt(other), recordedAt, "a late update moved the clock");
         assertEq(_held(other), FEE, "a late update credited the fee");
         _take(address(second), _voidReportTo(other, payout));
         assertEq(games.getCredit(payout), 2 * uint256(FEE), "each void credited once");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A game's stored identity differs from its creation event; a stored reading or vote differs from the
+    //  reading it was emitted with; a game ends and stays on the open list, or is created and never joins it;
+    //  a reader needs the events to know what a game is."
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// Every field the creation event carries is a read: the identity (getGameIdentity), the creator
+    /// (getGameFee), the terms (getGameTerms) and the reporters (getGameReporters). Three creations at the
+    /// limits (a league of one and of sixteen characters, teams of one character and of sixty-four with spaces
+    /// inside, no hint and eight with ids of sixty-four characters, a date a year ahead) read back as their
+    /// events say, field for field, and still do after the list and the terms change and more games are made.
+    /// Break: in createGame(), change `identity.homeTeam = homeTeam;` to `identity.homeTeam = awayTeam;`.
+    function test_neverLine_aGameIsReadableFromTheGame() public {
+        string memory long = "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz01"; // 64
+        Hint[] memory eight = new Hint[](8);
+        for (uint256 j; j < 8; ++j) {
+            eight[j] = Hint({seat: uint8(j * 31), id: string.concat(long, "")});
+            eight[j].id = string.concat("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", vm.toString(j));
+        }
+        string[3] memory leagues = ["a", "abcdefghij123456", "nba"];
+        string[3] memory homes = ["H", long, "Saint Mary's  (CA)"];
+        string[3] memory aways = ["A", "Gonzaga Bulldogs 2026", " x "];
+        uint64[3] memory dates = [uint64(1), uint64(vm.getBlockTimestamp() + 365 days), DATE];
+        address[3] memory creators = [creator, address(this), stranger];
+        _fund(stranger, address(games));
+        uint256[3] memory made;
+        CreatedEvent[3] memory events;
+        for (uint256 i; i < 3; ++i) {
+            Hint[] memory hints = i == 0 ? new Hint[](0) : i == 1 ? eight : _hints();
+            vm.recordLogs();
+            vm.prank(creators[i], creators[i]);
+            made[i] = games.createGame(leagues[i], homes[i], aways[i], dates[i], hints, ANY_FEE);
+            events[i] = _created(vm.getRecordedLogs(), made[i], creators[i]);
+        }
+        for (uint256 round; round < 2; ++round) {
+            for (uint256 i; i < 3; ++i) {
+                _assertReadsAsTheEvent(made[i], events[i], creators[i]);
+            }
+            // Then the list and the terms change and more games are made, none of which moves a game made.
+            if (round == 0) {
+                _retire(address(later));
+                _approve(address(new MockReporter(games)), ReporterKind.AfterN);
+                _setTerms("nba", _terms(2 hours));
+                _setTerms("a", _terms(3 hours));
+                _create();
+                vm.prank(creator, creator);
+                games.createGame("a", "H", "A", 1, new Hint[](0), ANY_FEE); // the same real game as the first
+            }
+        }
+    }
+
+    /// @dev Every read of the game against the creation event: the identity field for field, the hints seat and
+    ///      id, the creator, the terms and the reporters with their kinds.
+    function _assertReadsAsTheEvent(uint256 game, CreatedEvent memory e, address madeBy) internal view {
+        (string memory league, string memory home, string memory away, uint64 date, Hint[] memory hints) =
+            games.getGameIdentity(game);
+        assertEq(league, e.league, "league");
+        assertEq(home, e.homeTeam, "home");
+        assertEq(away, e.awayTeam, "away");
+        assertEq(date, e.date, "date");
+        assertEq(hints.length, e.hints.length, "hint count");
+        for (uint256 h; h < hints.length; ++h) {
+            assertEq(hints[h].seat, e.hints[h].seat, "hint seat");
+            assertEq(hints[h].id, e.hints[h].id, "hint id");
+        }
+        (, address creatorRead) = games.getGameFee(game);
+        assertEq(creatorRead, madeBy, "creator");
+        _assertTerms(games.getGameTerms(game), e.terms, "terms");
+        (address[] memory r, uint8[] memory k) = games.getGameReporters(game);
+        _assertList(r, k, e.reporters, e.kinds, "reporters");
+    }
+
+    /// @dev The game's creation event, decoded field for field, from the logs of its creation.
+    function _created(Vm.Log[] memory logs, uint256 game, address madeBy) internal view returns (CreatedEvent memory e) {
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(games) || logs[i].topics[0] != IOspexGames.GameCreated.selector) continue;
+            assertEq(uint256(logs[i].topics[1]), game, "the event's game");
+            assertEq(logs[i].topics[2], bytes32(uint256(uint160(madeBy))), "the event's creator");
+            return abi.decode(bytes.concat(abi.encode(uint256(32)), logs[i].data), (CreatedEvent));
+        }
+        revert("no GameCreated log");
+    }
+
+    /// The start's readings read back as the start's event carried them, a seat past the table included; each
+    /// seat's last vote reads back as the program folds the dispute events: a record; an update that changes seat
+    /// 2 and leaves seat 4 silent; an update from an after-n reporter at hour 24 in which seat 1 is silent (its
+    /// vote stands), seat 3 answers without a final (its final taken back) and seat 4 votes for the first time;
+    /// and an update before day 7 in which every seat is silent, which changes no vote. Each is compared with the
+    /// readings decoded from the event the same report emitted, folded here by the program's rule, and the
+    /// record's time reads beside them and never moves. After the day-7 void the readings still read.
+    /// Break: in _writeVotes(), delete `if (reading.kind == ReadingKind.Silent) continue;`. A silent reading
+    /// then overwrites a seat's vote.
+    function test_neverLine_aStoredReadingIsTheReadingEmitted() public {
+        vm.warp(DATE - 1 hours);
+        uint256 game = _create();
+        Report memory start = _startReport(game, START);
+        start.readings[2] = Reading({seat: 200, kind: ReadingKind.AnsweredNoFinal, homeScore: 3, awayScore: 1});
+        vm.recordLogs();
+        _take(address(first), start);
+        Reading[] memory startEmitted = _emittedReadings(vm.getRecordedLogs(), game);
+        _assertSameReadings(startEmitted, start.readings, "the start event's readings are the start's");
+        (Reading[] memory s0, Reading[] memory v0, uint64 at0) = games.getGameReadings(game);
+        _assertSameReadings(s0, startEmitted, "the start's readings as emitted");
+        assertEq(v0.length, 0, "no vote before a record");
+        assertEq(at0, 0, "no record yet");
+
+        Reading[][] memory emitted = new Reading[][](4);
+        Report[4] memory reports;
+        reports[0] = _disputeReport(game); // seats 1 and 2 finals that differ, 3 without a final, 4 silent
+        reports[1] = _disputeReport(game);
+        reports[1].readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY});
+        reports[2] = _disputeReport(game);
+        reports[2].readings[0] = Reading({seat: 1, kind: ReadingKind.Silent, homeScore: 0, awayScore: 0});
+        reports[2].readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY}); // its vote on record
+        reports[2].readings[2] = Reading({seat: 3, kind: ReadingKind.AnsweredNoFinal, homeScore: 90, awayScore: 91});
+        reports[2].readings[3] = Reading({seat: 4, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY});
+        reports[3] = _disputeReport(game);
+        for (uint256 i; i < 4; ++i) {
+            reports[3].readings[i] = Reading({seat: uint8(i + 1), kind: ReadingKind.Silent, homeScore: 0, awayScore: 0});
+        }
+        uint64[4] memory whens = [START + 1, START + 2, START + WINDOW, START + 1 + DAY7 - 1];
+        MockReporter[4] memory whos = [first, second, later, first];
+        for (uint256 i; i < 4; ++i) {
+            vm.warp(whens[i]);
+            vm.recordLogs();
+            _take(address(whos[i]), reports[i]);
+            emitted[i] = _emittedReadings(vm.getRecordedLogs(), game);
+            _assertSameReadings(emitted[i], reports[i].readings, "the dispute event's readings are the report's");
+            Reading[][] memory soFar = new Reading[][](i + 1);
+            for (uint256 j; j <= i; ++j) {
+                soFar[j] = emitted[j];
+            }
+            (Reading[] memory s, Reading[] memory v, uint64 at) = games.getGameReadings(game);
+            _assertSameReadings(s, startEmitted, "the start's readings after a dispute report");
+            _assertSameReadings(v, _foldVotes(soFar), "the votes after a dispute report");
+            assertEq(at, START + 1, "the record's time");
+        }
+        // The fold, written out: seat 1 the record's final, seat 2 the first update's final, seat 3 the second
+        // update's answer without a final, seat 4 the second update's final, in the order the seats first voted.
+        (, Reading[] memory votes,) = games.getGameReadings(game);
+        assertEq(votes.length, 4, "four seats voted");
+        assertEq(votes[0].seat, 1);
+        assertEq(uint8(votes[0].kind), uint8(ReadingKind.AnsweredFinal));
+        assertEq(votes[0].homeScore, HOME);
+        assertEq(votes[1].seat, 2);
+        assertEq(votes[1].homeScore, HOME, "seat 2's changed vote");
+        assertEq(votes[2].seat, 3);
+        assertEq(uint8(votes[2].kind), uint8(ReadingKind.AnsweredNoFinal), "seat 3's final taken back");
+        assertEq(votes[2].homeScore, 90);
+        assertEq(votes[3].seat, 4);
+        assertEq(uint8(votes[3].kind), uint8(ReadingKind.AnsweredFinal), "seat 4's first vote");
+
+        vm.warp(START + 1 + DAY7);
+        _take(address(later), _voidReportTo(game, payout));
+        (Reading[] memory s4, Reading[] memory v4, uint64 at4) = games.getGameReadings(game);
+        _assertSameReadings(s4, startEmitted, "the start's readings after the end");
+        _assertSameReadings(v4, votes, "the votes after the end");
+        assertEq(at4, START + 1, "the record's time after the end");
+    }
+
+    /// @dev The readings of the game's one GameReported log among `logs`.
+    function _emittedReadings(Vm.Log[] memory logs, uint256 game) internal view returns (Reading[] memory) {
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(games) || logs[i].topics[0] != IOspexGames.GameReported.selector) continue;
+            assertEq(uint256(logs[i].topics[1]), game, "the event's game");
+            (,,, Reading[] memory readings,) = abi.decode(logs[i].data, (uint64, uint32, uint32, Reading[], address));
+            return readings;
+        }
+        revert("no GameReported log");
+    }
+
+    /// Six games join the list at creation, in order. A refused report and a refused release leave it as it is.
+    /// Each end takes exactly its game off: a score, the hour-24 void, the day-7 void, a release on every reporter
+    /// retired, a release from the day-30 clock; the last game on the list moves into the ended one's place and
+    /// nothing else moves; a second end is refused and moves nothing. At every step the list is exactly the games
+    /// whose status is before Scored, each once, and every page agrees with the whole.
+    /// Break: in _end(), delete `_leaveOpen(g);`. An ended game then stays on the list.
+    function test_neverLine_aGameJoinsTheOpenListAtCreationAndLeavesAtItsEnd() public {
+        vm.warp(DATE - 1 hours);
+        uint256[] memory made = new uint256[](6);
+        for (uint256 i; i < 6; ++i) {
+            made[i] = _create();
+            _assertOpenList(_prefix(made, i + 1), "after a creation");
+        }
+        for (uint256 i; i < 5; ++i) {
+            _startBy(first, made[i], START);
+        }
+        _assertOpenList(made, "after the starts");
+        // Refused: a stranger's score, a release before the clock, a start on a started game.
+        (bool ok,) = _send(stranger, _scoreReport(made[0], HOME, AWAY));
+        assertFalse(ok, "a stranger scored");
+        (ok,) = _tryRelease(stranger, made[0]);
+        assertFalse(ok, "a release before the clock");
+        (ok,) = _send(address(first), _startReport(made[0], START));
+        assertFalse(ok, "a second start");
+        _assertOpenList(made, "after refusals");
+
+        vm.warp(START + 1);
+        _disputeBy(first, made[2]);
+        _assertOpenList(made, "a dispute record ends nothing");
+        _scoreBy(first, made[1], HOME, AWAY); // the last game, made[5], moves into made[1]'s place
+        uint256[] memory want = new uint256[](5);
+        (want[0], want[1], want[2], want[3], want[4]) = (made[0], made[5], made[2], made[3], made[4]);
+        _assertOpenList(want, "after a score");
+        (ok,) = _send(address(first), _scoreReport(made[1], HOME, AWAY));
+        assertFalse(ok, "a second score");
+        _assertOpenList(want, "a second end moves nothing");
+
+        vm.warp(START + WINDOW);
+        _voidBy(later, made[3]); // the hour-24 void: made[4] moves into its place
+        want = new uint256[](4);
+        (want[0], want[1], want[2], want[3]) = (made[0], made[5], made[2], made[4]);
+        _assertOpenList(want, "after the hour-24 void");
+
+        vm.warp(START + 1 + DAY7);
+        _voidBy(first, made[2]); // the day-7 void: made[4] moves into its place
+        want = new uint256[](3);
+        (want[0], want[1], want[2]) = (made[0], made[5], made[4]);
+        _assertOpenList(want, "after the day-7 void");
+
+        _retire(address(first));
+        _retire(address(later));
+        _retire(address(second));
+        _assertOpenList(want, "a retirement ends nothing");
+        _releaseBy(stranger, made[4]); // every reporter retired: the last leaves, nothing moves
+        want = new uint256[](2);
+        (want[0], want[1]) = (made[0], made[5]);
+        _assertOpenList(want, "after a release on every reporter retired");
+        _releaseBy(stranger, made[5]); // a game with no start, its first-n reporters retired
+        want = new uint256[](1);
+        want[0] = made[0];
+        _assertOpenList(want, "after the second such release");
+
+        vm.warp(DATE + DAY30);
+        _releaseBy(stranger, made[0]);
+        _assertOpenList(new uint256[](0), "after the day-30 release");
+        (ok,) = _tryRelease(stranger, made[0]);
+        assertFalse(ok, "a second release");
+        _assertOpenList(new uint256[](0), "a second release moves nothing");
+    }
+
+    /// @dev The open list is exactly `want`, in that order; every page of it agrees with the whole; and every
+    ///      game made is on it exactly when its status is before Scored, each once.
+    function _assertOpenList(uint256[] memory want, string memory when) internal view {
+        (uint256[] memory got, uint256 total) = games.getOpenGames(0, type(uint256).max);
+        assertEq(got, want, string.concat(when, ": the list"));
+        assertEq(total, want.length, string.concat(when, ": the total"));
+        for (uint256 offset; offset <= want.length; ++offset) {
+            (uint256[] memory page, uint256 t) = games.getOpenGames(offset, 2);
+            assertEq(t, want.length, string.concat(when, ": a page's total"));
+            uint256 n = offset >= want.length ? 0 : want.length - offset < 2 ? want.length - offset : 2;
+            assertEq(page.length, n, string.concat(when, ": a page's length"));
+            for (uint256 i; i < n; ++i) {
+                assertEq(page[i], want[offset + i], string.concat(when, ": a page's entry"));
+            }
+        }
+        uint256 count = games.gameCount();
+        for (uint256 id = 1; id <= count; ++id) {
+            uint256 seen;
+            for (uint256 i; i < got.length; ++i) {
+                if (got[i] == id) ++seen;
+            }
+            bool open = _status(id) < GameStatus.Scored;
+            assertEq(seen, open ? 1 : 0, string.concat(when, ": a game on the list other than once per open game"));
+        }
+    }
+
+    function _prefix(uint256[] memory list, uint256 n) internal pure returns (uint256[] memory out) {
+        out = new uint256[](n);
+        for (uint256 i; i < n; ++i) {
+            out[i] = list[i];
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A dispute report whose readings are those of one the game already took is accepted."
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// The replay case: a record, an update that changes seat 2's vote, then the record delivered again. The
+    /// record again is refused by name and writes nothing: no event, the votes, the record's time, the game's
+    /// words and the open list as they were. So are the update again; the record again from each other reporter
+    /// of the game, inside n, at hour 24 and at day 7. Controls: an update that changes a vote is taken; the
+    /// record's readings sent to another game are that game's own first record, taken; the record's readings in
+    /// another order are another report, taken, since a decision signed again is the same bytes; and at the
+    /// day-30 clock the repeat is refused as every report is then, by the clock's name.
+    /// Break: in _writeDispute(), delete `if (taken[readings]) revert OspexGames__DisputeReportRepeated(r.gameId);`.
+    function test_neverLine_aDisputeReportAlreadyTakenIsRefused() public {
+        vm.warp(DATE - 1 hours);
+        uint256 game = _create();
+        uint256 other = _create();
+        _startBy(first, game, START);
+        _startBy(first, other, START);
+        vm.warp(START + 1);
+        Report memory record = _disputeReport(game);
+        _take(address(first), record);
+        Report memory update = _disputeReport(game);
+        update.readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY});
+        vm.warp(START + 2);
+        _take(address(first), update);
+        bytes memory refusal = abi.encodeWithSelector(OspexGames.OspexGames__DisputeReportRepeated.selector, game);
+
+        MockReporter[3] memory whos = [first, second, later];
+        uint64[3] memory whens = [START + 3, START + WINDOW, START + 1 + DAY7];
+        for (uint256 i; i < whens.length; ++i) {
+            vm.warp(whens[i]);
+            for (uint256 w; w < whos.length; ++w) {
+                if (whos[w] == later && whens[i] < START + WINDOW) continue;
+                _assertRepeatRefused(address(whos[w]), record, refusal);
+                _assertRepeatRefused(address(whos[w]), update, refusal);
+            }
+        }
+
+        // Controls.
+        vm.warp(START + 1 + DAY7 + 1);
+        Report memory changed = _disputeReport(game);
+        changed.readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: HOME + 7, awayScore: AWAY});
+        _take(address(first), changed);
+        (, Reading[] memory votes,) = games.getGameReadings(game);
+        assertEq(votes[1].homeScore, HOME + 7, "a changed vote is taken");
+        Report memory onOther = _disputeReport(other); // the record's readings, on the other game
+        _take(address(second), onOther); // another game's first record
+        assertEq(games.getGameDisputedAt(other), START + 1 + DAY7 + 1, "the other game's own record");
+        Report memory reordered = _disputeReport(game);
+        (reordered.readings[0], reordered.readings[1]) = (reordered.readings[1], reordered.readings[0]);
+        _take(address(first), reordered);
+
+        vm.warp(DATE + DAY30);
+        (bool ok, bytes memory err) = _send(address(first), record);
+        assertFalse(ok, "a repeat at the day-30 clock was taken");
+        assertEq(err, _pastDay30(game), "the clock names first");
+    }
+
+    /// @dev The repeat is refused by name, and nothing is written: no log, the game's words, its reads and the
+    ///      open list as they were.
+    function _assertRepeatRefused(address who, Report memory r, bytes memory refusal) internal {
+        bytes memory raw = _rawGame(r.gameId);
+        bytes32 everything = _gameStates();
+        vm.recordLogs();
+        (bool ok, bytes memory err) = _send(who, r);
+        assertFalse(ok, "a dispute report already taken was taken again");
+        assertEq(err, refusal, "the refusal");
+        assertEq(vm.getRecordedLogs().length, 0, "a refused repeat emitted");
+        assertEq(_rawGame(r.gameId), raw, "a refused repeat wrote the game");
+        assertEq(_gameStates(), everything, "a refused repeat changed what a reader sees");
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -3442,18 +3818,21 @@ contract OspexGamesNeverLinesTest is GamesBase {
         bytes memory out = abi.encode(count);
         for (uint256 id = 1; id <= count; ++id) {
             out = abi.encodePacked(out, keccak256(_rawGame(id)));
-            bytes[5] memory calls = [
+            bytes[7] memory calls = [
                 abi.encodeCall(IOspexGames.getGameStatus, (id)),
                 abi.encodeCall(IOspexGames.getGameStart, (id)),
                 abi.encodeCall(games.getGameReporters, (id)),
                 abi.encodeCall(IOspexGames.getGameScores, (id)),
-                abi.encodeCall(IOspexGames.getGameTerms, (id))
+                abi.encodeCall(IOspexGames.getGameTerms, (id)),
+                abi.encodeCall(IOspexGames.getGameIdentity, (id)),
+                abi.encodeCall(IOspexGames.getGameReadings, (id))
             ];
             for (uint256 c; c < calls.length; ++c) {
-                (bool ok, bytes memory answer) = address(games).staticcall(calls[c]);
-                out = abi.encodePacked(out, ok, keccak256(answer));
+                (bool ok, bytes32 answer) = _hashCall(calls[c]);
+                out = abi.encodePacked(out, ok, answer);
             }
         }
+        out = abi.encodePacked(out, abi.encode(_openGames()));
         return keccak256(out);
     }
 

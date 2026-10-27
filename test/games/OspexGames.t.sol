@@ -14,7 +14,7 @@ import {
     Hint,
     Terms
 } from "../../src/games/IOspexGames.sol";
-import {GamesBase, MockReporter, OspexGamesHarness} from "./GamesBase.sol";
+import {GamesBase, GameWords, MockReporter, OspexGamesHarness} from "./GamesBase.sol";
 
 /// @dev A contract that creates a game, as a program acting for someone would.
 contract Creator {
@@ -672,7 +672,11 @@ contract OspexGamesTest is GamesBase {
                 _assertNamed(ok, err, scoreByEither[i], forScore, statuses[i], who[w]);
                 (ok, err) = _send(address(who[w]), _voidReport(forVoid));
                 _assertNamed(ok, err, voidByEither[i], forVoid, statuses[i], who[w]);
-                (ok, err) = _send(address(who[w]), _disputeReport(forDispute));
+                // A vote changed since the record a disputed game was set up with, so the report is an update
+                // and not a repeat of the record, which would be refused by that name.
+                Report memory d = _disputeReport(forDispute);
+                d.readings[1].homeScore = HOME + 1;
+                (ok, err) = _send(address(who[w]), d);
                 _assertNamed(ok, err, disputeByEither[i], forDispute, statuses[i], who[w]);
             }
         }
@@ -818,8 +822,121 @@ contract OspexGamesTest is GamesBase {
             vm.expectRevert(err);
             games.getGameDisputedAt(ids[i]);
             vm.expectRevert(err);
+            games.getGameIdentity(ids[i]);
+            vm.expectRevert(err);
+            games.getGameReadings(ids[i]);
+            vm.expectRevert(err);
             games.release(ids[i]);
         }
+    }
+
+    /// The identity reads back word for word as the creator gave it, at every limit the creation takes: a league
+    /// of one and of sixteen characters, teams of one character, of sixty-four and with spaces inside, no hint and
+    /// eight hints with ids of sixty-four characters, the date as given; and a later creation or list change moves
+    /// none of it.
+    function test_reads_identityIsTheCreationsOwnWordForWord() public {
+        string memory long = _repeat("abcdefgh", 8); // 64 characters
+        Hint[] memory eight = _eightSeats();
+        for (uint256 j; j < 8; ++j) {
+            eight[j].id = string.concat(_repeat("x", 63), vm.toString(j));
+        }
+        string[3] memory leagues = ["a", "abcdefghij123456", "nba"];
+        string[3] memory homes = ["H", long, "Saint Mary's  (CA)"];
+        string[3] memory aways = ["A", "Gonzaga Bulldogs 2026", " x "];
+        uint64[3] memory dates = [uint64(1), DATE, uint64(vm.getBlockTimestamp() + 365 days)];
+        uint256[3] memory made;
+        for (uint256 i; i < 3; ++i) {
+            Hint[] memory hints = i == 0 ? new Hint[](0) : i == 1 ? eight : _hints();
+            vm.prank(creator, creator);
+            made[i] = games.createGame(leagues[i], homes[i], aways[i], dates[i], hints, ANY_FEE);
+        }
+        _retire(address(later));
+        _setTerms("nba", _terms(2 hours));
+        _create();
+        for (uint256 i; i < 3; ++i) {
+            (string memory league, string memory home, string memory away, uint64 date, Hint[] memory hints) =
+                games.getGameIdentity(made[i]);
+            assertEq(league, leagues[i], "league");
+            assertEq(home, homes[i], "home");
+            assertEq(away, aways[i], "away");
+            assertEq(date, dates[i], "date");
+            Hint[] memory want = i == 0 ? new Hint[](0) : i == 1 ? eight : _hints();
+            assertEq(hints.length, want.length, "hint count");
+            for (uint256 h; h < want.length; ++h) {
+                assertEq(hints[h].seat, want[h].seat, "hint seat");
+                assertEq(hints[h].id, want[h].id, "hint id");
+            }
+        }
+    }
+
+    /// The readings read empty until written, and then as the report gave them: the start's as given, each
+    /// seat's last vote from the dispute reports, the record's time beside them; and they survive the game's end.
+    function test_reads_readingsAreEmptyUntilWrittenAndThenAsGiven() public {
+        uint256 game = _create();
+        (Reading[] memory s0, Reading[] memory v0, uint64 at0) = games.getGameReadings(game);
+        assertEq(s0.length, 0, "start readings before the start");
+        assertEq(v0.length, 0, "votes before a record");
+        assertEq(at0, 0, "the record's time before a record");
+
+        Report memory start = _startReport(game, START);
+        start.readings = _readings();
+        start.readings[2] = Reading({seat: 9, kind: ReadingKind.AnsweredNoFinal, homeScore: 3, awayScore: 1});
+        _take(address(first), start);
+        (Reading[] memory s1, Reading[] memory v1, uint64 at1) = games.getGameReadings(game);
+        _assertSameReadings(s1, start.readings, "the start's readings");
+        assertEq(v1.length, 0, "votes before a record");
+        assertEq(at1, 0, "the record's time before a record");
+
+        vm.warp(START + 5);
+        _disputeBy(first, game);
+        (Reading[] memory s2, Reading[] memory v2, uint64 at2) = games.getGameReadings(game);
+        _assertSameReadings(s2, start.readings, "the start's readings after the record");
+        Reading[][] memory reports = new Reading[][](1);
+        reports[0] = _disputeReadings();
+        _assertSameReadings(v2, _foldVotes(reports), "the votes after the record");
+        assertEq(at2, START + 5, "the record's time");
+
+        vm.warp(START + 5 + DAY7);
+        _voidBy(later, game);
+        (Reading[] memory s3, Reading[] memory v3, uint64 at3) = games.getGameReadings(game);
+        _assertSameReadings(s3, start.readings, "the start's readings after the end");
+        _assertSameReadings(v3, v2, "the votes after the end");
+        assertEq(at3, START + 5, "the record's time after the end");
+    }
+
+    /// The open list pages: the total beside every page, a page clipped at the end, an empty page past it, the
+    /// whole list under the largest count, and the total alone under a count of 0.
+    function test_reads_openGamesPagesClipAndCount() public {
+        (uint256[] memory none, uint256 zero) = games.getOpenGames(0, type(uint256).max);
+        assertEq(none.length, 0, "no games yet");
+        assertEq(zero, 0, "no games yet: the total");
+        uint256[] memory made = new uint256[](5);
+        for (uint256 i; i < 5; ++i) {
+            made[i] = _create();
+        }
+        (uint256[] memory all, uint256 total) = games.getOpenGames(0, type(uint256).max);
+        assertEq(all, made, "the whole list, in creation order");
+        assertEq(total, 5, "the total");
+        (uint256[] memory page, uint256 t2) = games.getOpenGames(1, 2);
+        assertEq(page.length, 2, "a page of two");
+        assertEq(page[0], made[1], "the page's first");
+        assertEq(page[1], made[2], "the page's second");
+        assertEq(t2, 5, "the total beside a page");
+        (uint256[] memory tail,) = games.getOpenGames(3, 10);
+        assertEq(tail.length, 2, "a page clipped at the end");
+        assertEq(tail[0], made[3], "the clipped page's first");
+        assertEq(tail[1], made[4], "the clipped page's second");
+        (uint256[] memory past, uint256 t3) = games.getOpenGames(5, 1);
+        assertEq(past.length, 0, "a page past the end");
+        assertEq(t3, 5, "the total past the end");
+        (uint256[] memory far,) = games.getOpenGames(type(uint256).max, type(uint256).max);
+        assertEq(far.length, 0, "a page far past the end");
+        (uint256[] memory onlyTotal, uint256 t4) = games.getOpenGames(0, 0);
+        assertEq(onlyTotal.length, 0, "a count of 0");
+        assertEq(t4, 5, "the total under a count of 0");
+        (uint256[] memory one,) = games.getOpenGames(4, 1);
+        assertEq(one.length, 1, "the last alone");
+        assertEq(one[0], made[4], "the last alone");
     }
 
     function test_reads_startRefusedUntilWritten() public {
@@ -900,22 +1017,28 @@ contract OspexGamesTest is GamesBase {
         Terms memory own = _ownTerms();
         _setTerms("nba", own);
         uint256 game = _create();
+        uint256 other = _create(); // second on the open list, until the first game's end moves it first
         vm.warp(DATE - 1 hours);
         _startBy(first, game, START);
         vm.warp(START + 1);
         _disputeBy(first, game);
+        // Word 3 while the game is open: the creator, the time of the dispute record, and its place on the open
+        // list plus one.
+        uint256 word3 = uint256(uint160(creator)) | (uint256(START + 1) << 160);
+        assertEq(uint256(vm.load(address(games), bytes32(_slotOf(game) + 3))), word3 | (uint256(1) << 224), "word 3, open");
+        assertEq(uint256(vm.load(address(games), bytes32(_slotOf(other) + 3))), uint256(uint160(creator)) | (uint256(2) << 224), "word 3 of the second game");
         vm.warp(START + 2);
         _scoreBy(first, game, HOME, AWAY);
 
         // Word 0: status, date, start, home, away. Word 1: n and the two clocks. Word 2: the fee. Word 3: the
-        // creator and the time of the dispute record.
+        // creator, the time of the dispute record, and the place on the open list, 0 once ended.
         bytes memory want = abi.encodePacked(
             uint256(uint8(GameStatus.Scored)) | (uint256(DATE) << 8) | (uint256(START) << 72)
                 | (uint256(HOME) << 136) | (uint256(AWAY) << 168),
             uint256(own.window) | (uint256(own.day7Clock) << 64) | (uint256(own.day30Clock) << 128),
             uint256(own.fee)
         );
-        want = abi.encodePacked(want, uint256(uint160(creator)) | (uint256(START + 1) << 160));
+        want = abi.encodePacked(want, word3);
         // Then the reporters' copy: its length, and each entry as address and kind.
         uint256 firstKind = uint256(uint8(ReporterKind.FirstN)) << 160;
         want = abi.encodePacked(want, uint256(3), uint256(uint160(address(first))) | firstKind);
@@ -923,6 +1046,14 @@ contract OspexGamesTest is GamesBase {
         want = abi.encodePacked(want, uint256(uint160(address(second))) | firstKind);
         assertEq(_rawGame(game), want, "a game's storage");
         assertEq(_rawDate(game), DATE, "a game's date");
+        // The end moved the second game into the first's place, and the helper reads the place where it lies.
+        assertEq(GameWords.openPlace(address(games), other), 1, "the second game's place after the first's end");
+        assertEq(GameWords.openPlace(address(games), game), 0, "an ended game's place");
+    }
+
+    /// @dev The first word of a game's storage.
+    function _slotOf(uint256 gameId) internal pure returns (uint256) {
+        return uint256(keccak256(abi.encode(gameId, GameWords.GAMES_SLOT)));
     }
 
     /// The reads are open to any address.
@@ -940,6 +1071,12 @@ contract OspexGamesTest is GamesBase {
             assertEq(games.getGameWindow(game), WINDOW);
             (address[] memory r,) = games.getGameReporters(game);
             assertEq(r.length, 3);
+            (string memory league,,,,) = games.getGameIdentity(game);
+            assertEq(league, "nba");
+            (Reading[] memory startReadings,,) = games.getGameReadings(game);
+            assertEq(startReadings.length, 4);
+            (, uint256 total) = games.getOpenGames(0, 0);
+            assertEq(total, 0);
             vm.stopPrank();
         }
     }
