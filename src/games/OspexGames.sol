@@ -910,7 +910,6 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
         for (uint256 i; i < length; ++i) {
             uint256 gameId = s_open[offset + i];
             Game storage g = s_games[gameId];
-            Identity storage identity = s_identities[gameId];
             rows[i] = OpenGame({
                 gameId: gameId,
                 status: g.status,
@@ -918,8 +917,7 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
                 window: g.terms.window,
                 day7Clock: g.terms.day7Clock,
                 disputedAt: g.disputedAt,
-                league: identity.league,
-                hints: identity.hints
+                league: s_identities[gameId].league
             });
         }
     }

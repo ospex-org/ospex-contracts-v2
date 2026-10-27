@@ -428,10 +428,10 @@ contract OspexGamesInterfaceTest is GamesBase {
             _assertParams(
                 json,
                 row,
-                "gameId;status;start;window;day7Clock;disputedAt;league;hints",
-                "uint256;uint8;uint64;uint64;uint64;uint64;string;tuple[]"
+                "gameId;status;start;window;day7Clock;disputedAt;league",
+                "uint256;uint8;uint64;uint64;uint64;uint64;string"
             );
-            _assertParams(json, string.concat(row, "[7].components"), "seat;id", "uint8;string");
+            assertFalse(vm.keyExistsJson(json, string.concat(row, "[7]")), "a row has seven fields");
             assertFalse(vm.keyExistsJson(json, "$.abi[?(@.name == 'gameCount')].inputs[0]"), "gameCount takes nothing");
             assertFalse(
                 vm.keyExistsJson(json, "$.abi[?(@.name == 'getApprovedReporters')].inputs[0]"),

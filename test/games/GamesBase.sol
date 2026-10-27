@@ -603,13 +603,8 @@ abstract contract GamesBase is Test {
         assertEq(row.day7Clock, t.day7Clock, string.concat(what, ": day-7 clock"));
         (,, uint64 disputedAt) = games.getGameReadings(id);
         assertEq(row.disputedAt, disputedAt, string.concat(what, ": disputed at"));
-        (string memory league,,,, Hint[] memory hints) = games.getGameIdentity(id);
+        (string memory league,,,,) = games.getGameIdentity(id);
         assertEq(row.league, league, string.concat(what, ": league"));
-        assertEq(row.hints.length, hints.length, string.concat(what, ": hints"));
-        for (uint256 i; i < hints.length; ++i) {
-            assertEq(row.hints[i].seat, hints[i].seat, string.concat(what, ": a hint's seat"));
-            assertEq(row.hints[i].id, hints[i].id, string.concat(what, ": a hint's id"));
-        }
     }
 
     /// @dev Two lists of readings are the same, entry for entry.

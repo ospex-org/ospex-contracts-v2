@@ -941,10 +941,10 @@ contract OspexGamesTest is GamesBase {
     }
 
     /// Each row of the open list is the game's own words: three games, one in a league with other terms and
-    /// no hint, one started with the usual two hints, one disputed with eight hints of the longest ids. Each
-    /// field against the read that answers it alone, then against the literal the test put there, so a row that
-    /// swaps two of a game's words (the start for the date, the window for the day-7 clock, the record's time
-    /// for the start) or leaves one out is caught.
+    /// no hint, one started with the usual two hints, one disputed with eight hints of the longest ids (the
+    /// hints stay in the identity read; a row has none). Each field against the read that answers it alone,
+    /// then against the literal the test put there, so a row that swaps two of a game's words (the start for
+    /// the date, the window for the day-7 clock, the record's time for the start) or leaves one out is caught.
     function test_reads_openGamesRowsAreTheGamesOwnWords() public {
         Terms memory other = _terms(WINDOW + 1 hours);
         other.day7Clock = DAY7 + 1 hours;
@@ -971,7 +971,6 @@ contract OspexGamesTest is GamesBase {
         assertEq(rows[0].day7Clock, DAY7 + 1 hours, "the other league's day-7 clock");
         assertEq(rows[0].disputedAt, 0, "no record");
         assertEq(rows[0].league, "abcdefghijklmnop", "the other league");
-        assertEq(rows[0].hints.length, 0, "no hint");
         assertEq(rows[1].gameId, plain, "the second row's game");
         assertEq(uint8(rows[1].status), uint8(GameStatus.Verified), "a started game's status");
         assertEq(rows[1].start, START, "a started game's start, as written, not its date");
@@ -979,42 +978,30 @@ contract OspexGamesTest is GamesBase {
         assertEq(rows[1].day7Clock, DAY7, "the launch day-7 clock");
         assertEq(rows[1].disputedAt, 0, "no record yet");
         assertEq(rows[1].league, "nba", "the league");
-        Hint[] memory two = _hints();
-        assertEq(rows[1].hints.length, 2, "two hints");
-        for (uint256 i; i < 2; ++i) {
-            assertEq(rows[1].hints[i].seat, two[i].seat, "a hint's seat");
-            assertEq(rows[1].hints[i].id, two[i].id, "a hint's id");
-        }
         assertEq(rows[2].gameId, full, "the third row's game");
         assertEq(uint8(rows[2].status), uint8(GameStatus.Disputed), "a disputed game's status");
         assertEq(rows[2].start, START, "a disputed game's start");
         assertEq(rows[2].disputedAt, START + 1, "the record's time");
-        assertEq(rows[2].hints.length, 8, "eight hints");
-        Hint[] memory eight = _eightHints();
-        for (uint256 i; i < 8; ++i) {
-            assertEq(rows[2].hints[i].seat, eight[i].seat, "a hint's seat at the limit");
-            assertEq(rows[2].hints[i].id, eight[i].id, "a hint's id at the limit");
-        }
+        assertEq(rows[2].league, "nba", "the league of the game with eight hints");
     }
 
-    /// A page's answer is bounded by its rows, measured on the call's return data: a row encodes to 384 bytes
-    /// with no hint, 704 with the usual two hints (ids of 32 bytes or fewer), 1,920 at the limits (eight hints
-    /// with ids of 64 bytes), beside 96 bytes for the answer's own words. So a reader that may take 25,000
-    /// bytes asks 12 rows a page whatever the games are, 35 of typical ones.
+    /// A row encodes to 320 bytes whatever the game, measured on the call's return data: its league is one to
+    /// sixteen bytes, one word, and its hints stay in the identity read; the answer's own words are 96 bytes.
+    /// So a reader that may take 25,000 bytes asks 77 rows a page (24,736 bytes); 78 rows are 25,056.
     function test_reads_openGamesPageBytesAreBoundedByTheRows() public {
+        _setTerms("a", _terms(WINDOW));
+        _setTerms("abcdefghijklmnop", _terms(WINDOW));
         vm.warp(DATE - 1 hours);
-        for (uint256 i; i < 13; ++i) {
-            _createIn("nba", _eightHints());
-        }
-        assertEq(_answerBytes(0, 12), 96 + 12 * 1920, "twelve rows at the limits");
-        assertEq(_answerBytes(0, 13), 96 + 13 * 1920, "thirteen rows at the limits");
-        for (uint256 i; i < 35; ++i) {
+        _createIn("a", new Hint[](0));
+        _createIn("abcdefghijklmnop", _eightHints());
+        assertEq(_answerBytes(0, 1), 96 + 320, "a row with a league of one byte and no hint");
+        assertEq(_answerBytes(1, 1), 96 + 320, "a row with a league of sixteen bytes and eight hints");
+        for (uint256 i; i < 76; ++i) {
             _create();
         }
-        assertEq(_answerBytes(13, 35), 96 + 35 * 704, "thirty-five typical rows");
-        _createIn("nba", new Hint[](0));
-        assertEq(_answerBytes(48, 1), 96 + 384, "a row with no hint");
-        assertEq(_answerBytes(49, 1), 96, "an empty page: the answer's own words");
+        assertEq(_answerBytes(0, 77), 96 + 77 * 320, "seventy-seven rows");
+        assertEq(_answerBytes(0, 78), 96 + 78 * 320, "seventy-eight rows");
+        assertEq(_answerBytes(78, 1), 96, "an empty page: the answer's own words");
     }
 
     /// @dev The length of the open list read's return data for a page.
