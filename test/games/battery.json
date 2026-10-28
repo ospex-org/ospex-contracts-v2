@@ -1447,7 +1447,7 @@
    "file": "src/games/IOspexGames.sol",
    "edits": [
     {
-     "line": 79,
+     "line": 80,
      "find": "    uint32 homeScore;\n    uint32 awayScore;\n}\n",
      "replace": "    uint32 awayScore;\n    uint32 homeScore;\n}\n",
      "file": "src/games/IOspexGames.sol"
@@ -1462,7 +1462,7 @@
    "file": "src/games/IOspexGames.sol",
    "edits": [
     {
-     "line": 106,
+     "line": 107,
      "find": "    uint32 homeScore;\n    uint32 awayScore;\n    Reading[] readings;\n",
      "replace": "    uint32 awayScore;\n    uint32 homeScore;\n    Reading[] readings;\n",
      "file": "src/games/IOspexGames.sol"
@@ -1519,7 +1519,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 1365,
+     "line": 1366,
      "find": "    function _recordedKind(uint256 gameId, address account) private view returns (ReporterKind) {\n        Reporter[] storage list = s_gameReporters[gameId];\n",
      "replace": "    function _recordedKind(uint256 gameId, address account) private view returns (ReporterKind) {\n        Reporter[] storage list = s_approved;\n"
     }
@@ -1715,7 +1715,7 @@
    "file": "src/games/IOspexGames.sol",
    "edits": [
     {
-     "line": 244,
+     "line": 245,
      "find": "        uint64 date,\n        Hint[] hints,\n",
      "replace": "        uint256 date,\n        Hint[] hints,\n",
      "file": "src/games/IOspexGames.sol"
@@ -1730,7 +1730,7 @@
    "file": "src/games/IOspexGames.sol",
    "edits": [
     {
-     "line": 118,
+     "line": 119,
      "find": "    uint8 seat;\n    string id;\n",
      "replace": "    string id;\n    uint8 seat;\n",
      "file": "src/games/IOspexGames.sol"
@@ -1745,7 +1745,7 @@
    "file": "src/games/IOspexGames.sol",
    "edits": [
     {
-     "line": 137,
+     "line": 138,
      "find": "    uint64 day7Clock;\n    uint64 day30Clock;\n",
      "replace": "    uint64 day30Clock;\n    uint64 day7Clock;\n",
      "file": "src/games/IOspexGames.sol"
@@ -2180,7 +2180,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 1353,
+     "line": 1354,
      "find": "            if (seats & seat != 0) revert OspexGames__ReadingSeatRepeated(i);\n            seats |= seat;\n",
      "replace": "            if (seats & seat != 0) revert OspexGames__ReadingSeatRepeated(i);\n"
     }
@@ -2194,7 +2194,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 1353,
+     "line": 1354,
      "find": "            if (seats & seat != 0) revert OspexGames__ReadingSeatRepeated(i);\n",
      "replace": ""
     }
@@ -2656,7 +2656,7 @@
    "file": "src/games/OspexGames.sol",
    "edits": [
     {
-     "line": 1349,
+     "line": 1350,
      "find": "            if (reading.kind == ReadingKind.Silent && (reading.homeScore != 0 || reading.awayScore != 0)) {\n",
      "replace": "            if (reading.kind != ReadingKind.AnsweredFinal && (reading.homeScore != 0 || reading.awayScore != 0)) {\n"
     }

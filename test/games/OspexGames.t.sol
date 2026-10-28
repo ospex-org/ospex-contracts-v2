@@ -1111,8 +1111,8 @@ contract OspexGamesTest is GamesBase {
         _assertTerms(games.getGameTerms(later_), changed, "the game made after");
     }
 
-    /// Several never-line tests compare each game's storage word for word (GamesBase._rawGame), since no read
-    /// returns a game's date. This pins where each field lies, with a value no other field holds, so a change
+    /// Several never-line tests compare each game's storage word for word (GamesBase._rawGame), every field a
+    /// write could touch. This pins where each field lies, with a value no other field holds, so a change
     /// of layout turns this red rather than leaving those comparisons reading empty slots.
     function test_storage_aGameLiesWhereTheSnapshotsReadIt() public {
         Terms memory own = _ownTerms();

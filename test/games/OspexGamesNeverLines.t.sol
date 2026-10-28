@@ -3944,7 +3944,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
     }
 
     /// @dev Every game's status, start, scores, reporters and terms, each read as (taken, answer), and its
-    ///      storage word for word, which holds the date no read returns: what a game is, without the one read a
+    ///      storage word for word, every field a write could touch: what a game is, without the one read a
     ///      retirement is meant to move.
     function _gameStates() internal view returns (bytes32) {
         uint256 count = games.gameCount();

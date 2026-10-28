@@ -51,7 +51,7 @@ enum ReportKind {
     /// @dev 3: a void. An end, from start + n; on a disputed game, from the day-7 clock.
     Void,
     /// @dev 4: a dispute record, which starts the day-7 clock; on a disputed game, an update to it, which
-    ///      writes nothing.
+    ///      writes each seat's vote and no status or clock.
     Dispute
 }
 
@@ -66,8 +66,9 @@ enum ReadingKind {
     AnsweredFinal
 }
 
-/// @notice One feed's reading, as a report gives it. The games set emits readings and stores none, and refuses a
-///         report its own readings contradict (see Report).
+/// @notice One feed's reading, as a report gives it. The games set emits every report's readings, keeps a start's
+///         and an end's as given and each seat's last vote from a dispute report's (see getGameReadings), and
+///         refuses a report its own readings contradict (see Report).
 /// @param seat The feed's seat: its number in the scoring program's feed table. A feed is never named here, and
 ///        no two readings in one report name the same seat.
 /// @param kind Silent, answered without a final, or answered with a final.

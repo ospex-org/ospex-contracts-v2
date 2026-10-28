@@ -87,7 +87,7 @@ library GameWords {
 
     /// @dev One game's storage: its four words (status, date, start and scores; then its terms, two words;
     ///      then its creator and the time of its dispute record) and its reporters' copy. The reads show what a
-    ///      game says; this shows every field a write could touch, the date included, which no read returns.
+    ///      game says; this shows every field a write could touch, the date among them, from the word itself.
     function raw(address games, uint256 gameId) internal view returns (bytes memory out) {
         uint256 base = uint256(keccak256(abi.encode(gameId, GAMES_SLOT)));
         for (uint256 i; i < 4; ++i) {
@@ -648,7 +648,7 @@ abstract contract GamesBase is Test {
         return GameWords.raw(address(games), gameId);
     }
 
-    /// @dev A game's date as stored, which no read returns.
+    /// @dev A game's date as stored, from the word itself; getGameIdentity and the open list's rows return it too.
     function _rawDate(uint256 gameId) internal view returns (uint64) {
         return GameWords.date(address(games), gameId);
     }

@@ -71,7 +71,7 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
  *         the same call, from the start by a first-n reporter and from start + n by an after-n one; it carries no
  *         payout, credits nothing and ends nothing. It is a record, not a lock: a disputed game still takes a
  *         score from any of its reporters permitted at that hour, and takes later dispute reports as updates,
- *         which write nothing. What the first record does is start the day-7 clock, counted from that record and
+ *         which write only the votes. What the first record does is start the day-7 clock, counted from that record and
  *         moved by nothing after it: on a disputed game a void is taken only from that clock. The release is the
  *         end no reporter writes. Anyone may release a game that has not ended once its day-30 clock has run,
  *         counted from the date given at creation; or at once, when every one of the game's reporters that could
@@ -701,8 +701,8 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
 
     /// @inheritdoc IOspexGames
     /// @dev A refused report reverts, so it changes nothing and moves no money. A report this contract takes
-    ///      emits GameReported, naming the sender as the reporter that wrote it, and changes one game, or none:
-    ///      an update to a dispute record writes nothing. A score and a void also credit the game's creation fee
+    ///      emits GameReported, naming the sender as the reporter that wrote it, and changes one game: an update
+    ///      to a dispute record writes the votes alone. A score and a void also credit the game's creation fee
     ///      to the payout address in the report (FeeCredited), and call no coin. The sender's standing is checked
     ///      before the report's kind is read, so every kind is refused the same way: not the game's reporter,
     ///      retired, or code changed.
@@ -1340,7 +1340,8 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
     /// @dev Refuses, in a report of any kind, a reading marked silent that carries a score, and two readings that
     ///      name one seat. A score's and a void's readings are read against the result they carry in
     ///      _checkScoreReadings and _checkVoidReadings; nothing else in a reading is checked, and all are emitted
-    ///      as the feeds gave them, not stored.
+    ///      as the feeds gave them; a start's, a score's and a void's are also kept as given (see _keep), and a
+    ///      dispute report's write each seat's vote (see _writeVotes).
     function _checkReadings(Reading[] calldata readings) private pure {
         uint256 count = readings.length;
         uint256 seats = 0;
