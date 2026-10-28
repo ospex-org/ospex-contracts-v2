@@ -3491,59 +3491,78 @@ contract OspexGamesNeverLinesTest is GamesBase {
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
-    // "A dispute report whose readings are those of one the game already took is accepted."
+    // "A dispute report that repeats the game's latest one, in the same order, is taken; or one that does not
+    //  is refused as a repeat."
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-    /// The replay case: a record, an update that changes seat 2's vote, then the record delivered again. The
-    /// record again is refused by name and writes nothing: no event, the votes, the record's time, the game's
-    /// words and the open list as they were. So are the update again; the record again from each other reporter
-    /// of the game, inside n, at hour 24 and at day 7. Controls: an update that changes a vote is taken; the
-    /// record's readings sent to another game are that game's own first record, taken; the record's readings in
-    /// another order are another report, taken, since a decision signed again is the same bytes; and at the
-    /// day-30 clock the repeat is refused as every report is then, by the clock's name.
-    /// Break: in _writeDispute(), delete `if (taken[readings]) revert OspexGames__DisputeReportRepeated(r.gameId);`.
-    function test_neverLine_aDisputeReportAlreadyTakenIsRefused() public {
+    /// The latest dispute report again is refused by name and writes nothing: no event, the votes, the record's
+    /// time, the game's words and the open list as they were. The record again, from each of the game's
+    /// reporters at its hour, inside n, at hour 24 and at day 7. Any other dispute report is taken, a return to
+    /// an earlier one included: after an update that changes seat 2's vote, the update again is refused, the
+    /// record's readings again are taken as an update and move seat 2's vote back, and then the update's
+    /// readings, no longer the latest's, are taken again, while whichever was just taken is refused. The
+    /// scoring program decides at day 7 from the votes on record, every seat closed by then, so a seat's genuine
+    /// return to an earlier reading has to move its vote: the program's own sequences are settled in
+    /// OspexGamesEnds.t.sol (test_readings_aReturnToEarlierReadings*). Controls: the latest's readings in
+    /// another order are another report, taken, since a decision signed again is the same bytes; the same
+    /// readings on another game are that game's own first record, taken; and at the day-30 clock the repeat is
+    /// refused as every report is then, by the clock's name.
+    /// Break: in _writeDispute(), delete `if (readings == s_lastDisputeReport[r.gameId]) revert
+    /// OspexGames__DisputeReportRepeated(r.gameId);`. The latest again is then taken, and emits.
+    function test_neverLine_onlyTheLatestDisputeReportAgainIsRefused() public {
         vm.warp(DATE - 1 hours);
         uint256 game = _create();
         uint256 other = _create();
         _startBy(first, game, START);
         _startBy(first, other, START);
-        vm.warp(START + 1);
+        bytes memory refusal = abi.encodeWithSelector(OspexGames.OspexGames__DisputeReportRepeated.selector, game);
         Report memory record = _disputeReport(game);
-        _take(address(first), record);
         Report memory update = _disputeReport(game);
         update.readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY});
-        vm.warp(START + 2);
-        _take(address(first), update);
-        bytes memory refusal = abi.encodeWithSelector(OspexGames.OspexGames__DisputeReportRepeated.selector, game);
 
+        vm.warp(START + 1);
+        _take(address(first), record);
         MockReporter[3] memory whos = [first, second, later];
-        uint64[3] memory whens = [START + 3, START + WINDOW, START + 1 + DAY7];
+        uint64[3] memory whens = [START + 2, START + WINDOW, START + 1 + DAY7];
         for (uint256 i; i < whens.length; ++i) {
             vm.warp(whens[i]);
             for (uint256 w; w < whos.length; ++w) {
                 if (whos[w] == later && whens[i] < START + WINDOW) continue;
                 _assertRepeatRefused(address(whos[w]), record, refusal);
-                _assertRepeatRefused(address(whos[w]), update, refusal);
             }
         }
 
+        // At day 7, inside the day-30 clock: the update is taken and is the latest; the record, no longer the
+        // latest, is taken again as a return; then the update again, no longer the latest, is taken too.
+        _take(address(second), update);
+        _assertVote(game, 2, HOME, "the update's vote");
+        _assertRepeatRefused(address(first), update, refusal);
+        _assertRepeatRefused(address(later), update, refusal);
+        vm.recordLogs();
+        _take(address(later), record);
+        _assertSameReadings(_emittedReadings(vm.getRecordedLogs(), game), record.readings, "the return, emitted as given");
+        _assertVote(game, 2, HOME + 3, "the vote moved back to the record's");
+        assertEq(games.getGameDisputedAt(game), START + 1, "the record's time stands");
+        assertEq(uint8(_status(game)), uint8(GameStatus.Disputed), "a return is an update");
+        _assertRepeatRefused(address(first), record, refusal);
+        _assertRepeatRefused(address(second), record, refusal);
+        _take(address(first), update);
+        _assertVote(game, 2, HOME, "the vote moved forward again");
+        _assertRepeatRefused(address(later), update, refusal);
+
         // Controls.
-        vm.warp(START + 1 + DAY7 + 1);
-        Report memory changed = _disputeReport(game);
-        changed.readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: HOME + 7, awayScore: AWAY});
-        _take(address(first), changed);
-        (, Reading[] memory votes,) = games.getGameReadings(game);
-        assertEq(votes[1].homeScore, HOME + 7, "a changed vote is taken");
-        Report memory onOther = _disputeReport(other); // the record's readings, on the other game
-        _take(address(second), onOther); // another game's first record
-        assertEq(games.getGameDisputedAt(other), START + 1 + DAY7 + 1, "the other game's own record");
         Report memory reordered = _disputeReport(game);
+        reordered.readings[1] = update.readings[1];
         (reordered.readings[0], reordered.readings[1]) = (reordered.readings[1], reordered.readings[0]);
-        _take(address(first), reordered);
+        _take(address(first), reordered); // the latest's readings in another order: another report
+        Report memory onOther = _disputeReport(other);
+        onOther.readings = reordered.readings;
+        _take(address(second), onOther); // the same readings on the other game: its own first record
+        assertEq(games.getGameDisputedAt(other), START + 1 + DAY7, "the other game's own record");
+        _assertRepeatRefused(address(first), reordered, refusal); // the latest on its game
 
         vm.warp(DATE + DAY30);
-        (bool ok, bytes memory err) = _send(address(first), record);
+        (bool ok, bytes memory err) = _send(address(first), reordered);
         assertFalse(ok, "a repeat at the day-30 clock was taken");
         assertEq(err, _pastDay30(game), "the clock names first");
     }
@@ -3555,11 +3574,23 @@ contract OspexGamesNeverLinesTest is GamesBase {
         bytes32 everything = _gameStates();
         vm.recordLogs();
         (bool ok, bytes memory err) = _send(who, r);
-        assertFalse(ok, "a dispute report already taken was taken again");
+        assertFalse(ok, "the latest dispute report again was taken");
         assertEq(err, refusal, "the refusal");
         assertEq(vm.getRecordedLogs().length, 0, "a refused repeat emitted");
         assertEq(_rawGame(r.gameId), raw, "a refused repeat wrote the game");
         assertEq(_gameStates(), everything, "a refused repeat changed what a reader sees");
+    }
+
+    /// @dev The vote on record for `seat` carries `home` as its home score.
+    function _assertVote(uint256 game, uint8 seat, uint32 home, string memory what) internal view {
+        (, Reading[] memory votes,) = games.getGameReadings(game);
+        for (uint256 i; i < votes.length; ++i) {
+            if (votes[i].seat == seat) {
+                assertEq(votes[i].homeScore, home, what);
+                return;
+            }
+        }
+        revert(string.concat(what, ": no vote on record for the seat"));
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────

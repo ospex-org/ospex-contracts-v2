@@ -110,8 +110,8 @@ contract GamesHandler is Test {
     mapping(address => bool) internal swappedAtApproval;
 
     mapping(uint256 => Ghost) internal ghosts;
-    /// @dev The hash of the readings of every dispute report each game took: a repeat is refused.
-    mapping(uint256 => mapping(bytes32 => bool)) internal disputeTaken;
+    /// @dev The hash of the readings of the latest dispute report each game took: that report again is refused.
+    mapping(uint256 => bytes32) internal lastDispute;
     uint256 internal salt;
     uint256 public created;
     uint256 public disputesRepeated;
@@ -387,10 +387,11 @@ contract GamesHandler is Test {
     ///      refused. Taken after the start, for an after-n reporter from start + n, and refused from the game's
     ///      day-30 clock. The first record writes the time the day-7 clock counts from; an update writes no
     ///      status and moves no clock. Seat 1's vote takes one of four values from the seed, so that a report can
-    ///      repeat a game's earlier one: a repeat is refused, whoever sends it and at whatever hour. Few sequences
-    ///      reach a dispute at all (time moves past most start windows: in one sequence of 5,000 calls, 95 games
-    ///      were created, 3 started and none disputed), so the repeat refusal is proven by the never-line test and
-    ///      by the scripted path below, not by the campaign.
+    ///      repeat the game's latest one, which is refused whoever sends it and at whatever hour, or return to an
+    ///      earlier one, which is taken. Few sequences reach a dispute at all (time moves past most start windows:
+    ///      in one sequence of 5,000 calls, 95 games were created, 3 started and none disputed), so the repeat
+    ///      refusal and the return are proven by the never-line test and by the scripted path below, not by the
+    ///      campaign.
     function reportDispute(uint256 gameSeed, uint256 whoSeed, uint256 shapeSeed) external {
         uint256 id = _pickGame(gameSeed);
         Ghost storage g = ghosts[id];
@@ -400,7 +401,7 @@ contract GamesHandler is Test {
         Report memory r = _report(id, ReportKind.Dispute, 0, 0, 0, shapeSeed);
         r.payout = shapeSeed % 7 == 1 ? address(0xFEE00) : address(0);
         bytes32 readings = keccak256(abi.encode(r.readings));
-        bool repeat = disputeTaken[id][readings];
+        bool repeat = readings == lastDispute[id];
         bool otherwise = _exists(id) && kind != 0 && !retired[who] && _codeAsApproved(who) && g.started
             && !_ended(g) && _open(g) && nowTs >= g.start
             && (kind != 2 || nowTs >= uint256(g.start) + g.terms.window) && shapeSeed % 7 != 1
@@ -413,7 +414,7 @@ contract GamesHandler is Test {
                 g.disputed = true;
                 g.disputedAt = uint64(nowTs);
             }
-            disputeTaken[id][readings] = true;
+            lastDispute[id] = readings;
             _fold(g.votes, r.readings);
             ++disputesTaken;
         } else if (!ok && otherwise && repeat) {
@@ -646,7 +647,7 @@ contract GamesHandler is Test {
             }
         } else {
             // A dispute report's seat 1 votes one of four finals, by the seed's high bits, so that a later report
-            // can repeat a game's earlier one or change its vote.
+            // can repeat the game's latest one, return to an earlier one, or change its vote.
             uint32 vote = 7 + uint32((shapeSeed >> 16) % 4);
             readings[0] = Reading({seat: 1, kind: ReadingKind.AnsweredFinal, homeScore: vote, awayScore: 3});
             readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: 7, awayScore: 4});
@@ -956,7 +957,8 @@ contract OspexGamesInvariantTest is GamesBase {
         handler.reportVoid(2, 3, 0); // game 3, first, inside n: refused
         handler.reportDispute(2, 3, 0); // game 3, first, inside n: the record
         handler.reportDispute(2, 3, 0); // first again, the record's readings again: refused, a repeat
-        handler.reportDispute(2, 3, 65536); // first again, seat 1's vote changed: an update, writing nothing
+        handler.reportDispute(2, 3, 65536); // first again, seat 1's vote changed: an update, writing the vote
+        handler.reportDispute(2, 3, 0); // the record's readings again, after the update: a return, taken
         handler.warp(2 hours); // past start + n
         handler.reportVoid(2, 3, 0); // game 3, first, disputed, inside the day-7 clock: refused
         handler.release(2, 8); // game 3, by pool 8, before its day-30 clock, a reporter live: refused
@@ -985,7 +987,7 @@ contract OspexGamesInvariantTest is GamesBase {
         assertEq(handler.startsTaken(), 4, "starts taken");
         assertEq(handler.scoresTaken(), 2, "scores taken");
         assertEq(handler.voidsTaken(), 1, "voids taken");
-        assertEq(handler.disputesTaken(), 2, "dispute reports taken: a record and an update");
+        assertEq(handler.disputesTaken(), 3, "dispute reports taken: a record, an update and a return");
         assertEq(handler.disputesRepeated(), 1, "dispute reports refused as repeats");
         assertEq(handler.releasesTaken(), 1, "releases taken");
         assertEq(handler.releasesRefused(), 3, "releases refused");

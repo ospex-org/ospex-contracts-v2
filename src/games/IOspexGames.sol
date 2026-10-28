@@ -187,7 +187,8 @@ struct OpenGame {
  *         Whatever picks a game up to score it reads the game, never its events: three reads beside the five
  *         return a game's identity as its creator gave it, the readings its start report carried with each
  *         seat's last vote and the time of its dispute record, and the list of games not yet ended, whole or by
- *         page. A dispute report whose readings are those of one the game already took is refused.
+ *         page. A dispute report that repeats the game's latest one, in the same order, is refused: it would
+ *         write no vote.
  */
 interface IOspexGames is IGameReporters {
     /// @notice Emitted once, by the constructor: the timelock that alone makes the three calls. It never
@@ -352,9 +353,10 @@ interface IOspexGames is IGameReporters {
     ///         moving no clock. Every report the games set takes is emitted with its readings. A start's readings
     ///         are stored as given; a dispute record's and an update's replace each seat's last vote where the
     ///         reading is not silent, and a silent reading leaves the seat's vote as it was (see getGameReadings).
-    ///         A dispute report whose readings are those of a dispute report the game already took, in the same
-    ///         order, is refused (DisputeReportRepeated): an old decision delivered again cannot become the
-    ///         newest vote. An update's event has the record's shape; a game's first dispute event is its record,
+    ///         A dispute report whose readings are those of the game's latest dispute report, in the same order,
+    ///         is refused (DisputeReportRepeated): it would write each seat's vote as it is. Any other is taken,
+    ///         a return to an earlier report's readings included: the vote on record is what the day-7 run
+    ///         decides from. An update's event has the record's shape; a game's first dispute event is its record,
     ///         and getGameDisputedAt gives the record's time. A game that has ended takes no report of any kind,
     ///         and no game takes one at or after its day-30 clock (PastDay30Clock), counted from the date given at
     ///         creation: from that second the release is the only door. A report its own readings contradict is
