@@ -429,7 +429,12 @@ contract FeeHandler is Test {
             && (who != address(i_later) || nowTs >= uint256(g.start) + WINDOW);
 
         vm.recordLogs();
-        bool ok = _send(who, _report(id, ReportKind.Dispute, 0, address(0)));
+        // Each dispute report carries a vote no earlier one did (a running number in seat 1's score), so none
+        // is a repeat of one the game took, which the games set refuses; the fee's routing is what this run
+        // watches, and a repeat credits nothing either way.
+        Report memory r = _report(id, ReportKind.Dispute, 0, address(0));
+        r.readings[0].homeScore = uint32(++disputeNumber);
+        bool ok = _send(who, r);
         if (ok != expected) ++mismatches;
         if (ok && expected) {
             if (!g.disputed) {
@@ -442,6 +447,9 @@ contract FeeHandler is Test {
         }
         _expectNoCredit(vm.getRecordedLogs());
     }
+
+    /// @dev A running number, so no two dispute reports of a run carry the same readings.
+    uint256 internal disputeNumber;
 
     /// @dev Released by anyone, once the day-30 clock has run from the game's date; refused before, and for a
     ///      game that has ended.

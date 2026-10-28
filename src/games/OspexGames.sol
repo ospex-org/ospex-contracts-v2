@@ -10,7 +10,8 @@ import {
     Reading,
     Report,
     Hint,
-    Terms
+    Terms,
+    OpenGame
 } from "./IOspexGames.sol";
 import {IOspexReporter} from "./IOspexReporter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -70,7 +71,7 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
  *         the same call, from the start by a first-n reporter and from start + n by an after-n one; it carries no
  *         payout, credits nothing and ends nothing. It is a record, not a lock: a disputed game still takes a
  *         score from any of its reporters permitted at that hour, and takes later dispute reports as updates,
- *         which write nothing. What the first record does is start the day-7 clock, counted from that record and
+ *         which write only the votes. What the first record does is start the day-7 clock, counted from that record and
  *         moved by nothing after it: on a disputed game a void is taken only from that clock. The release is the
  *         end no reporter writes. Anyone may release a game that has not ended once its day-30 clock has run,
  *         counted from the date given at creation; or at once, when every one of the game's reporters that could
@@ -85,20 +86,37 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
  *         clock the first end to land is the game's. Spec: "How a game ends", "Retiring a reporter", "The
  *         terms".
  *
- *         The readings. A report carries the feeds' readings, one per seat, emitted and not stored. This contract
- *         refuses a report its own readings contradict, and re-derives no result: no two readings name one seat;
- *         a silent reading carries no score; a score is read as a final by as many of its readings as the
- *         scoring program scores on at that clock, AGREE inside n and on a disputed game, AGREE_AFTER_N from
- *         start + n on a game with no dispute record, and no final reads otherwise, except on a disputed game
- *         from its day-7 clock, where the rule settles three of four over one dissent; a void carries no finals
- *         that read the same in that count, at hour 24 or at day 7, since that is a score's agreement and the
- *         rule scores on it at either clock. Which readings settle a game is the scoring program's rule, behind
- *         the reporter's code hash; these checks are a second door, and a report that passes them is not thereby
- *         true. Spec: "The scoring program", "Must never happen".
+ *         The readings. A report carries the feeds' readings, one per seat, and every report is emitted with
+ *         them. This contract refuses a report its own readings contradict, and re-derives no result: no two
+ *         readings name one seat; a silent reading carries no score; a score is read as a final by as many of
+ *         its readings as the scoring program scores on at that clock, AGREE inside n and on a disputed game,
+ *         AGREE_AFTER_N from start + n on a game with no dispute record, and no final reads otherwise, except on
+ *         a disputed game from its day-7 clock, where the rule settles three of four over one dissent; a void
+ *         carries no finals that read the same in that count, at hour 24 or at day 7, since that is a score's
+ *         agreement and the rule scores on it at either clock. Which readings settle a game is the scoring
+ *         program's rule, behind the reporter's code hash; these checks are a second door, and a report that
+ *         passes them is not thereby true. Spec: "The scoring program", "Must never happen".
  *
  *         Correcting a start or a score: there is none. Each is written once. Feeds that disagree lead to a
  *         dispute record and its updates, never to a correction. Spec: "The start is written once" and "A
  *         score is written once and is final".
+ *
+ *         What a scorer picks up. Whatever scores a game, a runner on a schedule or an agent checking a
+ *         settlement, reads the game and never its events, so three reads beside the five hold what the events
+ *         carry and the rest of this contract does not read: a game's identity as its creator gave it, stored
+ *         at creation word for word (getGameIdentity); the readings its start report carried and the readings
+ *         its score or void carried, each stored as given when written, with each seat's last vote, which every
+ *         dispute record and update writes for each seat whose reading is not silent while a silent reading
+ *         leaves a seat's vote as it was, beside the time of the dispute record (getGameReadings); and the list
+ *         of games not yet ended, which a game joins at creation and leaves at its end, read whole or by page
+ *         as rows that carry, beside the id, the words a reader decides on (getOpenGames). A dispute report
+ *         whose readings are those of the game's latest dispute report, in the same order, is refused: it
+ *         would write each seat's vote as it is, and this contract keeps the hash of that report's readings
+ *         for the game. Every other dispute report is taken, a return to readings the game took earlier
+ *         included: the day-7 run decides from the votes on record, every seat closed by then, so a seat's
+ *         genuine return to an earlier reading has to move its vote. Whether a report a reporter sends is a
+ *         fresh run of the program is the reporter's to ensure, not this contract's. Spec: "What a game is",
+ *         "One report shape for every reporter", "Something asks for scores by itself".
  *
  *         It has no owner, no pause, no setter but the timelock's three calls, and no way to correct a start or
  *         a score. It refuses no league.
@@ -106,13 +124,18 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
  * @dev    What the report call and the release read, by whether it can change between a game's creation and
  *         its end. Each thing that could change and must not is either never written again or compared with
  *         what was recorded:
- *         - Pinned when written, and never written again: the game's reporters and their kinds, its four terms
- *           and its date, from its creation, the date being what its day-30 clock counts from; among the terms
- *           its creation fee, which is the amount the game holds and its end credits, whatever the league's fee
- *           is now; its start, once written, which n counts from; the time of its dispute record, once written,
- *           which the day-7 clock counts from and an update never moves; and this contract's own limits and
- *           coin, which are constants. A release reads one thing more, also pinned at creation: the creator it
- *           credits.
+ *         - Pinned when written, and never written again: the game's reporters and their kinds, its four terms,
+ *           its date and its identity, from its creation, the date being what its day-30 clock counts from;
+ *           among the terms its creation fee, which is the amount the game holds and its end credits, whatever
+ *           the league's fee is now; its start, once written, which n counts from, and the readings the start
+ *           report carried; the readings its score or void carried, written with the end, after which nothing
+ *           is written; the time of its dispute record, once written, which the day-7 clock counts from
+ *           and an update never moves; and this contract's own limits and coin, which are constants. A release
+ *           reads one thing more, also pinned at creation: the creator it credits. Neither the report call nor
+ *           the release reads the identity, the start's or the end's readings, the votes or the open list: they
+ *           are written
+ *           for readers outside this contract, and the dispute report's repeat check reads only the hash of
+ *           the game's latest dispute report.
  *         - Checked at the door against a stored value: the sender's code. Its live hash must equal the hash
  *           recorded at its approval, or the report is refused (CodeChanged).
  *         - Live by design: the sender's retired flag, because a retirement is meant to reach games already
@@ -247,7 +270,8 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
 
     // ──────────────────────────── Types ────────────────────────────────
 
-    /// @dev A game as stored. Its identity (league, teams, hints) is in the creation event only. Its creator is
+    /// @dev A game as stored: what the report call and the release read. Its identity (league, teams, hints)
+    ///      is in the creation event and stored beside it (s_identities); nothing here reads it. Its creator is
     ///      in the event and stored too, because a release credits the creator.
     /// @param status Where the game stands
     /// @param date The scheduled start the creator gave
@@ -259,6 +283,8 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
     /// @param creator The address that created the game and paid its fee: what a release credits
     /// @param disputedAt When the dispute record was written; 0 until then. The day-7 clock counts from it, and
     ///        nothing moves it once written: an update to the record writes nothing.
+    /// @param openPlace The game's place on the open list plus one, while it has not ended; 0 from its end. It
+    ///        shares the creator's word, so the list costs a game no word of its own.
     struct Game {
         GameStatus status;
         uint64 date;
@@ -268,6 +294,16 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
         Terms terms;
         address creator;
         uint64 disputedAt;
+        uint32 openPlace;
+    }
+
+    /// @dev A game's identity as its creator gave it, stored at creation and never written again, for the
+    ///      readers that pick a game up. The date is in the game itself. Nothing in this contract reads it.
+    struct Identity {
+        string league;
+        string homeTeam;
+        string awayTeam;
+        Hint[] hints;
     }
 
     /// @dev A reporter and its kind.
@@ -437,6 +473,10 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
     error OspexGames__ScoreOutOfRange(uint32 homeScore, uint32 awayScore);
     /// @notice Thrown when a game's scores are read and the game is not scored
     error OspexGames__NotScored(uint256 gameId, GameStatus status);
+    /// @notice Thrown when a dispute record or an update carries the readings of the game's latest dispute
+    ///         report, in the same order: it would write each seat's vote as it is, so it is refused by name
+    ///         rather than taken as a change
+    error OspexGames__DisputeReportRepeated(uint256 gameId);
 
     // ──────────────────────────── State ────────────────────────────────
 
@@ -472,6 +512,32 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
     /// @dev What each address has been credited and not yet withdrawn. An end adds a game's fee; only the
     ///      address's own withdrawal takes it away.
     mapping(address => uint256) internal s_credits;
+
+    // What a scorer picks up: written by the creation and the reports, read by nothing in this contract but
+    // the three reads for it, and the dispute report's repeat check.
+
+    /// @dev Game id to its identity, written at creation and never again.
+    mapping(uint256 => Identity) internal s_identities;
+
+    /// @dev Game id to the readings its start report carried, as given, written with the start and never again.
+    mapping(uint256 => Reading[]) internal s_startReadings;
+
+    /// @dev Game id to each seat's last vote: one entry per seat that has ever voted, in the order the seats
+    ///      first voted. Every dispute record and update replaces the entry of each seat whose reading is not
+    ///      silent; a silent reading leaves the seat's entry as it was.
+    mapping(uint256 => Reading[]) internal s_votes;
+
+    /// @dev Game id to the readings its score or void carried, as given, written with the end and never again:
+    ///      empty until the game ends, and empty for a game released, which no report ends.
+    mapping(uint256 => Reading[]) internal s_endReadings;
+
+    /// @dev Game id to the hash of the readings of the latest dispute report it took, 0 until one. A dispute
+    ///      report whose readings hash the same is refused: it would write each seat's vote as it is.
+    mapping(uint256 => bytes32) internal s_lastDisputeReport;
+
+    /// @dev The games not yet ended. A game joins at its creation and leaves at its end, the last game on the
+    ///      list moving into its place; each game's place, plus one, is in its own openPlace.
+    uint256[] internal s_open;
 
     // ──────────────────────────── Constructor ──────────────────────────
 
@@ -518,12 +584,10 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
         if (kinds.length != count || codeHashes.length != count) {
             revert OspexGames__LengthsDiffer(count, kinds.length, codeHashes.length);
         }
-        bool firstN = false;
         for (uint256 i; i < count; ++i) {
             _admit(reporters[i], kinds[i], codeHashes[i]);
-            if (kinds[i] == ReporterKind.FirstN) firstN = true;
         }
-        if (!firstN) revert OspexGames__NoFirstNReporter();
+        if (!_listHasFirstN()) revert OspexGames__NoFirstNReporter();
     }
 
     // ──────────────────────────── The timelock's three calls ───────────
@@ -599,6 +663,19 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
         g.date = date;
         g.terms = terms;
         g.creator = msg.sender;
+        _joinOpen(g, gameId);
+
+        // The identity, word for word as given: what a reader that picks the game up needs, and what the
+        // event below carries.
+        Identity storage identity = s_identities[gameId];
+        identity.league = league;
+        identity.homeTeam = homeTeam;
+        identity.awayTeam = awayTeam;
+        for (uint256 i; i < hintCount; ++i) {
+            Hint storage stored = identity.hints.push();
+            stored.seat = hints[i].seat;
+            stored.id = hints[i].id;
+        }
 
         uint256 count = s_approved.length;
         address[] memory accounts = new address[](count);
@@ -624,8 +701,8 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
 
     /// @inheritdoc IOspexGames
     /// @dev A refused report reverts, so it changes nothing and moves no money. A report this contract takes
-    ///      emits GameReported, naming the sender as the reporter that wrote it, and changes one game, or none:
-    ///      an update to a dispute record writes nothing. A score and a void also credit the game's creation fee
+    ///      emits GameReported, naming the sender as the reporter that wrote it, and changes one game: an update
+    ///      to a dispute record writes the votes alone. A score and a void also credit the game's creation fee
     ///      to the payout address in the report (FeeCredited), and call no coin. The sender's standing is checked
     ///      before the report's kind is read, so every kind is refused the same way: not the game's reporter,
     ///      retired, or code changed.
@@ -801,6 +878,64 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
         creator = g.creator;
     }
 
+    // ──────────────────────────── The reads for picking a game up ──────
+
+    /// @inheritdoc IOspexGames
+    function getGameIdentity(uint256 gameId)
+        external
+        view
+        returns (string memory league, string memory homeTeam, string memory awayTeam, uint64 date, Hint[] memory hints)
+    {
+        Game storage g = _game(gameId);
+        Identity storage identity = s_identities[gameId];
+        return (identity.league, identity.homeTeam, identity.awayTeam, g.date, identity.hints);
+    }
+
+    /// @inheritdoc IOspexGames
+    function getGameReadings(uint256 gameId)
+        external
+        view
+        returns (
+            Reading[] memory startReadings,
+            Reading[] memory votes,
+            uint64 disputedAt,
+            Reading[] memory endReadings
+        )
+    {
+        Game storage g = _game(gameId);
+        return (s_startReadings[gameId], s_votes[gameId], g.disputedAt, s_endReadings[gameId]);
+    }
+
+    /// @inheritdoc IOspexGames
+    /// @dev The page is clipped before any arithmetic on `count`, so a count of type(uint256).max reads the
+    ///      whole list from `offset` and overflows nothing. Each row is filled from the game's own words and its
+    ///      identity, the same storage the per-game reads answer from.
+    function getOpenGames(uint256 offset, uint256 count)
+        external
+        view
+        returns (OpenGame[] memory rows, uint256 total)
+    {
+        total = s_open.length;
+        if (offset >= total) return (rows, total);
+        uint256 left = total - offset;
+        uint256 length = count < left ? count : left;
+        rows = new OpenGame[](length);
+        for (uint256 i; i < length; ++i) {
+            uint256 gameId = s_open[offset + i];
+            Game storage g = s_games[gameId];
+            rows[i] = OpenGame({
+                gameId: gameId,
+                status: g.status,
+                start: g.start,
+                window: g.terms.window,
+                day7Clock: g.terms.day7Clock,
+                disputedAt: g.disputedAt,
+                league: s_identities[gameId].league,
+                date: g.date
+            });
+        }
+    }
+
     // ──────────────────────────── Internal ─────────────────────────────
 
     /// @dev Admits a reporter to the approved list: the constructor's first reporters, and every approval. It
@@ -827,6 +962,17 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
         bytes memory values = _fixedValues(reporter);
         if (values.length == 0) revert OspexGames__NoFixedValues(reporter);
         emit ReporterApproved(reporter, kind, codeHash, values);
+    }
+
+    /// @dev True when the approved list, as it stands, holds a first-n reporter: the constructor's last check,
+    ///      read from the list it has just written. (A creation checks the same of the copy it makes, as it
+    ///      makes it.)
+    function _listHasFirstN() private view returns (bool) {
+        uint256 count = s_approved.length;
+        for (uint256 i; i < count; ++i) {
+            if (s_approved[i].kind == ReporterKind.FirstN) return true;
+        }
+        return false;
     }
 
     /// @dev The reporter's answer to the fixed-values read, made as a read (STATICCALL: the interface marks it
@@ -864,7 +1010,8 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
     /// @dev Writes a start. The game must have no start written yet, the sender must be a first-n reporter,
     ///      the scores and the payout must be empty (a start pays nothing), the start must be within START_BOUND
     ///      of the date given at creation, either way, and the time before the game's day-30 clock (see
-    ///      _checkDay30). Writing the start moves no clock: the day-30 clock counts from the date.
+    ///      _checkDay30). Writing the start moves no clock: the day-30 clock counts from the date. The start's
+    ///      readings are stored as given, for whatever picks the game up (see _keep).
     function _writeStart(Game storage g, Report calldata r, ReporterKind kind) private {
         GameStatus status = g.status;
         if (status != GameStatus.Unverified) _refuseStart(r.gameId, status);
@@ -880,6 +1027,7 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
         _checkDay30(g, r.gameId);
         g.start = r.start;
         g.status = GameStatus.Verified;
+        _keep(s_startReadings[r.gameId], r.readings);
     }
 
     /// @dev Writes a score, which ends the game. The game's start must be written and no end written, a dispute
@@ -889,7 +1037,8 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
     ///      day-30 clock (see _checkDay30), at or after the start, and, for an after-n reporter, at or after
     ///      start + n (see _checkHour). The end credits the game's fee to the payout address. A disputed game
     ///      takes a score at any hour a reporter may write: the record is a record, not a lock; its score needs
-    ///      AGREE finals reading it at every clock, and takes a dissenting final only from its day-7 clock.
+    ///      AGREE finals reading it at every clock, and takes a dissenting final only from its day-7 clock. The
+    ///      score's readings are stored as given, for whatever checks the settlement (see _keep).
     function _writeScore(Game storage g, Report calldata r, ReporterKind kind) private {
         GameStatus status = g.status;
         if (status != GameStatus.Verified && status != GameStatus.Disputed) _refuseResult(r.gameId, status);
@@ -906,6 +1055,7 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
         _checkHour(g, r.gameId, kind);
         g.homeScore = r.homeScore;
         g.awayScore = r.awayScore;
+        _keep(s_endReadings[r.gameId], r.readings);
         _end(g, r.gameId, GameStatus.Scored, r.payout);
     }
 
@@ -916,7 +1066,8 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
     ///      _checkVoidReadings); the time before the game's day-30 clock (see _checkDay30), and at or after
     ///      start + n, that second included, for a reporter of either kind: the hour-24 void. On a disputed game
     ///      the time must also be at or after the dispute record plus the day-7 clock: the day-7 void, the one
-    ///      end a dispute holds back. The end credits the game's fee to the payout address.
+    ///      end a dispute holds back. The end credits the game's fee to the payout address. The void's readings
+    ///      are stored as given, for whatever checks the settlement (see _keep).
     function _writeVoid(Game storage g, Report calldata r) private {
         GameStatus status = g.status;
         if (status != GameStatus.Verified && status != GameStatus.Disputed) _refuseResult(r.gameId, status);
@@ -930,15 +1081,21 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
             uint256 day7OpensAt = uint256(g.disputedAt) + g.terms.day7Clock;
             if (block.timestamp < day7OpensAt) revert OspexGames__InsideDay7Clock(r.gameId, day7OpensAt);
         }
+        _keep(s_endReadings[r.gameId], r.readings);
         _end(g, r.gameId, GameStatus.Voided, r.payout);
     }
 
     /// @dev Writes a dispute record, or takes an update to one. The game's start must be written and no end
     ///      written; the start, both scores and the payout must be empty, since a dispute record credits
     ///      nothing; the time before the game's day-30 clock (see _checkDay30), at or after the start and, for an
-    ///      after-n reporter, at or after start + n (see _checkHour). On a game not yet disputed it writes
-    ///      Disputed and the time, which the day-7 clock counts from. On a disputed game it writes nothing: the
-    ///      report is taken and emitted as an update, and the clock stays where the first record put it.
+    ///      after-n reporter, at or after start + n (see _checkHour); and the readings must not be those of the
+    ///      game's latest dispute report, in the same order (DisputeReportRepeated), checked last so a clock's
+    ///      refusal names first: that report again would write each seat's vote as it is. Any other readings
+    ///      are taken, an earlier dispute report's included, since a seat's return to an earlier reading is its
+    ///      vote. On a game not yet disputed it writes Disputed and the time, which the day-7 clock counts
+    ///      from. On a disputed game it writes no status and moves no clock: the report is taken and emitted as
+    ///      an update. Either way it keeps the hash of the readings as the latest's and writes each seat's vote
+    ///      from them (see _writeVotes).
     function _writeDispute(Game storage g, Report calldata r, ReporterKind kind) private {
         GameStatus status = g.status;
         if (status != GameStatus.Verified && status != GameStatus.Disputed) _refuseResult(r.gameId, status);
@@ -947,10 +1104,67 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
         }
         _checkDay30(g, r.gameId);
         _checkHour(g, r.gameId, kind);
+        bytes32 readings = keccak256(abi.encode(r.readings));
+        if (readings == s_lastDisputeReport[r.gameId]) revert OspexGames__DisputeReportRepeated(r.gameId);
+        s_lastDisputeReport[r.gameId] = readings;
         if (status == GameStatus.Verified) {
             g.status = GameStatus.Disputed;
             g.disputedAt = uint64(block.timestamp);
         }
+        _writeVotes(s_votes[r.gameId], r.readings);
+    }
+
+    /// @dev Writes each seat's vote from a dispute report's readings: a reading that is not silent replaces the
+    ///      seat's entry, or adds one for a seat that has not voted; a silent reading changes nothing, since a
+    ///      seat that gave no answer takes nothing back. The scoring program folds a game's dispute reports the
+    ///      same way, so what it reads here is what it would fold from the events.
+    function _writeVotes(Reading[] storage votes, Reading[] calldata readings) private {
+        uint256 count = readings.length;
+        for (uint256 i; i < count; ++i) {
+            Reading calldata reading = readings[i];
+            if (reading.kind == ReadingKind.Silent) continue;
+            uint256 have = votes.length;
+            uint256 j;
+            while (j < have && votes[j].seat != reading.seat) ++j;
+            if (j < have) votes[j] = reading;
+            else votes.push(reading);
+        }
+    }
+
+    /// @dev Keeps a report's readings as given, in its order, in a list written once: the start's at the start,
+    ///      the score's or the void's at the end. Each caller writes once, so the list is empty when this runs.
+    function _keep(Reading[] storage stored, Reading[] calldata readings) private {
+        uint256 count = readings.length;
+        for (uint256 i; i < count; ++i) {
+            stored.push(readings[i]);
+        }
+    }
+
+    /// @dev Puts a game on the open list, at its end, and records its place in the game. Called once per game,
+    ///      at its creation.
+    function _joinOpen(Game storage g, uint256 gameId) private {
+        s_open.push(gameId);
+        // The list holds at most one entry per game not yet ended, each made for a fee, so its length is far
+        // inside 32 bits.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        g.openPlace = uint32(s_open.length);
+    }
+
+    /// @dev Takes a game off the open list: the last game on the list moves into its place, and the game's
+    ///      place reads 0 from then on. Called once per game, by `_end`, which refuses a game already ended, so
+    ///      the game is on the list when this runs.
+    function _leaveOpen(Game storage g) private {
+        uint256 place = g.openPlace;
+        uint256 last = s_open.length;
+        if (place != last) {
+            uint256 moved = s_open[last - 1];
+            s_open[place - 1] = moved;
+            // A place read from a game's own openPlace, which _joinOpen wrote from a length inside 32 bits.
+            // forge-lint: disable-next-line(unsafe-typecast)
+            s_games[moved].openPlace = uint32(place);
+        }
+        s_open.pop();
+        g.openPlace = 0;
     }
 
     /// @dev Refuses any report at or after the game's day-30 clock: from that second the release is the only
@@ -1076,6 +1290,7 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
         if (status == GameStatus.None) revert OspexGames__UnknownGame(gameId);
         if (status >= GameStatus.Scored) revert OspexGames__GameEnded(gameId, status);
         g.status = end;
+        _leaveOpen(g);
         uint96 fee = g.terms.fee;
         if (fee != 0) {
             s_credits[account] += fee;
@@ -1125,7 +1340,8 @@ contract OspexGames is IOspexGames, ReentrancyGuardTransient {
     /// @dev Refuses, in a report of any kind, a reading marked silent that carries a score, and two readings that
     ///      name one seat. A score's and a void's readings are read against the result they carry in
     ///      _checkScoreReadings and _checkVoidReadings; nothing else in a reading is checked, and all are emitted
-    ///      as the feeds gave them, not stored.
+    ///      as the feeds gave them; a start's, a score's and a void's are also kept as given (see _keep), and a
+    ///      dispute report's write each seat's vote (see _writeVotes).
     function _checkReadings(Reading[] calldata readings) private pure {
         uint256 count = readings.length;
         uint256 seats = 0;

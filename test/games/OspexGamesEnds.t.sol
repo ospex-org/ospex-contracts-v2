@@ -195,7 +195,9 @@ contract OspexGamesEndsTest is GamesBase {
         assertEq(_held(game), FEE, "a disputed game holds its fee");
 
         vm.warp(START + 3 hours);
-        _take(address(first), _disputeReport(game));
+        Report memory update = _disputeReport(game);
+        update.readings[1].homeScore = HOME + 1; // a vote changed: the same readings again are refused
+        _take(address(first), update);
         assertEq(games.getGameDisputedAt(game), START + 90 minutes, "an update moved the record's time");
         vm.warp(START + 4 hours);
         _take(address(first), _scoreReportTo(game, payout));
@@ -403,8 +405,13 @@ contract OspexGamesEndsTest is GamesBase {
                         if (action == 0) (ok,) = _send(address(kinds[w]), _startReport(game, START));
                         else if (action == 1) (ok,) = _send(address(kinds[w]), _scoreReport(game, HOME, AWAY));
                         else if (action == 2) (ok,) = _send(address(kinds[w]), _voidReport(game));
-                        else if (action == 3) (ok,) = _send(address(kinds[w]), _disputeReport(game));
-                        else (ok,) = _tryRelease(stranger, game);
+                        else if (action == 3) {
+                            // A vote changed since the record a disputed game was set up with: on such a game
+                            // the record's own readings again would be refused as a repeat, not taken.
+                            Report memory d = _disputeReport(game);
+                            d.readings[1].homeScore = HOME + 1;
+                            (ok,) = _send(address(kinds[w]), d);
+                        } else (ok,) = _tryRelease(stranger, game);
                         Vm.Log[] memory logs = vm.getRecordedLogs();
                         GameStatus next = _status(game);
                         assertGe(uint8(next), uint8(before), "the status moved back");
@@ -684,6 +691,160 @@ contract OspexGamesEndsTest is GamesBase {
         assertEq(uint8(_status(updated)), uint8(GameStatus.Disputed), "an update writes nothing");
         assertEq(games.getGameDisputedAt(updated), START + 1, "an update moves no clock");
         assertEq(games.getCredit(payout), 3 * uint256(FEE), "each end credited once");
+    }
+
+    // ──────────────────────────── A return to earlier readings ─────────
+
+    /// The scoring program's own sequence, run through the games set from the after-n reporter: record A, three
+    /// finals 104-97 and one 97-104; update B, one 104-97 and three 97-104; then A again, byte for byte the
+    /// record, a fresh observation the program emits as the same report. A again is taken, since only the latest
+    /// report again is refused, so the votes on record read A's; and the program decides at day 7 from the votes
+    /// with every seat closed, so the score it sends, 104-97 over one dissent, is taken, while 97-104 is refused
+    /// for want of finals reading it and a void for the finals that agree. The same sequence without the return
+    /// settles the other way: B's votes score 97-104, which refusing A again would have settled.
+    function test_readings_aReturnToEarlierReadingsIsTakenAndDay7ScoresFromIt() public {
+        bool[4] memory a = [true, true, true, false];
+        bool[4] memory b = [true, false, false, false];
+        uint256 game = _recordUpdateAndReturn(a, b, true);
+        uint256 stale = _recordUpdateAndReturn(a, b, false);
+        vm.warp(START + WINDOW + DAY7);
+        _assertDay7Scores(game, _finalsOf(a), HOME, AWAY);
+        _assertDay7Scores(stale, _finalsOf(b), AWAY, HOME);
+    }
+
+    /// The program's second sequence: record A as above; update B, two 104-97 and two 97-104; A again. The return
+    /// is taken and the votes read A's, so day 7 scores 104-97 and refuses a void; without the return B's votes
+    /// are two and two, so day 7 voids and refuses the score.
+    function test_readings_aReturnToEarlierReadingsIsTakenAndDay7ScoresInsteadOfVoiding() public {
+        bool[4] memory a = [true, true, true, false];
+        bool[4] memory b = [true, true, false, false];
+        uint256 game = _recordUpdateAndReturn(a, b, true);
+        uint256 stale = _recordUpdateAndReturn(a, b, false);
+        vm.warp(START + WINDOW + DAY7);
+        _assertDay7Scores(game, _finalsOf(a), HOME, AWAY);
+        _assertDay7Voids(stale, _finalsOf(b));
+    }
+
+    /// A seat's last word before it closes: the record seeds two 104-97 and two 97-104; once seat 4 has closed,
+    /// an update carries seat 3's final 104-97 beside its silence, then an update takes seat 3 back to 97-104,
+    /// then, at seat 3's last open instant, its return to 104-97, byte for byte the first update. The return is
+    /// taken: the votes read three 104-97 and seat 4's 97-104, so day 7 scores 104-97 and refuses a void; the
+    /// program sends no later update (seats 1 and 2 unchanged, 3 and 4 closed), so without the return the votes
+    /// stay two and two and day 7 voids.
+    function test_readings_aClosedSeatsReturnToEarlierReadingsIsTakenAndDay7ScoresFromIt() public {
+        bool[4] memory seed = [true, true, false, false];
+        bool[4] memory a = [true, true, true, false];
+        bool[4] memory b = [true, true, false, false];
+        Reading[] memory seat3Back = _finalsOf(a);
+        seat3Back[3] = Reading({seat: 4, kind: ReadingKind.Silent, homeScore: 0, awayScore: 0});
+        Reading[] memory seat3Away = _finalsOf(b);
+        seat3Away[3] = Reading({seat: 4, kind: ReadingKind.Silent, homeScore: 0, awayScore: 0});
+        uint256[2] memory made;
+        for (uint256 i; i < 2; ++i) {
+            vm.warp(DATE - 1 hours);
+            made[i] = _create();
+            _startBy(first, made[i], START);
+            vm.warp(START + WINDOW);
+            _disputeWith(later, made[i], _finalsOf(seed)); // the record
+            vm.warp(START + 67 hours); // seat 4 closed
+            _disputeWith(later, made[i], seat3Back);
+            vm.warp(START + 5 days - 1 hours);
+            _disputeWith(later, made[i], seat3Away);
+            if (i == 0) {
+                vm.warp(START + 5 days); // seat 3's last open instant: its return, byte for byte the first update
+                vm.recordLogs();
+                _disputeWith(later, made[i], seat3Back);
+                assertEq(vm.getRecordedLogs().length, 1, "the return is emitted as the update it is");
+            }
+        }
+        vm.warp(START + WINDOW + DAY7);
+        _assertDay7Scores(made[0], _finalsOf(a), HOME, AWAY);
+        _assertDay7Voids(made[1], _finalsOf(b));
+    }
+
+    /// @dev A game started at START whose after-n reporter records `a` at hour 24, updates it with `b` a second
+    ///      later, and, when `withReturn`, sends `a` again a second after that: the return, taken.
+    function _recordUpdateAndReturn(bool[4] memory a, bool[4] memory b, bool withReturn) internal returns (uint256 game) {
+        vm.warp(DATE - 1 hours);
+        game = _create();
+        _startBy(first, game, START);
+        vm.warp(START + WINDOW);
+        _disputeWith(later, game, _finalsOf(a));
+        assertEq(games.getGameDisputedAt(game), START + WINDOW, "the record");
+        vm.warp(START + WINDOW + 1);
+        _disputeWith(later, game, _finalsOf(b));
+        if (withReturn) {
+            vm.warp(START + WINDOW + 2);
+            vm.recordLogs();
+            _disputeWith(later, game, _finalsOf(a));
+            assertEq(vm.getRecordedLogs().length, 1, "the return is emitted as the update it is");
+        }
+    }
+
+    /// @dev At day 7 the votes on record are `votes`, and the program's score from them, `home`-`away` over
+    ///      the one dissent, is taken, while the score the other way is refused for want of finals reading it and
+    ///      a void for the finals that agree.
+    function _assertDay7Scores(uint256 game, Reading[] memory votes, uint32 home, uint32 away) internal {
+        (, Reading[] memory onRecord,,) = games.getGameReadings(game);
+        _assertSameReadings(onRecord, votes, "the votes on record");
+        Report memory v = _voidReportTo(game, payout);
+        v.readings = onRecord;
+        (bool ok, bytes memory err) = _send(address(later), v);
+        assertFalse(ok, "a void over three agreeing votes was taken");
+        assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__FinalsAgree.selector, home, away));
+        Report memory wrong = _scoreReportTo(game, payout);
+        wrong.homeScore = away;
+        wrong.awayScore = home;
+        wrong.readings = onRecord;
+        (ok, err) = _send(address(later), wrong);
+        assertFalse(ok, "the score the stale votes would have given was taken");
+        assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__TooFewFinalsAgree.selector, 1, 3));
+        Report memory right = _scoreReportTo(game, payout);
+        right.homeScore = home;
+        right.awayScore = away;
+        right.readings = onRecord;
+        _take(address(later), right);
+        assertEq(uint8(_status(game)), uint8(GameStatus.Scored), "day 7 scores from the votes on record");
+        (uint32 h, uint32 a) = games.getGameScores(game);
+        assertEq(h, home, "the home score the votes decide");
+        assertEq(a, away, "the away score the votes decide");
+    }
+
+    /// @dev At day 7 the votes on record are `votes`, two and two, so the score is refused for want of finals
+    ///      reading it and the void the program sends is taken.
+    function _assertDay7Voids(uint256 game, Reading[] memory votes) internal {
+        (, Reading[] memory onRecord,,) = games.getGameReadings(game);
+        _assertSameReadings(onRecord, votes, "the votes on record");
+        Report memory s = _scoreReportTo(game, payout);
+        s.readings = onRecord;
+        (bool ok, bytes memory err) = _send(address(later), s);
+        assertFalse(ok, "a score on two agreeing votes was taken at day 7");
+        assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__TooFewFinalsAgree.selector, 2, 3));
+        Report memory v = _voidReportTo(game, payout);
+        v.readings = onRecord;
+        _take(address(later), v);
+        assertEq(uint8(_status(game)), uint8(GameStatus.Voided), "day 7 voids on the stale votes");
+    }
+
+    /// @dev A dispute record or an update from `who` carrying `readings`.
+    function _disputeWith(MockReporter who, uint256 game, Reading[] memory readings) internal {
+        Report memory r = _disputeReport(game);
+        r.readings = readings;
+        _take(address(who), r);
+    }
+
+    /// @dev Four finals, seats 1 to 4, each 104-97 where `homeWins` says so and 97-104 otherwise: the program's
+    ///      reading of a fresh answer about the same game.
+    function _finalsOf(bool[4] memory homeWins) internal pure returns (Reading[] memory readings) {
+        readings = new Reading[](4);
+        for (uint256 i; i < 4; ++i) {
+            readings[i] = Reading({
+                seat: uint8(i + 1),
+                kind: ReadingKind.AnsweredFinal,
+                homeScore: homeWins[i] ? HOME : AWAY,
+                awayScore: homeWins[i] ? AWAY : HOME
+            });
+        }
     }
 
     /// @dev `count` silent readings at 0-0, seats 1 to `count`.

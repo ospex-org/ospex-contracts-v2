@@ -27,9 +27,10 @@ contract OspexGamesInterfaceTest is GamesBase {
     }
 
     /// The contract has exactly these functions: the four writes anyone may send (create, report, release,
-    /// withdraw), the timelock's three calls, the five reads, the other reads, twelve constants and the two
-    /// addresses fixed at deploy. So it has no owner, no pause, no setter but the timelock's three, no fee
-    /// receiver and no setter for one, and nothing else writes a game, the list or a credit.
+    /// withdraw), the timelock's three calls, the five reads, the three reads for picking a game up, the other
+    /// reads, twelve constants and the two addresses fixed at deploy. So it has no owner, no pause, no setter but
+    /// the timelock's three, no fee receiver and no setter for one, and nothing else writes a game, the list or
+    /// a credit.
     /// Break: add any external function to OspexGames, such as one that pushes onto a game's reporters.
     function test_theFunctionsAreExactlyThese() public view {
         string[] memory want = vm.split(
@@ -43,6 +44,7 @@ contract OspexGamesInterfaceTest is GamesBase {
             "gameCount();getGameReporters(uint256);getGameScores(uint256);getGameStart(uint256);"
             "getGameStatus(uint256);getGameWindow(uint256);getGameTerms(uint256);isEveryReporterRetired(uint256);"
             "getGameDisputedAt(uint256);"
+            "getGameIdentity(uint256);getGameReadings(uint256);getOpenGames(uint256,uint256);"
             "getApprovedReporters();getReporter(address);getTerms(string);getCredit(address);getGameFee(uint256)",
             ";"
         );
@@ -91,7 +93,7 @@ contract OspexGamesInterfaceTest is GamesBase {
             "OspexGames__NotDisputed(uint256);OspexGames__NotAnEnd(uint8);"
             "OspexGames__PastDay30Clock(uint256,uint256);OspexGames__ReadingSeatRepeated(uint256);"
             "OspexGames__TooFewFinalsAgree(uint256,uint256);OspexGames__FinalDissents(uint256);"
-            "OspexGames__FinalsAgree(uint32,uint32)",
+            "OspexGames__FinalsAgree(uint32,uint32);OspexGames__DisputeReportRepeated(uint256)",
             ";"
         );
         _assertSameSet(_errorSignatures(impl, false), want, "error");
@@ -152,7 +154,7 @@ contract OspexGamesInterfaceTest is GamesBase {
             "OspexGames__PastDay30Clock(uint256 gameId,uint256 closedAt);"
             "OspexGames__ReadingSeatRepeated(uint256 index);"
             "OspexGames__TooFewFinalsAgree(uint256 agreeing,uint256 needed);OspexGames__FinalDissents(uint256 index);"
-            "OspexGames__FinalsAgree(uint32 homeScore,uint32 awayScore)",
+            "OspexGames__FinalsAgree(uint32 homeScore,uint32 awayScore);OspexGames__DisputeReportRepeated(uint256 gameId)",
             ";"
         );
         _assertSameSet(_errorSignatures(impl, true), want, "named error");
@@ -232,6 +234,9 @@ contract OspexGamesInterfaceTest is GamesBase {
         assertEq(IOspexGames.getGameFee.selector, bytes4(keccak256("getGameFee(uint256)")));
         assertEq(IOspexGames.release.selector, bytes4(keccak256("release(uint256)")));
         assertEq(IOspexGames.getGameDisputedAt.selector, bytes4(keccak256("getGameDisputedAt(uint256)")));
+        assertEq(IOspexGames.getGameIdentity.selector, bytes4(keccak256("getGameIdentity(uint256)")));
+        assertEq(IOspexGames.getGameReadings.selector, bytes4(keccak256("getGameReadings(uint256)")));
+        assertEq(IOspexGames.getOpenGames.selector, bytes4(keccak256("getOpenGames(uint256,uint256)")));
     }
 
     /// Break: in IOspexGames.sol, change GameCreated's `uint64 date,` to `uint256 date,`.
@@ -391,7 +396,7 @@ contract OspexGamesInterfaceTest is GamesBase {
     /// other's names, for anyone who decodes the contract's own ABI by name.
     function test_theReadsAnswerThese() public view {
         string[2] memory artifacts = [iface, impl];
-        string[8] memory gameReads = [
+        string[10] memory gameReads = [
             "getGameStatus",
             "getGameStart",
             "getGameReporters",
@@ -399,13 +404,37 @@ contract OspexGamesInterfaceTest is GamesBase {
             "getGameWindow",
             "getGameTerms",
             "isEveryReporterRetired",
-            "getGameDisputedAt"
+            "getGameDisputedAt",
+            "getGameIdentity",
+            "getGameReadings"
         ];
         for (uint256 a; a < artifacts.length; ++a) {
             string memory json = artifacts[a];
             for (uint256 i; i < gameReads.length; ++i) {
                 _assertParams(json, string.concat("$.abi[?(@.name == '", gameReads[i], "')].inputs"), "gameId", "uint256");
             }
+            // The three reads for picking a game up: the identity as the creation took it, the readings in the
+            // report's own shape, the open list by page with its total.
+            string memory identity = "$.abi[?(@.name == 'getGameIdentity')].outputs";
+            _assertParams(json, identity, "league;homeTeam;awayTeam;date;hints", "string;string;string;uint64;tuple[]");
+            _assertParams(json, string.concat(identity, "[4].components"), "seat;id", "uint8;string");
+            string memory readings = "$.abi[?(@.name == 'getGameReadings')].outputs";
+            _assertParams(
+                json, readings, "startReadings;votes;disputedAt;endReadings", "tuple[];tuple[];uint64;tuple[]"
+            );
+            _assertParams(json, string.concat(readings, "[0].components"), "seat;kind;homeScore;awayScore", "uint8;uint8;uint32;uint32");
+            _assertParams(json, string.concat(readings, "[1].components"), "seat;kind;homeScore;awayScore", "uint8;uint8;uint32;uint32");
+            _assertParams(json, string.concat(readings, "[3].components"), "seat;kind;homeScore;awayScore", "uint8;uint8;uint32;uint32");
+            _assertParams(json, "$.abi[?(@.name == 'getOpenGames')].inputs", "offset;count", "uint256;uint256");
+            _assertParams(json, "$.abi[?(@.name == 'getOpenGames')].outputs", "rows;total", "tuple[];uint256");
+            string memory row = "$.abi[?(@.name == 'getOpenGames')].outputs[0].components";
+            _assertParams(
+                json,
+                row,
+                "gameId;status;start;window;day7Clock;disputedAt;league;date",
+                "uint256;uint8;uint64;uint64;uint64;uint64;string;uint64"
+            );
+            assertFalse(vm.keyExistsJson(json, string.concat(row, "[8]")), "a row has eight fields");
             assertFalse(vm.keyExistsJson(json, "$.abi[?(@.name == 'gameCount')].inputs[0]"), "gameCount takes nothing");
             assertFalse(
                 vm.keyExistsJson(json, "$.abi[?(@.name == 'getApprovedReporters')].inputs[0]"),

@@ -12,7 +12,8 @@ import {
     Reading,
     Report,
     Hint,
-    Terms
+    Terms,
+    OpenGame
 } from "../../src/games/IOspexGames.sol";
 import {GamesBase, GameWords, MockReporter, OspexGamesHarness} from "./GamesBase.sol";
 import {SwappedRelay} from "./ReporterFixtures.sol";
@@ -68,6 +69,14 @@ contract GamesHandler is Test {
         uint32 away;
         /// @dev The game's storage, word for word, at the moment it ended.
         bytes32 endedRaw;
+        /// @dev The readings the taken start carried, and each seat's last vote folded from the dispute reports
+        ///      taken, by the program's rule: a reading that is not silent replaces the seat's entry or adds one.
+        Reading[] startReadings;
+        Reading[] votes;
+        /// @dev The readings the taken score or void carried; empty until then, and for a release.
+        Reading[] endReadings;
+        /// @dev The league the game was created in; its teams are always "Home Team" and "Away Team", no hints.
+        string league;
     }
 
     uint32 internal constant MAX_SCORE = 1_000_000;
@@ -103,8 +112,11 @@ contract GamesHandler is Test {
     mapping(address => bool) internal swappedAtApproval;
 
     mapping(uint256 => Ghost) internal ghosts;
+    /// @dev The hash of the readings of the latest dispute report each game took: that report again is refused.
+    mapping(uint256 => bytes32) internal lastDispute;
     uint256 internal salt;
     uint256 public created;
+    uint256 public disputesRepeated;
     /// @dev Calls where the contract and the model disagreed. Must stay 0.
     uint256 public mismatches;
     uint256 public taken;
@@ -263,6 +275,7 @@ contract GamesHandler is Test {
             g.kinds = curKinds;
             g.date = date;
             g.terms = termsOf(league);
+            g.league = league;
         } catch {
             if (expected) ++mismatches;
             ++createsRefused;
@@ -303,6 +316,9 @@ contract GamesHandler is Test {
         if (ok && expected) {
             g.started = true;
             g.start = start;
+            for (uint256 i; i < r.readings.length; ++i) {
+                g.startReadings.push(r.readings[i]);
+            }
             ++startsTaken;
         }
     }
@@ -332,12 +348,14 @@ contract GamesHandler is Test {
             && !_ended(g) && home <= MAX_SCORE
             && away <= MAX_SCORE && _open(g) && nowTs >= g.start
             && (kind != 2 || nowTs >= uint256(g.start) + g.terms.window) && _readingsFine(shapeSeed) && supported;
-        bool ok = _send(who, _report(id, ReportKind.Score, 0, home, away, shapeSeed));
+        Report memory r = _report(id, ReportKind.Score, 0, home, away, shapeSeed);
+        bool ok = _send(who, r);
         _check(ok, expected);
         if (ok && expected) {
             g.scored = true;
             g.home = home;
             g.away = away;
+            _keepEnd(g, r.readings);
             ++scoresTaken;
             _recordEnd(id);
         }
@@ -364,6 +382,7 @@ contract GamesHandler is Test {
         _check(ok, expected);
         if (ok && expected) {
             g.voided = true;
+            _keepEnd(g, r.readings);
             ++voidsTaken;
             _recordEnd(id);
         }
@@ -371,7 +390,13 @@ contract GamesHandler is Test {
 
     /// @dev A dispute record, or an update to one, with no payout; one time in seven it names a payout, which is
     ///      refused. Taken after the start, for an after-n reporter from start + n, and refused from the game's
-    ///      day-30 clock. The first record writes the time the day-7 clock counts from; an update writes nothing.
+    ///      day-30 clock. The first record writes the time the day-7 clock counts from; an update writes no
+    ///      status and moves no clock. Seat 1's vote takes one of four values from the seed, so that a report can
+    ///      repeat the game's latest one, which is refused whoever sends it and at whatever hour, or return to an
+    ///      earlier one, which is taken. Few sequences reach a dispute at all (time moves past most start windows:
+    ///      in one sequence of 5,000 calls, 95 games were created, 3 started and none disputed), so the repeat
+    ///      refusal and the return are proven by the never-line test and by the scripted path below, not by the
+    ///      campaign.
     function reportDispute(uint256 gameSeed, uint256 whoSeed, uint256 shapeSeed) external {
         uint256 id = _pickGame(gameSeed);
         Ghost storage g = ghosts[id];
@@ -380,10 +405,13 @@ contract GamesHandler is Test {
         uint256 nowTs = vm.getBlockTimestamp();
         Report memory r = _report(id, ReportKind.Dispute, 0, 0, 0, shapeSeed);
         r.payout = shapeSeed % 7 == 1 ? address(0xFEE00) : address(0);
-        bool expected = _exists(id) && kind != 0 && !retired[who] && _codeAsApproved(who) && g.started
+        bytes32 readings = keccak256(abi.encode(r.readings));
+        bool repeat = readings == lastDispute[id];
+        bool otherwise = _exists(id) && kind != 0 && !retired[who] && _codeAsApproved(who) && g.started
             && !_ended(g) && _open(g) && nowTs >= g.start
             && (kind != 2 || nowTs >= uint256(g.start) + g.terms.window) && shapeSeed % 7 != 1
             && _readingsFine(shapeSeed);
+        bool expected = otherwise && !repeat;
         bool ok = _send(who, r);
         _check(ok, expected);
         if (ok && expected) {
@@ -391,7 +419,30 @@ contract GamesHandler is Test {
                 g.disputed = true;
                 g.disputedAt = uint64(nowTs);
             }
+            lastDispute[id] = readings;
+            _fold(g.votes, r.readings);
             ++disputesTaken;
+        } else if (!ok && otherwise && repeat) {
+            ++disputesRepeated; // refused for the repeat alone
+        }
+    }
+
+    /// @dev The readings a taken score or void carried, kept as the contract must keep them.
+    function _keepEnd(Ghost storage g, Reading[] memory readings) internal {
+        for (uint256 i; i < readings.length; ++i) {
+            g.endReadings.push(readings[i]);
+        }
+    }
+
+    /// @dev The program's fold of a dispute report into each seat's last vote: a reading that is not silent
+    ///      replaces the seat's entry or adds one; a silent reading changes nothing.
+    function _fold(Reading[] storage votes, Reading[] memory readings) internal {
+        for (uint256 i; i < readings.length; ++i) {
+            if (readings[i].kind == ReadingKind.Silent) continue;
+            uint256 j;
+            while (j < votes.length && votes[j].seat != readings[i].seat) ++j;
+            if (j < votes.length) votes[j] = readings[i];
+            else votes.push(readings[i]);
         }
     }
 
@@ -459,6 +510,11 @@ contract GamesHandler is Test {
 
     function leagueAt(uint256 i) external view returns (string memory) {
         return leagues[i];
+    }
+
+    /// @dev The league the model created a game in.
+    function leagueOf(uint256 id) external view returns (string memory) {
+        return ghosts[id].league;
     }
 
     // ──────────────────────────── Internal ─────────────────────────────
@@ -602,7 +658,10 @@ contract GamesHandler is Test {
                 }
             }
         } else {
-            readings[0] = Reading({seat: 1, kind: ReadingKind.AnsweredFinal, homeScore: 7, awayScore: 3});
+            // A dispute report's seat 1 votes one of four finals, by the seed's high bits, so that a later report
+            // can repeat the game's latest one, return to an earlier one, or change its vote.
+            uint32 vote = 7 + uint32((shapeSeed >> 16) % 4);
+            readings[0] = Reading({seat: 1, kind: ReadingKind.AnsweredFinal, homeScore: vote, awayScore: 3});
             readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: 7, awayScore: 4});
             readings[2] = Reading({seat: 3, kind: ReadingKind.AnsweredNoFinal, homeScore: 6, awayScore: 3});
         }
@@ -737,7 +796,7 @@ contract OspexGamesInvariantTest is GamesBase {
             }
             _assertTerms(games.getGameTerms(id), g.terms, "a game's terms moved");
             assertEq(games.getGameWindow(id), g.terms.window, "window moved");
-            assertEq(_rawDate(id), g.date, "a game's date moved"); // no read returns it: from storage
+            assertEq(_rawDate(id), g.date, "a game's date moved"); // the word itself; the identity read is below
             assertEq(games.isEveryReporterRetired(id), handler.everyRetired(id), "every reporter retired");
 
             GameStatus want = g.released
@@ -775,6 +834,24 @@ contract OspexGamesInvariantTest is GamesBase {
                 } catch {}
             }
 
+            // What a scorer picks up: the identity as the handler created it, the start's readings as the taken
+            // start carried them, each seat's last vote as the model folds the dispute reports taken, the
+            // record's time beside them (0 until a record), and the end's readings as the taken score or void
+            // carried them (empty until then, and for a release).
+            (string memory league, string memory home, string memory away, uint64 date, Hint[] memory hints) =
+                games.getGameIdentity(id);
+            assertEq(league, handler.leagueOf(id), "a game's league moved");
+            assertEq(home, "Home Team", "a game's home team moved");
+            assertEq(away, "Away Team", "a game's away team moved");
+            assertEq(date, g.date, "a game's date moved");
+            assertEq(hints.length, 0, "a game's hints moved");
+            (Reading[] memory startReadings, Reading[] memory votes, uint64 disputedAt, Reading[] memory endReadings) =
+                games.getGameReadings(id);
+            _assertSameReadings(startReadings, g.startReadings, "a game's start readings");
+            _assertSameReadings(votes, g.votes, "a game's votes");
+            assertEq(disputedAt, g.disputed ? g.disputedAt : 0, "a game's record time beside its votes");
+            _assertSameReadings(endReadings, g.endReadings, "a game's end readings");
+
             // One end per game, and nothing written after it: the model lets at most one end through (a second
             // would be a mismatch), and the storage stays what it was at the end, word for word.
             uint256 ends = (g.scored ? 1 : 0) + (g.voided ? 1 : 0) + (g.released ? 1 : 0);
@@ -783,6 +860,48 @@ contract OspexGamesInvariantTest is GamesBase {
                 assertEq(keccak256(_rawGame(id)), g.endedRaw, "a game was written after its end");
                 (uint96 held,) = games.getGameFee(id);
                 assertEq(held, 0, "an ended game holds its fee");
+            }
+        }
+    }
+
+    /// The open list is exactly the games the model has not ended, each once, with its total; each row's words
+    /// are the model's (its status, start, window, day-7 clock, record time, league and date); every page of it is a
+    /// slice of the whole; and no id on it is outside the games made.
+    /// forge-config: default.invariant.runs = 64
+    /// forge-config: default.invariant.depth = 80
+    function invariant_theOpenListIsTheGamesNotEnded() public view {
+        uint256 count = handler.created();
+        (OpenGame[] memory rows, uint256 total) = games.getOpenGames(0, type(uint256).max);
+        assertEq(rows.length, total, "the whole list and its total");
+        uint256 notEnded;
+        for (uint256 id = 1; id <= count; ++id) {
+            bool expectedOpen = !handler.ended(id);
+            if (expectedOpen) ++notEnded;
+            uint256 seen;
+            for (uint256 i; i < rows.length; ++i) {
+                if (rows[i].gameId == id) ++seen;
+            }
+            assertEq(seen, expectedOpen ? 1 : 0, "a game on the open list other than once while not ended");
+        }
+        assertEq(total, notEnded, "the open list's total is the games not ended");
+        for (uint256 i; i < rows.length; ++i) {
+            uint256 id = rows[i].gameId;
+            assertTrue(id != 0 && id <= count, "an id that is not a game on the open list");
+            GamesHandler.Ghost memory g = handler.ghostOf(id);
+            GameStatus status =
+                g.disputed ? GameStatus.Disputed : g.started ? GameStatus.Verified : GameStatus.Unverified;
+            assertEq(uint8(rows[i].status), uint8(status), "a row's status is not the model's");
+            assertEq(rows[i].start, g.started ? g.start : 0, "a row's start is not the model's");
+            assertEq(rows[i].window, g.terms.window, "a row's window is not the model's");
+            assertEq(rows[i].day7Clock, g.terms.day7Clock, "a row's day-7 clock is not the model's");
+            assertEq(rows[i].disputedAt, g.disputedAt, "a row's record time is not the model's");
+            assertEq(rows[i].league, g.league, "a row's league is not the model's");
+            assertEq(rows[i].date, g.date, "a row's date is not the model's");
+        }
+        for (uint256 offset; offset < total; offset += 3) {
+            (OpenGame[] memory page,) = games.getOpenGames(offset, 3);
+            for (uint256 i; i < page.length; ++i) {
+                assertEq(page[i].gameId, rows[offset + i].gameId, "a page is not a slice of the whole");
             }
         }
     }
@@ -852,7 +971,9 @@ contract OspexGamesInvariantTest is GamesBase {
         handler.reportDispute(2, 3, 8); // game 3, first, a payout on the record: refused
         handler.reportVoid(2, 3, 0); // game 3, first, inside n: refused
         handler.reportDispute(2, 3, 0); // game 3, first, inside n: the record
-        handler.reportDispute(2, 3, 0); // first again: an update, writing nothing
+        handler.reportDispute(2, 3, 0); // first again, the record's readings again: refused, a repeat
+        handler.reportDispute(2, 3, 65536); // first again, seat 1's vote changed: an update, writing the vote
+        handler.reportDispute(2, 3, 0); // the record's readings again, after the update: a return, taken
         handler.warp(2 hours); // past start + n
         handler.reportVoid(2, 3, 0); // game 3, first, disputed, inside the day-7 clock: refused
         handler.release(2, 8); // game 3, by pool 8, before its day-30 clock, a reporter live: refused
@@ -881,10 +1002,11 @@ contract OspexGamesInvariantTest is GamesBase {
         assertEq(handler.startsTaken(), 4, "starts taken");
         assertEq(handler.scoresTaken(), 2, "scores taken");
         assertEq(handler.voidsTaken(), 1, "voids taken");
-        assertEq(handler.disputesTaken(), 2, "dispute reports taken: a record and an update");
+        assertEq(handler.disputesTaken(), 3, "dispute reports taken: a record, an update and a return");
+        assertEq(handler.disputesRepeated(), 1, "dispute reports refused as repeats");
         assertEq(handler.releasesTaken(), 1, "releases taken");
         assertEq(handler.releasesRefused(), 3, "releases refused");
-        assertEq(handler.refused(), 18, "reports refused");
+        assertEq(handler.refused(), 19, "reports refused");
         assertEq(handler.createsRefused(), 2, "creations refused");
         assertEq(handler.created(), 5, "games made");
         assertEq(handler.approvals(), 2, "approvals");
@@ -897,5 +1019,6 @@ contract OspexGamesInvariantTest is GamesBase {
         assertTrue(games.isEveryReporterRetired(3), "game 3's reporters are all retired");
         invariant_everyGameReadsAsItsModel();
         invariant_theListAndTheTermsReadAsTheModel();
+        invariant_theOpenListIsTheGamesNotEnded();
     }
 }

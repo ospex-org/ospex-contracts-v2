@@ -14,7 +14,8 @@ import {
     Reading,
     Report,
     Hint,
-    Terms
+    Terms,
+    OpenGame
 } from "../../src/games/IOspexGames.sol";
 import {IOspexReporter} from "../../src/games/IOspexReporter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -86,7 +87,7 @@ library GameWords {
 
     /// @dev One game's storage: its four words (status, date, start and scores; then its terms, two words;
     ///      then its creator and the time of its dispute record) and its reporters' copy. The reads show what a
-    ///      game says; this shows every field a write could touch, the date included, which no read returns.
+    ///      game says; this shows every field a write could touch, the date among them, from the word itself.
     function raw(address games, uint256 gameId) internal view returns (bytes memory out) {
         uint256 base = uint256(keccak256(abi.encode(gameId, GAMES_SLOT)));
         for (uint256 i; i < 4; ++i) {
@@ -105,6 +106,20 @@ library GameWords {
     function date(address games, uint256 gameId) internal view returns (uint64) {
         bytes32 word = vm.load(games, keccak256(abi.encode(gameId, GAMES_SLOT)));
         return uint64(uint256(word) >> 8);
+    }
+
+    /// @dev A game's start as stored: the eight bytes after the date in its first word; 0 until the start is
+    ///      written, which the read of the start refuses to say.
+    function start(address games, uint256 gameId) internal view returns (uint64) {
+        bytes32 word = vm.load(games, keccak256(abi.encode(gameId, GAMES_SLOT)));
+        return uint64(uint256(word) >> 72);
+    }
+
+    /// @dev A game's place on the open list plus one, as stored: the four bytes after the creator and the time
+    ///      of the dispute record in its fourth word. 0 for a game that has ended.
+    function openPlace(address games, uint256 gameId) internal view returns (uint32) {
+        bytes32 word = vm.load(games, bytes32(uint256(keccak256(abi.encode(gameId, GAMES_SLOT))) + 3));
+        return uint32(uint256(word) >> 224);
     }
 }
 
@@ -500,10 +515,11 @@ abstract contract GamesBase is Test {
 
     // ──────────────────────────── What any reader sees ─────────────────
 
-    /// @dev Every read of one game, each as (taken, answer or refusal): what any contract or agent can see.
+    /// @dev Every read of one game, each as (taken, hash of the answer or the refusal): what any contract or
+    ///      agent can see.
     function _view(uint256 gameId) internal view returns (bytes memory) {
         bytes memory out;
-        bytes[9] memory calls = [
+        bytes[11] memory calls = [
             abi.encodeCall(IOspexGames.getGameStatus, (gameId)),
             abi.encodeCall(IOspexGames.getGameStart, (gameId)),
             abi.encodeCall(games.getGameReporters, (gameId)),
@@ -512,23 +528,117 @@ abstract contract GamesBase is Test {
             abi.encodeCall(IOspexGames.getGameTerms, (gameId)),
             abi.encodeCall(IOspexGames.isEveryReporterRetired, (gameId)),
             abi.encodeCall(IOspexGames.getGameFee, (gameId)),
-            abi.encodeCall(IOspexGames.getGameDisputedAt, (gameId))
+            abi.encodeCall(IOspexGames.getGameDisputedAt, (gameId)),
+            abi.encodeCall(IOspexGames.getGameIdentity, (gameId)),
+            abi.encodeCall(IOspexGames.getGameReadings, (gameId))
         ];
         for (uint256 i; i < calls.length; ++i) {
-            (bool ok, bytes memory answer) = address(games).staticcall(calls[i]);
-            out = abi.encodePacked(out, ok, keccak256(answer));
+            (bool ok, bytes32 answer) = _hashCall(calls[i]);
+            out = abi.encodePacked(out, ok, answer);
         }
         return out;
     }
 
-    /// @dev Every read of every game, ids 0 to count + 1, and the count: the whole readable state of the games.
+    /// @dev A read of the games contract as (taken, hash of what came back), the answer hashed in the memory
+    ///      past the free pointer and not kept: a test that snapshots many games many times does not grow its
+    ///      memory with every answer, which the identity's and the readings' reads would otherwise do.
+    function _hashCall(bytes memory data) internal view returns (bool ok, bytes32 answer) {
+        address target = address(games);
+        assembly ("memory-safe") {
+            ok := staticcall(gas(), target, add(data, 0x20), mload(data), 0, 0)
+            let size := returndatasize()
+            let scratch := mload(0x40)
+            returndatacopy(scratch, 0, size)
+            answer := keccak256(scratch, size)
+        }
+    }
+
+    /// @dev Every read of every game, ids 0 to count + 1, the count, and the open list whole: the whole readable
+    ///      state of the games.
     function _viewAll() internal view returns (bytes32) {
         uint256 count = games.gameCount();
         bytes memory out = abi.encode(count);
         for (uint256 id; id <= count + 1; ++id) {
             out = abi.encodePacked(out, _view(id));
         }
+        out = abi.encodePacked(out, abi.encode(_openRows()));
         return keccak256(out);
+    }
+
+    /// @dev The open list whole, in its order: its rows.
+    function _openRows() internal view returns (OpenGame[] memory rows) {
+        (rows,) = games.getOpenGames(0, type(uint256).max);
+    }
+
+    /// @dev The open list whole, in its order: its ids.
+    function _openGames() internal view returns (uint256[] memory ids) {
+        ids = _idsOf(_openRows());
+    }
+
+    /// @dev The ids of a page of rows, in the page's order.
+    function _idsOf(OpenGame[] memory rows) internal pure returns (uint256[] memory ids) {
+        ids = new uint256[](rows.length);
+        for (uint256 i; i < rows.length; ++i) {
+            ids[i] = rows[i].gameId;
+        }
+    }
+
+    /// @dev Whether a game is on the open list, by reading the list whole.
+    function _isOpen(uint256 gameId) internal view returns (bool) {
+        uint256[] memory ids = _openGames();
+        for (uint256 i; i < ids.length; ++i) {
+            if (ids[i] == gameId) return true;
+        }
+        return false;
+    }
+
+    /// @dev A row of the open list is the game's own words: each field against the read that answers it alone
+    ///      (the start against the game's stored word, since the read of the start refuses an unstarted game).
+    function _assertRowIsTheGame(OpenGame memory row, string memory what) internal view {
+        uint256 id = row.gameId;
+        assertEq(uint8(row.status), uint8(games.getGameStatus(id)), string.concat(what, ": status"));
+        assertEq(row.start, GameWords.start(address(games), id), string.concat(what, ": start"));
+        Terms memory t = games.getGameTerms(id);
+        assertEq(row.window, t.window, string.concat(what, ": window"));
+        assertEq(row.day7Clock, t.day7Clock, string.concat(what, ": day-7 clock"));
+        (,, uint64 disputedAt,) = games.getGameReadings(id);
+        assertEq(row.disputedAt, disputedAt, string.concat(what, ": disputed at"));
+        (string memory league,,, uint64 date,) = games.getGameIdentity(id);
+        assertEq(row.league, league, string.concat(what, ": league"));
+        assertEq(row.date, date, string.concat(what, ": date"));
+    }
+
+    /// @dev Two lists of readings are the same, entry for entry.
+    function _assertSameReadings(Reading[] memory got, Reading[] memory want, string memory what) internal pure {
+        assertEq(got.length, want.length, string.concat(what, ": count"));
+        for (uint256 i; i < want.length; ++i) {
+            assertEq(got[i].seat, want[i].seat, string.concat(what, ": seat"));
+            assertEq(uint8(got[i].kind), uint8(want[i].kind), string.concat(what, ": kind"));
+            assertEq(got[i].homeScore, want[i].homeScore, string.concat(what, ": home"));
+            assertEq(got[i].awayScore, want[i].awayScore, string.concat(what, ": away"));
+        }
+    }
+
+    /// @dev Each seat's last vote as the scoring program folds a game's dispute reports: for each report in the
+    ///      order they landed, a reading that is not silent replaces the seat's entry or adds one; a silent
+    ///      reading changes nothing. Written here from the program's rule, never read from the contract.
+    function _foldVotes(Reading[][] memory reports) internal pure returns (Reading[] memory votes) {
+        Reading[] memory out = new Reading[](256);
+        uint256 n;
+        for (uint256 r; r < reports.length; ++r) {
+            for (uint256 i; i < reports[r].length; ++i) {
+                Reading memory reading = reports[r][i];
+                if (reading.kind == ReadingKind.Silent) continue;
+                uint256 j;
+                while (j < n && out[j].seat != reading.seat) ++j;
+                out[j] = reading;
+                if (j == n) ++n;
+            }
+        }
+        votes = new Reading[](n);
+        for (uint256 i; i < n; ++i) {
+            votes[i] = out[i];
+        }
     }
 
     // ──────────────────────────── What lies in storage ──────────────────
@@ -538,7 +648,7 @@ abstract contract GamesBase is Test {
         return GameWords.raw(address(games), gameId);
     }
 
-    /// @dev A game's date as stored, which no read returns.
+    /// @dev A game's date as stored, from the word itself; getGameIdentity and the open list's rows return it too.
     function _rawDate(uint256 gameId) internal view returns (uint64) {
         return GameWords.date(address(games), gameId);
     }
