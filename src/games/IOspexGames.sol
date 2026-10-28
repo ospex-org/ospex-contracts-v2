@@ -185,10 +185,10 @@ struct OpenGame {
  *         credits it back to the creator. Whoever is credited withdraws it later: no coin moves inside an end.
  *
  *         Whatever picks a game up to score it reads the game, never its events: three reads beside the five
- *         return a game's identity as its creator gave it, the readings its start report carried with each
- *         seat's last vote and the time of its dispute record, and the list of games not yet ended, whole or by
- *         page. A dispute report that repeats the game's latest one, in the same order, is refused: it would
- *         write no vote.
+ *         return a game's identity as its creator gave it, the readings its start report carried and the
+ *         readings its score or void carried, with each seat's last vote and the time of its dispute record,
+ *         and the list of games not yet ended, whole or by page. A dispute report that repeats the game's
+ *         latest one, in the same order, is refused: it would write no vote.
  */
 interface IOspexGames is IGameReporters {
     /// @notice Emitted once, by the constructor: the timelock that alone makes the three calls. It never
@@ -298,9 +298,9 @@ interface IOspexGames is IGameReporters {
     /// @param start The start, for a start; otherwise zero
     /// @param homeScore The home team's score, for a score; otherwise zero
     /// @param awayScore The away team's score, for a score; otherwise zero
-    /// @param readings The readings the report rests on, as given. A start's are stored as given; a dispute
-    ///        record's or an update's replace each seat's last vote where the reading is not silent; a score's
-    ///        and a void's are not stored (see getGameReadings).
+    /// @param readings The readings the report rests on, as given. A start's, a score's and a void's are stored
+    ///        as given; a dispute record's or an update's replace each seat's last vote where the reading is
+    ///        not silent (see getGameReadings).
     /// @param payout The payout address in the report
     event GameReported(
         uint256 indexed gameId,
@@ -351,8 +351,9 @@ interface IOspexGames is IGameReporters {
     ///         record carries a zero payout, credits nothing and ends nothing: the first one writes Disputed and
     ///         starts the day-7 clock; every later one is an update, taken and emitted, writing no status and
     ///         moving no clock. Every report the games set takes is emitted with its readings. A start's readings
-    ///         are stored as given; a dispute record's and an update's replace each seat's last vote where the
-    ///         reading is not silent, and a silent reading leaves the seat's vote as it was (see getGameReadings).
+    ///         are stored as given, and so are a score's and a void's, with the end; a dispute record's and an
+    ///         update's replace each seat's last vote where the reading is not silent, and a silent reading
+    ///         leaves the seat's vote as it was (see getGameReadings).
     ///         A dispute report whose readings are those of the game's latest dispute report, in the same order,
     ///         is refused (DisputeReportRepeated): it would write each seat's vote as it is. Any other is taken,
     ///         a return to an earlier report's readings included: the vote on record is what the day-7 run
@@ -441,17 +442,25 @@ interface IOspexGames is IGameReporters {
         view
         returns (string memory league, string memory homeTeam, string memory awayTeam, uint64 date, Hint[] memory hints);
 
-    /// @notice What a game's reports left for whatever picks it up. `startReadings`: the readings the start
-    ///         report carried, as given and in its order; empty until the start is written. `votes`: each seat's
-    ///         last vote, one entry per seat that has ever voted, in the order the seats first voted: every
-    ///         dispute record and update replaces the entry of each seat whose reading is not silent, and a silent
-    ///         reading leaves the seat's vote as it was; empty until a dispute record. `disputedAt`: when the
-    ///         dispute record was written, the second its day-7 clock counts from; 0 until then. Refuses only an
-    ///         id that is not a game, so one call serves a game in any status.
+    /// @notice What a game's reports left for whatever picks it up or checks its settlement. `startReadings`:
+    ///         the readings the start report carried, as given and in its order; empty until the start is
+    ///         written. `votes`: each seat's last vote, one entry per seat that has ever voted, in the order the
+    ///         seats first voted: every dispute record and update replaces the entry of each seat whose reading
+    ///         is not silent, and a silent reading leaves the seat's vote as it was; empty until a dispute
+    ///         record. `disputedAt`: when the dispute record was written, the second its day-7 clock counts
+    ///         from; 0 until then. `endReadings`: the readings the score or the void that ended the game
+    ///         carried, as given and in its order, what settled it; empty until the game ends, and empty for a
+    ///         game released, which no report ends. Refuses only an id that is not a game, so one call serves a
+    ///         game in any status.
     function getGameReadings(uint256 gameId)
         external
         view
-        returns (Reading[] memory startReadings, Reading[] memory votes, uint64 disputedAt);
+        returns (
+            Reading[] memory startReadings,
+            Reading[] memory votes,
+            uint64 disputedAt,
+            Reading[] memory endReadings
+        );
 
     /// @notice The games not yet ended, whole or by page, as rows. `total` is how many there are now; `rows` is
     ///         the page that starts at `offset`, at most `count` long and clipped at the list's end (empty from

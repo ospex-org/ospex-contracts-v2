@@ -176,7 +176,8 @@ contract OspexGamesShapesTest is GamesBase {
         revert(string.concat("a clock the test does not know: ", clock));
     }
 
-    /// @dev What a taken shape must have written, by its decision; returns 1 for an end, 0 otherwise.
+    /// @dev What a taken shape must have written, by its decision, an end's readings on record included; returns 1
+    ///      for an end, 0 otherwise.
     function _assertWritten(Shape memory s, uint256 game, uint256 i) internal view returns (uint256) {
         string memory name = _name(i, s);
         if (_is(s.decision, "start")) {
@@ -191,11 +192,13 @@ contract OspexGamesShapesTest is GamesBase {
             (uint32 h, uint32 a) = games.getGameScores(game);
             assertEq(h, s.home, name);
             assertEq(a, s.away, name);
+            _assertEndReadings(s, game, name);
             return 1;
         }
         if (_is(s.decision, "void")) {
             assertEq(s.kind, uint256(ReportKind.Void), name);
             assertEq(uint8(_status(game)), uint8(GameStatus.Voided), name);
+            _assertEndReadings(s, game, name);
             return 1;
         }
         assertEq(s.kind, uint256(ReportKind.Dispute), name);
@@ -207,6 +210,12 @@ contract OspexGamesShapesTest is GamesBase {
             assertEq(games.getGameDisputedAt(game), START + 1, string.concat(name, ": an update moved the clock"));
         }
         return 0;
+    }
+
+    /// @dev The end's readings on record are the shape's, as given and in its order.
+    function _assertEndReadings(Shape memory s, uint256 game, string memory name) internal view {
+        (,,, Reading[] memory kept) = games.getGameReadings(game);
+        assertEq(abi.encode(kept), abi.encode(_readings(s.readings)), string.concat(name, ": the end's readings"));
     }
 
     /// @dev The readings as the file lists them: [seat, kind, home, away] per row.

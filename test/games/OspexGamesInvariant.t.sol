@@ -73,6 +73,8 @@ contract GamesHandler is Test {
         ///      taken, by the program's rule: a reading that is not silent replaces the seat's entry or adds one.
         Reading[] startReadings;
         Reading[] votes;
+        /// @dev The readings the taken score or void carried; empty until then, and for a release.
+        Reading[] endReadings;
         /// @dev The league the game was created in; its teams are always "Home Team" and "Away Team", no hints.
         string league;
     }
@@ -346,12 +348,14 @@ contract GamesHandler is Test {
             && !_ended(g) && home <= MAX_SCORE
             && away <= MAX_SCORE && _open(g) && nowTs >= g.start
             && (kind != 2 || nowTs >= uint256(g.start) + g.terms.window) && _readingsFine(shapeSeed) && supported;
-        bool ok = _send(who, _report(id, ReportKind.Score, 0, home, away, shapeSeed));
+        Report memory r = _report(id, ReportKind.Score, 0, home, away, shapeSeed);
+        bool ok = _send(who, r);
         _check(ok, expected);
         if (ok && expected) {
             g.scored = true;
             g.home = home;
             g.away = away;
+            _keepEnd(g, r.readings);
             ++scoresTaken;
             _recordEnd(id);
         }
@@ -378,6 +382,7 @@ contract GamesHandler is Test {
         _check(ok, expected);
         if (ok && expected) {
             g.voided = true;
+            _keepEnd(g, r.readings);
             ++voidsTaken;
             _recordEnd(id);
         }
@@ -419,6 +424,13 @@ contract GamesHandler is Test {
             ++disputesTaken;
         } else if (!ok && otherwise && repeat) {
             ++disputesRepeated; // refused for the repeat alone
+        }
+    }
+
+    /// @dev The readings a taken score or void carried, kept as the contract must keep them.
+    function _keepEnd(Ghost storage g, Reading[] memory readings) internal {
+        for (uint256 i; i < readings.length; ++i) {
+            g.endReadings.push(readings[i]);
         }
     }
 
@@ -824,7 +836,8 @@ contract OspexGamesInvariantTest is GamesBase {
 
             // What a scorer picks up: the identity as the handler created it, the start's readings as the taken
             // start carried them, each seat's last vote as the model folds the dispute reports taken, the
-            // record's time beside them (0 until a record).
+            // record's time beside them (0 until a record), and the end's readings as the taken score or void
+            // carried them (empty until then, and for a release).
             (string memory league, string memory home, string memory away, uint64 date, Hint[] memory hints) =
                 games.getGameIdentity(id);
             assertEq(league, handler.leagueOf(id), "a game's league moved");
@@ -832,10 +845,12 @@ contract OspexGamesInvariantTest is GamesBase {
             assertEq(away, "Away Team", "a game's away team moved");
             assertEq(date, g.date, "a game's date moved");
             assertEq(hints.length, 0, "a game's hints moved");
-            (Reading[] memory startReadings, Reading[] memory votes, uint64 disputedAt) = games.getGameReadings(id);
+            (Reading[] memory startReadings, Reading[] memory votes, uint64 disputedAt, Reading[] memory endReadings) =
+                games.getGameReadings(id);
             _assertSameReadings(startReadings, g.startReadings, "a game's start readings");
             _assertSameReadings(votes, g.votes, "a game's votes");
             assertEq(disputedAt, g.disputed ? g.disputedAt : 0, "a game's record time beside its votes");
+            _assertSameReadings(endReadings, g.endReadings, "a game's end readings");
 
             // One end per game, and nothing written after it: the model lets at most one end through (a second
             // would be a mismatch), and the storage stays what it was at the end, word for word.

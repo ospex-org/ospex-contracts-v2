@@ -871,38 +871,43 @@ contract OspexGamesTest is GamesBase {
     }
 
     /// The readings read empty until written, and then as the report gave them: the start's as given, each
-    /// seat's last vote from the dispute reports, the record's time beside them; and they survive the game's end.
+    /// seat's last vote from the dispute reports, the record's time beside them, and the end's, empty until the
+    /// end and then the void's as given; the rest survive the game's end.
     function test_reads_readingsAreEmptyUntilWrittenAndThenAsGiven() public {
         uint256 game = _create();
-        (Reading[] memory s0, Reading[] memory v0, uint64 at0) = games.getGameReadings(game);
+        (Reading[] memory s0, Reading[] memory v0, uint64 at0, Reading[] memory e0) = games.getGameReadings(game);
         assertEq(s0.length, 0, "start readings before the start");
         assertEq(v0.length, 0, "votes before a record");
         assertEq(at0, 0, "the record's time before a record");
+        assertEq(e0.length, 0, "end readings before the start");
 
         Report memory start = _startReport(game, START);
         start.readings = _readings();
         start.readings[2] = Reading({seat: 9, kind: ReadingKind.AnsweredNoFinal, homeScore: 3, awayScore: 1});
         _take(address(first), start);
-        (Reading[] memory s1, Reading[] memory v1, uint64 at1) = games.getGameReadings(game);
+        (Reading[] memory s1, Reading[] memory v1, uint64 at1, Reading[] memory e1) = games.getGameReadings(game);
         _assertSameReadings(s1, start.readings, "the start's readings");
         assertEq(v1.length, 0, "votes before a record");
         assertEq(at1, 0, "the record's time before a record");
+        assertEq(e1.length, 0, "end readings after the start");
 
         vm.warp(START + 5);
         _disputeBy(first, game);
-        (Reading[] memory s2, Reading[] memory v2, uint64 at2) = games.getGameReadings(game);
+        (Reading[] memory s2, Reading[] memory v2, uint64 at2, Reading[] memory e2) = games.getGameReadings(game);
         _assertSameReadings(s2, start.readings, "the start's readings after the record");
         Reading[][] memory reports = new Reading[][](1);
         reports[0] = _disputeReadings();
         _assertSameReadings(v2, _foldVotes(reports), "the votes after the record");
         assertEq(at2, START + 5, "the record's time");
+        assertEq(e2.length, 0, "end readings after the record");
 
         vm.warp(START + 5 + DAY7);
         _voidBy(later, game);
-        (Reading[] memory s3, Reading[] memory v3, uint64 at3) = games.getGameReadings(game);
+        (Reading[] memory s3, Reading[] memory v3, uint64 at3, Reading[] memory e3) = games.getGameReadings(game);
         _assertSameReadings(s3, start.readings, "the start's readings after the end");
         _assertSameReadings(v3, v2, "the votes after the end");
         assertEq(at3, START + 5, "the record's time after the end");
+        _assertSameReadings(e3, _voidReadings(), "the void's readings at the end");
     }
 
     /// The open list pages: the total beside every page, a page clipped at the end, an empty page past it, the
@@ -1169,7 +1174,7 @@ contract OspexGamesTest is GamesBase {
             assertEq(r.length, 3);
             (string memory league,,,,) = games.getGameIdentity(game);
             assertEq(league, "nba");
-            (Reading[] memory startReadings,,) = games.getGameReadings(game);
+            (Reading[] memory startReadings,,,) = games.getGameReadings(game);
             assertEq(startReadings.length, 4);
             (, uint256 total) = games.getOpenGames(0, 0);
             assertEq(total, 0);

@@ -3299,7 +3299,8 @@ contract OspexGamesNeverLinesTest is GamesBase {
     /// vote stands), seat 3 answers without a final (its final taken back) and seat 4 votes for the first time;
     /// and an update before day 7 in which every seat is silent, which changes no vote. Each is compared with the
     /// readings decoded from the event the same report emitted, folded here by the program's rule, and the
-    /// record's time reads beside them and never moves. After the day-7 void the readings still read.
+    /// record's time reads beside them and never moves. After the day-7 void the readings still read, and the
+    /// void's are on record beside them.
     /// Break: in _writeVotes(), delete `if (reading.kind == ReadingKind.Silent) continue;`. A silent reading
     /// then overwrites a seat's vote.
     function test_neverLine_aStoredReadingIsTheReadingEmitted() public {
@@ -3311,10 +3312,11 @@ contract OspexGamesNeverLinesTest is GamesBase {
         _take(address(first), start);
         Reading[] memory startEmitted = _emittedReadings(vm.getRecordedLogs(), game);
         _assertSameReadings(startEmitted, start.readings, "the start event's readings are the start's");
-        (Reading[] memory s0, Reading[] memory v0, uint64 at0) = games.getGameReadings(game);
+        (Reading[] memory s0, Reading[] memory v0, uint64 at0, Reading[] memory e0) = games.getGameReadings(game);
         _assertSameReadings(s0, startEmitted, "the start's readings as emitted");
         assertEq(v0.length, 0, "no vote before a record");
         assertEq(at0, 0, "no record yet");
+        assertEq(e0.length, 0, "no end yet");
 
         Reading[][] memory emitted = new Reading[][](4);
         Report[4] memory reports;
@@ -3342,14 +3344,14 @@ contract OspexGamesNeverLinesTest is GamesBase {
             for (uint256 j; j <= i; ++j) {
                 soFar[j] = emitted[j];
             }
-            (Reading[] memory s, Reading[] memory v, uint64 at) = games.getGameReadings(game);
+            (Reading[] memory s, Reading[] memory v, uint64 at,) = games.getGameReadings(game);
             _assertSameReadings(s, startEmitted, "the start's readings after a dispute report");
             _assertSameReadings(v, _foldVotes(soFar), "the votes after a dispute report");
             assertEq(at, START + 1, "the record's time");
         }
         // The fold, written out: seat 1 the record's final, seat 2 the first update's final, seat 3 the second
         // update's answer without a final, seat 4 the second update's final, in the order the seats first voted.
-        (, Reading[] memory votes,) = games.getGameReadings(game);
+        (, Reading[] memory votes,,) = games.getGameReadings(game);
         assertEq(votes.length, 4, "four seats voted");
         assertEq(votes[0].seat, 1);
         assertEq(uint8(votes[0].kind), uint8(ReadingKind.AnsweredFinal));
@@ -3364,10 +3366,11 @@ contract OspexGamesNeverLinesTest is GamesBase {
 
         vm.warp(START + 1 + DAY7);
         _take(address(later), _voidReportTo(game, payout));
-        (Reading[] memory s4, Reading[] memory v4, uint64 at4) = games.getGameReadings(game);
+        (Reading[] memory s4, Reading[] memory v4, uint64 at4, Reading[] memory e4) = games.getGameReadings(game);
         _assertSameReadings(s4, startEmitted, "the start's readings after the end");
         _assertSameReadings(v4, votes, "the votes after the end");
         assertEq(at4, START + 1, "the record's time after the end");
+        _assertSameReadings(e4, _voidReadings(), "the void's readings at the end");
     }
 
     /// @dev The readings of the game's one GameReported log among `logs`.
@@ -3491,6 +3494,98 @@ contract OspexGamesNeverLinesTest is GamesBase {
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A game ends as a score or a void and the readings that settled it are not on record, or differ from
+    //  the readings its report was emitted with."
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// Five ends, each on readings of its own: a score inside n on three finals beside a spare that answered
+    /// without a final; an after-n score on two finals, one seat silent and the spare without a final; a disputed
+    /// game's day-7 score over one dissent; the hour-24 void; and the day-7 void on a disputed game. For each,
+    /// the end's readings read empty before the end, after the start and after the record alike, and from the
+    /// end read as the readings decoded from the end's own event, which are the report's; the start's readings,
+    /// the votes and the record's time read as they did before the end. A released game's stay empty. No end's
+    /// readings are its start's or another end's, so a list kept in another's place is seen.
+    /// Break: in _writeScore(), delete `_keep(s_endReadings[r.gameId], r.readings);`. A score's readings are
+    /// then nowhere but its event.
+    function test_neverLine_anEndsReadingsAreTheReadingsEmitted() public {
+        vm.warp(DATE - 1 hours);
+        uint256[5] memory made;
+        for (uint256 i; i < 5; ++i) {
+            made[i] = _create();
+            _startBy(first, made[i], START);
+        }
+        uint256 released = _create();
+        _startBy(first, released, START);
+        vm.warp(START + 1);
+        _disputeBy(first, made[2]);
+        _disputeBy(second, made[4]);
+        for (uint256 i; i < 5; ++i) {
+            _assertNoEndReadings(made[i], "before the end");
+        }
+
+        Report[5] memory ends;
+        ends[0] = _scoreReportTo(made[0], payout); // inside n: three finals, the spare answered without a final
+        ends[0].readings[3] = Reading({seat: 4, kind: ReadingKind.AnsweredNoFinal, homeScore: 50, awayScore: 40});
+        ends[1] = _scoreReportTo(made[1], payout); // after n: two finals, one seat silent, the spare without one
+        ends[1].homeScore = 77;
+        ends[1].awayScore = 70;
+        ends[1].readings[0] = Reading({seat: 1, kind: ReadingKind.AnsweredFinal, homeScore: 77, awayScore: 70});
+        ends[1].readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: 77, awayScore: 70});
+        ends[1].readings[2] = Reading({seat: 3, kind: ReadingKind.Silent, homeScore: 0, awayScore: 0});
+        ends[1].readings[3] = Reading({seat: 4, kind: ReadingKind.AnsweredNoFinal, homeScore: 61, awayScore: 58});
+        ends[2] = _scoreReportTo(made[2], payout); // day 7 on a disputed game: three finals over one dissent
+        ends[2].homeScore = 90;
+        ends[2].awayScore = 85;
+        for (uint256 i; i < 3; ++i) {
+            ends[2].readings[i] =
+                Reading({seat: uint8(i + 1), kind: ReadingKind.AnsweredFinal, homeScore: 90, awayScore: 85});
+        }
+        ends[2].readings[3] = Reading({seat: 4, kind: ReadingKind.AnsweredFinal, homeScore: 85, awayScore: 90});
+        ends[3] = _voidReportTo(made[3], payout); // the hour-24 void: no final among the feeds that answered
+        ends[4] = _voidReportTo(made[4], payout); // the day-7 void: two finals that differ, one without, one silent
+        ends[4].readings[0] = Reading({seat: 1, kind: ReadingKind.AnsweredFinal, homeScore: HOME, awayScore: AWAY});
+        ends[4].readings[1] = Reading({seat: 2, kind: ReadingKind.AnsweredFinal, homeScore: AWAY, awayScore: HOME});
+        ends[4].readings[2] = Reading({seat: 3, kind: ReadingKind.AnsweredNoFinal, homeScore: 33, awayScore: 31});
+        ends[4].readings[3] = Reading({seat: 4, kind: ReadingKind.Silent, homeScore: 0, awayScore: 0});
+        uint64[5] memory whens = [START + 2, START + WINDOW, START + 1 + DAY7, START + WINDOW, START + 1 + DAY7];
+        MockReporter[5] memory whos = [first, later, later, later, first];
+        GameStatus[5] memory statuses =
+            [GameStatus.Scored, GameStatus.Scored, GameStatus.Scored, GameStatus.Voided, GameStatus.Voided];
+        bytes32[5] memory kept;
+        for (uint256 i; i < 5; ++i) {
+            uint256 game = made[i];
+            (Reading[] memory s0, Reading[] memory v0, uint64 at0,) = games.getGameReadings(game);
+            vm.warp(whens[i]);
+            vm.recordLogs();
+            _take(address(whos[i]), ends[i]);
+            Reading[] memory emitted = _emittedReadings(vm.getRecordedLogs(), game);
+            _assertSameReadings(emitted, ends[i].readings, "the end event's readings are the report's");
+            assertEq(uint8(_status(game)), uint8(statuses[i]), "the end");
+            (Reading[] memory s1, Reading[] memory v1, uint64 at1, Reading[] memory e1) =
+                games.getGameReadings(game);
+            _assertSameReadings(e1, emitted, "the end's readings as emitted");
+            _assertSameReadings(s1, s0, "the start's readings after the end");
+            _assertSameReadings(v1, v0, "the votes after the end");
+            assertEq(at1, at0, "the record's time after the end");
+            kept[i] = keccak256(abi.encode(e1));
+            assertTrue(kept[i] != keccak256(abi.encode(s1)), "an end's readings are its start's");
+            for (uint256 j; j < i; ++j) {
+                assertTrue(kept[i] != kept[j], "two ends' readings are the same");
+            }
+        }
+        vm.warp(DATE + DAY30);
+        _releaseBy(stranger, released);
+        assertEq(uint8(_status(released)), uint8(GameStatus.Released), "the release");
+        _assertNoEndReadings(released, "a released game");
+    }
+
+    /// @dev The game's end readings read empty.
+    function _assertNoEndReadings(uint256 game, string memory when) internal view {
+        (,,, Reading[] memory e) = games.getGameReadings(game);
+        assertEq(e.length, 0, string.concat(when, ": an end's readings on record"));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
     // "A dispute report that repeats the game's latest one, in the same order, is taken; or one that does not
     //  is refused as a repeat."
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -3583,7 +3678,7 @@ contract OspexGamesNeverLinesTest is GamesBase {
 
     /// @dev The vote on record for `seat` carries `home` as its home score.
     function _assertVote(uint256 game, uint8 seat, uint32 home, string memory what) internal view {
-        (, Reading[] memory votes,) = games.getGameReadings(game);
+        (, Reading[] memory votes,,) = games.getGameReadings(game);
         for (uint256 i; i < votes.length; ++i) {
             if (votes[i].seat == seat) {
                 assertEq(votes[i].homeScore, home, what);

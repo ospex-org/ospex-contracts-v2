@@ -785,7 +785,7 @@ contract OspexGamesEndsTest is GamesBase {
     ///      the one dissent, is taken, while the score the other way is refused for want of finals reading it and
     ///      a void for the finals that agree.
     function _assertDay7Scores(uint256 game, Reading[] memory votes, uint32 home, uint32 away) internal {
-        (, Reading[] memory onRecord,) = games.getGameReadings(game);
+        (, Reading[] memory onRecord,,) = games.getGameReadings(game);
         _assertSameReadings(onRecord, votes, "the votes on record");
         Report memory v = _voidReportTo(game, payout);
         v.readings = onRecord;
@@ -813,7 +813,7 @@ contract OspexGamesEndsTest is GamesBase {
     /// @dev At day 7 the votes on record are `votes`, two and two, so the score is refused for want of finals
     ///      reading it and the void the program sends is taken.
     function _assertDay7Voids(uint256 game, Reading[] memory votes) internal {
-        (, Reading[] memory onRecord,) = games.getGameReadings(game);
+        (, Reading[] memory onRecord,,) = games.getGameReadings(game);
         _assertSameReadings(onRecord, votes, "the votes on record");
         Report memory s = _scoreReportTo(game, payout);
         s.readings = onRecord;

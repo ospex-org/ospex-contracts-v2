@@ -419,9 +419,12 @@ contract OspexGamesInterfaceTest is GamesBase {
             _assertParams(json, identity, "league;homeTeam;awayTeam;date;hints", "string;string;string;uint64;tuple[]");
             _assertParams(json, string.concat(identity, "[4].components"), "seat;id", "uint8;string");
             string memory readings = "$.abi[?(@.name == 'getGameReadings')].outputs";
-            _assertParams(json, readings, "startReadings;votes;disputedAt", "tuple[];tuple[];uint64");
+            _assertParams(
+                json, readings, "startReadings;votes;disputedAt;endReadings", "tuple[];tuple[];uint64;tuple[]"
+            );
             _assertParams(json, string.concat(readings, "[0].components"), "seat;kind;homeScore;awayScore", "uint8;uint8;uint32;uint32");
             _assertParams(json, string.concat(readings, "[1].components"), "seat;kind;homeScore;awayScore", "uint8;uint8;uint32;uint32");
+            _assertParams(json, string.concat(readings, "[3].components"), "seat;kind;homeScore;awayScore", "uint8;uint8;uint32;uint32");
             _assertParams(json, "$.abi[?(@.name == 'getOpenGames')].inputs", "offset;count", "uint256;uint256");
             _assertParams(json, "$.abi[?(@.name == 'getOpenGames')].outputs", "rows;total", "tuple[];uint256");
             string memory row = "$.abi[?(@.name == 'getOpenGames')].outputs[0].components";

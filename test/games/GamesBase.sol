@@ -601,7 +601,7 @@ abstract contract GamesBase is Test {
         Terms memory t = games.getGameTerms(id);
         assertEq(row.window, t.window, string.concat(what, ": window"));
         assertEq(row.day7Clock, t.day7Clock, string.concat(what, ": day-7 clock"));
-        (,, uint64 disputedAt) = games.getGameReadings(id);
+        (,, uint64 disputedAt,) = games.getGameReadings(id);
         assertEq(row.disputedAt, disputedAt, string.concat(what, ": disputed at"));
         (string memory league,,, uint64 date,) = games.getGameIdentity(id);
         assertEq(row.league, league, string.concat(what, ": league"));
