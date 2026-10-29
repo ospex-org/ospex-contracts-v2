@@ -1,5 +1,5 @@
 {
- "about": "One-line breaks of the games contract and its interface, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; line is where it starts; a find of several lines is one anchor, chosen where the line alone occurs more than once), run the named test alone and see it fail, restore the file byte for byte and see it pass. The whole games suite fails on each too. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis; one ending in $ matches nothing and passes with no test run. Check that exactly one test ran. Ids: N, F, G, L, W, R, M are the creation fee's; E the ends'; P the earlier never-lines' and the interface's; C the day-30 clock's and the retirement's; A the readings' checks; X the four one-line mutants an independent read found surviving before them; H the scoring program's own shapes (test/games/shapes.json), each run through the report door; Q the Chainlink reporter's (src/games/OspexChainlinkReporter.sol); Y the deploy script's (script/DeployGames.s.sol), whose tests run on a fork and need POLYGON_RPC_URL, ETHEREUM_RPC_URL and POLYGON_LOGS_RPC_URL in the environment, with the same command; V what a scorer picks up: the identity stored at creation, the start's and the end's readings and each seat's last vote, the open list, and the latest dispute report refused when sent again. V23-V28, V30, V31 the open list's rows carry the game's own words (V29, the hints, retired with them). V32-V36 the readings a score or a void carried, stored with the end.",
+ "about": "One-line breaks of the games contract and its interface, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; line is where it starts; a find of several lines is one anchor, chosen where the line alone occurs more than once), run the named test alone and see it fail, restore the file byte for byte and see it pass. The whole games suite fails on each too. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis; one ending in $ matches nothing and passes with no test run. Check that exactly one test ran. Ids: N, F, G, L, W, R, M are the creation fee's; E the ends'; P the earlier never-lines' and the interface's; C the day-30 clock's and the retirement's; A the readings' checks; X the four one-line mutants an independent read found surviving before them; H the scoring program's own shapes (test/games/shapes.json), each run through the report door; Q the Chainlink reporter's (src/games/OspexChainlinkReporter.sol); Y the deploy script's (script/DeployGames.s.sol), whose tests run on a fork and need POLYGON_RPC_URL, ETHEREUM_RPC_URL and POLYGON_LOGS_RPC_URL in the environment, with the same command; V what a scorer picks up: the identity stored at creation, the start's and the end's readings and each seat's last vote, the open list, and the latest dispute report refused when sent again. V23-V28, V30, V31 the open list's rows carry the game's own words (V29, the hints, retired with them). V32-V36 the readings a score or a void carried, stored with the end. H11-H13 the same file's scores and voids moved one past the program's count, each refused.",
  "command": "FOUNDRY_SRC=src/games FOUNDRY_TEST=test/games FOUNDRY_SCRIPT=none forge test --via-ir --optimize --match-path <testPath> --match-test '^<test>\\('",
  "breaks": [
   {
@@ -2706,6 +2706,48 @@
    "testPath": "test/games/OspexGamesShapes.t.sol",
    "test": "test_shapes_everyReportTheProgramSendsIsTaken",
    "breaks": "the record's time is written a second late, so the day-7 clock runs a second long"
+  },
+  {
+   "id": "H11-afternone",
+   "file": "src/games/OspexGames.sol",
+   "edits": [
+    {
+     "line": 1205,
+     "find": "        return AGREE_AFTER_N;\n",
+     "replace": "        return AGREE_AFTER_N - 1;\n"
+    }
+   ],
+   "testPath": "test/games/OspexGamesShapes.t.sol",
+   "test": "test_shapes_eachEndOnePastTheProgramsCountIsRefused",
+   "breaks": "a game with no record scores on one final from start + n, so the after-n score shapes one final short are taken"
+  },
+  {
+   "id": "H12-insidetwo",
+   "file": "src/games/OspexGames.sol",
+   "edits": [
+    {
+     "line": 1204,
+     "find": "        if (disputed || block.timestamp < uint256(g.start) + g.terms.window) return AGREE;\n",
+     "replace": "        if (disputed || block.timestamp < uint256(g.start) + g.terms.window) return AGREE - 1;\n"
+    }
+   ],
+   "testPath": "test/games/OspexGamesShapes.t.sol",
+   "test": "test_shapes_eachEndOnePastTheProgramsCountIsRefused",
+   "breaks": "the count inside n and on a disputed game is two, so the score shapes there one final short are taken"
+  },
+  {
+   "id": "H13-voidpastcount",
+   "file": "src/games/OspexGames.sol",
+   "edits": [
+    {
+     "line": 1249,
+     "find": "            if (alike >= agreement) revert OspexGames__FinalsAgree(a.homeScore, a.awayScore);\n",
+     "replace": "            if (alike >= agreement + 1) revert OspexGames__FinalsAgree(a.homeScore, a.awayScore);\n"
+    }
+   ],
+   "testPath": "test/games/OspexGamesShapes.t.sol",
+   "test": "test_shapes_eachEndOnePastTheProgramsCountIsRefused",
+   "breaks": "a void is refused only over one more agreeing final than the count, so the void shapes given the count's agreement are taken"
   },
   {
    "id": "Q1-forwarder",

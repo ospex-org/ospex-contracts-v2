@@ -6,21 +6,29 @@ import {OspexGames} from "../../src/games/OspexGames.sol";
 import {GameStatus, ReadingKind, Reading, Report, ReportKind} from "../../src/games/IOspexGames.sol";
 
 /// Every report the scoring program can send, run through the games set's report door. The file is
-/// test/games/shapes.json, the program's own export: each shape is a report the program built by its own
-/// decisions, listed once, with the clock it was decided at, the status of the game it meets, the decision and
-/// the program's reason; the file's header names the repository and commit it was copied from. Each shape is fed
-/// to a game set up at that clock, from a first-n reporter as the program is, and must be taken: a refusal is a
+/// test/games/shapes.json, the program's own export copied byte for byte (SOURCE names where from, SHA256 pins
+/// its bytes): each shape is a report the program built by its own decisions, listed once, with the clock it was
+/// decided at, the status of the game it meets, the decision and the program's reason. Each shape is fed to a
+/// game set up at that clock, from a first-n reporter as the program is, and must be taken: a refusal is a
 /// mismatch between the program and this contract, and the test names the shape. The checks the games set makes
 /// of a report's readings are the lines the program keeps, so the file is this contract's regression against a
 /// program that changes: when it does, the file is copied in again and run.
 contract OspexGamesShapesTest is GamesBase {
     string internal constant FILE = "test/games/shapes.json";
+    /// @dev Where the file was copied from, unchanged.
+    string internal constant SOURCE =
+        "ospex-org/ospex-cre at 604292d4398a60704894302261b897428ae2e20f, scoring/shapes/emitted.json";
+    /// @dev The SHA-256 of the file's bytes, as `sha256sum` prints it. A re-export changes this line with SOURCE.
+    bytes32 internal constant SHA256 = 0x3cc94178da7c9aefff29660aa62f66b158d6bcae970c8d0de0526be48fe67c09;
     /// @dev How many shapes the file holds. A re-export with another count changes this line, so the change is
     ///      seen rather than taken on trust.
-    uint256 internal constant SHAPES = 1207;
+    uint256 internal constant SHAPES = 1951;
     /// @dev The shapes decided from start + n: after the window, hour 24 and day 7. An after-n reporter writes
     ///      from there, so each of these must be taken from one too.
-    uint256 internal constant FROM_START_PLUS_N = 824;
+    uint256 internal constant FROM_START_PLUS_N = 1267;
+    /// @dev The file's scores and voids, the two kinds whose readings are held to a count.
+    uint256 internal constant SCORES = 138;
+    uint256 internal constant VOIDS = 460;
 
     /// @dev One shape as the file holds it, fields in key order, since the JSON cheatcode encodes an object's
     ///      fields alphabetically. readings: one row per seat, [seat, kind, home, away].
@@ -37,6 +45,12 @@ contract OspexGamesShapesTest is GamesBase {
 
     /// @dev How many shapes were fed, by the file's own count key: "clock, game, decision".
     mapping(bytes32 => uint256) internal fed;
+
+    /// The file is the export SOURCE names, byte for byte: its SHA-256 is the one pinned, so an edit to the file,
+    /// a line ending changed included, or a re-export copied in without SOURCE and SHA256 moving with it, fails here.
+    function test_shapes_theFileIsTheProgramsExport() public view {
+        assertEq(sha256(bytes(vm.readFile(FILE))), SHA256, SOURCE);
+    }
 
     /// Every shape in the file is taken from a first-n reporter, at the clock the program decided it, and writes
     /// what its decision says: a start the start, a score the score, a void Voided, a dispute record Disputed and
@@ -131,6 +145,55 @@ contract OspexGamesShapesTest is GamesBase {
         assertFalse(ok, "an after-n reporter wrote inside the window");
         assertEq(err, abi.encodeWithSelector(OspexGames.OspexGames__InsideWindow.selector, game, START + WINDOW));
         assertEq(uint8(_status(game)), uint8(GameStatus.Verified), "nothing written");
+    }
+
+    /// The other half: every end in the file, moved just past the program's count at its clock, is refused by
+    /// the games set's own names. The count is three inside n and on a disputed game, two from start + n on a game
+    /// with no record. Each score shape keeps one final fewer than the count reading its points, the others made
+    /// silent: a score the program would not send, refused as too few finals agreeing. Each void shape is given
+    /// that many finals reading final A on its first seats: a void over agreement, refused by the agreed points.
+    /// Starts and dispute reports are read for shape alone, so they have no count to miss. Nothing is written.
+    function test_shapes_eachEndOnePastTheProgramsCountIsRefused() public {
+        (, Shape[] memory shapes) = _load();
+        uint256 scores;
+        uint256 voids;
+        for (uint256 i; i < shapes.length; ++i) {
+            Shape memory s = shapes[i];
+            string memory name = _name(i, s);
+            uint256 need = _is(s.game, "disputed") || _is(s.clock, "inside the window") ? 3 : 2;
+            bytes memory want;
+            if (s.kind == uint256(ReportKind.Score)) {
+                uint256 kept;
+                for (uint256 r; r < s.readings.length; ++r) {
+                    uint256[] memory row = s.readings[r];
+                    if (row[1] != uint256(ReadingKind.AnsweredFinal) || row[2] != s.home || row[3] != s.away) continue;
+                    if (kept < need - 1) {
+                        ++kept;
+                        continue;
+                    }
+                    (row[1], row[2], row[3]) = (uint256(ReadingKind.Silent), 0, 0);
+                }
+                assertEq(kept, need - 1, string.concat(name, ": the near miss keeps one final fewer than the count"));
+                want = abi.encodeWithSelector(OspexGames.OspexGames__TooFewFinalsAgree.selector, need - 1, need);
+                ++scores;
+            } else if (s.kind == uint256(ReportKind.Void)) {
+                for (uint256 r; r < need; ++r) {
+                    (s.readings[r][1], s.readings[r][2], s.readings[r][3]) = (uint256(ReadingKind.AnsweredFinal), 27, 20);
+                }
+                want = abi.encodeWithSelector(OspexGames.OspexGames__FinalsAgree.selector, 27, 20);
+                ++voids;
+            } else {
+                continue;
+            }
+            (bool ok, bytes memory err, uint256 game) = _feed(s, first);
+            assertFalse(ok, string.concat(name, ": one past the count was taken"));
+            assertEq(err, want, name);
+            GameStatus before = _is(s.game, "disputed") ? GameStatus.Disputed : GameStatus.Verified;
+            assertEq(uint8(_status(game)), uint8(before), string.concat(name, ": nothing written"));
+        }
+        assertEq(scores, SCORES, "the file's scores");
+        assertEq(voids, VOIDS, "the file's voids");
+        assertEq(games.getCredit(payout), 0, "nothing credited");
     }
 
     // ──────────────────────────── The driver ───────────────────────────
