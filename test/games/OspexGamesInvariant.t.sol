@@ -294,6 +294,21 @@ contract GamesHandler is Test {
     /// @dev shapeSeed: one time in seven the start carries a payout, one time in nine a silent reading carries
     ///      a score, one time in eleven two readings name one seat. Refused from the game's day-30 clock.
     function reportStart(uint256 gameSeed, uint256 whoSeed, uint256 offsetSeed, uint256 shapeSeed) external {
+        _reportStart(gameSeed, whoSeed, offsetSeed, shapeSeed, false);
+    }
+
+    /// @dev A start as reportStart sends it, with the clock first moved forward to the start when the start is
+    ///      still ahead of it, so a start that lands puts its game inside its own window, where a dispute record,
+    ///      an update and a score inside n can meet it. The clock never moves back.
+    function reportStartIntoItsWindow(uint256 gameSeed, uint256 whoSeed, uint256 offsetSeed, uint256 shapeSeed)
+        external
+    {
+        _reportStart(gameSeed, whoSeed, offsetSeed, shapeSeed, true);
+    }
+
+    function _reportStart(uint256 gameSeed, uint256 whoSeed, uint256 offsetSeed, uint256 shapeSeed, bool intoWindow)
+        internal
+    {
         uint256 id = _pickGame(gameSeed);
         Ghost storage g = ghosts[id];
         address who = _pickSenderFor(g, whoSeed);
@@ -304,6 +319,7 @@ contract GamesHandler is Test {
             uint256 low = uint256(g.date) > uint256(DAY) + 1 ? uint256(g.date) - DAY - 1 : 0;
             start = uint64(low + (offsetSeed % span));
         }
+        if (intoWindow && uint256(start) > vm.getBlockTimestamp()) vm.warp(start);
 
         Report memory r = _report(id, ReportKind.Start, start, 0, 0, shapeSeed);
         if (shapeSeed % 7 == 1) r.payout = address(0xFEE00);
@@ -365,7 +381,9 @@ contract GamesHandler is Test {
     ///      day-7 clock has run from the record; refused from the game's day-30 clock. shapeSeed: one time in
     ///      nine a silent reading carries a score; one time in eleven two readings name one seat; one time in
     ///      seven the void carries a score of its own, which is refused; one time in thirteen (% 13 == 1) its
-    ///      readings are three finals that agree, refused at either clock.
+    ///      readings are three finals that agree, refused at either clock; one time in thirteen (% 13 == 2) two
+    ///      finals that agree, the count from start + n on a game with no record, so refused there, and taken on
+    ///      a disputed game, where the count is three.
     function reportVoid(uint256 gameSeed, uint256 whoSeed, uint256 shapeSeed) external {
         uint256 id = _pickGame(gameSeed);
         Ghost storage g = ghosts[id];
@@ -377,7 +395,7 @@ contract GamesHandler is Test {
         bool expected = _exists(id) && kind != 0 && !retired[who] && _codeAsApproved(who) && g.started
             && !_ended(g) && _open(g) && nowTs >= uint256(g.start) + g.terms.window
             && (!g.disputed || nowTs >= uint256(g.disputedAt) + g.terms.day7Clock) && shapeSeed % 7 != 1
-            && _readingsFine(shapeSeed) && shapeSeed % 13 != 1;
+            && _readingsFine(shapeSeed) && shapeSeed % 13 != 1 && (shapeSeed % 13 != 2 || g.disputed);
         bool ok = _send(who, r);
         _check(ok, expected);
         if (ok && expected) {
@@ -393,10 +411,11 @@ contract GamesHandler is Test {
     ///      day-30 clock. The first record writes the time the day-7 clock counts from; an update writes no
     ///      status and moves no clock. Seat 1's vote takes one of four values from the seed, so that a report can
     ///      repeat the game's latest one, which is refused whoever sends it and at whatever hour, or return to an
-    ///      earlier one, which is taken. Few sequences reach a dispute at all (time moves past most start windows:
-    ///      in one sequence of 5,000 calls, 95 games were created, 3 started and none disputed), so the repeat
-    ///      refusal and the return are proven by the never-line test and by the scripted path below, not by the
-    ///      campaign.
+    ///      earlier one, which is taken. Some runs reach a dispute, most do not: measured when
+    ///      reportStartIntoItsWindow was added, one run of 80 calls under each of 40 seeds took dispute reports
+    ///      in 18 runs (26 in all), and in 11 (13) without it; one sequence of 5,000 calls took none, since time
+    ///      moves past most start windows. So the repeat refusal and the return are proven by the never-line
+    ///      test and by the scripted path below, not by the campaign.
     function reportDispute(uint256 gameSeed, uint256 whoSeed, uint256 shapeSeed) external {
         uint256 id = _pickGame(gameSeed);
         Ghost storage g = ghosts[id];
@@ -617,7 +636,8 @@ contract GamesHandler is Test {
     ///      two finals that differ beside an answer without a final and a silent. Then shapeSeed's faults: % 9 == 1
     ///      a silent reading carrying a score; % 11 == 1 two readings naming seat 1; and for a score by % 13: 1
     ///      two finals beside silents, 2 a dissenting fourth final, 3 three finals reading another score; for a
-    ///      void, % 13 == 1 three finals that agree. A start pays nothing; any other kind names a payout.
+    ///      void, % 13 == 1 three finals that agree, 2 two finals that agree beside the answer without a final and
+    ///      the silent. A start pays nothing; any other kind names a payout.
     function _report(uint256 id, ReportKind kind, uint64 start, uint32 home, uint32 away, uint256 shapeSeed)
         internal
         pure
@@ -654,6 +674,10 @@ contract GamesHandler is Test {
             }
             if (shapeSeed % 13 == 1) {
                 for (uint256 i; i < 3; ++i) {
+                    readings[i] = Reading({seat: uint8(i + 1), kind: ReadingKind.AnsweredFinal, homeScore: 5, awayScore: 5});
+                }
+            } else if (shapeSeed % 13 == 2) {
+                for (uint256 i; i < 2; ++i) {
                     readings[i] = Reading({seat: uint8(i + 1), kind: ReadingKind.AnsweredFinal, homeScore: 5, awayScore: 5});
                 }
             }
@@ -729,7 +753,7 @@ contract OspexGamesInvariantTest is GamesBase {
         token.approve(address(games), type(uint256).max);
         vm.warp(1_800_000_037 - 2 days);
 
-        bytes4[] memory selectors = new bytes4[](16);
+        bytes4[] memory selectors = new bytes4[](17);
         selectors[0] = GamesHandler.create.selector;
         selectors[1] = GamesHandler.approve.selector;
         selectors[2] = GamesHandler.retire.selector;
@@ -746,6 +770,7 @@ contract OspexGamesInvariantTest is GamesBase {
         selectors[13] = GamesHandler.reportDispute.selector; // records and updates
         selectors[14] = GamesHandler.release.selector;
         selectors[15] = GamesHandler.warpLong.selector;
+        selectors[16] = GamesHandler.reportStartIntoItsWindow.selector; // a start the reports after it can meet
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
         targetContract(address(handler));
     }
@@ -1020,5 +1045,35 @@ contract OspexGamesInvariantTest is GamesBase {
         invariant_everyGameReadsAsItsModel();
         invariant_theListAndTheTermsReadAsTheModel();
         invariant_theOpenListIsTheGamesNotEnded();
+    }
+
+    /// The void over two finals that agree (shape seed 2), driven in a fixed order through the model: refused
+    /// at hour 24 on a game with no record, where two agreeing finals are the program's count; refused on a
+    /// disputed game inside its day-7 clock; taken at that clock, where the count is three. Control: the void
+    /// with no finals is taken at hour 24 on the game with no record. The model and the contract agree each time.
+    function test_handlerModelTheTwoFinalVoid() public {
+        uint64 date = uint64(1_800_000_037 - 2 days); // the handler's clock starts here
+        handler.create(date, 0); // game 1, nba, the launch terms: n 24 hours, the day-7 clock 7 days
+        handler.create(date, 0); // game 2
+        uint256 inRange = 86_401; // start = date
+        // A game seed picks game 1 + seed % 2; a sender seed of 3 the game's first reporter (first, first-n).
+        handler.reportStart(1, 3, inRange, 0); // game 2: taken
+        handler.reportStart(2, 3, inRange, 0); // game 1: taken
+        handler.reportDispute(1, 3, 0); // game 2, inside n: the record
+        handler.warp(1 days); // start + n: hour 24
+        handler.reportVoid(2, 3, 2); // game 1, no record, two finals agree: refused
+        handler.reportVoid(1, 3, 2); // game 2, disputed, inside its day-7 clock: refused
+        handler.warpLong(7 days); // the day-7 clock has run from the record
+        handler.reportVoid(1, 3, 2); // game 2, disputed, at its day-7 clock: taken
+        handler.reportVoid(2, 3, 0); // control: game 1, no finals, hour 24: taken
+
+        assertEq(handler.mismatches(), 0, "the contract and the model disagreed");
+        assertEq(handler.startsTaken(), 2, "starts taken");
+        assertEq(handler.disputesTaken(), 1, "dispute records taken");
+        assertEq(handler.voidsTaken(), 2, "voids taken");
+        assertEq(handler.refused(), 2, "reports refused");
+        assertEq(uint8(games.getGameStatus(1)), uint8(GameStatus.Voided), "game 1 voided");
+        assertEq(uint8(games.getGameStatus(2)), uint8(GameStatus.Voided), "game 2 voided at day 7");
+        invariant_everyGameReadsAsItsModel();
     }
 }

@@ -1,5 +1,5 @@
 {
- "about": "One-line breaks of the games contract and its interface, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; line is where it starts; a find of several lines is one anchor, chosen where the line alone occurs more than once), run the named test alone and see it fail, restore the file byte for byte and see it pass. The whole games suite fails on each too. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis; one ending in $ matches nothing and passes with no test run. Check that exactly one test ran. Ids: N, F, G, L, W, R, M are the creation fee's; E the ends'; P the earlier never-lines' and the interface's; C the day-30 clock's and the retirement's; A the readings' checks; X the four one-line mutants an independent read found surviving before them; H the scoring program's own shapes (test/games/shapes.json), each run through the report door; Q the Chainlink reporter's (src/games/OspexChainlinkReporter.sol); Y the deploy script's (script/DeployGames.s.sol), whose tests run on a fork and need POLYGON_RPC_URL, ETHEREUM_RPC_URL and POLYGON_LOGS_RPC_URL in the environment, with the same command; V what a scorer picks up: the identity stored at creation, the start's and the end's readings and each seat's last vote, the open list, and the latest dispute report refused when sent again. V23-V28, V30, V31 the open list's rows carry the game's own words (V29, the hints, retired with them). V32-V36 the readings a score or a void carried, stored with the end. H11-H13 the same file's scores and voids moved one past the program's count, each refused.",
+ "about": "One-line breaks of the games contract and its interface, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; line is where it starts; a find of several lines is one anchor, chosen where the line alone occurs more than once), run the named test alone and see it fail, restore the file byte for byte and see it pass. The whole games suite fails on each too. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis; one ending in $ matches nothing and passes with no test run. Check that exactly one test ran. Ids: N, F, G, L, W, R, M are the creation fee's; E the ends'; P the earlier never-lines' and the interface's; C the day-30 clock's and the retirement's; A the readings' checks; X the four one-line mutants an independent read found surviving before them; H the scoring program's own shapes (test/games/shapes.json), each run through the report door; Q the Chainlink reporter's (src/games/OspexChainlinkReporter.sol); Y the deploy script's (script/DeployGames.s.sol), whose tests run on a fork and need POLYGON_RPC_URL, ETHEREUM_RPC_URL and POLYGON_LOGS_RPC_URL in the environment, with the same command; V what a scorer picks up: the identity stored at creation, the start's and the end's readings and each seat's last vote, the open list, and the latest dispute report refused when sent again. V23-V28, V30, V31 the open list's rows carry the game's own words (V29, the hints, retired with them). V32-V36 the readings a score or a void carried, stored with the end. H11-H13 the same file's scores and voids moved one past the program's count, each refused. A26-A29 the void's away score, the first dissent's index, and the stateful model's two-final void.",
  "command": "FOUNDRY_SRC=src/games FOUNDRY_TEST=test/games FOUNDRY_SCRIPT=none forge test --via-ir --optimize --match-path <testPath> --match-test '^<test>\\('",
  "breaks": [
   {
@@ -2524,6 +2524,62 @@
    "testPath": "test/games/OspexGamesNeverLines.t.sol",
    "test": "test_neverLine_aDisputedGamesChecksKeepTheirCount",
    "breaks": "a disputed game's count follows the clock: two finals settle it from start + n"
+  },
+  {
+   "id": "A26-voidawayonly",
+   "file": "src/games/OspexGames.sol",
+   "edits": [
+    {
+     "line": 1245,
+     "find": "                if (b.kind == ReadingKind.AnsweredFinal && b.homeScore == a.homeScore && b.awayScore == a.awayScore) {\n",
+     "replace": "                if (b.kind == ReadingKind.AnsweredFinal && b.awayScore == a.awayScore) {\n"
+    }
+   ],
+   "testPath": "test/games/OspexGamesNeverLines.t.sol",
+   "test": "test_neverLine_aVoidOverAgreeingFinalsIsRefused",
+   "breaks": "finals agree for a void on the away score alone"
+  },
+  {
+   "id": "A27-lastdissent",
+   "file": "src/games/OspexGames.sol",
+   "edits": [
+    {
+     "line": 1224,
+     "find": "            else if (dissent == type(uint256).max) dissent = i;\n",
+     "replace": "            else dissent = i;\n"
+    }
+   ],
+   "testPath": "test/games/OspexGamesNeverLines.t.sol",
+   "test": "test_neverLine_aDisputedGameSettlesOnlyOnAgreement",
+   "breaks": "a refused score names its last dissenting final, not its first"
+  },
+  {
+   "id": "A28-voidcountalwaysthree",
+   "file": "src/games/OspexGames.sol",
+   "edits": [
+    {
+     "line": 1076,
+     "find": "        _checkVoidReadings(r.readings, _agreement(g, status == GameStatus.Disputed));\n",
+     "replace": "        _checkVoidReadings(r.readings, _agreement(g, true));\n"
+    }
+   ],
+   "testPath": "test/games/OspexGamesInvariant.t.sol",
+   "test": "test_handlerModelTheTwoFinalVoid",
+   "breaks": "a void's count is three on a game with no record too, so the two-final void is taken at hour 24 where the model refuses it"
+  },
+  {
+   "id": "A29-voidcountoneless",
+   "file": "src/games/OspexGames.sol",
+   "edits": [
+    {
+     "line": 1076,
+     "find": "        _checkVoidReadings(r.readings, _agreement(g, status == GameStatus.Disputed));\n",
+     "replace": "        _checkVoidReadings(r.readings, _agreement(g, status == GameStatus.Disputed) - 1);\n"
+    }
+   ],
+   "testPath": "test/games/OspexGamesInvariant.t.sol",
+   "test": "test_handlerModelTheTwoFinalVoid",
+   "breaks": "a void's count is one less, so the two-final void is refused at day 7 where the model takes it"
   },
   {
    "id": "X1-scorestartdisputed",
