@@ -411,11 +411,9 @@ contract GamesHandler is Test {
     ///      day-30 clock. The first record writes the time the day-7 clock counts from; an update writes no
     ///      status and moves no clock. Seat 1's vote takes one of four values from the seed, so that a report can
     ///      repeat the game's latest one, which is refused whoever sends it and at whatever hour, or return to an
-    ///      earlier one, which is taken. Some runs reach a dispute, most do not: measured when
-    ///      reportStartIntoItsWindow was added, one run of 80 calls under each of 40 seeds took dispute reports
-    ///      in 18 runs (26 in all), and in 11 (13) without it; one sequence of 5,000 calls took none, since time
-    ///      moves past most start windows. So the repeat refusal and the return are proven by the never-line
-    ///      test and by the scripted path below, not by the campaign.
+    ///      earlier one, which is taken. Many runs never reach a dispute, reportStartIntoItsWindow included,
+    ///      since time moves past most start windows; so the repeat refusal and the return are proven by the
+    ///      never-line test and by the scripted path below, not by the campaign.
     function reportDispute(uint256 gameSeed, uint256 whoSeed, uint256 shapeSeed) external {
         uint256 id = _pickGame(gameSeed);
         Ghost storage g = ghosts[id];
