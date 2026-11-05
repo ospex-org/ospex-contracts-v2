@@ -289,21 +289,25 @@ The set is seven contracts: the core, `OspexBetting`; three modules, `OspexMarke
 
 ### Who may call whom
 
-Every call one contract of the set makes to another, or out of the set:
+Every call one contract of the set makes to another, or out of the set, with the deployer's two calls first:
 
 | Caller | Call | What the callee checks |
 |--------|------|------------------------|
 | The deployer | `OspexBetting.bootstrapModules`, `finalize` | The caller is the deployer, and finalize has not run |
-| `OspexMarkets`, `OspexPositions` and the market contracts, in their constructors | `OspexBetting.i_games`, `i_token` | Nothing: public reads, copied once |
+| `OspexBetting`, in `bootstrapModules` | `getModuleType()` of each address it is asked to register | Nothing: each module's is a pure read. The core refuses an address whose answer is not the type it is registered under |
+| `OspexMarkets` and the market contracts, in their constructors | `OspexBetting.i_games` | Nothing: a public read, copied once |
+| `OspexPositions`, in its constructor | `OspexBetting.i_token` | Nothing: a public read, copied once |
 | `OspexPositions` | `OspexMarkets.createMarket` | The caller is the address registered as the positions module |
 | `OspexPositions` | `OspexMarkets.getMarketId`, `getMarket` | Nothing: public reads. `getMarket` refuses an id that is not a market |
 | `OspexMatching` | `OspexPositions.recordFill` | The caller is the address registered as the matching module. No function of `OspexMatching` makes this call yet |
-| `OspexMarkets`, `OspexPositions` | `OspexBetting.getModule`, `isApprovedScorer` | Nothing: public reads of the registry |
+| `OspexMarkets`, `OspexPositions` | `OspexBetting.getModule` | Nothing: a public read of the registry |
+| `OspexMarkets` | `OspexBetting.isApprovedScorer` | Nothing: a public read of the registry |
 | `OspexMarkets`, `OspexPositions`, `OspexMatching` | `OspexBetting.emitCoreEvent` | The caller is a registered module |
 | `OspexMarkets` | A market contract's `outcomeOf` | Nothing: a public read |
 | `OspexMarkets` | The games set's `getGameStatus` | Nothing: a public read, which refuses an id that is not a game |
 | The market contracts | The games set's `getGameScores` | Nothing: a public read, which refuses a game that is not scored |
-| `OspexPositions` | The coin's `transferFrom` and `transfer` | The coin's own: each account's allowance to `OspexPositions` |
+| `OspexPositions`, at a fill | The coin's `transferFrom`, once from each of the two accounts | The coin's own, among them the account's allowance to `OspexPositions` |
+| `OspexPositions`, at a claim | The coin's `transfer`, to the account that claims | The coin's own. An ERC-20 `transfer` reads no allowance: the account approves nothing to be paid |
 
 From outside the set: anyone settles a market (`settleMarket`) and reads; an account claims its own position (`claimPosition`), cancels its own order (`cancelCommitment`) and raises its own floor (`raiseMinNonce`). The games set calls nothing in the betting set, and the betting set writes nothing to the games set.
 
@@ -313,7 +317,7 @@ What registration does not check is which core a module was deployed with. Each 
 
 ### Where coin is accepted, and the one approval
 
-Coin enters the set in one place: `OspexPositions._record`, reached only through `recordFill`, pulls the maker's stake and the taker's stake with `transferFrom`. Both accounts approve `OspexPositions` for the coin and nothing else: no fee is taken at a fill, so there is no second spender. Coin leaves in one place, `claimPosition`, to the position's owner.
+The set pulls coin in one place: `OspexPositions._record`, reached only through `recordFill`, pulls the maker's stake and the taker's stake with `transferFrom`. Those stakes are the coin the set accounts for. Both accounts approve `OspexPositions` for the coin and nothing else: no fee is taken at a fill, so there is no second spender. The set sends coin in one place: `claimPosition` pays a position's payout to the account that claims it, with `transfer`. Coin can also be sent to a contract of the set by a plain transfer, outside any function of the set: that coin is counted by nothing, belongs to no position, and no function sends it back (see "The coin").
 
 What a fill is checked against, and where:
 
