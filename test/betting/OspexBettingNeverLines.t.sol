@@ -311,7 +311,8 @@ contract OspexBettingNeverLinesTest is BettingBase {
     // and with another address as its origin, so a line that read tx.origin where it should read msg.sender,
     // or that told the two cases apart, would change what a test sees. The pairs read are every pair of the
     // addresses the module can name without writing one out: the caller, the origin, itself, its core and
-    // what its core names; with the accounts, this contract and the zero address.
+    // what its core names; with the accounts, this contract and the zero address. Past what any list of
+    // addresses can reach, each of the module's calls that change state is shown to write one storage slot.
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// @dev How many of _everyone()'s addresses make the calls: its first four.
@@ -330,8 +331,9 @@ contract OspexBettingNeverLinesTest is BettingBase {
     /// `s_couriers[courier][msg.sender] = true;`. The caller then writes the couriers of the address it names.
     /// The same swap in unregisterCourier's write turns it red too; so does `tx.origin` in place of
     /// `msg.sender` in either write; a courier written by the cancel or by the floor; a drop that takes a
-    /// second courier with it; and a registration written only when the caller is its own origin, or only
-    /// when it is not.
+    /// second courier with it; a registration written only when the caller is its own origin, or only when
+    /// it is not; and a second write for an address spelled out in the code, by a registration or by the
+    /// cancel.
     function test_neverLine_onlyTheAccountChangesItsCouriers() public {
         // The two calls take one address, the courier, and no account.
         string memory json = _artifact("OspexMatching");
@@ -365,9 +367,9 @@ contract OspexBettingNeverLinesTest is BettingBase {
             }
         }
 
-        // The maker's courier stands whatever the others send: a stranger, the other account and the courier
-        // itself each try to drop it, naming the courier and naming the maker, and each is refused for an
-        // entry of its own that it does not have.
+        // The maker's courier stands when the others try to drop it: a stranger, the other account and the
+        // courier itself each send the drop, naming the courier and naming the maker, and each is refused for
+        // an entry of its own that it does not have.
         vm.prank(maker, origin);
         matching.registerCourier(courier);
         address[3] memory others = [stranger, taker, courier];
@@ -430,6 +432,53 @@ contract OspexBettingNeverLinesTest is BettingBase {
         relay.unregister(matching, lure);
         assertFalse(matching.isCourier(address(relay), lure), "the calling contract's entry, after its drop");
         assertTrue(matching.isCourier(taker, lure), "the account's courier, after the contract's drop");
+
+        // Each of the module's four calls that change state writes one slot of its storage and no more, sent
+        // either way: a registration and a drop the caller's pair, the cancel its mark, the floor its floor.
+        // The one slot is shown to be that one by reading it before and after. So a second write has no slot
+        // to land in, whatever address it would be for, among those read above or not.
+        vm.record();
+        for (uint256 direct; direct < 2; ++direct) {
+            address sentFrom = direct == 1 ? stranger : origin;
+            address fresh = makeAddr(direct == 1 ? "one more courier" : "another courier");
+            OspexMatching.OspexCommitment memory order = OspexMatching.OspexCommitment({
+                maker: stranger,
+                gameId: 7,
+                scorer: fresh,
+                lineTicks: 0,
+                positionType: Side.A,
+                oddsTick: 200,
+                riskAmount: STAKE,
+                nonce: 1,
+                expiry: 1_900_000_000
+            });
+            bytes32 hash = matching.getCommitmentHash(order);
+            bytes32 key = keccak256(abi.encode(uint256(7), fresh, int32(0)));
+            assertFalse(matching.isCourier(stranger, fresh), "the fresh courier is registered already");
+            assertFalse(matching.s_cancelledCommitments(hash), "the fresh order is cancelled already");
+            assertEq(matching.s_minNonces(stranger, key), 0, "the fresh floor is raised already");
+            uint256 before = _slotsWritten();
+
+            vm.prank(stranger, sentFrom);
+            matching.registerCourier(fresh);
+            assertEq(_slotsWritten() - before, 1, "a registration did not write exactly one slot");
+            assertTrue(matching.isCourier(stranger, fresh), "the slot a registration wrote is not the caller's pair");
+
+            vm.prank(stranger, sentFrom);
+            matching.cancelCommitment(order);
+            assertEq(_slotsWritten() - before, 2, "a cancel did not write exactly one slot");
+            assertTrue(matching.s_cancelledCommitments(hash), "the slot a cancel wrote is not its mark");
+
+            vm.prank(stranger, sentFrom);
+            matching.raiseMinNonce(7, fresh, 0, ++lastFloor);
+            assertEq(_slotsWritten() - before, 3, "a raised floor did not write exactly one slot");
+            assertEq(matching.s_minNonces(stranger, key), lastFloor, "the slot a raised floor wrote is not its floor");
+
+            vm.prank(stranger, sentFrom);
+            matching.unregisterCourier(fresh);
+            assertEq(_slotsWritten() - before, 4, "a drop did not write exactly one slot");
+            assertFalse(matching.isCourier(stranger, fresh), "the slot a drop wrote is not the caller's pair");
+        }
     }
 
     /// Break: in OspexMatching.isCourier, give every account a courier it did not register:
@@ -513,6 +562,12 @@ contract OspexBettingNeverLinesTest is BettingBase {
             }
         }
         _assertCouriers(all, "after the cancel and the floor");
+    }
+
+    /// @dev How many storage writes the matching module has made since the test began recording them.
+    function _slotsWritten() internal returns (uint256) {
+        (, bytes32[] memory writes) = vm.accesses(address(matching));
+        return writes.length;
     }
 
     /// @dev Every pair of `all`, account then courier, reads as written in wantCourier. A failure names the
