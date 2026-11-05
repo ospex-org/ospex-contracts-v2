@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.26;
 
+import {VmSafe} from "forge-std/Vm.sol";
 import {GameStatus} from "../../src/games/IOspexGames.sol";
 import {OspexBetting} from "../../src/betting/OspexBetting.sol";
 import {OspexMarkets} from "../../src/betting/OspexMarkets.sol";
@@ -259,6 +260,10 @@ contract OspexBettingNeverLinesTest is BettingBase {
             expiry: block.timestamp + 1 days
         });
         uint256 makerCoin = token.balanceOf(maker);
+        assertGe(makerCoin, STAKE, "the account holds no coin a fill could move");
+        assertGe(
+            token.allowance(maker, address(positions)), STAKE, "the account has not approved the positions module"
+        );
         vm.startPrank(maker, maker);
         matching.registerCourier(taker);
         matching.cancelCommitment(order);
@@ -309,13 +314,17 @@ contract OspexBettingNeverLinesTest is BettingBase {
     //
     // The courier calls below are sent both ways a call arrives: with the caller as the transaction's origin,
     // and with another address as its origin, so a line that read tx.origin where it should read msg.sender,
-    // or that told the two cases apart, would change what a test sees. The pairs read are every pair of the
-    // addresses the module can name without writing one out: the caller, the origin, itself, its core and
-    // what its core names; with the accounts, this contract and the zero address. Past what any list of
-    // addresses can reach, each of the module's calls that change state is shown to write one storage slot.
+    // or that told the two cases apart, would change what a test sees. The pairs read are every pair of
+    // twenty-one addresses: those the module can reach by reading, which are the caller, the origin, itself,
+    // its core and what its core names; with the accounts, this contract and the zero address. An address
+    // the code spelled out or computed would be outside them. Every one of the twenty-one but zero makes the
+    // calls, a contract as a key does, so a line that set the deployer or a contract apart as a caller would
+    // show too. For what a list of addresses cannot reach, the writes to the module's storage are counted:
+    // one slot for each call that changes state, none for a call that does not, and none at deploy.
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-    /// @dev How many of _everyone()'s addresses make the calls: its first four.
+    /// @dev How many of _everyone()'s addresses name every address in the sweep: its first four. Each other
+    ///      address but zero makes the calls too, and names one.
     uint256 internal constant CALLERS = 4;
 
     /// @dev The transaction origin these tests give a call when the caller is not to be its own origin: an
@@ -333,7 +342,10 @@ contract OspexBettingNeverLinesTest is BettingBase {
     /// `msg.sender` in either write; a courier written by the cancel or by the floor; a drop that takes a
     /// second courier with it; a registration written only when the caller is its own origin, or only when
     /// it is not; a second write for an address spelled out in the code, by a registration or by the cancel;
-    /// and a repeated registration that writes at all, for such an address or for the transaction's origin.
+    /// a repeated registration that writes at all, for such an address or for the transaction's origin; a
+    /// write that goes to another account's entry when the caller is the set's deployer; a drop that takes a
+    /// second courier with it only when it names one address; and an event of the couriers' emitted by the
+    /// cancel.
     function test_neverLine_onlyTheAccountChangesItsCouriers() public {
         // The two calls take one address, the courier, and no account.
         string memory json = _artifact("OspexMatching");
@@ -345,28 +357,27 @@ contract OspexBettingNeverLinesTest is BettingBase {
         // Every address but the last, the zero address, is registered.
         uint256 named = all.length - 1;
 
-        // Each of the four callers registers each of the addresses, itself and the other callers included,
-        // then each registers each again, and then each drops each. After every call every pair is read: the
-        // caller's entry for the address it named has moved, and no other has; after a repeated registration,
-        // which changes nothing, none has. Each call's events are counted too: two for a change, none for a
-        // repeat. The two registration calls are the only writers: before the registrations, with no entry
-        // set, and before the drops, with every caller's entries set, the module's other two calls that change
-        // state move no entry. All of it runs twice: sent with another address as the origin, then sent by
-        // the callers themselves.
-        string[3] memory when = ["after a registration", "after a repeated registration", "after a drop"];
+        // The sweep. Each of the first four addresses, as the caller, names each of the twenty that are not
+        // zero, itself and the other callers included. Each of the other sixteen, the set's own contracts and
+        // its deployer among them, is a caller too and names one, the next in the list. There are four passes:
+        // each caller registers what it names, registers it again, drops it, and drops it again. After every
+        // call every pair is read. After a registration or a drop the caller's entry for the address it named
+        // has moved, and no other has. After a repeated registration, which changes nothing, and after a
+        // repeated drop, which is refused by name, none has. Each call's writes to the module's storage and
+        // its events are counted: one slot and two events for a change, none of either otherwise. Of the
+        // module's four calls that change state, the two registration calls are the only ones that write a
+        // courier: before the registrations, with no entry set, and before the drops, with every caller's
+        // entries set, the cancel and the floor move no entry. All of it runs twice. Sent with another address
+        // as the origin, the addresses are named in the list's order; sent by the callers themselves, in
+        // reverse, so that a call that moved a second entry of the caller's own shows whichever of the two is
+        // named first.
         for (uint256 direct; direct < 2; ++direct) {
             _theCancelAndTheFloorWriteNoCourier(all, direct == 1);
-            for (uint256 pass; pass < 3; ++pass) {
-                for (uint256 i; i < CALLERS; ++i) {
-                    for (uint256 j; j < named; ++j) {
-                        vm.recordLogs();
-                        vm.prank(all[i], direct == 1 ? all[i] : origin);
-                        if (pass < 2) matching.registerCourier(all[j]);
-                        else matching.unregisterCourier(all[j]);
-                        // A change emits twice, itself and through the hub; a repeat, nothing.
-                        assertEq(vm.getRecordedLogs().length, pass == 1 ? 0 : 2, string.concat("events, ", when[pass]));
-                        wantCourier[all[i]][all[j]] = pass < 2;
-                        _assertCouriers(all, when[pass]);
+            for (uint256 pass; pass < 4; ++pass) {
+                for (uint256 i; i < named; ++i) {
+                    for (uint256 k; k < named; ++k) {
+                        uint256 j = direct == 1 ? named - 1 - k : k;
+                        if (i < CALLERS || j == (i + 1) % named) _sweepCall(all, i, j, pass, direct == 1);
                     }
                 }
                 if (pass == 1) _theCancelAndTheFloorWriteNoCourier(all, direct == 1);
@@ -399,9 +410,17 @@ contract OspexBettingNeverLinesTest is BettingBase {
         CourierCaller relay = new CourierCaller();
         address lure = makeAddr("lure");
 
-        // The taker calls a contract that registers a courier: the entry written is the contract's.
+        // The taker calls a contract that registers a courier: the entry written is the contract's, and the
+        // contract is the account both of its events name.
+        vm.recordLogs();
         vm.prank(taker, taker);
         relay.register(matching, lure);
+        VmSafe.Log[] memory relayLogs = vm.getRecordedLogs();
+        assertEq(relayLogs.length, 2, "the calling contract's registration did not emit twice");
+        assertEq(relayLogs[0].topics[1], bytes32(uint256(uint160(address(relay)))), "the account its event names");
+        assertEq(
+            abi.decode(relayLogs[1].data, (bytes)), abi.encode(address(relay), lure), "the account its hub event names"
+        );
         assertTrue(matching.isCourier(address(relay), lure), "the calling contract's own entry");
         assertFalse(matching.isCourier(taker, lure), "a contract the account called registered a courier for it");
 
@@ -441,9 +460,10 @@ contract OspexBettingNeverLinesTest is BettingBase {
 
         // Each of the module's four calls that change state writes one slot of its storage and no more, sent
         // either way: a registration and a drop the caller's pair, the cancel its mark, the floor its floor.
-        // The one slot is shown to be that one by reading it before and after. So a second write has no slot
-        // to land in, whatever address it would be for, among those read above or not. A repeated
-        // registration, which changes nothing, writes no slot at all.
+        // The one slot is shown to be that one by reading it before and after. It is shown here for one
+        // account naming a fresh address; the sweep above counts the same for every call it makes. A
+        // repeated registration, which changes nothing, writes no slot at all. A write made only for a
+        // caller or an address that neither sends is not counted.
         vm.record();
         for (uint256 direct; direct < 2; ++direct) {
             address sentFrom = direct == 1 ? stranger : origin;
@@ -493,9 +513,10 @@ contract OspexBettingNeverLinesTest is BettingBase {
     }
 
     /// Break: in OspexMatching.isCourier, give every account a courier it did not register:
-    /// `return s_couriers[account][courier] || courier == i_ospexCore.i_deployer();`. Three more turn it red:
-    /// the transaction's origin as that courier; a second courier written beside the one the caller named;
-    /// and the caller's courier written for a second account.
+    /// `return s_couriers[account][courier] || courier == i_ospexCore.i_deployer();`. More turn it red: the
+    /// transaction's origin as that courier; a second courier written beside the one the caller named; the
+    /// caller's courier written for a second account; a courier that appears, or lapses, with time; and a
+    /// courier written at deploy, for an address read here or not.
     function test_neverLine_noAccountHasACourierByDefault() public {
         // The set as deployed and finalized, with nothing registered: no pair of the addresses reads as
         // registered.
@@ -517,6 +538,19 @@ contract OspexBettingNeverLinesTest is BettingBase {
         assertTrue(matching.isCourier(taker, all[4]), "the taker's courier was not registered");
         wantCourier[taker][all[4]] = true;
         _assertCouriers(all, "a courier the account did not register");
+
+        // Time gives no courier and takes none: a hundred years and a billion blocks on, every pair reads as
+        // it did.
+        vm.warp(block.timestamp + 36_500 days);
+        vm.roll(block.number + 1_000_000_000);
+        _assertCouriers(all, "a hundred years on");
+
+        // The module's constructor writes nothing. Deployed again here with its storage watched, it has no
+        // slot written, so no courier is set at deploy for any address, read above or not.
+        vm.record();
+        OspexMatching again = new OspexMatching(address(core));
+        (, bytes32[] memory written) = vm.accesses(address(again));
+        assertEq(written.length, 0, "the constructor wrote to storage");
     }
 
     /// @dev The addresses whose pairs the courier tests read. The first four make the calls and the last is
@@ -549,9 +583,47 @@ contract OspexBettingNeverLinesTest is BettingBase {
         all[20] = address(0);
     }
 
+    /// @dev One call of the sweep, and what is read after it. all[i] is the caller and all[j] the address it
+    ///      names. Pass 0: the caller registers it; 1: registers it again; 2: drops it; 3: drops it again,
+    ///      which is refused. `direct`: the caller sends its own call; otherwise the origin is another address.
+    function _sweepCall(address[] memory all, uint256 i, uint256 j, uint256 pass, bool direct) internal {
+        string memory when = pass == 0
+            ? "after a registration"
+            : pass == 1 ? "after a repeated registration" : pass == 2 ? "after a drop" : "after a repeated drop";
+        vm.recordLogs();
+        vm.startStateDiffRecording();
+        vm.prank(all[i], direct ? all[i] : origin);
+        if (pass == 3) {
+            vm.expectRevert(
+                abi.encodeWithSelector(OspexMatching.OspexMatching__CourierNotRegistered.selector, all[i], all[j])
+            );
+        }
+        if (pass < 2) matching.registerCourier(all[j]);
+        else matching.unregisterCourier(all[j]);
+        // A change writes one slot of the module's storage and emits twice, itself and through the hub; a
+        // repeat and a refused drop write none and emit nothing.
+        assertEq(
+            _moduleSlotsWritten(vm.stopAndReturnStateDiff()), pass % 2 == 0 ? 1 : 0, string.concat("slots, ", when)
+        );
+        assertEq(vm.getRecordedLogs().length, pass % 2 == 0 ? 2 : 0, string.concat("events, ", when));
+        wantCourier[all[i]][all[j]] = pass < 2;
+        _assertCouriers(all, when);
+    }
+
+    /// @dev How many writes to the matching module's storage a recorded stretch of calls made and kept.
+    function _moduleSlotsWritten(VmSafe.AccountAccess[] memory accesses) internal view returns (uint256 n) {
+        for (uint256 a; a < accesses.length; ++a) {
+            VmSafe.StorageAccess[] memory slots = accesses[a].storageAccesses;
+            for (uint256 s; s < slots.length; ++s) {
+                if (slots[s].account == address(matching) && slots[s].isWrite && !slots[s].reverted) ++n;
+            }
+        }
+    }
+
     /// @dev Each of the four callers cancels an order and raises a floor, on an order that names each of the
-    ///      addresses as its market contract: every pair still reads as written in wantCourier. `direct`: the
-    ///      callers send their own calls; otherwise the origin is another address.
+    ///      addresses as its market contract: every pair still reads as written in wantCourier, and the two
+    ///      calls emit their own four events and no fifth. `direct`: the callers send their own calls;
+    ///      otherwise the origin is another address.
     function _theCancelAndTheFloorWriteNoCourier(address[] memory all, bool direct) internal {
         for (uint256 i; i < CALLERS; ++i) {
             for (uint256 j; j < all.length; ++j) {
@@ -566,10 +638,13 @@ contract OspexBettingNeverLinesTest is BettingBase {
                     nonce: 1,
                     expiry: 1_900_000_000
                 });
+                vm.recordLogs();
                 vm.startPrank(all[i], direct ? all[i] : origin);
                 matching.cancelCommitment(order);
                 matching.raiseMinNonce(7, all[j], 0, ++lastFloor);
                 vm.stopPrank();
+                // Each emits twice, its own event and the hub's: no event of the couriers' beside them.
+                assertEq(vm.getRecordedLogs().length, 4, "the events of a cancel and a raised floor");
             }
         }
         _assertCouriers(all, "after the cancel and the floor");
