@@ -1,5 +1,5 @@
 {
- "about": "One-line breaks of the betting set, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; a find of several lines is one anchor), run the named test alone and see it fail, restore the file byte for byte and see it pass. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis. Check that exactly one test ran. Ids: B, the cut's: the (home, away) order, the settlement's status read, the fill path, the registry and the interface pins. C, the couriers': who writes an account's couriers, no courier by default, the refusals, the events and the two calls' signatures. From C17 on, the same lines read through the transaction's origin, or told apart by it, and a write beside the one the caller named. C31 and C32, a second write no list of addresses would reach.",
+ "about": "One-line breaks of the betting set, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; a find of several lines is one anchor), run the named test alone and see it fail, restore the file byte for byte and see it pass. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis. Check that exactly one test ran. Ids: B, the cut's: the (home, away) order, the settlement's status read, the fill path, the registry and the interface pins. C, the couriers': who writes an account's couriers, no courier by default, the refusals, the events and the two calls' signatures. From C17 on, the same lines read through the transaction's origin, or told apart by it, and a write beside the one the caller named. C31 and C32, a second write no list of addresses would reach. C33 to C35, one courier at a time and an event emitted twice.",
  "command": "FOUNDRY_SRC=src FOUNDRY_TEST=test/betting FOUNDRY_SCRIPT=none forge test --via-ir --optimize --match-path <testPath> --match-test '^<test>\\\\('",
  "breaks": [
   {
@@ -793,6 +793,49 @@
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
    "test": "test_neverLine_onlyTheAccountChangesItsCouriers",
    "breaks": "a cancel makes the caller the courier of an address spelled out in the code"
+  },
+  {
+   "id": "C33-onecourier",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "    mapping(address => mapping(address => bool)) internal s_couriers;",
+     "replace": "    mapping(address => mapping(address => bool)) internal s_couriers;\n    mapping(address => address) internal s_onlyCourier;"
+    },
+    {
+     "find": "        s_couriers[msg.sender][courier] = true;",
+     "replace": "        s_couriers[msg.sender][s_onlyCourier[msg.sender]] = false;\n        s_onlyCourier[msg.sender] = courier;\n        s_couriers[msg.sender][courier] = true;"
+    }
+   ],
+   "testPath": "test/betting/OspexMatching.t.sol",
+   "test": "test_couriers_anAccountRegistersSeveralAndDropsOne",
+   "breaks": "a second registration replaces the account's first courier"
+  },
+  {
+   "id": "C34-eventtwice",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        emit CourierRegistered(msg.sender, courier);",
+     "replace": "        emit CourierRegistered(msg.sender, courier);\n        emit CourierRegistered(msg.sender, courier);"
+    }
+   ],
+   "testPath": "test/betting/OspexMatching.t.sol",
+   "test": "test_couriers_eachChangeEmitsOnceItselfAndOnceThroughTheHub",
+   "breaks": "a registration emits its event twice"
+  },
+  {
+   "id": "C35-hubtwice",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        i_ospexCore.emitCoreEvent(EVENT_COURIER_UNREGISTERED, abi.encode(msg.sender, courier));",
+     "replace": "        i_ospexCore.emitCoreEvent(EVENT_COURIER_UNREGISTERED, abi.encode(msg.sender, courier));\n        i_ospexCore.emitCoreEvent(EVENT_COURIER_UNREGISTERED, abi.encode(msg.sender, courier));"
+    }
+   ],
+   "testPath": "test/betting/OspexMatching.t.sol",
+   "test": "test_couriers_eachChangeEmitsOnceItselfAndOnceThroughTheHub",
+   "breaks": "a drop reaches the hub twice"
   }
  ]
 }
