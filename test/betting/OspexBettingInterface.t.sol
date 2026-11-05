@@ -36,13 +36,15 @@ contract OspexBettingInterfaceTest is BettingBase {
         );
         _assertFunctions(
             "OspexMatching",
-            "COMMITMENT_TYPEHASH();EVENT_COMMITMENT_CANCELLED();EVENT_MIN_NONCE_UPDATED();MARKET_MODULE();"
+            "COMMITMENT_TYPEHASH();EVENT_COMMITMENT_CANCELLED();EVENT_COURIER_REGISTERED();"
+            "EVENT_COURIER_UNREGISTERED();EVENT_MIN_NONCE_UPDATED();MARKET_MODULE();"
             "MATCHING_MODULE();MAX_LINE_TICKS();MAX_ODDS();MIN_ODDS();ODDS_SCALE();POSITION_MODULE();"
             "cancelCommitment((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256));"
             "eip712Domain();"
             "getCommitmentHash((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256));"
-            "getDomainSeparator();getModuleType();i_ospexCore();raiseMinNonce(uint256,address,int32,uint256);"
-            "s_cancelledCommitments(bytes32);s_minNonces(address,bytes32)"
+            "getDomainSeparator();getModuleType();i_ospexCore();isCourier(address,address);"
+            "raiseMinNonce(uint256,address,int32,uint256);registerCourier(address);"
+            "s_cancelledCommitments(bytes32);s_minNonces(address,bytes32);unregisterCourier(address)"
         );
         _assertFunctions(
             "OspexMoneylineScorer",
@@ -107,8 +109,10 @@ contract OspexBettingInterfaceTest is BettingBase {
         );
         _assertErrors(
             "OspexMatching",
-            "InvalidShortString();OspexMatching__InvalidAddress();OspexMatching__NonceMustIncrease();"
-            "OspexMatching__NotCommitmentMaker();StringTooLong(string str)"
+            "InvalidShortString();OspexMatching__CourierAlreadyRegistered(address account,address courier);"
+            "OspexMatching__CourierNotRegistered(address account,address courier);"
+            "OspexMatching__InvalidAddress();OspexMatching__NonceMustIncrease();"
+            "OspexMatching__NotCommitmentMaker();OspexMatching__ZeroCourier();StringTooLong(string str)"
         );
         _assertErrors("OspexMoneylineScorer", "OspexScorer__InvalidCore()");
         _assertErrors("OspexSpreadScorer", "OspexScorer__InvalidCore()");
@@ -140,7 +144,9 @@ contract OspexBettingInterfaceTest is BettingBase {
             "OspexMatching",
             "CommitmentCancelled(indexed bytes32 commitmentHash,indexed address maker,uint256 gameId,"
             "address scorer,int32 lineTicks,uint8 positionType,uint16 oddsTick,uint256 riskAmount,uint256 nonce,"
-            "uint256 expiry);EIP712DomainChanged();MinNonceUpdated(indexed address maker,uint256 gameId,"
+            "uint256 expiry);CourierRegistered(indexed address account,indexed address courier);"
+            "CourierUnregistered(indexed address account,indexed address courier);EIP712DomainChanged();"
+            "MinNonceUpdated(indexed address maker,uint256 gameId,"
             "address scorer,int32 lineTicks,uint256 newMinNonce,indexed bytes32 marketKey)"
         );
         _assertEvents("OspexMoneylineScorer", "");

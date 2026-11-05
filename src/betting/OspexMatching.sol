@@ -9,18 +9,26 @@ import {Side} from "./OspexBettingTypes.sol";
 /**
  * @title OspexMatching
  * @author ospex.org
- * @notice The matching module of the betting set: the signed order, its hash, the per-order cancel and the
- *         per-line nonce floor. The signed order is the nine-field type v2 signed, with one field renamed: the
- *         game it names is `gameId`, so the typehash is new and no v2 signature is a v3 order. The type's own
- *         name, OspexCommitment, and its other eight field names stay as the spec freezes them.
+ * @notice The matching module of the betting set: the signed order, its hash, the per-order cancel, the
+ *         per-line nonce floor and each account's couriers. The signed order is the nine-field type v2 signed,
+ *         with one field renamed: the game it names is `gameId`, so the typehash is new and no v2 signature is
+ *         a v3 order. The type's own name, OspexCommitment, and its other eight field names stay as the spec
+ *         freezes them.
+ *
+ *         Couriers. A courier is an address an account names to send the fills of its orders. An account
+ *         registers one, and drops one, with a call from its own address: the account is the caller, and
+ *         neither call takes an account, a signature or a grant, so only an account writes its own couriers.
+ *         An account may hold several. There is no default: an account that registered none has none, this
+ *         contract has no owner, and registerCourier and unregisterCourier are its only functions that write a
+ *         courier. Spec: "How a bet happens", and items 1, 5 and 6 of its first milestone.
  *
  *         This contract has no fill path. The Cross, the one route a signed order fills by, in one transaction
  *         sent by a courier every account in it registered, is built with the courier's check, and until then
  *         nothing here calls the positions module. Spec: "How a bet happens".
  *
- *         What is here is a record. A cancel marks an order's hash and a raised floor is stored, each with its
- *         event, and nothing in the set checks an order against either yet: a fill is what does, and the set
- *         has no fill.
+ *         What is here is a record. A cancel marks an order's hash, a raised floor is stored and a courier is
+ *         registered or dropped, each with its event, and nothing in the set checks an order or a sender
+ *         against any of them yet: a fill is what does, and the set has no fill.
  *         The bounds below on an order's price and line, and the two other modules' types, are likewise read
  *         by no function here. The one call this contract makes is to the core's event hub.
  */
@@ -35,6 +43,8 @@ contract OspexMatching is IOspexModule, EIP712 {
     // parameters in the typed event's order.
     bytes32 public constant EVENT_COMMITMENT_CANCELLED = keccak256("COMMITMENT_CANCELLED");
     bytes32 public constant EVENT_MIN_NONCE_UPDATED = keccak256("MIN_NONCE_UPDATED");
+    bytes32 public constant EVENT_COURIER_REGISTERED = keccak256("COURIER_REGISTERED");
+    bytes32 public constant EVENT_COURIER_UNREGISTERED = keccak256("COURIER_UNREGISTERED");
 
     /// @notice EIP-712 typehash for the OspexCommitment struct: the nine fields, the game named `gameId`
     bytes32 public constant COMMITMENT_TYPEHASH = keccak256(
@@ -59,6 +69,12 @@ contract OspexMatching is IOspexModule, EIP712 {
     error OspexMatching__NonceMustIncrease();
     /// @notice Thrown when the core address is zero
     error OspexMatching__InvalidAddress();
+    /// @notice Thrown when the address to register as a courier is zero
+    error OspexMatching__ZeroCourier();
+    /// @notice Thrown when an account registers a courier it already has
+    error OspexMatching__CourierAlreadyRegistered(address account, address courier);
+    /// @notice Thrown when an account drops a courier it does not have
+    error OspexMatching__CourierNotRegistered(address account, address courier);
 
     // ──────────────────────────── Events ───────────────────────────────
 
@@ -86,6 +102,12 @@ contract OspexMatching is IOspexModule, EIP712 {
         uint256 newMinNonce,
         bytes32 indexed marketKey
     );
+
+    /// @notice Emitted when an account registers a courier. The account is the caller.
+    event CourierRegistered(address indexed account, address indexed courier);
+
+    /// @notice Emitted when an account drops a courier. The account is the caller.
+    event CourierUnregistered(address indexed account, address indexed courier);
 
     // ──────────────────────────── Structs ──────────────────────────────
 
@@ -124,6 +146,9 @@ contract OspexMatching is IOspexModule, EIP712 {
     mapping(address => mapping(bytes32 => uint256)) public s_minNonces;
     /// @notice Individually cancelled order hashes
     mapping(bytes32 => bool) public s_cancelledCommitments;
+    /// @dev Each account's couriers: account → courier → registered. Written by registerCourier and
+    ///      unregisterCourier, each at the caller's own entry and no other, and read through isCourier.
+    mapping(address => mapping(address => bool)) internal s_couriers;
 
     // ──────────────────────────── Constructor ──────────────────────────
 
@@ -139,6 +164,39 @@ contract OspexMatching is IOspexModule, EIP712 {
     /// @inheritdoc IOspexModule
     function getModuleType() external pure override returns (bytes32) {
         return MATCHING_MODULE;
+    }
+
+    // ──────────────────────────── Couriers ────────────────────────────
+
+    /**
+     * @notice Register a courier for the caller.
+     * @dev The account is msg.sender, the immediate caller and never tx.origin, so a contract account
+     *      registers as itself and a contract an account calls registers nothing for it. Any address but zero
+     *      is taken, a key or a contract, the account's own included: nothing is read from the courier. An
+     *      account may register several. A courier the account already has is refused, so every
+     *      CourierRegistered is a change.
+     * @param courier The address to register as the caller's courier
+     */
+    function registerCourier(address courier) external {
+        if (courier == address(0)) revert OspexMatching__ZeroCourier();
+        if (s_couriers[msg.sender][courier]) revert OspexMatching__CourierAlreadyRegistered(msg.sender, courier);
+        s_couriers[msg.sender][courier] = true;
+        emit CourierRegistered(msg.sender, courier);
+        i_ospexCore.emitCoreEvent(EVENT_COURIER_REGISTERED, abi.encode(msg.sender, courier));
+    }
+
+    /**
+     * @notice Drop one of the caller's couriers.
+     * @dev The account is msg.sender, as in registerCourier. It drops the one courier named and leaves the
+     *      account's others. A courier the account does not have is refused, the zero address included, so
+     *      every CourierUnregistered is a change. A dropped courier may be registered again.
+     * @param courier The courier to drop
+     */
+    function unregisterCourier(address courier) external {
+        if (!s_couriers[msg.sender][courier]) revert OspexMatching__CourierNotRegistered(msg.sender, courier);
+        s_couriers[msg.sender][courier] = false;
+        emit CourierUnregistered(msg.sender, courier);
+        i_ospexCore.emitCoreEvent(EVENT_COURIER_UNREGISTERED, abi.encode(msg.sender, courier));
     }
 
     // ──────────────────────────── Cancelling ──────────────────────────
@@ -210,6 +268,15 @@ contract OspexMatching is IOspexModule, EIP712 {
     }
 
     // ──────────────────────────── Reads ───────────────────────────────
+
+    /// @notice Whether an account has a courier registered: true from the account's registerCourier until its
+    ///         unregisterCourier, and false otherwise.
+    /// @param account The account
+    /// @param courier The address asked about
+    /// @return True when `courier` is one of `account`'s couriers
+    function isCourier(address account, address courier) external view returns (bool) {
+        return s_couriers[account][courier];
+    }
 
     /// @notice Returns the EIP-712 domain separator
     function getDomainSeparator() external view returns (bytes32) {

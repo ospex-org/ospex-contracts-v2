@@ -1,5 +1,5 @@
 {
- "about": "One-line breaks of the betting set, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; a find of several lines is one anchor), run the named test alone and see it fail, restore the file byte for byte and see it pass. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis. Check that exactly one test ran. Ids: B, the cut's: the (home, away) order, the settlement's status read, the fill path, the registry and the interface pins.",
+ "about": "One-line breaks of the betting set, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; a find of several lines is one anchor), run the named test alone and see it fail, restore the file byte for byte and see it pass. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis. Check that exactly one test ran. Ids: B, the cut's: the (home, away) order, the settlement's status read, the fill path, the registry and the interface pins. C, the couriers': who writes an account's couriers, no courier by default, the refusals, the events and the two calls' signatures.",
  "command": "FOUNDRY_SRC=src FOUNDRY_TEST=test/betting FOUNDRY_SCRIPT=none forge test --via-ir --optimize --match-path <testPath> --match-test '^<test>\\\\('",
  "breaks": [
   {
@@ -377,6 +377,214 @@
    "testPath": "test/betting/OspexBetting.t.sol",
    "test": "test_constructor_refusesAnAddressWithNoCode",
    "breaks": "a wallet is taken as the games set"
+  },
+  {
+   "id": "C1-registerkeys",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        s_couriers[msg.sender][courier] = true;",
+     "replace": "        s_couriers[courier][msg.sender] = true;"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_onlyTheAccountChangesItsCouriers",
+   "breaks": "a caller makes itself the courier of the address it names"
+  },
+  {
+   "id": "C2-unregisterkeys",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        s_couriers[msg.sender][courier] = false;",
+     "replace": "        s_couriers[courier][msg.sender] = false;"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_onlyTheAccountChangesItsCouriers",
+   "breaks": "a caller drops itself from the couriers of the address it names"
+  },
+  {
+   "id": "C3-registerorigin",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        s_couriers[msg.sender][courier] = true;",
+     "replace": "        s_couriers[tx.origin][courier] = true;"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_onlyTheAccountChangesItsCouriers",
+   "breaks": "a contract an account calls registers a courier for it"
+  },
+  {
+   "id": "C4-unregisterorigin",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        s_couriers[msg.sender][courier] = false;",
+     "replace": "        s_couriers[tx.origin][courier] = false;"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_onlyTheAccountChangesItsCouriers",
+   "breaks": "a contract an account calls drops the account's courier"
+  },
+  {
+   "id": "C5-default",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        return s_couriers[account][courier];",
+     "replace": "        return s_couriers[account][courier] || courier == i_ospexCore.i_deployer();"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_noAccountHasACourierByDefault",
+   "breaks": "every account has a courier it did not register"
+  },
+  {
+   "id": "C6-dropwrite",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        s_couriers[msg.sender][courier] = false;\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexMatching.t.sol",
+   "test": "test_couriers_anAccountRegistersSeveralAndDropsOne",
+   "breaks": "a dropped courier stays registered"
+  },
+  {
+   "id": "C7-zero",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (courier == address(0)) revert OspexMatching__ZeroCourier();\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexMatching.t.sol",
+   "test": "test_couriers_refusesTheZeroAddressAndACallThatChangesNothing",
+   "breaks": "the zero address registers as a courier"
+  },
+  {
+   "id": "C8-again",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_couriers[msg.sender][courier]) revert OspexMatching__CourierAlreadyRegistered(msg.sender, courier);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexMatching.t.sol",
+   "test": "test_couriers_refusesTheZeroAddressAndACallThatChangesNothing",
+   "breaks": "a courier the account has registers again, with its events"
+  },
+  {
+   "id": "C9-absent",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (!s_couriers[msg.sender][courier]) revert OspexMatching__CourierNotRegistered(msg.sender, courier);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexMatching.t.sol",
+   "test": "test_couriers_refusesTheZeroAddressAndACallThatChangesNothing",
+   "breaks": "a courier the account does not have is dropped, with its events"
+  },
+  {
+   "id": "C10-typedargs",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        emit CourierRegistered(msg.sender, courier);",
+     "replace": "        emit CourierRegistered(courier, msg.sender);"
+    }
+   ],
+   "testPath": "test/betting/OspexMatching.t.sol",
+   "test": "test_couriers_eachChangeEmitsOnceItselfAndOnceThroughTheHub",
+   "breaks": "the registration's event names the courier as the account"
+  },
+  {
+   "id": "C11-nohub",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        i_ospexCore.emitCoreEvent(EVENT_COURIER_REGISTERED, abi.encode(msg.sender, courier));\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexMatching.t.sol",
+   "test": "test_couriers_eachChangeEmitsOnceItselfAndOnceThroughTheHub",
+   "breaks": "a registration does not reach the hub"
+  },
+  {
+   "id": "C12-wrongevent",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        emit CourierUnregistered(msg.sender, courier);",
+     "replace": "        emit CourierRegistered(msg.sender, courier);"
+    }
+   ],
+   "testPath": "test/betting/OspexMatching.t.sol",
+   "test": "test_couriers_eachChangeEmitsOnceItselfAndOnceThroughTheHub",
+   "breaks": "a drop emits the registration's event"
+  },
+  {
+   "id": "C13-payload",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        i_ospexCore.emitCoreEvent(EVENT_COURIER_UNREGISTERED, abi.encode(msg.sender, courier));",
+     "replace": "        i_ospexCore.emitCoreEvent(EVENT_COURIER_UNREGISTERED, abi.encode(courier, msg.sender));"
+    }
+   ],
+   "testPath": "test/betting/OspexMatching.t.sol",
+   "test": "test_couriers_eachChangeEmitsOnceItselfAndOnceThroughTheHub",
+   "breaks": "the drop's hub payload carries the courier before the account"
+  },
+  {
+   "id": "C14-foraccount",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "    function registerCourier(address courier) external {",
+     "replace": "    function registerCourier(address account, address courier) external {\n        s_couriers[account][courier] = true;\n    }\n\n    function registerCourier(address courier) external {"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingInterface.t.sol",
+   "test": "test_theFunctionsAreExactlyThese",
+   "breaks": "a second registration call takes the account, so anyone registers a courier for any account"
+  },
+  {
+   "id": "C15-cancelwrites",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        s_cancelledCommitments[commitmentHash] = true;",
+     "replace": "        s_cancelledCommitments[commitmentHash] = true;\n        s_couriers[msg.sender][commitment.scorer] = true;"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_onlyTheAccountChangesItsCouriers",
+   "breaks": "a cancel registers the order's market contract as the caller's courier"
+  },
+  {
+   "id": "C16-floorclears",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        s_minNonces[msg.sender][marketKey] = newMinNonce;",
+     "replace": "        s_minNonces[msg.sender][marketKey] = newMinNonce;\n        s_couriers[msg.sender][scorer] = false;"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_onlyTheAccountChangesItsCouriers",
+   "breaks": "a raised floor drops the market contract from the caller's couriers"
   }
  ]
 }
