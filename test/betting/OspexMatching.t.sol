@@ -429,11 +429,12 @@ contract OspexMatchingTest is BettingBase {
     }
 
     /// @dev One registration, sent as a raw call so that what it returns is read: it succeeds, and it returns
-    ///      nothing, so a change and a repeat are not told apart by a returned value.
+    ///      nothing, so a change and a repeat are not told apart by a returned value. The call is built from
+    ///      the signature written out, so this file still compiles beside a second function of the same name.
     function _register(address account, address sentFrom, address courier, string memory what) internal {
         vm.prank(account, sentFrom);
         (bool taken, bytes memory returned) =
-            address(matching).call(abi.encodeCall(OspexMatching.registerCourier, (courier)));
+            address(matching).call(abi.encodeWithSignature("registerCourier(address)", courier));
         assertTrue(taken, string.concat("the registration was refused: ", what));
         assertEq(returned.length, 0, string.concat("the registration returned a value: ", what));
     }
