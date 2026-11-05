@@ -13,7 +13,8 @@ import {IOspexModule} from "./IOspexModule.sol";
  *         voids it.
  */
 interface IOspexMarkets is IOspexModule {
-    /// @notice Emitted when a market is drawn, at its first fill.
+    /// @notice Emitted when a market is drawn, at its first fill. The two accounts are in this event alone: the
+    ///         market's record does not store them.
     /// @param marketId The new market's id
     /// @param gameId Its game
     /// @param scorer Its market contract
@@ -33,7 +34,8 @@ interface IOspexMarkets is IOspexModule {
     /// @notice Draws a market. Only the positions module calls it, at the market's first fill.
     /// @param gameId The game, which must be a game of the games set and must not have ended
     /// @param scorer One of the three market contracts
-    /// @param lineTicks The line, scaled by 10: 0 for a moneyline, at least 0 for a total
+    /// @param lineTicks The line, scaled by 10: 0 for a moneyline, at least 0 for a total, the home team's
+    ///        handicap for a spread, and within MAX_LINE_TICKS for all three
     /// @param maker The account whose resting order the first fill took, for the event
     /// @param taker The account that took it, for the event
     /// @return marketId The new market's id
@@ -43,7 +45,8 @@ interface IOspexMarkets is IOspexModule {
 
     /// @notice Settles a market. Anyone calls it. The game's status, read from the games set, decides: scored, the
     ///         market contract reads the scores and names the outcome; voided or released, the outcome is Void;
-    ///         anything else, refused.
+    ///         anything else, refused. Refused too for an id that is not a market and for a market already
+    ///         settled. Nothing settles a market on its own: it stays Open after its game ends until this call.
     /// @param marketId The market
     function settleMarket(uint256 marketId) external;
 

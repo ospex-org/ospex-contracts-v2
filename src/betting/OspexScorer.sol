@@ -10,8 +10,10 @@ import {OspexBetting} from "./OspexBetting.sol";
  * @author ospex.org
  * @notice What the three market contracts share: the games set, read from the core at deploy, and the one read
  *         of a game's scores from it, the home team's then the away team's. Each market contract supplies its
- *         own arithmetic and its two reads. Every market contract of a set reads the one games set the set was
- *         deployed beside.
+ *         own arithmetic and its two reads. A market contract reads the games set its core named when the
+ *         contract was deployed, and no other. It holds no state and emits nothing; after its deploy the
+ *         scores read is the one call it makes. The markets module calls its outcomeOf at a settlement, and
+ *         anyone may read it.
  */
 abstract contract OspexScorer is IOspexScorer {
     /// @notice The games set, as the core holds it. Fixed at deploy.

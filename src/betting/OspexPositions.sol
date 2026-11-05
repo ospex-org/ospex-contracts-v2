@@ -21,7 +21,17 @@ import {Market, MarketStatus, Outcome, Position, Side} from "./OspexBettingTypes
  *
  *         Both accounts approve this contract for the coin, and nothing else: no fee is taken at a fill, so
  *         there is no second allowance. A maker's profit is the taker's risk and the taker's profit the maker's
- *         risk, so what the contract holds for a market is exactly what its positions can claim.
+ *         risk, so with a coin that moves exactly the amount asked, as USDC does, what the contract holds for a
+ *         market is what its positions can claim. A coin that takes a fee on a transfer, or that rebases,
+ *         would break that, and choosing the coin is the deploy's. Coin sent here outside a fill belongs to no
+ *         position.
+ *
+ *         Who calls it, and what it calls. Only the matching module records a fill, checked against the core's
+ *         registry at each call, and that module has no function that does until the Cross is built. An
+ *         account claims its own position, and anyone reads. It calls the markets module, for a market's id,
+ *         its drawing at a first fill and its record at every fill and every claim; the coin, to pull the two
+ *         stakes at a fill and to pay at a claim; and the core, for its registry reads and its event hub. A
+ *         fill and a claim each hold the reentrancy guard.
  *
  *         It has no owner, no setter and no pause, and no way out for the coin but a claim.
  */
@@ -34,6 +44,9 @@ contract OspexPositions is IOspexPositions, ReentrancyGuardTransient {
     bytes32 public constant MATCHING_MODULE = keccak256("MATCHING_MODULE");
     bytes32 public constant MARKET_MODULE = keccak256("MARKET_MODULE");
 
+    // The core event types this module emits through the core's hub. Each payload is the typed event's
+    // parameters in the typed event's order. The fill's core type is POSITION_MATCHED_PAIR; its typed event is
+    // PositionFilled.
     bytes32 public constant EVENT_POSITION_MATCHED_PAIR = keccak256("POSITION_MATCHED_PAIR");
     bytes32 public constant EVENT_POSITION_CLAIMED = keccak256("POSITION_CLAIMED");
 
@@ -122,7 +135,9 @@ contract OspexPositions is IOspexPositions, ReentrancyGuardTransient {
 
     /// @dev The openness gate and the write. The market read refuses an id that is not a market by name, and a
     ///      settled market is refused here by name; then each account's position grows by its risk and the
-    ///      other's, and each stake is pulled.
+    ///      other's, and each stake is pulled. The gate reads the market's status, not its game's: a market
+    ///      stays Open after its game ends until it is settled. The close of fills at a game's end is not this
+    ///      gate; it arrives with the Cross.
     function _record(
         IOspexMarkets markets,
         uint256 marketId,
@@ -203,7 +218,9 @@ contract OspexPositions is IOspexPositions, ReentrancyGuardTransient {
         return wins ? position.risk + position.profit : 0;
     }
 
-    /// @dev Resolves a module address from the core, reverting if not set
+    /// @dev Resolves a module address from the core, reverting if not set. The core writes a type's address
+    ///      once, so for a registered type this answers the same address at every call: wired once, then
+    ///      locked.
     function _getModule(bytes32 moduleType) internal view returns (address module) {
         module = i_ospexCore.getModule(moduleType);
         if (module == address(0)) revert OspexPositions__ModuleNotSet(moduleType);

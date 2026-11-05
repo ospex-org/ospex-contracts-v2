@@ -1,6 +1,8 @@
 # Ospex Protocol Architecture
 
 > **As of commit**: `b3d6647`
+>
+> This document describes v2, the contracts deployed on Polygon mainnet today, except its last section, [v3: the betting set's seams](#v3-the-betting-sets-seams).
 
 Ospex is a decentralized peer-to-peer sports speculation protocol on Polygon. Zero vigorish — users set their own odds.
 
@@ -276,3 +278,85 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for addresses and deployment instructions.
 | Local (Anvil) | Development |
 | Polygon Amoy | Testnet |
 | Polygon | Mainnet |
+
+---
+
+## v3: the betting set's seams
+
+Everything above describes v2. This section describes `src/betting/`, the betting set of v3, as it stands: it is being built and is not deployed, and [spec-v3.md](./spec-v3.md) controls wherever the two differ. It answers what a reader of one contract asks about the others: who may call it, what it calls, and what each side relies on. Its headings follow the cross-module list of the review the spec cites under "From the July fresh-eyes review", less the entries the cut removed.
+
+The set is seven contracts: the core, `OspexBetting`; three modules, `OspexMarkets`, `OspexPositions` and `OspexMatching`; and three market contracts, `OspexMoneylineScorer`, `OspexSpreadScorer` and `OspexTotalScorer`, which share `OspexScorer`. It reads one other set, the games set (`src/games/`), and holds one coin.
+
+### Who may call whom
+
+Every call one contract of the set makes to another, or out of the set:
+
+| Caller | Call | What the callee checks |
+|--------|------|------------------------|
+| The deployer | `OspexBetting.bootstrapModules`, `finalize` | The caller is the deployer, and finalize has not run |
+| `OspexMarkets`, `OspexPositions` and the market contracts, in their constructors | `OspexBetting.i_games`, `i_token` | Nothing: public reads, copied once |
+| `OspexPositions` | `OspexMarkets.createMarket` | The caller is the address registered as the positions module |
+| `OspexPositions` | `OspexMarkets.getMarketId`, `getMarket` | Nothing: public reads. `getMarket` refuses an id that is not a market |
+| `OspexMatching` | `OspexPositions.recordFill` | The caller is the address registered as the matching module. No function of `OspexMatching` makes this call yet |
+| `OspexMarkets`, `OspexPositions` | `OspexBetting.getModule`, `isApprovedScorer` | Nothing: public reads of the registry |
+| `OspexMarkets`, `OspexPositions`, `OspexMatching` | `OspexBetting.emitCoreEvent` | The caller is a registered module |
+| `OspexMarkets` | A market contract's `outcomeOf` | Nothing: a public read |
+| `OspexMarkets` | The games set's `getGameStatus` | Nothing: a public read, which refuses an id that is not a game |
+| The market contracts | The games set's `getGameScores` | Nothing: a public read, which refuses a game that is not scored |
+| `OspexPositions` | The coin's `transferFrom` and `transfer` | The coin's own: each account's allowance to `OspexPositions` |
+
+From outside the set: anyone settles a market (`settleMarket`) and reads; an account claims its own position (`claimPosition`), cancels its own order (`cancelCommitment`) and raises its own floor (`raiseMinNonce`). The games set calls nothing in the betting set, and the betting set writes nothing to the games set.
+
+**The registry is wired once, then locked.** Each check above that names a registered module is a lookup in the core's registry at the time of the call, `msg.sender == core.getModule(type)`. The registry writes a type's address once, at its registration, and refuses a second registration of that type; `finalize` refuses any count of modules but six and any set but the required one, and after it nothing registers. So the lookups are not swap machinery: no call replaces a module, before finalize or after. Each contract declares the type hashes it looks up as constants of its own, and `bootstrapModules` checks each module's own answer to `getModuleType()` against the type it is registered under. A type that is not registered resolves to the zero address, which `_getModule` refuses by name and which no caller is. One read differs: `isApprovedScorer` answers true for the zero address until all three market contracts are registered, as they are by finalize.
+
+What registration does not check is which core a module was deployed with. Each of the three modules names its core (`i_ospexCore`); the markets module and the three market contracts each hold the games set they copied from their core at their own deploy (`i_games`), and the positions module the coin (`i_token`). That every registered module names this core, this games set and this coin is read from those getters, and is the deploy's to check before finalize.
+
+### Where coin is accepted, and the one approval
+
+Coin enters the set in one place: `OspexPositions._record`, reached only through `recordFill`, pulls the maker's stake and the taker's stake with `transferFrom`. Both accounts approve `OspexPositions` for the coin and nothing else: no fee is taken at a fill, so there is no second spender. Coin leaves in one place, `claimPosition`, to the position's owner.
+
+What a fill is checked against, and where:
+
+- That the caller is the matching module: `OspexPositions.recordFill`.
+- That both stakes are above zero: `OspexPositions._fill`.
+- At the first fill on a game, a market contract and a line, when the market is drawn: `OspexMarkets._create` checks the line's bound, that the game is a game of the games set and has not ended, that the market contract is one of the three, and that it takes the line.
+- At every fill: `OspexPositions._record` reads the market, which refuses an id that is not a market, and refuses a market that is settled.
+
+Not checked at a fill here: the game's status once its market exists. A market stays open after its game ends until someone settles it. The close of fills at a game's end, and everything about the signed order (its signature, its expiry, its price, its cancelled mark, its floor, the courier that sends it), belong to the Cross, which is not built: until it is, `OspexMatching` has no function that calls `recordFill`, so the set records no fill at all.
+
+### One event, emitted twice
+
+Each state change of the three modules emits a typed event from the module and, through `OspexBetting.emitCoreEvent`, a `CoreEventEmitted` from the core that carries the event's type, the module that emitted it and a payload, so an indexer can follow one address. There are six types, each the keccak256 of the string below, and each payload is the typed event's parameters in the typed event's order, ABI-encoded:
+
+| Core event type | Typed event | Emitted by |
+|-----------------|-------------|------------|
+| `MARKET_CREATED` | `MarketCreated` | `OspexMarkets` |
+| `MARKET_SETTLED` | `MarketSettled` | `OspexMarkets` |
+| `POSITION_MATCHED_PAIR` | `PositionFilled` | `OspexPositions` |
+| `POSITION_CLAIMED` | `PositionClaimed` | `OspexPositions` |
+| `COMMITMENT_CANCELLED` | `CommitmentCancelled` | `OspexMatching` |
+| `MIN_NONCE_UPDATED` | `MinNonceUpdated` | `OspexMatching` |
+
+The fill's two names differ: the typed event is `PositionFilled` and the core type is `POSITION_MATCHED_PAIR`. The core checks that the emitter is a registered module, and nothing about the type or the payload. The core's own four events (`GamesSet`, `TokenSet`, `ModulesBootstrapped`, `Finalized`) are emitted once, by the core. This table is the six as they stand; the schema the spec asks for, for an indexer, is written when the set's events are complete.
+
+### The market contracts and the one outcome enum
+
+`Outcome` holds every market contract's results in one enum, and which of its values a settlement writes depends on the market's contract: the moneyline and the spread return `Home`, `Away` or `Push`; the total returns `Over`, `Under` or `Push`; `OspexMarkets` writes `Void` itself, with no call to a market contract, when the game is voided or released; `None` is the value of a market that is not settled. A market's contract is the address in its `scorer` field, checked to be one of the three when the market is drawn; which of the three it is, is that contract's `getModuleType()`.
+
+Which side an outcome pays is decided in one place, `OspexPositions._payout`: side A on `Home` or `Over`, side B on `Away` or `Under`, and each side its own stake on `Push` or `Void`. Side A is the home team on a moneyline or a spread, and over on a total.
+
+The two scales are stated once, in `OspexBettingTypes.sol`: a line is in tenths of a point, a price in hundredths of decimal odds. A market contract's arithmetic assumes what a market can hold, scores of at most the games set's `MAX_SCORE` and a line within `MAX_LINE_TICKS`. Its pure read, `outcome`, takes any numbers and is correct within those bounds only.
+
+### The games set
+
+The betting set reads the games set through two calls. `OspexMarkets` reads `getGameStatus` when it draws a market, where the game must exist and must not have ended, and when it settles one, where the status alone decides: on a scored game the market contract names the outcome; on a voided or a released game the outcome is `Void`; anything else, a dispute record included, is refused. A market contract reads `getGameScores`, the home team's score then the away team's, which the games set refuses unless the game is scored; the status is read first, so the scores are read only on a scored game.
+
+Nothing here reads a game's start, waits out a clock or ends a game: the games set ends every game, and a market follows. A market on an ended game is settled by whoever calls `settleMarket`; nothing settles it on its own.
+
+### The coin
+
+The coin is fixed at the core's deploy and copied by the positions module at its own. The positions module's accounting assumes a coin that moves exactly the amount asked, as USDC does: with such a coin, what the module holds for a market is what the market's positions can claim. A coin that takes a fee on a transfer, or that rebases, would break that, and choosing the coin is the deploy's. Coin sent to the module outside a fill belongs to no position, and nothing sends it back.
+
+### What the cut removed from the list
+
+Three entries of the review's list lived in the modules the cut dropped: the leaderboard's transfer locks, a position's provenance fields, and the order of settlement and a leaderboard's scoring. A fourth, the report envelope, is the games set's reporter's.

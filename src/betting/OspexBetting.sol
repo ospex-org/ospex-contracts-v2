@@ -15,19 +15,31 @@ import {IOspexModule} from "./IOspexModule.sol";
  *
  *         The betting set is a frozen add-on beside a games set, deployed after it with that set's address
  *         fixed at deploy, and more than one may sit beside the same games set over time. The coin is a deploy
- *         parameter, never hardcoded. Both are immutable here, and the modules read them from here at their own
- *         deploy, so the set has one games set and one coin. Spec: "Two pieces".
+ *         parameter, never hardcoded. Both are immutable here, and a module deployed with this contract's
+ *         address copies them from here at its own deploy: the markets module and the three market contracts
+ *         the games set, the positions module the coin. So a set whose modules were all deployed with this
+ *         core has one games set and one coin. Registration checks a module's type, not which core it was
+ *         deployed with: that each registered module names this core, this games set and this coin is read
+ *         from the modules' own getters (i_ospexCore, i_games, i_token), and is the deploy's to check before
+ *         finalize. Spec: "Two pieces".
  *
  *         The registry. The deployer registers the six modules, each checked against the type it is registered
- *         under, and calls finalize, which refuses any count but six and any set but the required one. After
- *         that no module is added, removed or swapped, and the deployer keeps no power: the lookups the modules
- *         make through the registry are wired once, then locked, not swap machinery. Spec: "From the July
- *         fresh-eyes review", the finalize item.
+ *         under, and calls finalize, which refuses any count but six and any set but the required one. A type
+ *         registers once: nothing rewrites its address, before finalize or after. After finalize no module is
+ *         added, removed or swapped, and the deployer keeps no power: the lookups the modules make through the
+ *         registry are wired once, then locked, not swap machinery. Spec: "From the July fresh-eyes review",
+ *         the finalize item.
  *
- *         The hub. Every module emits its events through this contract as well as its own, one event with the
- *         module's type and the payload, so an indexer reads one address for the whole set.
+ *         The hub. The markets, positions and matching modules emit each of their events twice: their own
+ *         typed event, and through this contract one event that carries the event's type, the module that
+ *         emitted it and the payload, the typed event's parameters in the typed event's order. So an indexer
+ *         reads one address for the whole set. This contract checks that the emitter is a registered module,
+ *         and nothing about the type or the payload.
  *
  *         Nothing here takes or holds coin. The stakes sit in the positions module.
+ *
+ *         How the set's contracts call one another, call by call, is in docs/ARCHITECTURE.md, under "v3: the
+ *         betting set's seams".
  */
 contract OspexBetting {
     // ──────────────────────────── Constants ────────────────────────────
@@ -153,6 +165,8 @@ contract OspexBetting {
     /**
      * @notice Registers module addresses. Each module type can only be registered once, and each module must
      *         answer the type it is registered under.
+     * @dev An address that does not answer getModuleType() reverts the call. Any type may be registered here,
+     *      not only the six: finalize is what refuses a set that is not exactly the required one.
      * @param moduleTypes Array of bytes32 module type identifiers
      * @param moduleAddresses Array of corresponding module contract addresses
      */
@@ -211,7 +225,9 @@ contract OspexBetting {
 
     /**
      * @notice Returns the address of the module registered for a given type
-     * @dev Returns address(0) if the module type was never registered
+     * @dev Returns address(0) if the module type was never registered. A type's address is written once, at
+     *      its registration, and nothing rewrites it: for a registered type this answers the same address at
+     *      every call.
      * @param moduleType The bytes32 identifier for the module type
      * @return moduleAddress The module contract address
      */
@@ -230,6 +246,10 @@ contract OspexBetting {
 
     /**
      * @notice Checks if an address is one of the three market contracts
+     * @dev It compares addr with the three registered addresses. While a market contract's type is not yet
+     *      registered its slot is the zero address, so until the registry holds all three this answers true
+     *      for the zero address; once it holds them, as it does from finalize on, it answers true for the
+     *      three contracts and for nothing else.
      * @param addr The address to check
      * @return True if addr is a registered market contract
      */
@@ -242,7 +262,8 @@ contract OspexBetting {
 
     /**
      * @notice Emits a protocol-wide event for off-chain indexing
-     * @dev Only callable by registered modules
+     * @dev Only callable by registered modules, from their registration on, before finalize as after. The
+     *      type and the payload are the caller's: nothing here checks either.
      * @param eventType The bytes32 event type identifier
      * @param eventData ABI-encoded event payload
      */
