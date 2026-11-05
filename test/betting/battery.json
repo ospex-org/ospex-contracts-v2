@@ -85,7 +85,7 @@
     }
    ],
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
-   "test": "test_neverLine_noFillPathInTheTree",
+   "test": "test_neverLine_noFillPathInTheBettingSet",
    "breaks": "the matching module gains a fill function"
   },
   {
@@ -258,7 +258,7 @@
     }
    ],
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
-   "test": "test_neverLine_noFillPathInTheTree",
+   "test": "test_neverLine_noFillPathInTheBettingSet",
    "breaks": "anyone records a fill"
   },
   {

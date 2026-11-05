@@ -115,8 +115,9 @@ contract OspexBettingInterfaceTest is BettingBase {
         _assertErrors("OspexTotalScorer", "OspexScorer__InvalidCore()");
     }
 
-    /// The events keep v2's shapes, field for field, with the game named gameId, the market marketId and a
-    /// position's side a side; the core's two deploy values are events of their own.
+    /// The events are exactly these, as the compiled artifacts declare them: each contract's set of events, and
+    /// for each event its name and every parameter's type, name, order and indexed flag, written out here.
+    /// Nothing here compares them with v2's events.
     /// Break: in IOspexPositions.sol, drop `indexed` from PositionFilled's `taker`.
     function test_theEventsAreExactlyThese() public view {
         _assertEvents(
