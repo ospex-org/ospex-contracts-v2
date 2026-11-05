@@ -109,8 +109,7 @@ contract OspexBettingInterfaceTest is BettingBase {
         );
         _assertErrors(
             "OspexMatching",
-            "InvalidShortString();OspexMatching__CourierAlreadyRegistered(address account,address courier);"
-            "OspexMatching__CourierNotRegistered(address account,address courier);"
+            "InvalidShortString();OspexMatching__CourierNotRegistered(address account,address courier);"
             "OspexMatching__InvalidAddress();OspexMatching__NonceMustIncrease();"
             "OspexMatching__NotCommitmentMaker();OspexMatching__ZeroCourier();StringTooLong(string str)"
         );

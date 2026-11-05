@@ -71,8 +71,6 @@ contract OspexMatching is IOspexModule, EIP712 {
     error OspexMatching__InvalidAddress();
     /// @notice Thrown when the address to register as a courier is zero
     error OspexMatching__ZeroCourier();
-    /// @notice Thrown when an account registers a courier it already has
-    error OspexMatching__CourierAlreadyRegistered(address account, address courier);
     /// @notice Thrown when an account drops a courier it does not have
     error OspexMatching__CourierNotRegistered(address account, address courier);
 
@@ -173,13 +171,17 @@ contract OspexMatching is IOspexModule, EIP712 {
      * @dev The account is msg.sender, the immediate caller and never tx.origin, so a contract account
      *      registers as itself and a contract an account calls registers nothing for it. Any address but zero
      *      is taken, a key or a contract, the account's own included: nothing is read from the courier. An
-     *      account may register several. A courier the account already has is refused, so every
-     *      CourierRegistered is a change.
+     *      account may register several.
+     *
+     *      Registering a courier the account already has succeeds, with no write and no event, so every
+     *      CourierRegistered is a change. It is not refused because a repeated registration costs the account
+     *      nothing beyond the call's gas, where a refusal could revert a transaction that carries the
+     *      registration beside other calls.
      * @param courier The address to register as the caller's courier
      */
     function registerCourier(address courier) external {
         if (courier == address(0)) revert OspexMatching__ZeroCourier();
-        if (s_couriers[msg.sender][courier]) revert OspexMatching__CourierAlreadyRegistered(msg.sender, courier);
+        if (s_couriers[msg.sender][courier]) return;
         s_couriers[msg.sender][courier] = true;
         emit CourierRegistered(msg.sender, courier);
         i_ospexCore.emitCoreEvent(EVENT_COURIER_REGISTERED, abi.encode(msg.sender, courier));
@@ -188,8 +190,12 @@ contract OspexMatching is IOspexModule, EIP712 {
     /**
      * @notice Drop one of the caller's couriers.
      * @dev The account is msg.sender, as in registerCourier. It drops the one courier named and leaves the
-     *      account's others. A courier the account does not have is refused, the zero address included, so
-     *      every CourierUnregistered is a change. A dropped courier may be registered again.
+     *      account's others. A dropped courier may be registered again.
+     *
+     *      Dropping a courier the account does not have is refused by name, the zero address included, so
+     *      every CourierUnregistered is a change. It is refused, where a repeated registration is not, because
+     *      a drop that changes nothing must not read as done: a call that named the wrong address would
+     *      succeed while the courier the account meant to drop stayed registered.
      * @param courier The courier to drop
      */
     function unregisterCourier(address courier) external {

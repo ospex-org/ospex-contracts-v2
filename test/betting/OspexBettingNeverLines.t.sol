@@ -332,8 +332,8 @@ contract OspexBettingNeverLinesTest is BettingBase {
     /// The same swap in unregisterCourier's write turns it red too; so does `tx.origin` in place of
     /// `msg.sender` in either write; a courier written by the cancel or by the floor; a drop that takes a
     /// second courier with it; a registration written only when the caller is its own origin, or only when
-    /// it is not; and a second write for an address spelled out in the code, by a registration or by the
-    /// cancel.
+    /// it is not; a second write for an address spelled out in the code, by a registration or by the cancel;
+    /// and a repeated registration that writes at all, for such an address or for the transaction's origin.
     function test_neverLine_onlyTheAccountChangesItsCouriers() public {
         // The two calls take one address, the courier, and no account.
         string memory json = _artifact("OspexMatching");
@@ -346,24 +346,30 @@ contract OspexBettingNeverLinesTest is BettingBase {
         uint256 named = all.length - 1;
 
         // Each of the four callers registers each of the addresses, itself and the other callers included,
-        // and then each drops each. After every call every pair is read: the caller's entry for the address
-        // it named has moved, and no other has. The two registration calls are the only writers: before the
-        // registrations, with no entry set, and before the drops, with every caller's entries set, the
-        // module's other two calls that change state move no entry. All of it runs twice: sent with another
-        // address as the origin, then sent by the callers themselves.
+        // then each registers each again, and then each drops each. After every call every pair is read: the
+        // caller's entry for the address it named has moved, and no other has; after a repeated registration,
+        // which changes nothing, none has. Each call's events are counted too: two for a change, none for a
+        // repeat. The two registration calls are the only writers: before the registrations, with no entry
+        // set, and before the drops, with every caller's entries set, the module's other two calls that change
+        // state move no entry. All of it runs twice: sent with another address as the origin, then sent by
+        // the callers themselves.
+        string[3] memory when = ["after a registration", "after a repeated registration", "after a drop"];
         for (uint256 direct; direct < 2; ++direct) {
             _theCancelAndTheFloorWriteNoCourier(all, direct == 1);
-            for (uint256 pass; pass < 2; ++pass) {
+            for (uint256 pass; pass < 3; ++pass) {
                 for (uint256 i; i < CALLERS; ++i) {
                     for (uint256 j; j < named; ++j) {
+                        vm.recordLogs();
                         vm.prank(all[i], direct == 1 ? all[i] : origin);
-                        if (pass == 0) matching.registerCourier(all[j]);
+                        if (pass < 2) matching.registerCourier(all[j]);
                         else matching.unregisterCourier(all[j]);
-                        wantCourier[all[i]][all[j]] = pass == 0;
-                        _assertCouriers(all, pass == 0 ? "after a registration" : "after a drop");
+                        // A change emits twice, itself and through the hub; a repeat, nothing.
+                        assertEq(vm.getRecordedLogs().length, pass == 1 ? 0 : 2, string.concat("events, ", when[pass]));
+                        wantCourier[all[i]][all[j]] = pass < 2;
+                        _assertCouriers(all, when[pass]);
                     }
                 }
-                if (pass == 0) _theCancelAndTheFloorWriteNoCourier(all, direct == 1);
+                if (pass == 1) _theCancelAndTheFloorWriteNoCourier(all, direct == 1);
             }
         }
 
@@ -400,14 +406,14 @@ contract OspexBettingNeverLinesTest is BettingBase {
         assertFalse(matching.isCourier(taker, lure), "a contract the account called registered a courier for it");
 
         // The contract has the courier and the stranger does not. Sent by the stranger, the contract's second
-        // registration is refused as the contract's repeat, and its drop is taken.
+        // registration is the contract's repeat: it emits nothing and writes nothing for the stranger. Its
+        // drop is taken.
+        vm.recordLogs();
         vm.prank(stranger, stranger);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                OspexMatching.OspexMatching__CourierAlreadyRegistered.selector, address(relay), lure
-            )
-        );
         relay.register(matching, lure);
+        assertEq(vm.getRecordedLogs().length, 0, "the calling contract's repeat was taken as a first registration");
+        assertTrue(matching.isCourier(address(relay), lure), "the calling contract's entry, after its repeat");
+        assertFalse(matching.isCourier(stranger, lure), "a contract's repeat registered a courier for its sender");
         vm.prank(stranger, stranger);
         relay.unregister(matching, lure);
         assertFalse(matching.isCourier(address(relay), lure), "the calling contract's own entry was not dropped");
@@ -436,7 +442,8 @@ contract OspexBettingNeverLinesTest is BettingBase {
         // Each of the module's four calls that change state writes one slot of its storage and no more, sent
         // either way: a registration and a drop the caller's pair, the cancel its mark, the floor its floor.
         // The one slot is shown to be that one by reading it before and after. So a second write has no slot
-        // to land in, whatever address it would be for, among those read above or not.
+        // to land in, whatever address it would be for, among those read above or not. A repeated
+        // registration, which changes nothing, writes no slot at all.
         vm.record();
         for (uint256 direct; direct < 2; ++direct) {
             address sentFrom = direct == 1 ? stranger : origin;
@@ -463,6 +470,10 @@ contract OspexBettingNeverLinesTest is BettingBase {
             matching.registerCourier(fresh);
             assertEq(_slotsWritten() - before, 1, "a registration did not write exactly one slot");
             assertTrue(matching.isCourier(stranger, fresh), "the slot a registration wrote is not the caller's pair");
+
+            vm.prank(stranger, sentFrom);
+            matching.registerCourier(fresh);
+            assertEq(_slotsWritten() - before, 1, "a repeated registration wrote a slot");
 
             vm.prank(stranger, sentFrom);
             matching.cancelCommitment(order);

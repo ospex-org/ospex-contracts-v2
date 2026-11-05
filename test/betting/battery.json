@@ -1,5 +1,5 @@
 {
- "about": "One-line breaks of the betting set, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; a find of several lines is one anchor), run the named test alone and see it fail, restore the file byte for byte and see it pass. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis. Check that exactly one test ran. Ids: B, the cut's: the (home, away) order, the settlement's status read, the fill path, the registry and the interface pins. C, the couriers': who writes an account's couriers, no courier by default, the refusals, the events and the two calls' signatures. From C17 on, the same lines read through the transaction's origin, or told apart by it, and a write beside the one the caller named. C31 and C32, a second write no list of addresses would reach. C33 to C35, one courier at a time and an event emitted twice.",
+ "about": "One-line breaks of the betting set, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; a find of several lines is one anchor), run the named test alone and see it fail, restore the file byte for byte and see it pass. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis. Check that exactly one test ran. Ids: B, the cut's: the (home, away) order, the settlement's status read, the fill path, the registry and the interface pins. C, the couriers': who writes an account's couriers, no courier by default, the refusals, the repeated registration, the events and the two calls' signatures. From C17 on, the same lines read through the transaction's origin, or told apart by it, and a write beside the one the caller named. C31 and C32, a second write no list of addresses would reach. C33 to C35, one courier at a time and an event emitted twice. C36 to C45, the two calls that change nothing: a repeated registration succeeds and neither writes nor emits, and a drop of a courier the account does not have is refused.",
  "command": "FOUNDRY_SRC=src FOUNDRY_TEST=test/betting FOUNDRY_SCRIPT=none forge test --via-ir --optimize --match-path <testPath> --match-test '^<test>\\\\('",
  "breaks": [
   {
@@ -466,7 +466,7 @@
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
-   "test": "test_couriers_refusesTheZeroAddressAndACallThatChangesNothing",
+   "test": "test_couriers_refusesTheZeroAddressAndADropThatChangesNothing",
    "breaks": "the zero address registers as a courier"
   },
   {
@@ -474,13 +474,13 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_couriers[msg.sender][courier]) revert OspexMatching__CourierAlreadyRegistered(msg.sender, courier);\n",
+     "find": "        if (s_couriers[msg.sender][courier]) return;\n",
      "replace": ""
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
-   "test": "test_couriers_refusesTheZeroAddressAndACallThatChangesNothing",
-   "breaks": "a courier the account has registers again, with its events"
+   "test": "test_couriers_aRepeatedRegistrationSucceedsAndChangesNothing",
+   "breaks": "a repeated registration writes and emits again"
   },
   {
    "id": "C9-absent",
@@ -492,7 +492,7 @@
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
-   "test": "test_couriers_refusesTheZeroAddressAndACallThatChangesNothing",
+   "test": "test_couriers_refusesTheZeroAddressAndADropThatChangesNothing",
    "breaks": "a courier the account does not have is dropped, with its events"
   },
   {
@@ -591,12 +591,12 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_couriers[msg.sender][courier]) revert OspexMatching__CourierAlreadyRegistered(msg.sender, courier);",
-     "replace": "        if (s_couriers[tx.origin][courier]) revert OspexMatching__CourierAlreadyRegistered(msg.sender, courier);"
+     "find": "        if (s_couriers[msg.sender][courier]) return;",
+     "replace": "        if (s_couriers[tx.origin][courier]) return;"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
-   "test": "test_couriers_refusesTheZeroAddressAndACallThatChangesNothing",
+   "test": "test_couriers_aRepeatedRegistrationSucceedsAndChangesNothing",
    "breaks": "a repeat is judged by what the transaction's origin holds"
   },
   {
@@ -609,7 +609,7 @@
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
-   "test": "test_couriers_refusesTheZeroAddressAndACallThatChangesNothing",
+   "test": "test_couriers_refusesTheZeroAddressAndADropThatChangesNothing",
    "breaks": "a drop is judged by what the transaction's origin holds"
   },
   {
@@ -622,7 +622,7 @@
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
-   "test": "test_couriers_refusesTheZeroAddressAndACallThatChangesNothing",
+   "test": "test_couriers_refusesTheZeroAddressAndADropThatChangesNothing",
    "breaks": "the refusal names the transaction's origin as the account"
   },
   {
@@ -630,13 +630,13 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_couriers[msg.sender][courier]) revert OspexMatching__CourierAlreadyRegistered(msg.sender, courier);",
-     "replace": "        if (courier != msg.sender && s_couriers[msg.sender][courier]) revert OspexMatching__CourierAlreadyRegistered(msg.sender, courier);"
+     "find": "        if (s_couriers[msg.sender][courier]) return;",
+     "replace": "        if (courier != msg.sender && s_couriers[msg.sender][courier]) return;"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
-   "test": "test_couriers_refusesTheZeroAddressAndACallThatChangesNothing",
-   "breaks": "an account registers itself again, with its events"
+   "test": "test_couriers_aRepeatedRegistrationSucceedsAndChangesNothing",
+   "breaks": "an account registering itself again writes and emits again"
   },
   {
    "id": "C21-eventorigin",
@@ -836,6 +836,140 @@
    "testPath": "test/betting/OspexMatching.t.sol",
    "test": "test_couriers_eachChangeEmitsOnceItselfAndOnceThroughTheHub",
    "breaks": "a drop reaches the hub twice"
+  },
+  {
+   "id": "C36-repeatrefused",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_couriers[msg.sender][courier]) return;",
+     "replace": "        if (s_couriers[msg.sender][courier]) revert OspexMatching__ZeroCourier();"
+    }
+   ],
+   "testPath": "test/betting/OspexMatching.t.sol",
+   "test": "test_couriers_aRepeatedRegistrationSucceedsAndChangesNothing",
+   "breaks": "a repeated registration is refused"
+  },
+  {
+   "id": "C37-repeatdrops",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_couriers[msg.sender][courier]) return;",
+     "replace": "        if (s_couriers[msg.sender][courier]) {\n            s_couriers[msg.sender][courier] = false;\n            return;\n        }"
+    }
+   ],
+   "testPath": "test/betting/OspexMatching.t.sol",
+   "test": "test_couriers_aRepeatedRegistrationSucceedsAndChangesNothing",
+   "breaks": "a repeated registration drops the courier, with no event"
+  },
+  {
+   "id": "C38-repeatevent",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_couriers[msg.sender][courier]) return;",
+     "replace": "        if (s_couriers[msg.sender][courier]) {\n            emit CourierRegistered(msg.sender, courier);\n            return;\n        }"
+    }
+   ],
+   "testPath": "test/betting/OspexMatching.t.sol",
+   "test": "test_couriers_aRepeatedRegistrationSucceedsAndChangesNothing",
+   "breaks": "a repeated registration emits the module's event, with no change"
+  },
+  {
+   "id": "C39-repeathub",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_couriers[msg.sender][courier]) return;",
+     "replace": "        if (s_couriers[msg.sender][courier]) {\n            i_ospexCore.emitCoreEvent(EVENT_COURIER_REGISTERED, abi.encode(msg.sender, courier));\n            return;\n        }"
+    }
+   ],
+   "testPath": "test/betting/OspexMatching.t.sol",
+   "test": "test_couriers_aRepeatedRegistrationSucceedsAndChangesNothing",
+   "breaks": "a repeated registration reaches the hub, with no change"
+  },
+  {
+   "id": "C40-repeatdirectonly",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_couriers[msg.sender][courier]) return;",
+     "replace": "        if (msg.sender == tx.origin && s_couriers[msg.sender][courier]) return;"
+    }
+   ],
+   "testPath": "test/betting/OspexMatching.t.sol",
+   "test": "test_couriers_aRepeatedRegistrationSucceedsAndChangesNothing",
+   "breaks": "a repeat changes nothing only when the caller sends its own call"
+  },
+  {
+   "id": "C41-repeatrelayedonly",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_couriers[msg.sender][courier]) return;",
+     "replace": "        if (msg.sender != tx.origin && s_couriers[msg.sender][courier]) return;"
+    }
+   ],
+   "testPath": "test/betting/OspexMatching.t.sol",
+   "test": "test_couriers_aRepeatedRegistrationSucceedsAndChangesNothing",
+   "breaks": "a repeat changes nothing only when another address is the origin"
+  },
+  {
+   "id": "C42-repeatliteral",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_couriers[msg.sender][courier]) return;",
+     "replace": "        if (s_couriers[msg.sender][courier]) {\n            s_couriers[msg.sender][address(uint160(0xC0FFEE))] = true;\n            return;\n        }"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_onlyTheAccountChangesItsCouriers",
+   "breaks": "a repeated registration registers an address spelled out in the code"
+  },
+  {
+   "id": "C43-repeatfororigin",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_couriers[msg.sender][courier]) return;",
+     "replace": "        if (s_couriers[msg.sender][courier]) {\n            s_couriers[tx.origin][courier] = true;\n            return;\n        }"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_onlyTheAccountChangesItsCouriers",
+   "breaks": "a repeated registration registers the courier for the transaction's origin"
+  },
+  {
+   "id": "C44-oncedropped",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "    mapping(address => mapping(address => bool)) internal s_couriers;",
+     "replace": "    mapping(address => mapping(address => bool)) internal s_couriers;\n    mapping(address => mapping(address => bool)) internal s_seen;"
+    },
+    {
+     "find": "        if (s_couriers[msg.sender][courier]) return;",
+     "replace": "        if (s_seen[msg.sender][courier]) return;\n        s_seen[msg.sender][courier] = true;"
+    }
+   ],
+   "testPath": "test/betting/OspexMatching.t.sol",
+   "test": "test_couriers_anAccountRegistersSeveralAndDropsOne",
+   "breaks": "a dropped courier does not register again"
+  },
+  {
+   "id": "C45-absentsilent",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (!s_couriers[msg.sender][courier]) revert OspexMatching__CourierNotRegistered(msg.sender, courier);",
+     "replace": "        if (!s_couriers[msg.sender][courier]) return;"
+    }
+   ],
+   "testPath": "test/betting/OspexMatching.t.sol",
+   "test": "test_couriers_refusesTheZeroAddressAndADropThatChangesNothing",
+   "breaks": "a drop of a courier the account does not have succeeds, with no event"
   }
  ]
 }
