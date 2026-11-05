@@ -1,0 +1,382 @@
+{
+ "about": "One-line breaks of the betting set, each with the one test that goes red. For each: apply its edits to the file (each find occurs exactly once in the file as committed; a find of several lines is one anchor), run the named test alone and see it fail, restore the file byte for byte and see it pass. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis. Check that exactly one test ran. Ids: B, the cut's: the (home, away) order, the settlement's status read, the fill path, the registry and the interface pins.",
+ "command": "FOUNDRY_SRC=src FOUNDRY_TEST=test/betting FOUNDRY_SCRIPT=none forge test --via-ir --optimize --match-path <testPath> --match-test '^<test>\\\\('",
+ "breaks": [
+  {
+   "id": "B1-readswap",
+   "file": "src/betting/OspexScorer.sol",
+   "edits": [
+    {
+     "find": "        (homeScore, awayScore) = i_games.getGameScores(gameId);",
+     "replace": "        (awayScore, homeScore) = i_games.getGameScores(gameId);"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_theScoreIsReadHomeThenAway_moneyline",
+   "breaks": "the scores are read away then home"
+  },
+  {
+   "id": "B2-spreadsign",
+   "file": "src/betting/OspexSpreadScorer.sol",
+   "edits": [
+    {
+     "find": "        int32 home = int32(homeScore) * 10 + homeLine;",
+     "replace": "        int32 home = int32(homeScore) * 10;"
+    },
+    {
+     "find": "        int32 away = int32(awayScore) * 10;",
+     "replace": "        int32 away = int32(awayScore) * 10 + homeLine;"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_theScoreIsReadHomeThenAway_spread",
+   "breaks": "the handicap is the away team's, as in v2"
+  },
+  {
+   "id": "B3-totalnames",
+   "file": "src/betting/OspexTotalScorer.sol",
+   "edits": [
+    {
+     "find": "    function outcome(uint32 homeScore, uint32 awayScore, int32 lineTicks) external pure override returns (Outcome) {",
+     "replace": "    function outcome(uint32 awayScore, uint32 homeScore, int32 lineTicks) external pure override returns (Outcome) {"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_theTotalsArgumentOrderIsPinned",
+   "breaks": "the total's read declares away then home"
+  },
+  {
+   "id": "B4-settleopen",
+   "file": "src/betting/OspexMarkets.sol",
+   "edits": [
+    {
+     "find": "            revert OspexMarkets__GameNotEnded(m.gameId, status);",
+     "replace": "            outcome = Outcome.Void;"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_aMarketSettlesOnlyOnItsGamesOwnStatus",
+   "breaks": "a game still in play settles as a void"
+  },
+  {
+   "id": "B5-release",
+   "file": "src/betting/OspexMarkets.sol",
+   "edits": [
+    {
+     "find": "        } else if (status == GameStatus.Voided || status == GameStatus.Released) {",
+     "replace": "        } else if (status == GameStatus.Voided) {"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_aVoidAndAReleaseAreVoids",
+   "breaks": "a released game's market never settles"
+  },
+  {
+   "id": "B6-fillpath",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "import {Side} from \"./OspexBettingTypes.sol\";",
+     "replace": "import {Side} from \"./OspexBettingTypes.sol\";\nimport {IOspexPositions} from \"./IOspexPositions.sol\";"
+    },
+    {
+     "find": "    /// @notice Returns the EIP-712 domain separator",
+     "replace": "    function matchCommitment(uint256 gameId, address scorer, int32 lineTicks, Side side, address maker, uint256 makerRisk, uint256 takerRisk) external {\n        IOspexPositions(i_ospexCore.getModule(POSITION_MODULE)).recordFill(gameId, scorer, lineTicks, side, maker, makerRisk, msg.sender, takerRisk);\n    }\n\n    /// @notice Returns the EIP-712 domain separator"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_noFillPathInTheTree",
+   "breaks": "the matching module gains a fill function"
+  },
+  {
+   "id": "B7-count",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "        if (s_moduleCount != required.length) {\n            revert OspexBetting__ModuleCountMismatch(s_moduleCount, required.length);\n        }\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_theRegistryIsExactlyTheRequiredSet",
+   "breaks": "a seventh module finalizes"
+  },
+  {
+   "id": "B8-typecheck",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "            if (found != moduleTypes[i]) {",
+     "replace": "            if (found == bytes32(0)) {"
+    }
+   ],
+   "testPath": "test/betting/OspexBetting.t.sol",
+   "test": "test_bootstrap_refusesAModuleOfAnotherType",
+   "breaks": "a module registers under another type"
+  },
+  {
+   "id": "B9-payoutside",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "            ? (outcome == Outcome.Home || outcome == Outcome.Over)",
+     "replace": "            ? (outcome == Outcome.Away || outcome == Outcome.Over)"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_theScoreIsReadHomeThenAway_moneyline",
+   "breaks": "side A is paid when the away team wins"
+  },
+  {
+   "id": "B10-claimtwice",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        pos.claimed = true;\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexPositions.t.sol",
+   "test": "test_claim_paysAWinnerRiskAndProfitOnce",
+   "breaks": "a claim is not marked"
+  },
+  {
+   "id": "B11-gate",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (m.status != MarketStatus.Open) revert OspexPositions__MarketNotOpen(marketId);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexPositions.t.sol",
+   "test": "test_fill_refusesASettledMarket",
+   "breaks": "a fill into a settled market is taken"
+  },
+  {
+   "id": "B12-unknownmarket",
+   "file": "src/betting/OspexMarkets.sol",
+   "edits": [
+    {
+     "find": "        if (marketId == 0 || marketId > s_marketCount) revert OspexMarkets__UnknownMarket(marketId);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexMarkets.t.sol",
+   "test": "test_settle_refusesAnIdThatIsNotAMarket",
+   "breaks": "an id that is not a market reads as one"
+  },
+  {
+   "id": "B13-ended",
+   "file": "src/betting/OspexMarkets.sol",
+   "edits": [
+    {
+     "find": "        if (status >= GameStatus.Scored) revert OspexMarkets__GameEnded(gameId, status);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexMarkets.t.sol",
+   "test": "test_create_refusesAGameThatHasEnded",
+   "breaks": "a market is drawn on an ended game"
+  },
+  {
+   "id": "B14-typehash",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        \"OspexCommitment(\" \"address maker,\" \"uint256 gameId,\"",
+     "replace": "        \"OspexCommitment(\" \"address maker,\" \"uint256 contestId,\""
+    }
+   ],
+   "testPath": "test/betting/OspexMatching.t.sol",
+   "test": "test_typehash_namesTheGame",
+   "breaks": "the signed type names the game contestId"
+  },
+  {
+   "id": "B15-events",
+   "file": "src/betting/IOspexPositions.sol",
+   "edits": [
+    {
+     "find": "        address indexed taker,\n        Side makerSide,",
+     "replace": "        address taker,\n        Side makerSide,"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingInterface.t.sol",
+   "test": "test_theEventsAreExactlyThese",
+   "breaks": "the fill event's taker is not indexed"
+  },
+  {
+   "id": "B16-errors",
+   "file": "src/betting/OspexMarkets.sol",
+   "edits": [
+    {
+     "find": "    error OspexMarkets__ModuleNotSet(bytes32 moduleType);",
+     "replace": "    error OspexMarkets__ModuleNotSet(bytes32 moduleType, address core);"
+    },
+    {
+     "find": "        if (module == address(0)) revert OspexMarkets__ModuleNotSet(moduleType);",
+     "replace": "        if (module == address(0)) revert OspexMarkets__ModuleNotSet(moduleType, address(i_ospexCore));"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingInterface.t.sol",
+   "test": "test_theErrorsAreExactlyThese",
+   "breaks": "an error gains an argument"
+  },
+  {
+   "id": "B17-functions",
+   "file": "src/betting/OspexMarkets.sol",
+   "edits": [
+    {
+     "find": "    /// @inheritdoc IOspexMarkets\n    function marketCount() external view override returns (uint256) {",
+     "replace": "    function poke() external {}\n\n    /// @inheritdoc IOspexMarkets\n    function marketCount() external view override returns (uint256) {"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingInterface.t.sol",
+   "test": "test_theFunctionsAreExactlyThese",
+   "breaks": "the markets module gains a function"
+  },
+  {
+   "id": "B18-enum",
+   "file": "src/betting/OspexBettingTypes.sol",
+   "edits": [
+    {
+     "find": "    /// @dev 3: over the total. Side A.\n    Over,\n    /// @dev 4: under the total. Side B.\n    Under,",
+     "replace": "    /// @dev 3: over the total. Side A.\n    Under,\n    /// @dev 4: under the total. Side B.\n    Over,"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingInterface.t.sol",
+   "test": "test_theNumbersAreThese",
+   "breaks": "Over and Under swap numbers"
+  },
+  {
+   "id": "B19-notmatching",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (msg.sender != i_ospexCore.getModule(MATCHING_MODULE)) revert OspexPositions__NotMatchingModule(msg.sender);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_noFillPathInTheTree",
+   "breaks": "anyone records a fill"
+  },
+  {
+   "id": "B20-scorercheck",
+   "file": "src/betting/OspexMarkets.sol",
+   "edits": [
+    {
+     "find": "        if (!i_ospexCore.isApprovedScorer(scorer)) revert OspexMarkets__ScorerNotApproved(scorer);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexMarkets.t.sol",
+   "test": "test_create_refusesAMarketContractNotOnTheSet",
+   "breaks": "a market is drawn on any address as its contract"
+  },
+  {
+   "id": "B21-deployer",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "        if (msg.sender != i_deployer) revert OspexBetting__NotDeployer(msg.sender);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_theRegistryIsExactlyTheRequiredSet",
+   "breaks": "anyone bootstraps and finalizes"
+  },
+  {
+   "id": "B22-finalized",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "        if (s_finalized) revert OspexBetting__AlreadyFinalized();\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_theRegistryIsExactlyTheRequiredSet",
+   "breaks": "the deployer keeps its power after finalize"
+  },
+  {
+   "id": "B23-moneylinetie",
+   "file": "src/betting/OspexMoneylineScorer.sol",
+   "edits": [
+    {
+     "find": "        if (awayScore > homeScore) return Outcome.Away;",
+     "replace": "        if (awayScore >= homeScore) return Outcome.Away;"
+    }
+   ],
+   "testPath": "test/betting/OspexMarkets.t.sol",
+   "test": "test_settle_aTieIsAPushOnTheMoneyline",
+   "breaks": "a tie is an away win"
+  },
+  {
+   "id": "B24-spreadpush",
+   "file": "src/betting/OspexSpreadScorer.sol",
+   "edits": [
+    {
+     "find": "        if (home < away) return Outcome.Away;",
+     "replace": "        if (home <= away) return Outcome.Away;"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_theScoreIsReadHomeThenAway_spread",
+   "breaks": "a push on the spread is an away cover"
+  },
+  {
+   "id": "B25-totalpush",
+   "file": "src/betting/OspexTotalScorer.sol",
+   "edits": [
+    {
+     "find": "        if (total < lineTicks) return Outcome.Under;",
+     "replace": "        if (total <= lineTicks) return Outcome.Under;"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_theTotalsArgumentOrderIsPinned",
+   "breaks": "a push on the total is under"
+  },
+  {
+   "id": "B26-pullmaker",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        i_token.safeTransferFrom(maker, address(this), makerRisk);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexPositions.t.sol",
+   "test": "test_fill_writesBothPositionsAndPullsBothStakes",
+   "breaks": "the maker's stake is not pulled"
+  },
+  {
+   "id": "B27-voidpayout",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (outcome == Outcome.Push || outcome == Outcome.Void) return position.risk;",
+     "replace": "        if (outcome == Outcome.Push) return position.risk;"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_aVoidAndAReleaseAreVoids",
+   "breaks": "a void pays nothing back"
+  },
+  {
+   "id": "B28-gamesaddr",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "        if (games.code.length == 0) revert OspexBetting__GamesNotAContract(games);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexBetting.t.sol",
+   "test": "test_constructor_refusesAnAddressWithNoCode",
+   "breaks": "a wallet is taken as the games set"
+  }
+ ]
+}
