@@ -46,7 +46,8 @@ struct Market {
 enum MarketStatus {
     /// @dev 0: not settled. A fill is recorded only into an Open market.
     Open,
-    /// @dev 1: settled; its positions are claimable.
+    /// @dev 1: settled, its outcome written. A position the outcome pays, and that has not claimed, may claim;
+    ///      a losing position's claim is refused, and so is a second claim.
     Closed
 }
 

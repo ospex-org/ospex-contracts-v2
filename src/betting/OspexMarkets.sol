@@ -26,7 +26,9 @@ import {Market, MarketStatus, Outcome} from "./OspexBettingTypes.sol";
  *         A market is drawn on a game that exists in the games set and has not ended, with one of the three
  *         market contracts and a line the contract takes: 0 for a moneyline, at least 0 for a total, any line
  *         inside MAX_LINE_TICKS for a spread, where the line is the home team's handicap. No fee is taken to
- *         draw one. A read of an id that is not a market is refused by name, and so is a fill into one.
+ *         draw one. getMarket and settleMarket refuse an id that is not a market, by name, and getMarket is
+ *         the read the positions module makes at every fill and every claim. The raw getter, s_markets, does
+ *         not refuse: for such an id it answers the empty record.
  *
  *         Who calls it, and what it calls. Only the positions module draws a market, checked against the
  *         core's registry at each call; anyone settles one, and anyone reads. It calls the games set's status
@@ -35,7 +37,8 @@ import {Market, MarketStatus, Outcome} from "./OspexBettingTypes.sol";
  *         writes nothing to the games set. Nothing settles a market on its own: a market stays Open after its
  *         game ends until someone settles it.
  *
- *         It has no owner, no setter and no pause, and holds no coin.
+ *         It has no owner, no setter and no pause. No function of it pulls coin, sends it or keeps an account
+ *         of it: coin sent to its address belongs to no market, and no function sends it back.
  */
 contract OspexMarkets is IOspexMarkets {
     // ──────────────────────────── Constants ────────────────────────────
@@ -61,7 +64,7 @@ contract OspexMarkets is IOspexMarkets {
     error OspexMarkets__NotAuthorized(address caller);
     /// @notice Thrown when a market that is already settled is settled again
     error OspexMarkets__AlreadySettled(uint256 marketId);
-    /// @notice Thrown when an id that is not a market is read, settled or filled into
+    /// @notice Thrown by getMarket and by settleMarket for an id that is not a market
     error OspexMarkets__UnknownMarket(uint256 marketId);
     /// @notice Thrown when a market is drawn on a game, market contract and line that already have one
     error OspexMarkets__MarketExists(uint256 marketId);

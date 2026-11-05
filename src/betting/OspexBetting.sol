@@ -36,7 +36,9 @@ import {IOspexModule} from "./IOspexModule.sol";
  *         reads one address for the whole set. This contract checks that the emitter is a registered module,
  *         and nothing about the type or the payload.
  *
- *         Nothing here takes or holds coin. The stakes sit in the positions module.
+ *         No function of this contract pulls coin, sends it or keeps an account of it: the stakes are pulled,
+ *         held and paid by the positions module. Coin sent to this address belongs to nothing here, and no
+ *         function sends it back.
  *
  *         How the set's contracts call one another, call by call, is in docs/ARCHITECTURE.md, under "v3: the
  *         betting set's seams".
