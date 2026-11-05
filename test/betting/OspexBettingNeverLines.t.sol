@@ -327,8 +327,8 @@ contract OspexBettingNeverLinesTest is BettingBase {
     ///      address but zero makes the calls too, and names one.
     uint256 internal constant CALLERS = 4;
 
-    /// @dev The transaction origin these tests give a call when the caller is not to be its own origin: an
-    ///      address that makes no call of its own.
+    /// @dev The transaction origin these tests give a call when the caller is not to be its own origin. In the
+    ///      sweep it is a caller too, as every address of _everyone() but zero is.
     address internal origin = makeAddr("origin");
 
     /// @dev What each account's couriers should be, written here as the calls are made.
@@ -553,11 +553,12 @@ contract OspexBettingNeverLinesTest is BettingBase {
         assertEq(written.length, 0, "the constructor wrote to storage");
     }
 
-    /// @dev The addresses whose pairs the courier tests read. The first four make the calls and the last is
-    ///      the zero address, read and never registered. Between them: an address that never calls; the origin
-    ///      the tests give a call; the origin of this test's own reads; this contract; and every address the
-    ///      matching module can name without writing one out, itself, its core and what its core names, the
-    ///      deployer, the other modules, the games set and the coin, with the games set's timelock and its key.
+    /// @dev The addresses whose pairs the courier tests read. The first four are the accounts that name every
+    ///      address in the sweep, and the last is the zero address, read and never registered. Between them: a
+    ///      fifth account; the origin the tests give a call; the origin of this test's own reads; this
+    ///      contract; and every address the matching module can reach by reading, itself, its core and what
+    ///      its core names, the deployer, the other modules, the games set and the coin, with the games set's
+    ///      timelock and its key.
     function _everyone() internal returns (address[] memory all) {
         all = new address[](21);
         all[0] = maker;
