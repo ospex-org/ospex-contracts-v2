@@ -1851,7 +1851,9 @@ contract DeployGamesSkipGuardTest is ReadsARegistry {
         assertFalse(answeredAtTheOwner, "a revert from the read of the owner is not read as an answer");
         assertEq(withAtTheOwner, abi.encodeWithSignature("NotAnAnswer()"), "and the read ends in it");
 
-        _assertAnswer(IWorkflowRegistryRead(address(new StandInRegistry())), ID, owner, NAME, false, "it does not hold the id");
+        _assertAnswer(
+            IWorkflowRegistryRead(address(new StandInRegistry())), ID, owner, NAME, false, "it does not hold the id"
+        );
     }
 
     function _assertAnswer(
