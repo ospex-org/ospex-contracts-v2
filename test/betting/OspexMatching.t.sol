@@ -181,115 +181,170 @@ contract OspexMatchingTest is BettingBase {
     }
 
     // ──────────────────────────── Couriers ────────────────────────────
+    //
+    // Each of these runs twice: for an account whose calls arrive with another address as the transaction's
+    // origin, and for an account that sends its own. The module is to read the caller in both.
+
+    /// @dev The transaction origin these tests give a call when the caller is not to be its own origin. It
+    ///      makes no call of its own unless a test says so.
+    address internal origin = makeAddr("origin");
 
     /// Break: in OspexMatching.unregisterCourier, delete the write, `s_couriers[msg.sender][courier] = false;`.
     /// The dropped courier then stays.
     function test_couriers_anAccountRegistersSeveralAndDropsOne() public {
+        _registersSeveralAndDropsOne(signer, origin);
+        _registersSeveralAndDropsOne(stranger, stranger);
+    }
+
+    function _registersSeveralAndDropsOne(address account, address sentFrom) internal {
         address one = makeAddr("courier one");
         address two = makeAddr("courier two");
-        vm.startPrank(signer, signer);
+        vm.startPrank(account, sentFrom);
         matching.registerCourier(one);
-        assertTrue(matching.isCourier(signer, one), "the first courier");
-        assertFalse(matching.isCourier(signer, two), "the second, before it is registered");
+        assertTrue(matching.isCourier(account, one), "the first courier");
+        assertFalse(matching.isCourier(account, two), "the second, before it is registered");
         matching.registerCourier(two);
-        assertTrue(matching.isCourier(signer, one), "the first, after the second is registered");
-        assertTrue(matching.isCourier(signer, two), "the second courier");
+        assertTrue(matching.isCourier(account, one), "the first, after the second is registered");
+        assertTrue(matching.isCourier(account, two), "the second courier");
 
         // Dropping one leaves the other.
         matching.unregisterCourier(one);
-        assertFalse(matching.isCourier(signer, one), "the dropped courier");
-        assertTrue(matching.isCourier(signer, two), "the courier that was not dropped");
+        assertFalse(matching.isCourier(account, one), "the dropped courier");
+        assertTrue(matching.isCourier(account, two), "the courier that was not dropped");
 
         // A dropped courier registers again. An account may name itself, and may name a contract: nothing is
         // read from the address.
         matching.registerCourier(one);
-        matching.registerCourier(signer);
+        matching.registerCourier(account);
         matching.registerCourier(address(core));
         vm.stopPrank();
-        assertTrue(matching.isCourier(signer, one), "the courier registered again");
-        assertTrue(matching.isCourier(signer, signer), "the account as its own courier");
-        assertTrue(matching.isCourier(signer, address(core)), "a contract as a courier");
-        assertTrue(matching.isCourier(signer, two), "the second, at the end");
+        assertTrue(matching.isCourier(account, one), "the courier registered again");
+        assertTrue(matching.isCourier(account, account), "the account as its own courier");
+        assertTrue(matching.isCourier(account, address(core)), "a contract as a courier");
+        assertTrue(matching.isCourier(account, two), "the second, at the end");
     }
 
     /// Break, one for each refusal: in OspexMatching.registerCourier, delete the zero check, `if (courier ==
     /// address(0)) revert OspexMatching__ZeroCourier();`; delete the check under it, that the account does not
-    /// already have the courier; in unregisterCourier, delete the check that the account has it.
+    /// already have the courier; in unregisterCourier, delete the check that the account has it. Four more
+    /// turn it red: either of those two checks reading the origin's entry, `s_couriers[tx.origin][courier]`;
+    /// the repeat check skipped when the account names itself; and the origin in place of the caller in the
+    /// refusal's own arguments.
     function test_couriers_refusesTheZeroAddressAndACallThatChangesNothing() public {
+        _refusesZeroAndACallThatChangesNothing(signer, origin, stranger);
+        _refusesZeroAndACallThatChangesNothing(maker, maker, taker);
+
+        // What the origin of a call holds is not the caller's. The origin registers a courier of its own; the
+        // signer, sending from that origin, does not have it to drop, and is free to register it.
+        address theirs = makeAddr("the origin's courier");
+        vm.prank(origin, origin);
+        matching.registerCourier(theirs);
+        vm.prank(signer, origin);
+        vm.expectRevert(
+            abi.encodeWithSelector(OspexMatching.OspexMatching__CourierNotRegistered.selector, signer, theirs)
+        );
+        matching.unregisterCourier(theirs);
+        vm.prank(signer, origin);
+        matching.registerCourier(theirs);
+        assertTrue(matching.isCourier(signer, theirs), "the caller's registration of a courier the origin has");
+        assertTrue(matching.isCourier(origin, theirs), "the origin's own courier");
+    }
+
+    /// @dev `account` sends from `sentFrom`. `another` is a second account, which sends its own calls.
+    function _refusesZeroAndACallThatChangesNothing(address account, address sentFrom, address another) internal {
         address courier = makeAddr("courier");
 
         // The zero address is not registered.
-        vm.prank(signer, signer);
+        vm.prank(account, sentFrom);
         vm.expectRevert(OspexMatching.OspexMatching__ZeroCourier.selector);
         matching.registerCourier(address(0));
-        assertFalse(matching.isCourier(signer, address(0)), "the zero address is a courier");
+        assertFalse(matching.isCourier(account, address(0)), "the zero address is a courier");
 
-        // A courier the account does not have is not dropped: one never registered, and the zero address.
-        address[2] memory absent = [courier, address(0)];
+        // A courier the account does not have is not dropped: one never registered, the zero address, and the
+        // account itself.
+        address[3] memory absent = [courier, address(0), account];
         for (uint256 i; i < absent.length; ++i) {
-            vm.prank(signer, signer);
+            vm.prank(account, sentFrom);
             vm.expectRevert(
-                abi.encodeWithSelector(OspexMatching.OspexMatching__CourierNotRegistered.selector, signer, absent[i])
+                abi.encodeWithSelector(OspexMatching.OspexMatching__CourierNotRegistered.selector, account, absent[i])
             );
             matching.unregisterCourier(absent[i]);
         }
 
         // Registered once, it is taken; a second time, refused, and it stays registered.
-        vm.prank(signer, signer);
+        vm.prank(account, sentFrom);
         matching.registerCourier(courier);
-        vm.prank(signer, signer);
+        vm.prank(account, sentFrom);
         vm.expectRevert(
-            abi.encodeWithSelector(OspexMatching.OspexMatching__CourierAlreadyRegistered.selector, signer, courier)
+            abi.encodeWithSelector(OspexMatching.OspexMatching__CourierAlreadyRegistered.selector, account, courier)
         );
         matching.registerCourier(courier);
-        assertTrue(matching.isCourier(signer, courier), "the courier, after the refused second call");
+        assertTrue(matching.isCourier(account, courier), "the courier, after the refused second call");
+
+        // The account as its own courier is no exception: once, and not twice.
+        vm.prank(account, sentFrom);
+        matching.registerCourier(account);
+        vm.prank(account, sentFrom);
+        vm.expectRevert(
+            abi.encodeWithSelector(OspexMatching.OspexMatching__CourierAlreadyRegistered.selector, account, account)
+        );
+        matching.registerCourier(account);
+        assertTrue(matching.isCourier(account, account), "the account as its own courier");
 
         // Another account registering the same courier is not a repeat: the refusal is per account.
-        vm.prank(stranger, stranger);
+        vm.prank(another, another);
         matching.registerCourier(courier);
-        assertTrue(matching.isCourier(stranger, courier), "the same courier, for another account");
+        assertTrue(matching.isCourier(another, courier), "the same courier, for another account");
 
         // Dropped once, it is gone; a second time, refused.
-        vm.prank(signer, signer);
+        vm.prank(account, sentFrom);
         matching.unregisterCourier(courier);
-        vm.prank(signer, signer);
+        vm.prank(account, sentFrom);
         vm.expectRevert(
-            abi.encodeWithSelector(OspexMatching.OspexMatching__CourierNotRegistered.selector, signer, courier)
+            abi.encodeWithSelector(OspexMatching.OspexMatching__CourierNotRegistered.selector, account, courier)
         );
         matching.unregisterCourier(courier);
-        assertFalse(matching.isCourier(signer, courier), "the courier, after the refused second drop");
-        assertTrue(matching.isCourier(stranger, courier), "the other account's courier, after the drop");
+        assertFalse(matching.isCourier(account, courier), "the courier, after the refused second drop");
+        assertTrue(matching.isCourier(another, courier), "the other account's courier, after the drop");
     }
 
     /// Break, one for each of the four emits: in OspexMatching.registerCourier, swap the typed event's two
     /// arguments, `emit CourierRegistered(courier, msg.sender);`; delete its call to the hub; in
     /// unregisterCourier, emit `CourierRegistered` in place of `CourierUnregistered`; swap the two values of
-    /// its hub payload, `abi.encode(courier, msg.sender)`.
+    /// its hub payload, `abi.encode(courier, msg.sender)`. Four more turn it red: the origin in place of the
+    /// caller in the registration's typed event, or in the drop's hub payload; and an emit made only when the
+    /// caller is the origin, or only when it is not.
     function test_couriers_eachChangeEmitsOnceItselfAndOnceThroughTheHub() public {
-        address courier = makeAddr("courier");
         // The two types the hub carries, written out.
         assertEq(matching.EVENT_COURIER_REGISTERED(), keccak256("COURIER_REGISTERED"));
         assertEq(matching.EVENT_COURIER_UNREGISTERED(), keccak256("COURIER_UNREGISTERED"));
 
+        _emitsTwicePerChange(signer, origin);
+        _emitsTwicePerChange(stranger, stranger);
+    }
+
+    function _emitsTwicePerChange(address account, address sentFrom) internal {
+        address courier = makeAddr("courier");
+
         vm.recordLogs();
-        vm.prank(signer, signer);
+        vm.prank(account, sentFrom);
         matching.registerCourier(courier);
         _assertTheTwoLogs(
             vm.getRecordedLogs(),
             keccak256("CourierRegistered(address,address)"),
             keccak256("COURIER_REGISTERED"),
-            signer,
+            account,
             courier
         );
 
         vm.recordLogs();
-        vm.prank(signer, signer);
+        vm.prank(account, sentFrom);
         matching.unregisterCourier(courier);
         _assertTheTwoLogs(
             vm.getRecordedLogs(),
             keccak256("CourierUnregistered(address,address)"),
             keccak256("COURIER_UNREGISTERED"),
-            signer,
+            account,
             courier
         );
     }
@@ -326,22 +381,26 @@ contract OspexMatchingTest is BettingBase {
         assertFalse(matching.isCourier(account, courier));
     }
 
-    /// A registration writes the caller's pair and no other, and a drop takes it back.
+    /// A registration writes the caller's pair and no other, and a drop takes it back, whether the caller
+    /// sends its own call or another address is the origin.
     function testFuzz_couriers_aCallWritesTheCallersPairAndNoOther(
         address account,
         address courier,
         address otherAccount,
-        address otherCourier
+        address otherCourier,
+        address sentFrom,
+        bool direct
     ) public {
         vm.assume(courier != address(0));
         vm.assume(otherAccount != account || otherCourier != courier);
+        if (direct) sentFrom = account;
 
-        vm.prank(account, account);
+        vm.prank(account, sentFrom);
         matching.registerCourier(courier);
         assertTrue(matching.isCourier(account, courier), "the caller's pair");
         assertFalse(matching.isCourier(otherAccount, otherCourier), "another pair was written");
 
-        vm.prank(account, account);
+        vm.prank(account, sentFrom);
         matching.unregisterCourier(courier);
         assertFalse(matching.isCourier(account, courier), "the caller's pair, after the drop");
         assertFalse(matching.isCourier(otherAccount, otherCourier), "another pair, after the drop");

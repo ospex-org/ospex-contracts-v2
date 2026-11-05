@@ -306,7 +306,20 @@ contract OspexBettingNeverLinesTest is BettingBase {
     // Couriers: only an account changes its couriers, and no account has one by default. The account is the
     // caller of the call. What an agent's grant may do is not built; these two calls take no grant, no
     // signature and no account, which is the part of that line this set can hold today.
+    //
+    // The courier calls below are sent both ways a call arrives: with the caller as the transaction's origin,
+    // and with another address as its origin, so a line that read tx.origin where it should read msg.sender,
+    // or that told the two cases apart, would change what a test sees. The pairs read are every pair of the
+    // addresses the module can name without writing one out: the caller, the origin, itself, its core and
+    // what its core names; with the accounts, this contract and the zero address.
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// @dev How many of _everyone()'s addresses make the calls: its first four.
+    uint256 internal constant CALLERS = 4;
+
+    /// @dev The transaction origin these tests give a call when the caller is not to be its own origin: an
+    ///      address that makes no call of its own.
+    address internal origin = makeAddr("origin");
 
     /// @dev What each account's couriers should be, written here as the calls are made.
     mapping(address => mapping(address => bool)) internal wantCourier;
@@ -315,126 +328,172 @@ contract OspexBettingNeverLinesTest is BettingBase {
 
     /// Break: in OspexMatching.registerCourier, swap the two keys of the write:
     /// `s_couriers[courier][msg.sender] = true;`. The caller then writes the couriers of the address it names.
-    /// Five more turn it red: the same swap in unregisterCourier's write; `tx.origin` in place of
-    /// `msg.sender` in either write; and a courier written by either of the module's other two calls that
-    /// change state, the cancel and the floor.
+    /// The same swap in unregisterCourier's write turns it red too; so does `tx.origin` in place of
+    /// `msg.sender` in either write; a courier written by the cancel or by the floor; a drop that takes a
+    /// second courier with it; and a registration written only when the caller is its own origin, or only
+    /// when it is not.
     function test_neverLine_onlyTheAccountChangesItsCouriers() public {
         // The two calls take one address, the courier, and no account.
         string memory json = _artifact("OspexMatching");
         _assertParams(json, "$.abi[?(@.name == 'registerCourier')].inputs", "courier", "address");
         _assertParams(json, "$.abi[?(@.name == 'unregisterCourier')].inputs", "courier", "address");
 
-        address courier = makeAddr("courier");
-        address[5] memory all = [maker, taker, stranger, courier, makeAddr("third")];
+        address[] memory all = _everyone();
+        address courier = all[3];
+        // Every address but the last, the zero address, is registered.
+        uint256 named = all.length - 1;
 
-        // Each of four callers registers each of the five, itself included, and then each drops each. After
-        // every call the caller's entry for the address it named has moved, and no other entry of the
-        // twenty-five has. The callers name one another, so each holds the others as couriers while they drop.
-        // The two registration calls are the only writers: before the first pass, with no entry set, and
-        // between the two, with the callers' twenty set, the module's other two calls that change state
-        // move no entry.
-        _theCancelAndTheFloorWriteNoCourier(all);
-        for (uint256 pass; pass < 2; ++pass) {
-            for (uint256 i; i < 4; ++i) {
-                for (uint256 j; j < all.length; ++j) {
-                    vm.prank(all[i], all[i]);
-                    if (pass == 0) matching.registerCourier(all[j]);
-                    else matching.unregisterCourier(all[j]);
-                    wantCourier[all[i]][all[j]] = pass == 0;
-                    _assertCouriers(all);
+        // Each of the four callers registers each of the addresses, itself and the other callers included,
+        // and then each drops each. After every call every pair is read: the caller's entry for the address
+        // it named has moved, and no other has. The two registration calls are the only writers: before the
+        // registrations, with no entry set, and before the drops, with every caller's entries set, the
+        // module's other two calls that change state move no entry. All of it runs twice: sent with another
+        // address as the origin, then sent by the callers themselves.
+        for (uint256 direct; direct < 2; ++direct) {
+            _theCancelAndTheFloorWriteNoCourier(all, direct == 1);
+            for (uint256 pass; pass < 2; ++pass) {
+                for (uint256 i; i < CALLERS; ++i) {
+                    for (uint256 j; j < named; ++j) {
+                        vm.prank(all[i], direct == 1 ? all[i] : origin);
+                        if (pass == 0) matching.registerCourier(all[j]);
+                        else matching.unregisterCourier(all[j]);
+                        wantCourier[all[i]][all[j]] = pass == 0;
+                        _assertCouriers(all, pass == 0 ? "after a registration" : "after a drop");
+                    }
                 }
+                if (pass == 0) _theCancelAndTheFloorWriteNoCourier(all, direct == 1);
             }
-            if (pass == 0) _theCancelAndTheFloorWriteNoCourier(all);
         }
 
         // The maker's courier stands whatever the others send: a stranger, the other account and the courier
         // itself each try to drop it, naming the courier and naming the maker, and each is refused for an
         // entry of its own that it does not have.
-        vm.prank(maker, maker);
+        vm.prank(maker, origin);
         matching.registerCourier(courier);
         address[3] memory others = [stranger, taker, courier];
-        address[2] memory named = [courier, maker];
+        address[2] memory target = [courier, maker];
         for (uint256 i; i < others.length; ++i) {
-            for (uint256 j; j < named.length; ++j) {
-                vm.prank(others[i], others[i]);
+            for (uint256 j; j < target.length; ++j) {
+                vm.prank(others[i], origin);
                 vm.expectRevert(
                     abi.encodeWithSelector(
-                        OspexMatching.OspexMatching__CourierNotRegistered.selector, others[i], named[j]
+                        OspexMatching.OspexMatching__CourierNotRegistered.selector, others[i], target[j]
                     )
                 );
-                matching.unregisterCourier(named[j]);
+                matching.unregisterCourier(target[j]);
             }
             assertTrue(matching.isCourier(maker, courier), "another address dropped the account's courier");
         }
 
-        // The account is the caller, not the transaction's origin. The taker calls a contract that registers
-        // a courier: the entry written is the contract's, and the taker has none.
+        // The account is the caller, not the transaction's origin: what an account's own call into another
+        // contract could do. Below, the origin of each call is the account that sent it, as on chain, and the
+        // caller the module sees is the contract.
         CourierCaller relay = new CourierCaller();
         address lure = makeAddr("lure");
+
+        // The taker calls a contract that registers a courier: the entry written is the contract's.
         vm.prank(taker, taker);
         relay.register(matching, lure);
         assertTrue(matching.isCourier(address(relay), lure), "the calling contract's own entry");
         assertFalse(matching.isCourier(taker, lure), "a contract the account called registered a courier for it");
 
-        // The taker registers that courier itself, then calls the contract to drop it: the entry dropped is
-        // the contract's, and the taker's stands.
+        // The contract has the courier and the stranger does not. Sent by the stranger, the contract's second
+        // registration is refused as the contract's repeat, and its drop is taken.
+        vm.prank(stranger, stranger);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                OspexMatching.OspexMatching__CourierAlreadyRegistered.selector, address(relay), lure
+            )
+        );
+        relay.register(matching, lure);
+        vm.prank(stranger, stranger);
+        relay.unregister(matching, lure);
+        assertFalse(matching.isCourier(address(relay), lure), "the calling contract's own entry was not dropped");
+
+        // The taker has the courier and the contract does not. Sent by the taker, the contract's drop is
+        // refused as the contract's and the taker's courier stands; the contract's registration is taken.
         vm.prank(taker, taker);
         matching.registerCourier(lure);
         vm.prank(taker, taker);
+        vm.expectRevert(
+            abi.encodeWithSelector(OspexMatching.OspexMatching__CourierNotRegistered.selector, address(relay), lure)
+        );
         relay.unregister(matching, lure);
-        assertFalse(matching.isCourier(address(relay), lure), "the calling contract's own entry was not dropped");
         assertTrue(matching.isCourier(taker, lure), "a contract the account called dropped its courier");
+        vm.prank(taker, taker);
+        relay.register(matching, lure);
+        assertTrue(matching.isCourier(address(relay), lure), "the calling contract's registration was refused");
+
+        // Both have it. Sent by the taker, the contract's drop takes the contract's entry and leaves the
+        // taker's.
+        vm.prank(taker, taker);
+        relay.unregister(matching, lure);
+        assertFalse(matching.isCourier(address(relay), lure), "the calling contract's entry, after its drop");
+        assertTrue(matching.isCourier(taker, lure), "the account's courier, after the contract's drop");
     }
 
     /// Break: in OspexMatching.isCourier, give every account a courier it did not register:
-    /// `return s_couriers[account][courier] || courier == i_ospexCore.i_deployer();`.
+    /// `return s_couriers[account][courier] || courier == i_ospexCore.i_deployer();`. Three more turn it red:
+    /// the transaction's origin as that courier; a second courier written beside the one the caller named;
+    /// and the caller's courier written for a second account.
     function test_neverLine_noAccountHasACourierByDefault() public {
-        // The set as deployed and finalized, with nothing registered: no address is any address's courier.
-        // Asked of every pair of the addresses a default could name or be given to: the deployer, the core,
-        // the six modules, the games set, its timelock and the key that holds it, the coin, the accounts,
-        // this contract and the zero address.
+        // The set as deployed and finalized, with nothing registered: no pair of the addresses reads as
+        // registered.
         assertTrue(core.s_finalized(), "the set is not finalized");
-        address[17] memory all = [
-            deployer,
-            address(core),
-            address(markets),
-            address(positions),
-            address(matching),
-            address(moneyline),
-            address(spread),
-            address(total),
-            address(games),
-            address(timelock),
-            timelockKey,
-            address(token),
-            maker,
-            taker,
-            stranger,
-            address(this),
-            address(0)
-        ];
-        for (uint256 a; a < all.length; ++a) {
-            for (uint256 c; c < all.length; ++c) {
-                assertFalse(matching.isCourier(all[a], all[c]), "a courier nobody registered");
-            }
-        }
+        address[] memory all = _everyone();
+        _assertCouriers(all, "a courier nobody registered");
 
-        // One account's registration gives no other account a courier. The maker registers one; the taker,
-        // which has registered nothing, has none: not that courier, and none of the seventeen.
-        address courier = makeAddr("courier");
-        vm.prank(maker, maker);
-        matching.registerCourier(courier);
-        assertTrue(matching.isCourier(maker, courier), "the maker's courier was not registered");
-        assertFalse(matching.isCourier(taker, courier), "an account has another account's courier");
-        for (uint256 c; c < all.length; ++c) {
-            assertFalse(matching.isCourier(taker, all[c]), "a courier the account did not register");
-        }
+        // One registration writes one pair. The maker registers a courier: no other account has it, or any
+        // other, and the maker has no second one.
+        vm.prank(maker, origin);
+        matching.registerCourier(all[3]);
+        assertTrue(matching.isCourier(maker, all[3]), "the maker's courier was not registered");
+        wantCourier[maker][all[3]] = true;
+        _assertCouriers(all, "a courier the account did not register");
+
+        // The same from an account that sends its own call.
+        vm.prank(taker, taker);
+        matching.registerCourier(all[4]);
+        assertTrue(matching.isCourier(taker, all[4]), "the taker's courier was not registered");
+        wantCourier[taker][all[4]] = true;
+        _assertCouriers(all, "a courier the account did not register");
+    }
+
+    /// @dev The addresses whose pairs the courier tests read. The first four make the calls and the last is
+    ///      the zero address, read and never registered. Between them: an address that never calls; the origin
+    ///      the tests give a call; the origin of this test's own reads; this contract; and every address the
+    ///      matching module can name without writing one out, itself, its core and what its core names, the
+    ///      deployer, the other modules, the games set and the coin, with the games set's timelock and its key.
+    function _everyone() internal returns (address[] memory all) {
+        all = new address[](21);
+        all[0] = maker;
+        all[1] = taker;
+        all[2] = stranger;
+        all[3] = makeAddr("courier");
+        all[4] = makeAddr("third");
+        all[5] = origin;
+        all[6] = tx.origin;
+        all[7] = address(this);
+        all[8] = address(matching);
+        all[9] = address(core);
+        all[10] = deployer;
+        all[11] = address(markets);
+        all[12] = address(positions);
+        all[13] = address(moneyline);
+        all[14] = address(spread);
+        all[15] = address(total);
+        all[16] = address(games);
+        all[17] = address(token);
+        all[18] = address(timelock);
+        all[19] = timelockKey;
+        all[20] = address(0);
     }
 
     /// @dev Each of the four callers cancels an order and raises a floor, on an order that names each of the
-    ///      five addresses as its market contract: every pair still reads as written in wantCourier.
-    function _theCancelAndTheFloorWriteNoCourier(address[5] memory all) internal {
-        for (uint256 i; i < 4; ++i) {
+    ///      addresses as its market contract: every pair still reads as written in wantCourier. `direct`: the
+    ///      callers send their own calls; otherwise the origin is another address.
+    function _theCancelAndTheFloorWriteNoCourier(address[] memory all, bool direct) internal {
+        for (uint256 i; i < CALLERS; ++i) {
             for (uint256 j; j < all.length; ++j) {
                 OspexMatching.OspexCommitment memory order = OspexMatching.OspexCommitment({
                     maker: all[i],
@@ -447,24 +506,28 @@ contract OspexBettingNeverLinesTest is BettingBase {
                     nonce: 1,
                     expiry: 1_900_000_000
                 });
-                vm.startPrank(all[i], all[i]);
+                vm.startPrank(all[i], direct ? all[i] : origin);
                 matching.cancelCommitment(order);
                 matching.raiseMinNonce(7, all[j], 0, ++lastFloor);
                 vm.stopPrank();
             }
         }
-        _assertCouriers(all);
+        _assertCouriers(all, "after the cancel and the floor");
     }
 
-    /// @dev Every pair of `all`, account then courier, reads as written in wantCourier.
-    function _assertCouriers(address[5] memory all) internal view {
+    /// @dev Every pair of `all`, account then courier, reads as written in wantCourier. A failure names the
+    ///      two by their place in `all`.
+    function _assertCouriers(address[] memory all, string memory when) internal view {
         for (uint256 a; a < all.length; ++a) {
             for (uint256 c; c < all.length; ++c) {
-                assertEq(
-                    matching.isCourier(all[a], all[c]),
-                    wantCourier[all[a]][all[c]],
-                    string.concat("account ", vm.toString(a), ", courier ", vm.toString(c))
-                );
+                bool got = matching.isCourier(all[a], all[c]);
+                if (got != wantCourier[all[a]][all[c]]) {
+                    assertEq(
+                        got,
+                        wantCourier[all[a]][all[c]],
+                        string.concat(when, ": account ", vm.toString(a), ", courier ", vm.toString(c))
+                    );
+                }
             }
         }
     }
