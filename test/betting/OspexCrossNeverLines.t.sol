@@ -479,7 +479,7 @@ contract OspexCrossNeverLinesTest is CrossBase {
             "an order filled in both roles, offered again"
         );
 
-        // Listed twice in one Cross, the second entry is always skipped. When the order's room is what ran out
+        // Listed twice in one Cross: once the first entry has filled, the second is skipped. When the order's room is what ran out
         // at the first entry, the second is "no room".
         OspexMatching.SignedOrder memory small = _rest(m1, game, restingSide, 200, 5_000);
         OspexMatching.SignedOrder memory wide = _take(tk, game, takingSide, 200, 10_000);
