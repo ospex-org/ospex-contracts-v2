@@ -309,7 +309,9 @@ Every call one contract of the set makes to another, or out of the set, with the
 | `OspexPositions`, at a fill | The coin's `transferFrom`, once from each of the two accounts | The coin's own, among them the account's allowance to `OspexPositions` |
 | `OspexPositions`, at a claim | The coin's `transfer`, to the account that claims | The coin's own. An ERC-20 `transfer` reads no allowance: the account approves nothing to be paid |
 
-From outside the set: anyone settles a market (`settleMarket`) and reads; an account claims its own position (`claimPosition`), cancels its own order (`cancelCommitment`) and raises its own floor (`raiseMinNonce`). The games set calls nothing in the betting set, and the betting set writes nothing to the games set.
+From outside the set: anyone settles a market (`settleMarket`) and reads; an account claims its own position (`claimPosition`), cancels its own order (`cancelCommitment`), raises its own floor (`raiseMinNonce`), and registers and drops its own couriers (`registerCourier`, `unregisterCourier`). The games set calls nothing in the betting set, and the betting set writes nothing to the games set.
+
+**An account's couriers are the account's to write.** A courier is an address an account names to send the fills of its orders. `registerCourier` and `unregisterCourier` take the courier and nothing else: the account is the caller, `msg.sender`, never `tx.origin`, so a contract an account calls writes its own couriers and not the account's. They are the only two functions that write a courier, and each writes the caller's own: no module, courier or other account writes an account's couriers for it, the contract has no owner, and an account that registered none has none, so there is no default. An account may hold several, its own address among them. `isCourier` is the read; no contract of the set calls it yet.
 
 **The registry is wired once, then locked.** Each check above that names a registered module is a lookup in the core's registry at the time of the call, `msg.sender == core.getModule(type)`. The registry writes a type's address once, at its registration, and refuses a second registration of that type; `finalize` refuses any count of modules but six and any set but the required one, and after it nothing registers. So the lookups are not swap machinery: no call replaces a module, before finalize or after. Each contract declares the type hashes it looks up as constants of its own, and `bootstrapModules` checks each module's own answer to `getModuleType()` against the type it is registered under. A type that is not registered resolves to the zero address, which `_getModule` refuses by name and which no caller is. One read differs: `isApprovedScorer` answers true for the zero address until all three market contracts are registered, as they are by finalize.
 
@@ -326,11 +328,11 @@ What a fill is checked against, and where:
 - At the first fill on a game, a market contract and a line, when the market is drawn: `OspexMarkets._create` checks the line's bound, that the game is a game of the games set and has not ended, that the market contract is one of the three, and that it takes the line.
 - At every fill: `OspexPositions._record` reads the market, which refuses an id that is not a market, and refuses a market that is settled.
 
-Not checked at a fill here: the game's status once its market exists. A market stays open after its game ends until someone settles it. The close of fills at a game's end, and everything about the signed order (its signature, its expiry, its price, its cancelled mark, its floor, the courier that sends it), belong to the Cross, which is not built: until it is, `OspexMatching` has no function that calls `recordFill`, so the set records no fill at all.
+Not checked at a fill here: the game's status once its market exists. A market stays open after its game ends until someone settles it. The close of fills at a game's end, and everything about the signed order (its signature, its expiry, its price, its cancelled mark, its floor, the courier that sends it), belong to the Cross, which is not built: until it is, `OspexMatching` has no function that calls `recordFill`, so the set records no fill at all. An account's couriers are recorded ahead of it, and nothing checks a sender against them until a fill does.
 
 ### One event, emitted twice
 
-Each state change of the three modules emits a typed event from the module and, through `OspexBetting.emitCoreEvent`, a `CoreEventEmitted` from the core that carries the event's type, the module that emitted it and a payload, so an indexer can follow one address. There are six types, each the keccak256 of the string below, and each payload is the typed event's parameters in the typed event's order, ABI-encoded:
+Each state change of the three modules emits a typed event from the module and, through `OspexBetting.emitCoreEvent`, a `CoreEventEmitted` from the core that carries the event's type, the module that emitted it and a payload, so an indexer can follow one address. There are eight types, each the keccak256 of the string below, and each payload is the typed event's parameters in the typed event's order, ABI-encoded:
 
 | Core event type | Typed event | Emitted by |
 |-----------------|-------------|------------|
@@ -340,8 +342,10 @@ Each state change of the three modules emits a typed event from the module and, 
 | `POSITION_CLAIMED` | `PositionClaimed` | `OspexPositions` |
 | `COMMITMENT_CANCELLED` | `CommitmentCancelled` | `OspexMatching` |
 | `MIN_NONCE_UPDATED` | `MinNonceUpdated` | `OspexMatching` |
+| `COURIER_REGISTERED` | `CourierRegistered` | `OspexMatching` |
+| `COURIER_UNREGISTERED` | `CourierUnregistered` | `OspexMatching` |
 
-The fill's two names differ: the typed event is `PositionFilled` and the core type is `POSITION_MATCHED_PAIR`. The core checks that the emitter is a registered module, and nothing about the type or the payload. The core's own four events (`GamesSet`, `TokenSet`, `ModulesBootstrapped`, `Finalized`) are emitted once, by the core. This table is the six as they stand; the schema the spec asks for, for an indexer, is written when the set's events are complete.
+The fill's two names differ: the typed event is `PositionFilled` and the core type is `POSITION_MATCHED_PAIR`. The core checks that the emitter is a registered module, and nothing about the type or the payload. The core's own four events (`GamesSet`, `TokenSet`, `ModulesBootstrapped`, `Finalized`) are emitted once, by the core. This table is the eight as they stand; the schema the spec asks for, for an indexer, is written when the set's events are complete.
 
 ### The market contracts and the one outcome enum
 
