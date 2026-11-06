@@ -14,6 +14,8 @@ import {IOspexModule} from "./IOspexModule.sol";
 interface IOspexScorer is IOspexModule {
     /// @notice The outcome of a market on `gameId` with `lineTicks`, read from the games set's scores, the home
     ///         team's then the away team's. The games set refuses the read unless the game is scored.
+    /// @dev The line is the caller's. The markets module passes a market's own, which is within MAX_LINE_TICKS;
+    ///      on a line near the top of the integer's range the spread's arithmetic overflows, which reverts.
     /// @param gameId The game
     /// @param lineTicks The market's line, scaled by 10: the home team's handicap for a spread, the total for a
     ///        total, ignored by the moneyline
@@ -21,6 +23,11 @@ interface IOspexScorer is IOspexModule {
 
     /// @notice The outcome for two scores and a line, with nothing read: the arithmetic alone, so that anyone can
     ///         check how a market would settle on a score.
+    /// @dev Correct for what a market can hold: scores of at most the games set's MAX_SCORE and a line within
+    ///      MAX_LINE_TICKS. Nothing bounds the arguments here, and the spread's and the total's arithmetic
+    ///      casts them to a signed 32-bit integer on that assumption: beyond those bounds a call can revert on
+    ///      overflow, or return a wrong outcome where a cast wraps. No market settles on such numbers: the
+    ///      games set refuses a score above MAX_SCORE, and the markets module a line beyond MAX_LINE_TICKS.
     /// @param homeScore The home team's score
     /// @param awayScore The away team's score
     /// @param lineTicks The market's line, scaled by 10

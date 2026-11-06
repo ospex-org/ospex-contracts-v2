@@ -8,8 +8,8 @@ import {IOspexModule} from "./IOspexModule.sol";
  * @title IOspexPositions
  * @author ospex.org
  * @notice The positions module: it holds the stakes between a fill and a claim, records each fill, and pays a
- *         settled position out. It has no owner and no setter: nothing but a fill brings coin in, and nothing
- *         but a claim takes coin out.
+ *         settled position out. It has no owner and no setter: no function but a fill pulls coin in, and none
+ *         but a claim sends coin out.
  */
 interface IOspexPositions is IOspexModule {
     /// @notice Emitted when a fill is recorded. The maker's profit is the taker's risk and the taker's profit
@@ -60,11 +60,15 @@ interface IOspexPositions is IOspexModule {
         uint256 takerRisk
     ) external returns (uint256 marketId);
 
-    /// @notice Pays the caller's position on a settled market out, once.
+    /// @notice Pays the caller's position on a settled market out, once. Refused while the market is not
+    ///         settled, for an id that is not a market, for a position already claimed, and for one with
+    ///         nothing to pay: a loser's, or none.
     /// @param marketId The market
     /// @param side The position's side
     function claimPosition(uint256 marketId, Side side) external;
 
-    /// @notice An account's position on one side of a market. Empty for an account with none.
+    /// @notice An account's position on one side of a market. Empty for an account with none: risk 0, profit 0
+    ///         and side A, whichever side was asked for. After its claim a position reads risk 0, profit 0 and
+    ///         claimed.
     function getPosition(uint256 marketId, address user, Side side) external view returns (Position memory position);
 }

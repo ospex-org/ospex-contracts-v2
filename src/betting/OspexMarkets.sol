@@ -26,9 +26,19 @@ import {Market, MarketStatus, Outcome} from "./OspexBettingTypes.sol";
  *         A market is drawn on a game that exists in the games set and has not ended, with one of the three
  *         market contracts and a line the contract takes: 0 for a moneyline, at least 0 for a total, any line
  *         inside MAX_LINE_TICKS for a spread, where the line is the home team's handicap. No fee is taken to
- *         draw one. A read of an id that is not a market is refused by name, and so is a fill into one.
+ *         draw one. getMarket and settleMarket refuse an id that is not a market, by name, and getMarket is
+ *         the read the positions module makes at every fill and every claim. The raw getter, s_markets, does
+ *         not refuse: for such an id it answers the empty record.
  *
- *         It has no owner, no setter and no pause, and holds no coin.
+ *         Who calls it, and what it calls. Only the positions module draws a market, checked against the
+ *         core's registry at each call; anyone settles one, and anyone reads. It calls the games set's status
+ *         read, when it draws a market and when it settles one; a market contract's outcomeOf, when it
+ *         settles a market on a scored game; and the core, for its registry reads and its event hub. It
+ *         writes nothing to the games set. Nothing settles a market on its own: a market stays Open after its
+ *         game ends until someone settles it.
+ *
+ *         It has no owner, no setter and no pause. No function of it pulls coin, sends it or keeps an account
+ *         of it: coin sent to its address belongs to no market, and no function sends it back.
  */
 contract OspexMarkets is IOspexMarkets {
     // ──────────────────────────── Constants ────────────────────────────
@@ -38,11 +48,14 @@ contract OspexMarkets is IOspexMarkets {
     bytes32 public constant MONEYLINE_SCORER_MODULE = keccak256("MONEYLINE_SCORER_MODULE");
     bytes32 public constant TOTAL_SCORER_MODULE = keccak256("TOTAL_SCORER_MODULE");
 
+    // The core event types this module emits through the core's hub. Each payload is the typed event's
+    // parameters in the typed event's order.
     bytes32 public constant EVENT_MARKET_CREATED = keccak256("MARKET_CREATED");
     bytes32 public constant EVENT_MARKET_SETTLED = keccak256("MARKET_SETTLED");
 
     /// @notice The bound on a line's magnitude, scaled by 10, for every market contract: 100,000.0 points. With
-    ///         the games set's MAX_SCORE the line arithmetic fits a signed 32-bit integer.
+    ///         the games set's MAX_SCORE the line arithmetic fits a signed 32-bit integer. The scale is stated
+    ///         in OspexBettingTypes.sol.
     int32 public constant MAX_LINE_TICKS = 1_000_000;
 
     // ──────────────────────────── Errors ───────────────────────────────
@@ -51,7 +64,7 @@ contract OspexMarkets is IOspexMarkets {
     error OspexMarkets__NotAuthorized(address caller);
     /// @notice Thrown when a market that is already settled is settled again
     error OspexMarkets__AlreadySettled(uint256 marketId);
-    /// @notice Thrown when an id that is not a market is read, settled or filled into
+    /// @notice Thrown by getMarket and by settleMarket for an id that is not a market
     error OspexMarkets__UnknownMarket(uint256 marketId);
     /// @notice Thrown when a market is drawn on a game, market contract and line that already have one
     error OspexMarkets__MarketExists(uint256 marketId);
@@ -81,8 +94,10 @@ contract OspexMarkets is IOspexMarkets {
     /// @notice How many markets have been drawn
     uint256 public s_marketCount;
     /// @notice Market id → market
+    /// @dev The raw record. For an id that is not a market this getter answers the empty record, whose status
+    ///      reads as Open: getMarket is the read that refuses an id that is not a market.
     mapping(uint256 => Market) public s_markets;
-    /// @notice Reverse lookup: game id → market contract → line → market id
+    /// @notice Reverse lookup: game id → market contract → line → market id, 0 while no fill has drawn it
     mapping(uint256 => mapping(address => mapping(int32 => uint256))) public s_marketLookup;
 
     /// @notice Deploys the markets module
@@ -202,7 +217,9 @@ contract OspexMarkets is IOspexMarkets {
         m = s_markets[marketId];
     }
 
-    /// @dev Resolves a module address from the core, reverting if not set
+    /// @dev Resolves a module address from the core, reverting if not set. The core writes a type's address
+    ///      once, so for a registered type this answers the same address at every call: wired once, then
+    ///      locked.
     function _getModule(bytes32 moduleType) internal view returns (address module) {
         module = i_ospexCore.getModule(moduleType);
         if (module == address(0)) revert OspexMarkets__ModuleNotSet(moduleType);

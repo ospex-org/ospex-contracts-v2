@@ -45,7 +45,8 @@ contract OspexSpreadScorer is OspexScorer {
     ///      home + homeLine < away, Push when equal.
     function _outcome(uint32 homeScore, uint32 awayScore, int32 homeLine) private pure returns (Outcome) {
         // Safe casts: a score is at most the games set's MAX_SCORE, 1,000,000, so scaled by 10 it fits an int32
-        // beside a line of at most MAX_LINE_TICKS.
+        // beside a line of at most MAX_LINE_TICKS. That holds for a market's settlement; the pure read takes
+        // any numbers, and IOspexScorer.outcome says what it answers outside those bounds.
         // forge-lint: disable-next-line(unsafe-typecast)
         int32 home = int32(homeScore) * 10 + homeLine;
         // forge-lint: disable-next-line(unsafe-typecast)

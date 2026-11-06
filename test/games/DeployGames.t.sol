@@ -31,6 +31,11 @@ contract DeployGamesHarness is DeployGames {
         logsRpc = rpc;
     }
 
+    /// @dev The head of the chain behind `rpc`, read as the script reads it.
+    function headOf(string memory rpc) external returns (uint256) {
+        return _headOf(rpc);
+    }
+
     function predictFor(Inputs memory in_, address deployer, address workflowOwner, string memory dir)
         external
         returns (Prediction memory)
@@ -153,6 +158,31 @@ contract DeployGamesHarness is DeployGames {
     }
 }
 
+/// @dev How a test here reads, from a registry, whether it holds a workflow. Shared by the deploy tests, which
+///      read the registry on Ethereum, and by the tests of this read on stand-in registries.
+abstract contract ReadsARegistry is Test {
+    /// @dev Whether `registry` holds `id` under `owner`, linked, active, under `name`, and if not, which of
+    ///      those it answered otherwise. WorkflowRegistry 2.0.0 answers an id it does not hold with an empty
+    ///      record, the id and the owner zero, and that is read here as "it does not hold the id". Neither
+    ///      read is wrapped: a revert from the registry is not an answer about the workflow, and it ends the
+    ///      caller in that revert.
+    function _registryAnswer(IWorkflowRegistryRead registry, bytes32 id, address owner, string memory name)
+        internal
+        view
+        returns (bool, string memory)
+    {
+        if (!registry.isOwnerLinked(owner)) return (false, "it does not list the owner as linked");
+        IWorkflowRegistryRead.WorkflowMetadataView memory got = registry.getWorkflowById(id);
+        if (got.workflowId != id || got.owner == address(0)) return (false, "it does not hold the id");
+        if (got.owner != owner) return (false, "it holds the id under another owner");
+        if (got.status != IWorkflowRegistryRead.WorkflowStatus.ACTIVE) return (false, "it holds the id paused");
+        if (keccak256(bytes(got.workflowName)) != keccak256(bytes(name))) {
+            return (false, "it holds the id under another name");
+        }
+        return (true, "");
+    }
+}
+
 /**
  * @notice Tests for script/DeployGames.s.sol on a fork of Polygon mainnet at FORK_BLOCK, after the signpost's
  *         creation, with the Polygon timelock, the signpost, USDC and Chainlink's forwarder there, and a fork
@@ -162,17 +192,32 @@ contract DeployGamesHarness is DeployGames {
  *         POLYGON_LOGS_RPC_URL when it is set, since an archive endpoint that serves the pinned block's state
  *         may hang on a log range; unset, they come from the fork's own endpoint, as on deploy day.
  *
- *         The registry on Ethereum holds one workflow this repository can name, v2's, under its owner: the
- *         tests that need "an id the registry holds under the owner" use that pair, and the deploy they
- *         rehearse fixes v2's id in the reporter. The id's binding to a build with the predicted addresses in
- *         its config is the reproducible build's, rehearsed on the anvil forks; here the record is written as
- *         that build writes it, with v2's hashes.
+ *         Six tests here need "an id the registry holds under the owner", a fact of the live registry on
+ *         Ethereum that no fork block pins: the script reads the registry near its head, and so do they. The
+ *         pair they use is the games set's own workflow, the id and the owner its deployed reporter fixes, and
+ *         the deploy they rehearse fixes that id in the reporter. Each of the six first reads the fact from
+ *         the registry itself, with reads of its own and none of the script's requirements
+ *         (_needsTheRegistryToHoldTheWorkflow): if the registry does not list the owner as linked, or does not
+ *         hold the id under it, active, under its name, the test is skipped with what the registry answered,
+ *         since the deploy it rehearses could not pass the registry either; if the registry holds it and the
+ *         script refuses, the test fails. Until the games set's deploy the pair was v2's, whose owner the
+ *         registry stopped listing as linked that day, 2026-10-31; v2's id, owner and name remain as values
+ *         wherever no registry is read, and as entries on the stand-in registry. The id's binding to a build
+ *         with the predicted addresses in its config is the reproducible build's, rehearsed on the anvil
+ *         forks; here the record is written as that build writes it, with v2's build's two hashes, which the
+ *         script reads for their shape alone.
+ *
+ *         The guard skips a test on an answer of the registry. The registry answers an id it does not hold
+ *         with an empty record, which is such an answer. A revert from either of its reads is not one: it is
+ *         not caught, and it fails the test that made the read. Both are held by
+ *         test_theSkipGuard_readsTheRegistrysEmptyRecordAsAnIdItDoesNotHold, here, on the registry itself,
+ *         and by DeployGamesSkipGuardTest, below, on stand-in registries.
  *
  *         Tests named test_neverLine_... are the spec's lines under "Must never happen" ("Keys, deploys and
  *         the signpost", and "Games and reporters") as they reach the deploy, each with the one-line break in
  *         the script that turns it red.
  */
-contract DeployGamesTest is Test {
+contract DeployGamesTest is ReadsARegistry {
     uint256 internal constant FORK_BLOCK = 96_180_000;
     address internal constant TIMELOCK = 0x8CED8e82cf1488B7365C0726aEeD795b6C07582C;
     address internal constant K = 0x3BD1e22Dc38376b776072a20c581DDb716e21d8E;
@@ -181,7 +226,14 @@ contract DeployGamesTest is Test {
     address internal constant FORWARDER = 0x76c9cf548b4179F8901cda1f8623568b58215E62;
     /// @dev An address that holds USDC at the fork block: the deployer and a creator are funded from it.
     address internal constant HOLDER = 0x16Dc5D67D080a5521ef2c79680dBfC2aBf724D30;
-    /// @dev v2's workflow at the registry on Ethereum, the owner it is held under, and its name.
+    /// @dev The games set's own workflow at the registry on Ethereum: the id and the owner its deployed reporter
+    ///      fixes (i_workflowId and i_workflowOwner, at the second contract of the set's signpost entry), and
+    ///      the name the registry holds it under.
+    bytes32 internal constant HELD_ID = 0x000411d08fb9976d6e7c8695b591783fbc060b1f1648dd8113271fb618193119;
+    address internal constant HELD_OWNER = 0x89fe160bBBe59eAF428f23F095B71E5C0EdCDfa3;
+    string internal constant HELD_NAME = "osgames";
+    /// @dev v2's workflow, its owner and its name, as the registry held them until 2026-10-31. Values now: for
+    ///      the tests that read no registry, and for the stand-in registry.
     bytes32 internal constant V2_ID = 0x0097efdade80ff0a9557d927a1c07075a453bba9cd0fae7e22519c613ec47805;
     address internal constant V2_OWNER = 0x40047BAFcdEd16C938058b7b67186299a2893561;
     string internal constant V2_NAME = "osverify";
@@ -546,48 +598,49 @@ contract DeployGamesTest is Test {
     // The registry: the script stops before the reporter's deploy unless the registry holds the id
     // ---------------------------------------------------------------------------------------------------
 
-    /// The registry on Ethereum, read from a fork of it: v2's id under v2's owner, active, under v2's name
-    /// passes and the script is back on Polygon after; an unlinked owner, an id the registry does not hold, an
-    /// id held under another owner, a registry RPC on the wrong chain, and, on a stand-in registry, an entry
-    /// paused or under another name each stop it.
+    /// The registry on Ethereum, read from a fork of it: the games set's id under its owner, active, under its
+    /// name passes and the script is back on Polygon after; an unlinked owner, an id the registry does not
+    /// hold, an id held under another owner, a name that is not the registry's, a registry RPC on the wrong
+    /// chain, a contract that is not the registry, and, on a stand-in registry, an entry paused each stop it.
     /// Break: in deploy(), delete the `requireRegistered(...)` line. The deploy then goes ahead on an id the
     /// registry does not hold.
     function test_neverLine_theDeployWaitsForTheRegistryToHoldTheId() public {
-        script.requireRegistered(polygon, _workflow(V2_ID, V2_OWNER, V2_NAME), ethRpc);
+        _needsTheRegistryToHoldTheWorkflow();
+        script.requireRegistered(polygon, _workflow(HELD_ID, HELD_OWNER, HELD_NAME), ethRpc);
         assertEq(block.chainid, 137, "back on Polygon");
         assertEq(block.number, FORK_BLOCK, "back at the fork block");
 
-        // Another linked owner, read from the registry itself: v2's id is not held under it.
+        // Another linked owner, read from the registry itself: the id is not held under it.
         vm.createSelectFork(ethRpc);
         address[] memory linked = IRegistryOwners(polygon.registry).getLinkedOwners(0, 4);
         vm.selectFork(polygonFork);
         address other = address(0);
         for (uint256 i; i < linked.length; ++i) {
-            if (linked[i] != V2_OWNER) other = linked[i];
+            if (linked[i] != HELD_OWNER) other = linked[i];
         }
         assertTrue(other != address(0), "the registry lists another linked owner");
         // A refusal ends a script run where it stands; a test goes on, so it steps back to the Polygon fork.
         vm.expectRevert(bytes("the registry holds the id under another owner"));
-        script.requireRegistered(polygon, _workflow(V2_ID, other, V2_NAME), ethRpc);
+        script.requireRegistered(polygon, _workflow(HELD_ID, other, HELD_NAME), ethRpc);
         vm.selectFork(polygonFork);
         vm.expectRevert(bytes("the workflow owner is not linked at the registry"));
-        script.requireRegistered(polygon, _workflow(V2_ID, K, V2_NAME), ethRpc);
+        script.requireRegistered(polygon, _workflow(HELD_ID, K, HELD_NAME), ethRpc);
         vm.selectFork(polygonFork);
         vm.expectRevert(bytes("the registry does not hold the id"));
-        script.requireRegistered(polygon, _workflow(bytes32(uint256(V2_ID) ^ 1), V2_OWNER, V2_NAME), ethRpc);
+        script.requireRegistered(polygon, _workflow(bytes32(uint256(HELD_ID) ^ 1), HELD_OWNER, HELD_NAME), ethRpc);
         vm.selectFork(polygonFork);
         vm.expectRevert(bytes("the registry's name for the id is not the build's"));
-        script.requireRegistered(polygon, _workflow(V2_ID, V2_OWNER, "osgames"), ethRpc);
+        script.requireRegistered(polygon, _workflow(HELD_ID, HELD_OWNER, V2_NAME), ethRpc);
         vm.selectFork(polygonFork);
         DeployGames.Inputs memory in_ = polygon;
         in_.registryChainId = 137;
         vm.expectRevert(bytes("the registry RPC is not on the registry's chain"));
-        script.requireRegistered(in_, _workflow(V2_ID, V2_OWNER, V2_NAME), ethRpc);
+        script.requireRegistered(in_, _workflow(HELD_ID, HELD_OWNER, HELD_NAME), ethRpc);
         vm.selectFork(polygonFork);
         in_ = polygon;
         in_.registry = V2_OWNER; // a contract on Ethereum that is not the registry
         vm.expectRevert();
-        script.requireRegistered(in_, _workflow(V2_ID, V2_OWNER, V2_NAME), ethRpc);
+        script.requireRegistered(in_, _workflow(HELD_ID, HELD_OWNER, HELD_NAME), ethRpc);
         vm.selectFork(polygonFork);
         assertEq(block.chainid, 137, "back on Polygon");
 
@@ -606,15 +659,52 @@ contract DeployGamesTest is Test {
 
         // The whole deploy, with the registry's answer missing: stopped before anything is sent.
         string memory dir = _fresh("registry");
-        DeployGames.Prediction memory p = script.predictFor(polygon, deployer, V2_OWNER, dir);
-        bytes32 unregistered = bytes32(uint256(V2_ID) ^ 1);
-        _writeWorkflow(dir, unregistered, V2_OWNER, p.reporter, p.games);
+        DeployGames.Prediction memory p = script.predictFor(polygon, deployer, HELD_OWNER, dir);
+        bytes32 unregistered = bytes32(uint256(HELD_ID) ^ 1);
+        _writeWorkflow(dir, unregistered, HELD_OWNER, p.reporter, p.games);
         DeployGames.Workflow memory w = script.readWorkflow(dir, p);
         vm.expectRevert(bytes("the registry does not hold the id"));
         script.requireRegistered(polygon, w, ethRpc);
         vm.selectFork(polygonFork);
         assertEq(p.reporter.code.length, 0, "nothing deployed");
         _clean(dir);
+    }
+
+    /// What the registry itself answers for an id it does not hold, read at the block the skip guard reads:
+    /// the read does not revert, it returns an empty record, byte for byte what the stand-in registry returns
+    /// for an id no test set, and the guard reads it as "it does not hold the id", the answer a test is
+    /// skipped on. Three ids: the held id with its last bit flipped, zero, and all ones. The owner asked for
+    /// is one the registry lists as linked, read from its own list, so the answer is the id's and rests on
+    /// nothing about the games set's workflow.
+    function test_theSkipGuard_readsTheRegistrysEmptyRecordAsAnIdItDoesNotHold() public {
+        vm.createSelectFork(ethRpc);
+        address[] memory linked = IRegistryOwners(polygon.registry).getLinkedOwners(0, 1);
+        assertEq(linked.length, 1, "the registry lists a linked owner");
+        bytes32[3] memory ids = [bytes32(uint256(HELD_ID) ^ 1), bytes32(0), bytes32(type(uint256).max)];
+        for (uint256 i; i < ids.length; ++i) {
+            // The guard starts on the Polygon fork, where the script is, and leaves the Ethereum fork selected.
+            vm.selectFork(polygonFork);
+            (bool held, string memory answer) = _registryHolds(ids[i], linked[0], HELD_NAME);
+            assertFalse(held, "the guard reads the id as not held");
+            assertEq(answer, "it does not hold the id", "with the reason a skipped test reports");
+            _assertTheRegistryAnswersTheEmptyRecord(ids[i]);
+        }
+        vm.selectFork(polygonFork);
+    }
+
+    /// @dev On the fork selected: the registry's read of `id` returns, and what it returns is the empty record,
+    ///      the same bytes as a stand-in registry's answer for an id no test set.
+    function _assertTheRegistryAnswersTheEmptyRecord(bytes32 id) internal {
+        bytes memory ask = abi.encodeCall(IWorkflowRegistryRead.getWorkflowById, (id));
+        (bool answered, bytes memory record) = polygon.registry.staticcall(ask);
+        assertTrue(answered, "the registry answers an id it does not hold: it does not revert");
+        IWorkflowRegistryRead.WorkflowMetadataView memory got =
+            abi.decode(record, (IWorkflowRegistryRead.WorkflowMetadataView));
+        assertEq(got.workflowId, bytes32(0), "no id in the record");
+        assertEq(got.owner, address(0), "no owner in the record");
+        (bool standInAnswered, bytes memory standInRecord) = address(new StandInRegistry()).staticcall(ask);
+        assertTrue(standInAnswered, "the stand-in answers too");
+        assertEq(record, standInRecord, "the registry's record is the stand-in's, byte for byte");
     }
 
     // ---------------------------------------------------------------------------------------------------
@@ -626,9 +716,10 @@ contract DeployGamesTest is Test {
     /// reporter as first-n with its code hash and the launch terms; no record is written, the plan and the
     /// build's record are the only files.
     function test_deploy_deploysAtThePredictedAddresses() public {
+        _needsTheRegistryToHoldTheWorkflow();
         string memory dir = _fresh("deploy");
-        DeployGames.Prediction memory p = script.predictFor(polygon, deployer, V2_OWNER, dir);
-        _writeWorkflow(dir, V2_ID, V2_OWNER, p.reporter, p.games);
+        DeployGames.Prediction memory p = script.predictFor(polygon, deployer, HELD_OWNER, dir);
+        _writeHeldWorkflow(dir, p.reporter, p.games);
         DeployGames.Workflow memory w = script.readWorkflow(dir, p);
         script.requireRegistered(polygon, w, ethRpc);
 
@@ -663,8 +754,8 @@ contract DeployGamesTest is Test {
         assertEq(codeHash, address(reporter).codehash, "its code hash");
         // The reporter, as the deploy fixed it.
         assertEq(reporter.i_forwarder(), FORWARDER, "the forwarder");
-        assertEq(reporter.i_workflowOwner(), V2_OWNER, "the owner");
-        assertEq(reporter.i_workflowId(), V2_ID, "the id");
+        assertEq(reporter.i_workflowOwner(), HELD_OWNER, "the owner");
+        assertEq(reporter.i_workflowId(), HELD_ID, "the id");
         assertEq(address(reporter.i_games()), address(games), "the games contract");
 
         // No record of the deploy is written: the chain is the record, the receipts are forge's.
@@ -681,6 +772,7 @@ contract DeployGamesTest is Test {
     /// Break: in _deploy(), deploy the games contract with `p.deployer` in place of `in_.timelock`. The
     /// constructor refuses it (the timelock is the deployer), so the deploy stops: red by refusal.
     function test_neverLine_theDeployerKeepsNothing() public {
+        _needsTheRegistryToHoldTheWorkflow();
         (, OspexChainlinkReporter reporter, OspexGames games, string memory dir) = _deployed("keeps-nothing");
         assertEq(games.i_timelock(), TIMELOCK, "the games contract answers to the Polygon timelock");
         assertEq(games.getCredit(deployer), 0, "no credit");
@@ -731,6 +823,7 @@ contract DeployGamesTest is Test {
     /// Break: in _deploy(), deploy the games contract with `_afterN()` in place of `_firstN()` (and make the
     /// helper): the constructor refuses a list with no first-n reporter, so the deploy stops.
     function test_neverLine_theGamesSetDeploysWithTheHooks() public {
+        _needsTheRegistryToHoldTheWorkflow();
         (, OspexChainlinkReporter reporter, OspexGames games, string memory dir) = _deployed("hooks");
         (address[] memory listed, uint8[] memory kinds) = games.getApprovedReporters();
         assertEq(listed[0], address(reporter), "the reporter is on the list");
@@ -743,7 +836,7 @@ contract DeployGamesTest is Test {
         assertEq(recorded[0], address(reporter), "the reporter");
         assertEq(recordedKinds[0], uint8(ReporterKind.FirstN), "first-n");
 
-        bytes memory metadata = abi.encodePacked(V2_ID, bytes10("830f5085b7"), V2_OWNER, bytes2(0x0001));
+        bytes memory metadata = abi.encodePacked(HELD_ID, bytes10("c71f70079c"), HELD_OWNER, bytes2(0x0001));
         vm.prank(FORWARDER, stranger);
         reporter.onReport(metadata, abi.encode(_startReport(game, uint64(vm.getBlockTimestamp() + 1 hours))));
         assertEq(uint8(games.getGameStatus(game)), 2, "started: the hook took the one shape");
@@ -875,6 +968,7 @@ contract DeployGamesTest is Test {
     /// Break: in _deploy(), delete `require(!(reporterUp && gamesUp), "deployed already: ...")`. The second run
     /// is then refused for another reason, after the sends were skipped.
     function test_neverLine_aSecondRunFinishesWhatIsMissingAndRefusesWhatIsDone() public {
+        _needsTheRegistryToHoldTheWorkflow();
         // Done: refused, nothing sent, nothing written.
         (DeployGames.Prediction memory p,,, string memory dir) = _deployed("twice");
         DeployGames.Workflow memory w = script.readWorkflow(dir, p);
@@ -1123,6 +1217,7 @@ contract DeployGamesTest is Test {
     /// Break: in _signpostCall(), delete `require(keccak256(_codeAt(p.games, deployBlock)) == gamesCodeHash,
     /// ...)`. A deploy block before the creation is then taken.
     function test_signpostCall_writesTheCallAndTheTimelockListsTheSet() public {
+        _needsTheRegistryToHoldTheWorkflow();
         (DeployGames.Prediction memory p, OspexChainlinkReporter reporter, OspexGames games, string memory dir) =
             _deployed("signpost");
         // The block read through the cheatcode: under via-IR a `block.number` read beside a vm.roll can be
@@ -1216,13 +1311,14 @@ contract DeployGamesTest is Test {
     }
 
     /// @dev The whole happy path in `name`'s directory: predict, the build's record, the registry, the deploy.
+    ///      It reads the live registry: a test that calls it calls _needsTheRegistryToHoldTheWorkflow first.
     function _deployed(string memory name)
         internal
         returns (DeployGames.Prediction memory p, OspexChainlinkReporter reporter, OspexGames games, string memory dir)
     {
         dir = _fresh(name);
-        p = script.predictFor(polygon, deployer, V2_OWNER, dir);
-        _writeWorkflow(dir, V2_ID, V2_OWNER, p.reporter, p.games);
+        p = script.predictFor(polygon, deployer, HELD_OWNER, dir);
+        _writeHeldWorkflow(dir, p.reporter, p.games);
         DeployGames.Workflow memory w = script.readWorkflow(dir, p);
         script.requireRegistered(polygon, w, ethRpc);
         (reporter, games) = script.deployFrom(polygon, p, w);
@@ -1232,6 +1328,13 @@ contract DeployGamesTest is Test {
     ///      under the keys the program reads.
     function _writeWorkflow(string memory dir, bytes32 id, address owner, address reporter, address games) internal {
         _writeRecord(dir, _record(id, owner, V2_NAME, _config(reporter, games), V2_CONFIG_HASH, V2_BINARY_HASH));
+    }
+
+    /// @dev The same record for the workflow the registry holds: its id, its owner and its name.
+    function _writeHeldWorkflow(string memory dir, address reporter, address games) internal {
+        _writeRecord(
+            dir, _record(HELD_ID, HELD_OWNER, HELD_NAME, _config(reporter, games), V2_CONFIG_HASH, V2_BINARY_HASH)
+        );
     }
 
     function _config(address reporter, address games) internal pure returns (string memory) {
@@ -1271,6 +1374,29 @@ contract DeployGamesTest is Test {
 
     function _writeRecord(string memory dir, string memory json) internal {
         vm.writeFile(string.concat(dir, "/workflow.json"), json);
+    }
+
+    /// @dev The live fact six tests here rest on, read from the registry itself: on a fork of Ethereum
+    ///      REGISTRY_LAG blocks behind its head, where the script reads it, the registry lists HELD_OWNER as
+    ///      linked and holds HELD_ID under it, active, under HELD_NAME. If it answers otherwise, the test that
+    ///      called this is skipped, with what the registry answered as the reason. If one of its reads
+    ///      reverts, it has not answered, and the test that called this fails with the revert. It ends on the
+    ///      Polygon fork.
+    function _needsTheRegistryToHoldTheWorkflow() internal {
+        (bool held, string memory answer) = _registryHolds(HELD_ID, HELD_OWNER, HELD_NAME);
+        vm.selectFork(polygonFork);
+        if (!held) {
+            vm.skip(true, string.concat("the registry on Ethereum does not hold the games set's workflow: ", answer));
+        }
+    }
+
+    /// @dev Whether the registry holds `id` under `owner`, linked, active, under `name`, and if not, which of
+    ///      those it answered otherwise (_registryAnswer). The test's own reads of the registry the script
+    ///      names, at the block the script would read: none of the script's requirements is run. A revert
+    ///      from either read is not caught here. It leaves the Ethereum fork selected.
+    function _registryHolds(bytes32 id, address owner, string memory name) internal returns (bool, string memory) {
+        vm.createSelectFork(ethRpc, script.headOf(ethRpc) - script.REGISTRY_LAG());
+        return _registryAnswer(IWorkflowRegistryRead(polygon.registry), id, owner, name);
     }
 
     /// @dev A build's record as the registry check reads it: the id, the owner, the name.
@@ -1564,36 +1690,182 @@ contract EighteenDecimals is ERC20 {
     }
 }
 
-/// @dev A registry that answers as WorkflowRegistry 2.0.0 does, for the entries a test sets: every owner
-///      linked, each entry's status and name as set. Made persistent, it sits on every fork a test selects.
+/// @dev A registry that answers as WorkflowRegistry 2.0.0 does: every owner linked until a test unlinks it,
+///      each entry a test sets with its owner, its status and its name as set, and the empty record for an
+///      id no test set, which is that registry's answer for an id it does not hold. Made persistent, it sits
+///      on every fork a test selects.
 contract StandInRegistry {
     struct Entry {
+        bytes32 answersAs;
         address owner;
         IWorkflowRegistryRead.WorkflowStatus status;
         string name;
     }
 
     mapping(bytes32 => Entry) internal entries;
+    mapping(address => bool) internal unlinked;
 
     function typeAndVersion() external pure returns (string memory) {
         return "WorkflowRegistry 2.0.0";
     }
 
-    function isOwnerLinked(address) external pure returns (bool) {
-        return true;
+    function isOwnerLinked(address owner) external view returns (bool) {
+        return !unlinked[owner];
+    }
+
+    function unlink(address owner) external {
+        unlinked[owner] = true;
     }
 
     function set(bytes32 id, address owner, IWorkflowRegistryRead.WorkflowStatus status, string memory name) external {
-        entries[id] = Entry(owner, status, name);
+        entries[id] = Entry(id, owner, status, name);
+    }
+
+    /// @dev Makes the entry under `id` name another id in its record, which the registry itself does not do:
+    ///      for the read that checks the record is the id's.
+    function misfile(bytes32 id, bytes32 answersAs) external {
+        entries[id].answersAs = answersAs;
     }
 
     function getWorkflowById(bytes32 id) external view returns (IWorkflowRegistryRead.WorkflowMetadataView memory v) {
         Entry memory e = entries[id];
-        require(e.owner != address(0), "WorkflowDoesNotExist");
-        v.workflowId = id;
+        if (e.owner == address(0)) return v;
+        v.workflowId = e.answersAs;
         v.owner = e.owner;
         v.status = e.status;
         v.workflowName = e.name;
         v.donFamily = "zone-a";
+    }
+}
+
+/// @dev A registry whose read of an id reverts with the bytes a test sets, and whose read of an owner does
+///      too when the test says so.
+contract RevertingRegistry {
+    bytes internal reverts;
+    bool internal atTheOwner;
+
+    function set(bytes memory reverts_, bool atTheOwner_) external {
+        reverts = reverts_;
+        atTheOwner = atTheOwner_;
+    }
+
+    function isOwnerLinked(address) external view returns (bool) {
+        if (atTheOwner) _revert();
+        return true;
+    }
+
+    function getWorkflowById(bytes32) external view returns (IWorkflowRegistryRead.WorkflowMetadataView memory) {
+        _revert();
+    }
+
+    function _revert() internal view {
+        bytes memory with_ = reverts;
+        assembly ("memory-safe") {
+            revert(add(with_, 0x20), mload(with_))
+        }
+    }
+}
+
+/**
+ * @notice Tests of the read the deploy tests' skip guard makes of a registry (_registryAnswer), on stand-in
+ *         registries and with no fork, so they run where no RPC is set. A deploy test is skipped when this
+ *         read answers "no" and fails when it reverts; these tests hold each half against the other. What
+ *         the registry on Ethereum itself answers for an id it does not hold is read in DeployGamesTest.
+ */
+contract DeployGamesSkipGuardTest is ReadsARegistry {
+    bytes32 internal constant ID = keccak256("a workflow");
+    bytes32 internal constant OTHER_ID = keccak256("another workflow");
+    string internal constant NAME = "osgames";
+    address internal owner = makeAddr("owner");
+    address internal otherOwner = makeAddr("another owner");
+
+    /// @dev The read, behind a call, so a test can see it end in a revert.
+    function registryAnswer(IWorkflowRegistryRead registry, bytes32 id, address owner_, string calldata name)
+        external
+        view
+        returns (bool, string memory)
+    {
+        return _registryAnswer(registry, id, owner_, name);
+    }
+
+    /// Each answer a registry can give about a workflow, and the read's account of it: held as asked; the
+    /// owner not linked; the id not held, which the registry answers with an empty record, for an id that is
+    /// not zero and for zero; a record that names another id; the id under another owner; paused; under
+    /// another name. Each "no" carries the reason a skipped test reports, and none of them is a revert.
+    function test_theSkipGuard_readsEachAnswerOfARegistry() public {
+        StandInRegistry standIn = new StandInRegistry();
+        IWorkflowRegistryRead registry = IWorkflowRegistryRead(address(standIn));
+
+        _assertAnswer(registry, ID, owner, NAME, false, "it does not hold the id");
+        _assertAnswer(registry, bytes32(0), owner, NAME, false, "it does not hold the id");
+
+        standIn.set(ID, owner, IWorkflowRegistryRead.WorkflowStatus.ACTIVE, NAME);
+        _assertAnswer(registry, ID, owner, NAME, true, "");
+        _assertAnswer(registry, OTHER_ID, owner, NAME, false, "it does not hold the id");
+        _assertAnswer(registry, ID, otherOwner, NAME, false, "it holds the id under another owner");
+        _assertAnswer(registry, ID, owner, "osverify", false, "it holds the id under another name");
+
+        standIn.set(ID, owner, IWorkflowRegistryRead.WorkflowStatus.PAUSED, NAME);
+        _assertAnswer(registry, ID, owner, NAME, false, "it holds the id paused");
+        standIn.set(ID, owner, IWorkflowRegistryRead.WorkflowStatus.ACTIVE, NAME);
+        _assertAnswer(registry, ID, owner, NAME, true, "");
+
+        standIn.misfile(ID, OTHER_ID);
+        _assertAnswer(registry, ID, owner, NAME, false, "it does not hold the id");
+        standIn.misfile(ID, ID);
+        _assertAnswer(registry, ID, owner, NAME, true, "");
+
+        standIn.unlink(owner);
+        _assertAnswer(registry, ID, owner, NAME, false, "it does not list the owner as linked");
+    }
+
+    /// A revert from the registry is not an answer: the read ends in that revert, byte for byte, and so the
+    /// deploy test that made it fails where it used to be skipped. Seven reverts from the read of the id: no
+    /// data; the error the registry's own comments name for this read, WorkflowDoesNotExist(), which its code
+    /// does not raise here; the same words as a string; a panic; another of the registry's errors; an empty
+    /// record sent as revert data; one word of zeroes. And one from the read of the owner. Beside them, the
+    /// same question put to a registry that answers: an empty record, returned, is read as "it does not hold
+    /// the id".
+    function test_theSkipGuard_endsInTheRegistrysRevert() public {
+        IWorkflowRegistryRead.WorkflowMetadataView memory empty;
+        bytes[7] memory reverts = [
+            bytes(""),
+            abi.encodeWithSignature("WorkflowDoesNotExist()"),
+            abi.encodeWithSignature("Error(string)", "WorkflowDoesNotExist"),
+            abi.encodeWithSignature("Panic(uint256)", uint256(0x11)),
+            abi.encodeWithSignature("CallerIsNotWorkflowOwner(address)", owner),
+            abi.encode(empty),
+            abi.encode(uint256(0))
+        ];
+        RevertingRegistry reverting = new RevertingRegistry();
+        bytes memory ask =
+            abi.encodeCall(this.registryAnswer, (IWorkflowRegistryRead(address(reverting)), ID, owner, NAME));
+        for (uint256 i; i < reverts.length; ++i) {
+            reverting.set(reverts[i], false);
+            (bool answered, bytes memory with_) = address(this).staticcall(ask);
+            assertFalse(answered, "a revert from the read of the id is not read as an answer");
+            assertEq(with_, reverts[i], "and the read ends in the registry's own revert");
+        }
+        reverting.set(abi.encodeWithSignature("NotAnAnswer()"), true);
+        (bool answeredAtTheOwner, bytes memory withAtTheOwner) = address(this).staticcall(ask);
+        assertFalse(answeredAtTheOwner, "a revert from the read of the owner is not read as an answer");
+        assertEq(withAtTheOwner, abi.encodeWithSignature("NotAnAnswer()"), "and the read ends in it");
+
+        _assertAnswer(
+            IWorkflowRegistryRead(address(new StandInRegistry())), ID, owner, NAME, false, "it does not hold the id"
+        );
+    }
+
+    function _assertAnswer(
+        IWorkflowRegistryRead registry,
+        bytes32 id,
+        address owner_,
+        string memory name,
+        bool held,
+        string memory answer
+    ) internal view {
+        (bool gotHeld, string memory gotAnswer) = _registryAnswer(registry, id, owner_, name);
+        assertEq(gotHeld, held, string.concat("held or not, where the answer should be: ", answer));
+        assertEq(gotAnswer, answer, "the reason");
     }
 }

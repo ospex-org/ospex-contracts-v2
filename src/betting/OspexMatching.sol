@@ -17,6 +17,12 @@ import {Side} from "./OspexBettingTypes.sol";
  *         This contract has no fill path. The Cross, the one route a signed order fills by, in one transaction
  *         sent by a courier every account in it registered, is built with the courier's check, and until then
  *         nothing here calls the positions module. Spec: "How a bet happens".
+ *
+ *         What is here is a record. A cancel marks an order's hash and a raised floor is stored, each with its
+ *         event, and nothing in the set checks an order against either yet: a fill is what does, and the set
+ *         has no fill.
+ *         The bounds below on an order's price and line, and the two other modules' types, are likewise read
+ *         by no function here. The one call this contract makes is to the core's event hub.
  */
 contract OspexMatching is IOspexModule, EIP712 {
     // ──────────────────────────── Constants ────────────────────────────
@@ -25,6 +31,8 @@ contract OspexMatching is IOspexModule, EIP712 {
     bytes32 public constant MARKET_MODULE = keccak256("MARKET_MODULE");
     bytes32 public constant POSITION_MODULE = keccak256("POSITION_MODULE");
 
+    // The core event types this module emits through the core's hub. Each payload is the typed event's
+    // parameters in the typed event's order.
     bytes32 public constant EVENT_COMMITMENT_CANCELLED = keccak256("COMMITMENT_CANCELLED");
     bytes32 public constant EVENT_MIN_NONCE_UPDATED = keccak256("MIN_NONCE_UPDATED");
 
@@ -34,13 +42,13 @@ contract OspexMatching is IOspexModule, EIP712 {
         "uint8 positionType," "uint16 oddsTick," "uint256 riskAmount," "uint256 nonce," "uint256 expiry" ")"
     );
 
-    /// @notice Odds scale factor (1.91 odds = 191 ticks)
+    /// @notice Odds scale factor (1.91 odds = 191 ticks). The scale is stated in OspexBettingTypes.sol.
     uint16 public constant ODDS_SCALE = 100;
     /// @notice Minimum valid odds (1.01)
     uint16 public constant MIN_ODDS = 101;
     /// @notice Maximum valid odds (101.00)
     uint16 public constant MAX_ODDS = 10100;
-    /// @notice Absolute magnitude bound on an order's lineTicks (10x-scaled)
+    /// @notice Absolute magnitude bound on an order's lineTicks (10x-scaled): 1,000,000, as on the markets module
     int32 public constant MAX_LINE_TICKS = 1_000_000;
 
     // ──────────────────────────── Errors ───────────────────────────────
@@ -68,7 +76,8 @@ contract OspexMatching is IOspexModule, EIP712 {
         uint256 expiry
     );
 
-    /// @notice Emitted when a maker raises their minimum nonce for a market
+    /// @notice Emitted when a maker raises their minimum nonce for a market. marketKey is the key the floor is
+    ///         stored under: keccak256(abi.encode(gameId, scorer, lineTicks)).
     event MinNonceUpdated(
         address indexed maker,
         uint256 gameId,
@@ -110,7 +119,8 @@ contract OspexMatching is IOspexModule, EIP712 {
     /// @notice The core
     OspexBetting public immutable i_ospexCore;
 
-    /// @notice Per-market minimum valid nonce: maker → market key → minimum nonce
+    /// @notice Per-market minimum valid nonce: maker → market key → minimum nonce. The market key is
+    ///         keccak256(abi.encode(gameId, scorer, lineTicks)).
     mapping(address => mapping(bytes32 => uint256)) public s_minNonces;
     /// @notice Individually cancelled order hashes
     mapping(bytes32 => bool) public s_cancelledCommitments;
@@ -135,6 +145,9 @@ contract OspexMatching is IOspexModule, EIP712 {
 
     /**
      * @notice Cancel one order by its hash. Only the maker calls it.
+     * @dev The mark is on the hash of the nine values under this contract's domain. The call checks that the
+     *      caller is the address in the order's maker field, and nothing else about the order: not a
+     *      signature, not its expiry. Cancelling an order again marks the same hash and emits again.
      * @param commitment The order to cancel
      */
     function cancelCommitment(OspexCommitment calldata commitment) external {
@@ -174,12 +187,15 @@ contract OspexMatching is IOspexModule, EIP712 {
     /**
      * @notice Raise the minimum valid nonce for a market, invalidating every order of the caller on it with a
      *         lower nonce.
-     * @dev The scope is one market, the three fields a signed order names it by. Per-order cancellation is
-     *      cancelCommitment().
+     * @dev The scope is one market, the three fields a signed order names it by, whether or not a fill has
+     *      drawn that market. Per-order cancellation is cancelCommitment(). The floor only rises, and the top
+     *      value, type(uint256).max, is refused, so the floor reaches max - 1 at most: an order whose nonce is
+     *      max - 1 or max is never under a floor, and is cancelled only by cancelCommitment(). Both refusals,
+     *      a floor that does not rise and the top value, use the one error, NonceMustIncrease.
      * @param gameId The game
      * @param scorer The market contract
      * @param lineTicks The line, scaled by 10
-     * @param newMinNonce The new minimum valid nonce (must be higher than current)
+     * @param newMinNonce The new minimum valid nonce: higher than the current one, and not the top value
      */
     function raiseMinNonce(uint256 gameId, address scorer, int32 lineTicks, uint256 newMinNonce) external {
         bytes32 marketKey = keccak256(abi.encode(gameId, scorer, lineTicks));

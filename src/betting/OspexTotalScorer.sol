@@ -38,7 +38,9 @@ contract OspexTotalScorer is OspexScorer {
     /// @dev The sum of the home team's score and the away team's, scaled by 10, against the line. The sum does
     ///      not depend on which score is which; the order of the two is the one the games set returns.
     function _outcome(uint32 homeScore, uint32 awayScore, int32 lineTicks) private pure returns (Outcome) {
-        // Safe cast: two scores of at most the games set's MAX_SCORE each, scaled by 10, fit an int32.
+        // Safe cast: two scores of at most the games set's MAX_SCORE each, scaled by 10, fit an int32. That
+        // holds for a market's settlement; the pure read takes any numbers, and IOspexScorer.outcome says what
+        // it answers outside those bounds.
         // forge-lint: disable-next-line(unsafe-typecast)
         int32 total = int32(homeScore + awayScore) * 10;
         if (total > lineTicks) return Outcome.Over;

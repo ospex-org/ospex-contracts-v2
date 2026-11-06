@@ -22,7 +22,7 @@ contract ExtraModule is IOspexModule {
 
 /// @notice One test per line that must never happen in the betting set as cut: a score is never read in v2's
 ///         order, away then home; a market settles on nothing but its game's own status; a void and a release
-///         are voids; there is no fill path in the tree; the registry is exactly the required set and the
+///         are voids; there is no fill path in the betting set; the registry is exactly the required set and the
 ///         deployer keeps nothing. Above each test, "Break:" names the one-line change to src/betting that
 ///         turns it red.
 contract OspexBettingNeverLinesTest is BettingBase {
@@ -203,15 +203,16 @@ contract OspexBettingNeverLinesTest is BettingBase {
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
-    // No fill path in the tree: nothing in the set takes a signed order into a position until the Cross is
-    // built with the courier's check inside it.
+    // No fill path in the betting set: nothing in it takes a signed order into a position until the Cross is
+    // built with the courier's check inside it. The claim is this set's: v2's matching module, in src/modules/,
+    // keeps its own fill as deployed, and these tests fill through a hook of their own. Neither is in the set.
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// Break: add to OspexMatching a function that records a fill, such as
     /// `function matchCommitment(uint256 gameId, address scorer, int32 lineTicks, Side side, address maker,
     /// uint256 makerRisk, uint256 takerRisk) external { IOspexPositions(i_ospexCore.getModule(POSITION_MODULE))
     /// .recordFill(gameId, scorer, lineTicks, side, maker, makerRisk, msg.sender, takerRisk); }`.
-    function test_neverLine_noFillPathInTheTree() public {
+    function test_neverLine_noFillPathInTheBettingSet() public {
         // The matching module's functions are exactly these: the per-order cancel, the per-line floor, the
         // reads and the constants. None records a fill, and none takes a signature.
         string[] memory want = vm.split(
