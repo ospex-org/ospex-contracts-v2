@@ -356,6 +356,58 @@ contract OspexCrossSkipsTest is CrossBase {
         assertEq(_filled(taking), 20_000, "the two orders beside it");
     }
 
+    /// A full order whose account cannot pay is recorded as full, and the coin is not asked: an order's room
+    /// is looked at before anything is pulled. The account cannot pay in each of three ways: it holds no coin,
+    /// it has withdrawn its allowance, and the coin has blocked it. From the two fills that make its two
+    /// orders full to the end of this test, the coin is not asked to move that account's coin.
+    /// Break: in OspexMatching._leg, delete the room's row and count the lots from the signed stake: a full
+    /// order goes to the pull, and its account, which cannot pay, is recorded as refused. Another turns it
+    /// red: the room's row asking the coin for a lot before it records the order as full.
+    function test_neverLine_aFullOrderThatCannotPayIsRecordedAsFullAndTheCoinIsNotAsked() public {
+        _registerAll(sender);
+        uint256 game = _verifiedGame();
+        IERC20 coin = _coin();
+        // Two orders of the second resting account, one on each side, each filled to its signed stake while
+        // the account can pay.
+        OspexMatching.SignedOrder memory onA = _rest(m2, game, Side.A, 200, 10_000);
+        OspexMatching.SignedOrder memory onB = _rest(m2, game, Side.B, 200, 10_000);
+        _cross(sender, _take(tk, game, Side.B, 200, 10_000), _list(onA));
+        _cross(sender, _take(tk, game, Side.A, 200, 10_000), _list(onB));
+        assertEq(_filled(onA), 10_000, "the order on side A is full");
+        assertEq(_filled(onB), 10_000, "the order on side B is full");
+        // From here the coin must not be asked to move this account's coin.
+        vm.expectCall(address(coin), abi.encodeWithSelector(IERC20.transferFrom.selector, m2.a), 0);
+        uint256 snap = vm.snapshotState();
+
+        // It holds no coin.
+        uint256 all = coin.balanceOf(m2.a);
+        vm.prank(m2.a);
+        assertTrue(coin.transfer(stranger, all), "the transfer out");
+        _fullAndCannotPay(game, onA, onB, "holds no coin");
+        vm.revertToState(snap);
+        // It has withdrawn its allowance.
+        vm.prank(m2.a);
+        coin.approve(address(positions), 0);
+        _fullAndCannotPay(game, onA, onB, "has withdrawn its allowance");
+        vm.revertToState(snap);
+        // The coin has blocked it.
+        token.setBlocked(m2.a, true);
+        _fullAndCannotPay(game, onA, onB, "is blocked by the coin");
+        vm.revertToState(snap);
+    }
+
+    /// @dev Each of the two full orders, listed between two orders that fill, is skipped for no room and leaves
+    ///      what a Cross without it leaves: the one on side A under a taking order on side B, and the other way.
+    function _fullAndCannotPay(
+        uint256 game,
+        OspexMatching.SignedOrder memory onA,
+        OspexMatching.SignedOrder memory onB,
+        string memory how
+    ) internal {
+        _skippedInTheMiddle(game, Side.B, onA, NO_ROOM, string.concat("full, and its account ", how));
+        _skippedInTheMiddle(game, Side.A, onB, NO_ROOM, string.concat("full on the other side, and its account ", how));
+    }
+
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
     // 10. A Cross that fills nothing reverts and leaves nothing. Its refusal carries each order's reason.
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
