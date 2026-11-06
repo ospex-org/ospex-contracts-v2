@@ -660,7 +660,7 @@ contract OspexBettingTest is BettingBase {
         assertEq(markets.EVENT_MARKET_SETTLED(), keccak256("MARKET_SETTLED"));
         assertEq(positions.EVENT_POSITION_MATCHED_PAIR(), keccak256("POSITION_MATCHED_PAIR"));
         assertEq(positions.EVENT_POSITION_CLAIMED(), keccak256("POSITION_CLAIMED"));
-        assertEq(matching.EVENT_COMMITMENT_CANCELLED(), keccak256("COMMITMENT_CANCELLED"));
+        assertEq(matching.EVENT_ORDER_CANCELLED(), keccak256("ORDER_CANCELLED"));
         assertEq(matching.EVENT_MIN_NONCE_UPDATED(), keccak256("MIN_NONCE_UPDATED"));
     }
 }

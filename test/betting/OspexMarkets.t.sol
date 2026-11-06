@@ -21,6 +21,7 @@ contract OspexMarketsTest is BettingBase {
         assertEq(markets.marketCount(), 0);
         assertEq(markets.getMarketId(game, address(spread), -35), 0, "an id before any fill");
 
+        _readyToFill();
         vm.expectEmit(true, true, true, true, address(markets));
         emit IOspexMarkets.MarketCreated(1, game, address(spread), -35, maker, taker);
         vm.expectEmit(true, true, true, true, address(core));
@@ -69,8 +70,31 @@ contract OspexMarketsTest is BettingBase {
             (bool ok, bytes memory err) = _tryFill(game, address(moneyline), 0, Side.A, STAKE, STAKE);
             assertFalse(ok, "a market drawn on an ended game");
             assertEq(err, abi.encodeWithSelector(OspexMarkets.OspexMarkets__GameEnded.selector, game, ends[i]));
+            // The markets module's own refusal, at its own door: asked by the positions module to draw the
+            // market, with no fill behind the call, it refuses the same way. (Behind a fill the close gate
+            // would refuse an ended game too.)
+            vm.prank(address(positions));
+            (ok, err) = address(markets)
+                .call(abi.encodeCall(OspexMarkets.createMarket, (game, address(moneyline), 0, maker, taker)));
+            assertFalse(ok, "a market drawn on an ended game, at the positions module's asking");
+            assertEq(err, abi.encodeWithSelector(OspexMarkets.OspexMarkets__GameEnded.selector, game, ends[i]));
         }
         assertEq(markets.marketCount(), 0);
+    }
+
+    /// The close gate is a read anyone makes: it returns for an open market on a game still in play, and
+    /// refuses an id that is not a market, by name.
+    function test_gate_isAReadThatRefusesAnIdThatIsNotAMarket() public {
+        uint256 game = _verifiedGame();
+        uint256 market = _market(game, address(moneyline), 0);
+        vm.prank(stranger);
+        markets.requireBetsOpen(market);
+        uint256[2] memory bad = [uint256(0), market + 1];
+        for (uint256 i; i < bad.length; ++i) {
+            vm.prank(stranger);
+            vm.expectRevert(abi.encodeWithSelector(OspexMarkets.OspexMarkets__UnknownMarket.selector, bad[i]));
+            markets.requireBetsOpen(bad[i]);
+        }
     }
 
     function test_create_refusesAnIdThatIsNotAGame() public {

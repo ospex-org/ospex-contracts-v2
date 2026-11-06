@@ -14,24 +14,40 @@ import {Market, MarketStatus, Outcome, Position, Side} from "./OspexBettingTypes
  * @title OspexPositions
  * @author ospex.org
  * @notice The positions module of the betting set: it holds every stake between its fill and its claim. A fill,
- *         recorded only by the matching module, draws the market if no fill has yet, writes a position for each
- *         of the two accounts and pulls each account's stake in the set's coin. A claim, once the market is
- *         settled, pays a position out once: risk and profit to a winner, the risk alone on a push or a void,
- *         nothing to a loser.
+ *         recorded only by the matching module, draws the market if no fill has yet, passes the markets
+ *         module's close gate, writes a position for each of the two accounts and pulls each account's stake
+ *         in the set's coin. A claim, once the market is settled, pays a position out once: risk and profit to
+ *         a winner, the risk alone on a push or a void, nothing to a loser.
  *
  *         Both accounts approve this contract for the coin, and nothing else: no fee is taken at a fill, so
  *         there is no second allowance. A maker's profit is the taker's risk and the taker's profit the maker's
  *         risk, so with a coin that moves exactly the amount asked, as USDC does, what the contract holds for a
- *         market is what its positions can claim. A coin that takes a fee on a transfer, or that rebases,
- *         would break that, and choosing the coin is the deploy's. Coin sent here outside a fill belongs to no
- *         position.
+ *         market is what its positions can claim. Coin sent here outside a pull belongs to no position, and no
+ *         function sends it back.
+ *
+ *         The two pulls and the receipt. The maker's stake is pulled first, then the taker's. A pull the coin
+ *         refuses, by reverting or by answering false, reverts the fill under its own name, one for each of
+ *         the two accounts, with the account and the amount: no balance or allowance is read first, since a
+ *         coin can refuse a transfer those reads would allow. After both pulls the fill reverts unless this
+ *         contract's balance rose by at least the two stakes. Coin that reaches the contract beside the two
+ *         pulls cannot fail that check; a short receipt always does.
+ *
+ *         What that holds, and what it does not. Whatever the coin does during a fill, a fill is recorded only
+ *         if this contract's balance rose by at least what the two positions record, and a call the coin makes
+ *         during a pull can record no fill and pay no claim, which the reentrancy guard refuses. What a coin
+ *         does outside a fill, a rebase or a fee on the transfer that pays a claim, is not checked: choosing
+ *         the coin is the deploy's. And a coin that calls the debited account during a transfer hands that
+ *         account a way to make the fill's whole transaction fail, by spending the gas passed to it or by
+ *         ending the game, where its release is open, so that a later fill of the same transaction meets the
+ *         close gate. No gas limit is put on the pulls and nothing is skipped at the close gate. USDC makes no
+ *         such call.
  *
  *         Who calls it, and what it calls. Only the matching module records a fill, checked against the core's
- *         registry at each call, and that module has no function that does until the Cross is built. An
- *         account claims its own position, and anyone reads. It calls the markets module, for a market's id,
- *         its drawing at a first fill and its record at every fill and every claim; the coin, to pull the two
- *         stakes at a fill and to pay at a claim; and the core, for its registry reads and its event hub. A
- *         fill and a claim each hold the reentrancy guard.
+ *         registry at each call: its Cross is the one path a fill arrives by. An account claims its own
+ *         position, and anyone reads. It calls the markets module, for a market's id, its drawing at a first
+ *         fill, its close gate at every fill and its record at every claim; the coin, to pull the two stakes
+ *         and read its own balance at a fill, and to pay at a claim; and the core, for its registry reads and
+ *         its event hub. A fill and a claim each hold the reentrancy guard.
  *
  *         It has no owner, no setter and no pause, and no way out for the coin but a claim.
  */
@@ -58,8 +74,9 @@ contract OspexPositions is IOspexPositions, ReentrancyGuardTransient {
     error OspexPositions__NotMatchingModule(address caller);
     /// @notice Thrown when a fill's risk is 0 on either side
     error OspexPositions__InvalidAmount();
-    /// @notice Thrown when a fill is recorded into a market that is settled
-    error OspexPositions__MarketNotOpen(uint256 marketId);
+    /// @notice Thrown when, after a fill's two pulls, this contract's coin balance is under what it held before
+    ///         them plus the two stakes: owed is that sum, held the balance read
+    error OspexPositions__ShortReceipt(uint256 owed, uint256 held);
     /// @notice Thrown when a position is claimed on a market that is not settled
     error OspexPositions__NotSettled(uint256 marketId);
     /// @notice Thrown when a position is claimed twice
@@ -133,11 +150,12 @@ contract OspexPositions is IOspexPositions, ReentrancyGuardTransient {
         _record(markets, marketId, makerSide, maker, makerRisk, taker, takerRisk);
     }
 
-    /// @dev The openness gate and the write. The market read refuses an id that is not a market by name, and a
-    ///      settled market is refused here by name; then each account's position grows by its risk and the
-    ///      other's, and each stake is pulled. The gate reads the market's status, not its game's: a market
-    ///      stays Open after its game ends until it is settled. The close of fills at a game's end is not this
-    ///      gate; it arrives with the Cross.
+    /// @dev The close gate, the write, the two pulls and the receipt. The markets module's gate refuses, by
+    ///      name, a settled market, a game that has ended and a game at or after its start + n; it is called
+    ///      at every fill, into a market just drawn as into an old one. Then each account's position grows by
+    ///      its risk and the other's, the maker's stake is pulled and then the taker's, each refusal under its
+    ///      own name, and the balance is read against what it was before the pulls: at least the two stakes
+    ///      more, or the fill reverts.
     function _record(
         IOspexMarkets markets,
         uint256 marketId,
@@ -147,8 +165,7 @@ contract OspexPositions is IOspexPositions, ReentrancyGuardTransient {
         address taker,
         uint256 takerRisk
     ) private {
-        Market memory m = markets.getMarket(marketId);
-        if (m.status != MarketStatus.Open) revert OspexPositions__MarketNotOpen(marketId);
+        markets.requireBetsOpen(marketId);
 
         Side takerSide = makerSide == Side.A ? Side.B : Side.A;
 
@@ -162,8 +179,15 @@ contract OspexPositions is IOspexPositions, ReentrancyGuardTransient {
         takerPos.risk += takerRisk;
         takerPos.profit += makerRisk;
 
-        i_token.safeTransferFrom(maker, address(this), makerRisk);
-        i_token.safeTransferFrom(taker, address(this), takerRisk);
+        uint256 owed = i_token.balanceOf(address(this)) + makerRisk + takerRisk;
+        if (!i_token.trySafeTransferFrom(maker, address(this), makerRisk)) {
+            revert OspexPositions__MakerPullRefused(maker, makerRisk);
+        }
+        if (!i_token.trySafeTransferFrom(taker, address(this), takerRisk)) {
+            revert OspexPositions__TakerPullRefused(taker, takerRisk);
+        }
+        uint256 held = i_token.balanceOf(address(this));
+        if (held < owed) revert OspexPositions__ShortReceipt(owed, held);
 
         emit PositionFilled(marketId, maker, taker, makerSide, takerSide, makerRisk, takerRisk);
         i_ospexCore.emitCoreEvent(

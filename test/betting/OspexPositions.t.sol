@@ -7,9 +7,10 @@ import {OspexMarkets} from "../../src/betting/OspexMarkets.sol";
 import {OspexPositions} from "../../src/betting/OspexPositions.sol";
 import {IOspexPositions} from "../../src/betting/IOspexPositions.sol";
 import {Market, MarketStatus, Outcome, Position, Side} from "../../src/betting/OspexBettingTypes.sol";
+import {RefusingCoin} from "../games/CoinFixtures.sol";
 import {BettingBase} from "./BettingBase.sol";
 
-/// @notice The positions module: what a fill writes and pulls, the openness gate, and what a claim pays on
+/// @notice The positions module: what a fill writes and pulls, the close gate, and what a claim pays on
 ///         each outcome, to whom, once; and that the coin the module holds is what its positions can claim.
 contract OspexPositionsTest is BettingBase {
     // ──────────────────────────── Fills ────────────────────────────────
@@ -27,7 +28,7 @@ contract OspexPositionsTest is BettingBase {
             address(positions),
             abi.encode(1, maker, taker, Side.B, Side.A, 3_000_000, 5_000_000)
         );
-        uint256 market = _fill(game, address(spread), -35, Side.B, 3_000_000, 5_000_000);
+        uint256 market = _rawFill(game, address(spread), -35, Side.B, 3_000_000, 5_000_000);
 
         Position memory m = _position(market, maker, Side.B);
         assertEq(m.risk, 3_000_000, "the maker's risk");
@@ -59,10 +60,10 @@ contract OspexPositionsTest is BettingBase {
 
     function test_fill_refusesAZeroStake() public {
         uint256 game = _verifiedGame();
-        (bool ok, bytes memory err) = _tryFill(game, address(moneyline), 0, Side.A, 0, STAKE);
+        (bool ok, bytes memory err) = _tryRawFill(game, address(moneyline), 0, Side.A, 0, STAKE);
         assertFalse(ok);
         assertEq(_selector(err), OspexPositions.OspexPositions__InvalidAmount.selector);
-        (ok, err) = _tryFill(game, address(moneyline), 0, Side.A, STAKE, 0);
+        (ok, err) = _tryRawFill(game, address(moneyline), 0, Side.A, STAKE, 0);
         assertFalse(ok);
         assertEq(_selector(err), OspexPositions.OspexPositions__InvalidAmount.selector);
         assertEq(markets.marketCount(), 0, "a market drawn for a refused fill");
@@ -73,18 +74,23 @@ contract OspexPositionsTest is BettingBase {
         uint256 market = _market(game, address(moneyline), 0);
         _score(game, HOME, AWAY);
         _settle(market);
-        // The market exists and is closed: refused at the openness gate by name. (A fill into an ended game's
+        // The market exists and is closed: refused at the close gate by name. (A fill into an ended game's
         // market cannot draw a new one either: the game has ended.)
         (bool ok, bytes memory err) = _tryFill(game, address(moneyline), 0, Side.A, STAKE, STAKE);
         assertFalse(ok);
-        assertEq(err, abi.encodeWithSelector(OspexPositions.OspexPositions__MarketNotOpen.selector, market));
+        assertEq(err, abi.encodeWithSelector(OspexMarkets.OspexMarkets__MarketSettled.selector, market));
     }
 
     function test_fill_aStakeTheCoinRefusesIsNoFill() public {
         uint256 game = _verifiedGame();
         token.setBlocked(taker, true);
-        (bool ok,) = _tryFill(game, address(moneyline), 0, Side.A, STAKE, STAKE);
+        (bool ok, bytes memory err) = _tryFill(game, address(moneyline), 0, Side.A, STAKE, STAKE);
         assertFalse(ok, "a fill whose stake the coin refused");
+        assertEq(
+            err,
+            abi.encodeWithSelector(IOspexPositions.OspexPositions__TakerPullRefused.selector, taker, STAKE),
+            "the refusal of a fill whose taking stake the coin refused"
+        );
         assertEq(token.balanceOf(address(positions)), 0, "the maker's stake kept without the taker's");
         assertEq(_position(1, maker, Side.A).risk, 0, "a position written without its stake");
         token.setBlocked(taker, false);
@@ -95,7 +101,7 @@ contract OspexPositionsTest is BettingBase {
 
     function test_claim_paysAWinnerRiskAndProfitOnce() public {
         uint256 game = _verifiedGame();
-        uint256 market = _fill(game, address(moneyline), 0, Side.A, 3_000_000, 5_000_000);
+        uint256 market = _rawFill(game, address(moneyline), 0, Side.A, 3_000_000, 5_000_000);
         _score(game, HOME, AWAY);
         _settle(market);
 
@@ -130,7 +136,7 @@ contract OspexPositionsTest is BettingBase {
     function test_claim_paysEachItsStakeOnAPushAndOnAVoid() public {
         // A push: the spread at the margin.
         uint256 game = _verifiedGame();
-        uint256 push = _fill(game, address(spread), -70, Side.A, 3_000_000, 5_000_000);
+        uint256 push = _rawFill(game, address(spread), -70, Side.A, 3_000_000, 5_000_000);
         _score(game, HOME, AWAY);
         _settle(push);
         assertEq(_claim(maker, push, Side.A), 3_000_000);
@@ -138,7 +144,7 @@ contract OspexPositionsTest is BettingBase {
         // A void: the game voided at hour 24.
         vm.warp(DATE - 1 hours);
         uint256 voided = _verifiedGame();
-        uint256 market = _fill(voided, address(total), 2005, Side.B, 3_000_000, 5_000_000);
+        uint256 market = _rawFill(voided, address(total), 2005, Side.B, 3_000_000, 5_000_000);
         vm.warp(START + WINDOW);
         _voidBy(first, voided);
         _settle(market);
@@ -182,8 +188,9 @@ contract OspexPositionsTest is BettingBase {
         _score(game, HOME, AWAY);
         _settle(market);
         token.setPaused(true);
-        (bool ok,) = _tryClaim(maker, market, Side.A);
+        (bool ok, bytes memory err) = _tryClaim(maker, market, Side.A);
         assertFalse(ok, "paid while the coin refused");
+        assertEq(err, abi.encodeWithSelector(RefusingCoin.Paused.selector), "the refusal of a claim the coin refused");
         Position memory p = _position(market, maker, Side.A);
         assertFalse(p.claimed, "marked claimed while unpaid");
         assertEq(p.risk, STAKE, "zeroed while unpaid");

@@ -12,11 +12,19 @@ import {IOspexModule} from "./IOspexModule.sol";
  *         but a claim sends coin out.
  */
 interface IOspexPositions is IOspexModule {
+    /// @notice Thrown by a fill when the coin refuses the pull of the maker's stake: the transfer reverts or
+    ///         answers false. It carries the maker and the stake asked of it. The matching module reads this
+    ///         error, with these two values, as the one failure of a fill that skips a resting order.
+    error OspexPositions__MakerPullRefused(address maker, uint256 makerRisk);
+    /// @notice Thrown by a fill when the coin refuses the pull of the taker's stake: the transfer reverts or
+    ///         answers false. It carries the taker and the stake asked of it.
+    error OspexPositions__TakerPullRefused(address taker, uint256 takerRisk);
+
     /// @notice Emitted when a fill is recorded. The maker's profit is the taker's risk and the taker's profit
     ///         the maker's risk, so the two risks say everything.
     /// @param marketId The market
     /// @param maker The account whose resting order was taken
-    /// @param taker The account that took it
+    /// @param taker The account that took it: the taking order's account, never the address that sent the fill
     /// @param makerSide The maker's side
     /// @param takerSide The taker's side, the other one
     /// @param makerRisk What the maker risks, and the taker wins
@@ -38,8 +46,10 @@ interface IOspexPositions is IOspexModule {
     /// @param payout What was paid: risk and profit for a winner, the risk alone on a push or a void
     event PositionClaimed(uint256 indexed marketId, address indexed user, Side side, uint256 payout);
 
-    /// @notice Records a fill: draws the market if no fill has yet, writes both positions and pulls both stakes.
-    ///         Only the matching module calls it.
+    /// @notice Records a fill: draws the market if no fill has yet, passes the markets module's close gate,
+    ///         writes both positions and pulls both stakes, the maker's first. Only the matching module calls
+    ///         it. A pull the coin refuses reverts the fill by name, MakerPullRefused or TakerPullRefused, and
+    ///         the fill reverts too unless this contract's coin balance rose by at least the two stakes.
     /// @param gameId The game
     /// @param scorer The market contract
     /// @param lineTicks The line, scaled by 10

@@ -17,22 +17,20 @@ contract YesCourier {
     }
 }
 
-/// @notice The matching module as it stands: the signed order's type names the game, so its typehash is new and
-///         a signer following the type string written out here produces the hash the contract accepts; the
-///         per-order cancel and the per-line floor; an account's couriers, registered and dropped by the
-///         account; no fill.
+/// @notice The matching module's records: the signed order's type, whose typehash a signer following the type
+///         string written out here reproduces, with the hash the contract accepts; the per-order cancel and
+///         the per-line floor; an account's couriers, registered and dropped by the account. The Cross has its
+///         own files.
 contract OspexMatchingTest is BettingBase {
-    /// @dev The signed order's type string, written out: nine fields, the game named `gameId`.
+    /// @dev The signed order's type string, written out: nine fields, the first named `account` and the game
+    ///      named `gameId`.
     bytes32 internal constant TYPEHASH = keccak256(
-        "OspexCommitment(address maker,uint256 gameId,address scorer,int32 lineTicks,uint8 positionType,uint16 oddsTick,uint256 riskAmount,uint256 nonce,uint256 expiry)"
+        "OspexOrder(address account,uint256 gameId,address scorer,int32 lineTicks,uint8 positionType,uint16 oddsTick,uint256 riskAmount,uint256 nonce,uint256 expiry)"
     );
-    /// @dev v2's type string, which named the game `contestId`.
+    /// @dev v2's type string: its own name for the type, its first field `maker`, and the game named `contestId`.
     bytes32 internal constant V2_TYPEHASH = keccak256(
         "OspexCommitment(address maker,uint256 contestId,address scorer,int32 lineTicks,uint8 positionType,uint16 oddsTick,uint256 riskAmount,uint256 nonce,uint256 expiry)"
     );
-    bytes32 internal constant DOMAIN_TYPEHASH =
-        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
-
     address internal signer;
     uint256 internal signerKey;
 
@@ -41,9 +39,9 @@ contract OspexMatchingTest is BettingBase {
         (signer, signerKey) = makeAddrAndKey("signer");
     }
 
-    function _order() internal view returns (OspexMatching.OspexCommitment memory c) {
-        c = OspexMatching.OspexCommitment({
-            maker: signer,
+    function _order() internal view returns (OspexMatching.OspexOrder memory c) {
+        c = OspexMatching.OspexOrder({
+            account: signer,
             gameId: 7,
             scorer: address(spread),
             lineTicks: -35,
@@ -57,13 +55,14 @@ contract OspexMatchingTest is BettingBase {
 
     /// @dev The EIP-712 hash of an order under a type string, built here from first principles: the domain is
     ///      the module's name, version, chain and address; the struct hash is the typehash over the nine fields.
-    function _digest(OspexMatching.OspexCommitment memory c, bytes32 typehash) internal view returns (bytes32) {
-        bytes32 domain =
-            keccak256(abi.encode(DOMAIN_TYPEHASH, keccak256("Ospex"), keccak256("1"), block.chainid, address(matching)));
+    function _digest(OspexMatching.OspexOrder memory c, bytes32 typehash) internal view returns (bytes32) {
+        bytes32 domain = keccak256(
+            abi.encode(DOMAIN_TYPEHASH, keccak256("Ospex"), keccak256("3"), block.chainid, address(matching))
+        );
         bytes32 structHash = keccak256(
             abi.encode(
                 typehash,
-                c.maker,
+                c.account,
                 c.gameId,
                 c.scorer,
                 c.lineTicks,
@@ -80,18 +79,22 @@ contract OspexMatchingTest is BettingBase {
     // ──────────────────────────── The signed type ──────────────────────
 
     function test_typehash_namesTheGame() public view {
-        assertEq(matching.COMMITMENT_TYPEHASH(), TYPEHASH, "the typehash is the type string written out");
-        assertTrue(TYPEHASH != V2_TYPEHASH, "the rename changed the typehash");
+        assertEq(matching.ORDER_TYPEHASH(), TYPEHASH, "the typehash is the type string written out");
+        // The same value as a literal, worked out outside the contracts.
+        assertEq(
+            TYPEHASH, 0xbd2aeb8d9e67f1bb2fb454c316cbf7794f64c2d7f1877b310dbeb2dfa9f313f7, "the typehash, as a literal"
+        );
+        assertTrue(TYPEHASH != V2_TYPEHASH, "the renames changed the typehash");
     }
 
     function test_hash_isWhatASignerComputesFromTheTypeString() public view {
-        OspexMatching.OspexCommitment memory c = _order();
+        OspexMatching.OspexOrder memory c = _order();
         bytes32 want = _digest(c, TYPEHASH);
-        assertEq(matching.getCommitmentHash(c), want, "the hash");
+        assertEq(matching.getOrderHash(c), want, "the hash");
         assertEq(
             matching.getDomainSeparator(),
             keccak256(
-                abi.encode(DOMAIN_TYPEHASH, keccak256("Ospex"), keccak256("1"), block.chainid, address(matching))
+                abi.encode(DOMAIN_TYPEHASH, keccak256("Ospex"), keccak256("3"), block.chainid, address(matching))
             ),
             "the domain separator"
         );
@@ -99,15 +102,15 @@ contract OspexMatchingTest is BettingBase {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, want);
         assertEq(ecrecover(want, v, r, s), signer, "the signer recovers");
         // The same nine values under v2's type string hash to something else: no v2 signature is a v3 order.
-        assertTrue(matching.getCommitmentHash(c) != _digest(c, V2_TYPEHASH), "a v2 hash is a v3 hash");
+        assertTrue(matching.getOrderHash(c) != _digest(c, V2_TYPEHASH), "a v2 hash is a v3 hash");
     }
 
     function test_hash_movesWithEveryField() public view {
-        OspexMatching.OspexCommitment memory base = _order();
-        bytes32 h = matching.getCommitmentHash(base);
+        OspexMatching.OspexOrder memory base = _order();
+        bytes32 h = matching.getOrderHash(base);
         for (uint256 i; i < 9; ++i) {
-            OspexMatching.OspexCommitment memory c = _order();
-            if (i == 0) c.maker = stranger;
+            OspexMatching.OspexOrder memory c = _order();
+            if (i == 0) c.account = stranger;
             if (i == 1) c.gameId = 8;
             if (i == 2) c.scorer = address(total);
             if (i == 3) c.lineTicks = -45;
@@ -116,7 +119,7 @@ contract OspexMatchingTest is BettingBase {
             if (i == 6) c.riskAmount = 10_000_001;
             if (i == 7) c.nonce = 4;
             if (i == 8) c.expiry = 1_800_000_038;
-            assertTrue(matching.getCommitmentHash(c) != h, string.concat("field ", vm.toString(i), " not hashed"));
+            assertTrue(matching.getOrderHash(c) != h, string.concat("field ", vm.toString(i), " not hashed"));
         }
     }
 
@@ -125,7 +128,7 @@ contract OspexMatchingTest is BettingBase {
             matching.eip712Domain();
         assertEq(fields, hex"0f");
         assertEq(name, "Ospex");
-        assertEq(version, "1");
+        assertEq(version, "3");
         assertEq(chainId, block.chainid);
         assertEq(verifying, address(matching));
     }
@@ -133,12 +136,18 @@ contract OspexMatchingTest is BettingBase {
     // ──────────────────────────── Cancelling ──────────────────────────
 
     function test_cancel_byTheMakerOnly() public {
-        OspexMatching.OspexCommitment memory c = _order();
-        bytes32 h = matching.getCommitmentHash(c);
+        OspexMatching.OspexOrder memory c = _order();
+        bytes32 h = matching.getOrderHash(c);
         vm.prank(stranger, stranger);
-        vm.expectRevert(OspexMatching.OspexMatching__NotCommitmentMaker.selector);
-        matching.cancelCommitment(c);
-        assertFalse(matching.s_cancelledCommitments(h));
+        vm.expectRevert(OspexMatching.OspexMatching__NotOrderAccount.selector);
+        matching.cancelOrder(c);
+        assertFalse(matching.s_cancelledOrders(h));
+        // The maker as the transaction's origin, behind another immediate caller: a contract the maker calls
+        // cancels nothing of the maker's.
+        vm.prank(stranger, signer);
+        vm.expectRevert(OspexMatching.OspexMatching__NotOrderAccount.selector);
+        matching.cancelOrder(c);
+        assertFalse(matching.s_cancelledOrders(h), "an order cancelled through its maker's origin");
 
         // A courier is not the maker. A courier the maker registered cancels nothing of the maker's, and
         // neither does an account that registered the maker as its own courier.
@@ -150,26 +159,26 @@ contract OspexMatchingTest is BettingBase {
         address[2] memory notTheMaker = [courier, stranger];
         for (uint256 i; i < notTheMaker.length; ++i) {
             vm.prank(notTheMaker[i], notTheMaker[i]);
-            vm.expectRevert(OspexMatching.OspexMatching__NotCommitmentMaker.selector);
-            matching.cancelCommitment(c);
+            vm.expectRevert(OspexMatching.OspexMatching__NotOrderAccount.selector);
+            matching.cancelOrder(c);
         }
-        assertFalse(matching.s_cancelledCommitments(h), "an order cancelled by an address that is not its maker");
+        assertFalse(matching.s_cancelledOrders(h), "an order cancelled by an address that is not its maker");
 
         vm.expectEmit(true, true, true, true, address(matching));
-        emit OspexMatching.CommitmentCancelled(
+        emit OspexMatching.OrderCancelled(
             h, signer, c.gameId, c.scorer, c.lineTicks, c.positionType, c.oddsTick, c.riskAmount, c.nonce, c.expiry
         );
         vm.expectEmit(true, true, true, true, address(core));
         emit OspexBetting.CoreEventEmitted(
-            matching.EVENT_COMMITMENT_CANCELLED(),
+            matching.EVENT_ORDER_CANCELLED(),
             address(matching),
             abi.encode(
                 h, signer, c.gameId, c.scorer, c.lineTicks, c.positionType, c.oddsTick, c.riskAmount, c.nonce, c.expiry
             )
         );
         vm.prank(signer, signer);
-        matching.cancelCommitment(c);
-        assertTrue(matching.s_cancelledCommitments(h));
+        matching.cancelOrder(c);
+        assertTrue(matching.s_cancelledOrders(h));
     }
 
     function test_raiseMinNonce_risesPerAccountPerMarket() public {
