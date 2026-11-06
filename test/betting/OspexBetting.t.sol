@@ -575,7 +575,10 @@ contract OspexBettingTest is BettingBase {
         );
         (bool ok, bytes memory err) = address(c).call(abi.encodeCall(OspexBetting.bootstrapModules, (types, addrs)));
         assertFalse(ok, "a call with a wrong module was taken");
-        assertEq(err, _wiringRefusal(k == 1 ? bytes1("T") : k == 2 ? bytes1("C") : bytes1("G"), addrs[k], other));
+        bytes1 letter = "G";
+        if (k == 1) letter = "T";
+        if (k == 2) letter = "C";
+        assertEq(err, _wiringRefusal(letter, addrs[k], other));
         assertEq(c.s_moduleCount(), held ? 1 : 0, "the count moved");
         for (uint256 i; i < n; ++i) {
             assertEq(c.getModule(types[i]), address(0), "a type of a refused call was taken");
