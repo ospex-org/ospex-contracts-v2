@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.26;
 
+import {OspexBetting} from "../../src/betting/OspexBetting.sol";
 import {MarketStatus, Outcome, Side} from "../../src/betting/OspexBettingTypes.sol";
 import {BettingBase} from "./BettingBase.sol";
 
@@ -84,8 +85,11 @@ contract OspexBettingInterfaceTest is BettingBase {
             "OspexBetting__AlreadyFinalized();OspexBetting__ArrayLengthMismatch();"
             "OspexBetting__DuplicateModuleType(bytes32 moduleType);OspexBetting__GamesNotAContract(address games);"
             "OspexBetting__InvalidModuleAddress(address moduleAddress);"
+            "OspexBetting__ModuleCoreMismatch(address moduleAddress,address found);"
             "OspexBetting__ModuleCountMismatch(uint256 registered,uint256 required);"
+            "OspexBetting__ModuleGamesMismatch(address moduleAddress,address found);"
             "OspexBetting__ModuleNotRegistered(bytes32 moduleType);"
+            "OspexBetting__ModuleTokenMismatch(address moduleAddress,address found);"
             "OspexBetting__ModuleTypeMismatch(address moduleAddress,bytes32 named,bytes32 found);"
             "OspexBetting__NotDeployer(address caller);OspexBetting__NotRegisteredModule(address moduleAddress);"
             "OspexBetting__TokenNotAContract(address token)"
@@ -116,6 +120,55 @@ contract OspexBettingInterfaceTest is BettingBase {
         _assertErrors("OspexMoneylineScorer", "OspexScorer__InvalidCore()");
         _assertErrors("OspexSpreadScorer", "OspexScorer__InvalidCore()");
         _assertErrors("OspexTotalScorer", "OspexScorer__InvalidCore()");
+    }
+
+    /// Every deploy value a module holds behind a getter is one the core reads when it registers the module.
+    /// The list of each module's `i_` functions comes from its compiled artifact and is pinned here: the
+    /// markets module's games set and core, the positions module's coin and core, the matching module's core,
+    /// and each market contract's games set. Then the six, built from src/, are registered on a fresh core, and
+    /// the core must be seen to call each of those getters on the module that has it. So a module that gains a
+    /// deploy value with a getter turns this red twice: the pinned list, and the read the core does not make.
+    /// A value with no getter is not seen here. The reads the core's own interface for a module's wiring
+    /// declares are those three getters; the type's read is IOspexModule's.
+    /// Break: in OspexPositions.sol, add a second deploy value with a getter, `address public immutable i_payer
+    /// = address(1);`.
+    function test_theDeployValuesAreExactlyTheOnesTheCoreReads() public {
+        string[6] memory names = [
+            "OspexMarkets",
+            "OspexPositions",
+            "OspexMatching",
+            "OspexMoneylineScorer",
+            "OspexSpreadScorer",
+            "OspexTotalScorer"
+        ];
+        string[6] memory want = [
+            "i_games();i_ospexCore()", "i_ospexCore();i_token()", "i_ospexCore()", "i_games()", "i_games()", "i_games()"
+        ];
+
+        vm.startPrank(deployer, deployer);
+        OspexBetting c = new OspexBetting(address(games), address(token));
+        (bytes32[] memory types, address[] memory addrs) = _freshSet(c);
+        uint256 reads;
+        for (uint256 i; i < names.length; ++i) {
+            string[] memory values = _deployValues(names[i]);
+            _assertSameSet(values, vm.split(want[i], ";"), string.concat(names[i], " deploy value"));
+            for (uint256 v; v < values.length; ++v) {
+                // The call below must make this read of this module, or the test fails when it ends.
+                vm.expectCall(addrs[i], abi.encodePacked(bytes4(keccak256(bytes(values[v])))));
+                ++reads;
+            }
+        }
+        c.bootstrapModules(types, addrs);
+        vm.stopPrank();
+        assertEq(reads, 8, "the reads expected of the six");
+
+        string memory wiring =
+            vm.readFile(string.concat(vm.projectRoot(), "/out/OspexBetting.sol/IOspexModuleWiring.json"));
+        _assertSameSet(
+            vm.parseJsonKeys(wiring, "$.methodIdentifiers"),
+            vm.split("i_games();i_ospexCore();i_token()", ";"),
+            "wiring read"
+        );
     }
 
     /// The events are exactly these, as the compiled artifacts declare them: each contract's set of events, and
@@ -188,6 +241,21 @@ contract OspexBettingInterfaceTest is BettingBase {
     function _assertFunctions(string memory name, string memory want) internal view {
         string[] memory got = vm.parseJsonKeys(_artifact(name), "$.methodIdentifiers");
         _assertSameSet(got, vm.split(want, ";"), string.concat(name, " function"));
+    }
+
+    /// @dev The functions of `name` whose names begin "i_", from its compiled artifact, as signatures.
+    function _deployValues(string memory name) internal view returns (string[] memory got) {
+        string[] memory all = vm.parseJsonKeys(_artifact(name), "$.methodIdentifiers");
+        string[] memory found = new string[](all.length);
+        uint256 n;
+        for (uint256 i; i < all.length; ++i) {
+            bytes memory key = bytes(all[i]);
+            if (key.length > 2 && key[0] == "i" && key[1] == "_") found[n++] = all[i];
+        }
+        got = new string[](n);
+        for (uint256 i; i < n; ++i) {
+            got[i] = found[i];
+        }
     }
 
     function _assertErrors(string memory name, string memory want) internal view {

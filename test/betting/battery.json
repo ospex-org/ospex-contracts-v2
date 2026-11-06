@@ -1,5 +1,5 @@
 {
- "about": "Breaks of the betting set, most of one line, each with a test it turns red; a break may turn others red too. For each: apply its edits to the file (each find occurs exactly once in the file as committed; a find of several lines is one anchor), run the named test alone and see it fail, restore the file byte for byte and see it pass. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis. Check that exactly one test ran. Ids: B, the cut's: the (home, away) order, the settlement's status read, the fill path, the registry and the interface pins. C, the couriers': who writes an account's couriers, no courier by default, the refusals, the repeated registration, the events and the two calls' signatures. From C17 on, the same lines read through the transaction's origin, or told apart by it, and a write beside the one the caller named. C31 and C32, a second write no list of addresses would reach. C33 to C35, one courier at a time and an event emitted twice. C36 to C45, the two calls that change nothing: a repeated registration succeeds and neither writes nor emits, and a drop of a courier the account does not have is refused. C46 to C62, behaviour that differs for one kind of caller, courier, time or count: a contract as the caller or as the courier, the account naming itself, the set's deployer as the caller, a write hidden by the order couriers are named in, a courier event from the cancel, a courier that appears or lapses with time or is written at deploy, a courier dropped several times, a courier asked about its own drop, a courier cancelling its account's order, a registration that returns a value, and a call made to the courier.",
+ "about": "Breaks of the betting set, most of one line, each with a test it turns red; a break may turn others red too. For each: apply its edits to the file (each find occurs exactly once in the file as committed; a find of several lines is one anchor), run the named test alone and see it fail, restore the file byte for byte and see it pass. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis. Check that exactly one test ran. Ids: B, the cut's: the (home, away) order, the settlement's status read, the fill path, the registry and the interface pins. C, the couriers': who writes an account's couriers, no courier by default, the refusals, the repeated registration, the events and the two calls' signatures. From C17 on, the same lines read through the transaction's origin, or told apart by it, and a write beside the one the caller named. C31 and C32, a second write no list of addresses would reach. C33 to C35, one courier at a time and an event emitted twice. C36 to C45, the two calls that change nothing: a repeated registration succeeds and neither writes nor emits, and a drop of a courier the account does not have is refused. C46 to C62, behaviour that differs for one kind of caller, courier, time or count: a contract as the caller or as the courier, the account naming itself, the set's deployer as the caller, a write hidden by the order couriers are named in, a courier event from the cancel, a courier that appears or lapses with time or is written at deploy, a courier dropped several times, a courier asked about its own drop, a courier cancelling its account's order, a registration that returns a value, and a call made to the courier. W, the wiring's: the reads the core makes of a module at bootstrap, which types are asked which and in what order, that an address is read before it is written and never at finalize, that a read cannot write and that one that fails fails the call, every place of a call, the zero address as a market contract, and the pins of the core's three refusals and of the modules' deploy values.",
  "command": "FOUNDRY_SRC=src FOUNDRY_TEST=test/betting FOUNDRY_SCRIPT=none forge test --via-ir --optimize --match-path <testPath> --match-test '^<test>\\\\('",
  "breaks": [
   {
@@ -111,8 +111,8 @@
     }
    ],
    "testPath": "test/betting/OspexBetting.t.sol",
-   "test": "test_bootstrap_refusesAModuleOfAnotherType",
-   "breaks": "a module registers under another type"
+   "test": "test_bootstrap_refusesEveryModuleUnderEveryOtherType",
+   "breaks": "a module's own answer to its type is not checked: a market contract registers under another market contract's type"
   },
   {
    "id": "B9-payoutside",
@@ -1239,6 +1239,468 @@
    "testPath": "test/betting/OspexMatching.t.sol",
    "test": "test_couriers_anAccountRegistersSeveralAndDropsOne",
    "breaks": "a registration calls the courier, and goes on whatever it answers"
+  },
+  {
+   "id": "W1-nocore",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "            if (core != address(this)) revert OspexBetting__ModuleCoreMismatch(moduleAddress, core);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_aModuleWiredWrongIsRefusedAtBootstrap",
+   "breaks": "a module that names another core registers"
+  },
+  {
+   "id": "W2-anycore",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "            if (core != address(this)) revert",
+     "replace": "            if (core == address(0)) revert"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_aModuleWiredWrongIsRefusedAtBootstrap",
+   "breaks": "any core but the zero address is taken for this one"
+  },
+  {
+   "id": "W3-gamesmarkets",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "            moduleType == MARKET_MODULE || moduleType == MONEYLINE_SCORER_MODULE || moduleType == SPREAD_SCORER_MODULE",
+     "replace": "            moduleType == MONEYLINE_SCORER_MODULE || moduleType == SPREAD_SCORER_MODULE"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_aModuleWiredWrongIsRefusedAtBootstrap",
+   "breaks": "the markets module is not asked its games set"
+  },
+  {
+   "id": "W4-gamesmoneyline",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "            moduleType == MARKET_MODULE || moduleType == MONEYLINE_SCORER_MODULE || moduleType == SPREAD_SCORER_MODULE",
+     "replace": "            moduleType == MARKET_MODULE || moduleType == SPREAD_SCORER_MODULE"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_aModuleWiredWrongIsRefusedAtBootstrap",
+   "breaks": "the moneyline is not asked its games set, and one of another games set registers"
+  },
+  {
+   "id": "W5-gamesspread",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "            moduleType == MARKET_MODULE || moduleType == MONEYLINE_SCORER_MODULE || moduleType == SPREAD_SCORER_MODULE",
+     "replace": "            moduleType == MARKET_MODULE || moduleType == MONEYLINE_SCORER_MODULE"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_aModuleWiredWrongIsRefusedAtBootstrap",
+   "breaks": "the spread is not asked its games set, and one of another games set registers"
+  },
+  {
+   "id": "W6-gamestotal",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "                || moduleType == TOTAL_SCORER_MODULE\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_aModuleWiredWrongIsRefusedAtBootstrap",
+   "breaks": "the total is not asked its games set, and one of another games set registers"
+  },
+  {
+   "id": "W7-nocoin",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "            if (token != address(i_token)) revert OspexBetting__ModuleTokenMismatch(moduleAddress, token);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_aModuleWiredWrongIsRefusedAtBootstrap",
+   "breaks": "the positions module's coin is read and not compared"
+  },
+  {
+   "id": "W8-firstonly",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "            _checkWiring(moduleTypes[i], moduleAddresses[i]);",
+     "replace": "            if (i == 0) _checkWiring(moduleTypes[i], moduleAddresses[i]);"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_aModuleWiredWrongIsRefusedAtBootstrap",
+   "breaks": "only the first address of a call is checked"
+  },
+  {
+   "id": "W9-nochecks",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "            _checkWiring(moduleTypes[i], moduleAddresses[i]);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_finalizeLocksNoSetWiredWrong",
+   "breaks": "no wiring is checked, and a set wired wrong finalizes"
+  },
+  {
+   "id": "W10-zeroscorer",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "        if (addr == address(0)) return false;\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_theZeroAddressIsNeverAnApprovedScorer",
+   "breaks": "the zero address is approved until the three market contracts are registered"
+  },
+  {
+   "id": "W11-coremarkets",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "        if (moduleType == MARKET_MODULE || moduleType == POSITION_MODULE || moduleType == MATCHING_MODULE) {",
+     "replace": "        if (moduleType == POSITION_MODULE || moduleType == MATCHING_MODULE) {"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_aModuleWiredWrongIsRefusedAtBootstrap",
+   "breaks": "the markets module is not asked its core"
+  },
+  {
+   "id": "W12-corepositions",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "        if (moduleType == MARKET_MODULE || moduleType == POSITION_MODULE || moduleType == MATCHING_MODULE) {",
+     "replace": "        if (moduleType == MARKET_MODULE || moduleType == MATCHING_MODULE) {"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_aModuleWiredWrongIsRefusedAtBootstrap",
+   "breaks": "the positions module is not asked its core"
+  },
+  {
+   "id": "W13-corematching",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "        if (moduleType == MARKET_MODULE || moduleType == POSITION_MODULE || moduleType == MATCHING_MODULE) {",
+     "replace": "        if (moduleType == MARKET_MODULE || moduleType == POSITION_MODULE) {"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_aModuleWiredWrongIsRefusedAtBootstrap",
+   "breaks": "the matching module is not asked its core"
+  },
+  {
+   "id": "W14-anygames",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "            if (games != address(i_games)) revert",
+     "replace": "            if (games == address(0)) revert"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_aModuleWiredWrongIsRefusedAtBootstrap",
+   "breaks": "any games set but the zero address is taken for the core's"
+  },
+  {
+   "id": "W15-anycoin",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "            if (token != address(i_token)) revert",
+     "replace": "            if (token == address(0)) revert"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_aModuleWiredWrongIsRefusedAtBootstrap",
+   "breaks": "any coin but the zero address is taken for the core's"
+  },
+  {
+   "id": "W16-coreofoutside",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "        if (moduleType == MARKET_MODULE || moduleType == POSITION_MODULE || moduleType == MATCHING_MODULE) {",
+     "replace": "        if (\n            moduleType != MONEYLINE_SCORER_MODULE && moduleType != SPREAD_SCORER_MODULE\n                && moduleType != TOTAL_SCORER_MODULE\n        ) {"
+    }
+   ],
+   "testPath": "test/betting/OspexBetting.t.sol",
+   "test": "test_bootstrap_asksEachTypeForItsOwnValues",
+   "breaks": "a type outside the six is asked its core"
+  },
+  {
+   "id": "W17-corefirst",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "        if (moduleType == MARKET_MODULE || moduleType == POSITION_MODULE || moduleType == MATCHING_MODULE) {\n            address core = module.i_ospexCore();\n            if (core != address(this)) revert OspexBetting__ModuleCoreMismatch(moduleAddress, core);\n        }\n",
+     "replace": ""
+    },
+    {
+     "find": "        IOspexModuleWiring module = IOspexModuleWiring(moduleAddress);\n",
+     "replace": "        IOspexModuleWiring module = IOspexModuleWiring(moduleAddress);\n        if (moduleType == MARKET_MODULE || moduleType == POSITION_MODULE || moduleType == MATCHING_MODULE) {\n            address core = module.i_ospexCore();\n            if (core != address(this)) revert OspexBetting__ModuleCoreMismatch(moduleAddress, core);\n        }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexBetting.t.sol",
+   "test": "test_bootstrap_asksTheTypeFirstAndTheCoreLast",
+   "breaks": "the core is asked before the games set and the coin"
+  },
+  {
+   "id": "W18-gameswrites",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "    function i_games() external view returns (address);",
+     "replace": "    function i_games() external returns (address);"
+    },
+    {
+     "find": "    function _checkWiring(bytes32 moduleType, address moduleAddress) private view {",
+     "replace": "    function _checkWiring(bytes32 moduleType, address moduleAddress) private {"
+    }
+   ],
+   "testPath": "test/betting/OspexBetting.t.sol",
+   "test": "test_bootstrap_theReadsCannotWrite",
+   "breaks": "the games set's read is a call that can write"
+  },
+  {
+   "id": "W19-coinwrites",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "    function i_token() external view returns (address);",
+     "replace": "    function i_token() external returns (address);"
+    },
+    {
+     "find": "    function _checkWiring(bytes32 moduleType, address moduleAddress) private view {",
+     "replace": "    function _checkWiring(bytes32 moduleType, address moduleAddress) private {"
+    }
+   ],
+   "testPath": "test/betting/OspexBetting.t.sol",
+   "test": "test_bootstrap_theReadsCannotWrite",
+   "breaks": "the coin's read is a call that can write"
+  },
+  {
+   "id": "W20-corewrites",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "    function i_ospexCore() external view returns (address);",
+     "replace": "    function i_ospexCore() external returns (address);"
+    },
+    {
+     "find": "    function _checkWiring(bytes32 moduleType, address moduleAddress) private view {",
+     "replace": "    function _checkWiring(bytes32 moduleType, address moduleAddress) private {"
+    }
+   ],
+   "testPath": "test/betting/OspexBetting.t.sol",
+   "test": "test_bootstrap_theReadsCannotWrite",
+   "breaks": "the core's read is a call that can write"
+  },
+  {
+   "id": "W21-deployvalue",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "    IERC20 public immutable i_token;\n",
+     "replace": "    IERC20 public immutable i_token;\n    address public immutable i_payer = address(1);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingInterface.t.sol",
+   "test": "test_theDeployValuesAreExactlyTheOnesTheCoreReads",
+   "breaks": "a module holds a deploy value the core does not read"
+  },
+  {
+   "id": "W22-errorname",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "    error OspexBetting__ModuleCoreMismatch(address moduleAddress, address found);",
+     "replace": "    error OspexBetting__ModuleCoreMismatch(address moduleAddress, address core);"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingInterface.t.sol",
+   "test": "test_theErrorsAreExactlyThese",
+   "breaks": "an argument of the core's refusal is renamed"
+  },
+  {
+   "id": "W23-coreofscorers",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "        if (moduleType == MARKET_MODULE || moduleType == POSITION_MODULE || moduleType == MATCHING_MODULE) {",
+     "replace": "        {"
+    }
+   ],
+   "testPath": "test/betting/OspexBetting.t.sol",
+   "test": "test_bootstrap_registersEachModuleUnderItsType",
+   "breaks": "a market contract is asked its core, which it does not hold: the set's own six cannot be registered, so the test fails in the suite's setUp, as every betting test does"
+  },
+  {
+   "id": "W24-readafterwrite",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "            _checkWiring(moduleTypes[i], moduleAddresses[i]);\n            s_moduleRegistry[moduleTypes[i]] = moduleAddresses[i];\n            s_isModuleRegistered[moduleAddresses[i]] = true;\n",
+     "replace": "            s_moduleRegistry[moduleTypes[i]] = moduleAddresses[i];\n            s_isModuleRegistered[moduleAddresses[i]] = true;\n            _checkWiring(moduleTypes[i], moduleAddresses[i]);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexBetting.t.sol",
+   "test": "test_bootstrap_readsAModuleBeforeItWritesIt",
+   "breaks": "an address is written before it is read"
+  },
+  {
+   "id": "W25-skipsecond",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "            _checkWiring(moduleTypes[i], moduleAddresses[i]);",
+     "replace": "            if (i != 1) _checkWiring(moduleTypes[i], moduleAddresses[i]);"
+    }
+   ],
+   "testPath": "test/betting/OspexBetting.t.sol",
+   "test": "test_bootstrap_refusesAWrongModuleAtEveryPlaceOfACall",
+   "breaks": "the second address of a call is not checked"
+  },
+  {
+   "id": "W26-onlyfresh",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "            _checkWiring(moduleTypes[i], moduleAddresses[i]);",
+     "replace": "            if (s_moduleCount == 0 || moduleTypes.length == 1) _checkWiring(moduleTypes[i], moduleAddresses[i]);"
+    }
+   ],
+   "testPath": "test/betting/OspexBetting.t.sol",
+   "test": "test_bootstrap_refusesAWrongModuleAtEveryPlaceOfACall",
+   "breaks": "a call of several addresses is not checked once the core holds a module"
+  },
+  {
+   "id": "W27-zeroatsix",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "        if (addr == address(0)) return false;",
+     "replace": "        if (addr == address(0) && s_moduleCount < 6) return false;"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_theZeroAddressIsNeverAnApprovedScorer",
+   "breaks": "the zero address is approved once six are registered with a market contract missing"
+  },
+  {
+   "id": "W28-coinasgames",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "            if (games != address(i_games)) revert",
+     "replace": "            if (games != address(i_games) && games != address(i_token)) revert"
+    }
+   ],
+   "testPath": "test/betting/OspexBetting.t.sol",
+   "test": "test_bootstrap_asksEachTypeForItsOwnValues",
+   "breaks": "the core's coin is taken for its games set"
+  },
+  {
+   "id": "W29-deployerascore",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "            if (core != address(this)) revert",
+     "replace": "            if (core != address(this) && core != i_deployer) revert"
+    }
+   ],
+   "testPath": "test/betting/OspexBetting.t.sol",
+   "test": "test_bootstrap_asksEachTypeForItsOwnValues",
+   "breaks": "the deployer is taken for the core"
+  },
+  {
+   "id": "W30-finalizereads",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "                revert OspexBetting__ModuleNotRegistered(required[i]);\n            }\n",
+     "replace": "                revert OspexBetting__ModuleNotRegistered(required[i]);\n            }\n            _checkWiring(required[i], s_moduleRegistry[required[i]]);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexBetting.t.sol",
+   "test": "test_finalize_readsNoModule",
+   "breaks": "finalize reads each module's wiring again"
+  },
+  {
+   "id": "W31-silentcoin",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "            address token = module.i_token();\n            if (token != address(i_token)) revert OspexBetting__ModuleTokenMismatch(moduleAddress, token);\n",
+     "replace": "            try module.i_token() returns (address token) {\n                if (token != address(i_token)) revert OspexBetting__ModuleTokenMismatch(moduleAddress, token);\n            } catch {}\n"
+    }
+   ],
+   "testPath": "test/betting/OspexBetting.t.sol",
+   "test": "test_bootstrap_refusesAModuleThatFailsOneRead",
+   "breaks": "a positions module whose coin read fails is not refused for it"
+  },
+  {
+   "id": "W32-typeofspread",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "            if (found != moduleTypes[i]) {",
+     "replace": "            if (found != moduleTypes[i] && moduleTypes[i] != SPREAD_SCORER_MODULE) {"
+    }
+   ],
+   "testPath": "test/betting/OspexBetting.t.sol",
+   "test": "test_bootstrap_refusesEveryModuleUnderEveryOtherType",
+   "breaks": "any module that names the core's games set registers under the spread's type"
+  },
+  {
+   "id": "W33-takenlast",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "            if (s_moduleRegistry[moduleTypes[i]] != address(0)) {\n                revert OspexBetting__DuplicateModuleType(moduleTypes[i]);\n            }\n",
+     "replace": ""
+    },
+    {
+     "find": "            _checkWiring(moduleTypes[i], moduleAddresses[i]);\n",
+     "replace": "            _checkWiring(moduleTypes[i], moduleAddresses[i]);\n            if (s_moduleRegistry[moduleTypes[i]] != address(0)) {\n                revert OspexBetting__DuplicateModuleType(moduleTypes[i]);\n            }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexBetting.t.sol",
+   "test": "test_bootstrap_asksTheTypeFirstAndTheCoreLast",
+   "breaks": "a type that is taken is refused only after the module is read"
+  },
+  {
+   "id": "W34-zerotype",
+   "file": "src/betting/OspexBetting.sol",
+   "edits": [
+    {
+     "find": "        if (moduleType == MARKET_MODULE || moduleType == POSITION_MODULE || moduleType == MATCHING_MODULE) {",
+     "replace": "        if (\n            moduleType == MARKET_MODULE || moduleType == POSITION_MODULE || moduleType == MATCHING_MODULE\n                || moduleType == bytes32(0)\n        ) {"
+    }
+   ],
+   "testPath": "test/betting/OspexBetting.t.sol",
+   "test": "test_bootstrap_asksEachTypeForItsOwnValues",
+   "breaks": "the zero type, outside the six, is asked its core"
   }
  ]
 }
