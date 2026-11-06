@@ -3,7 +3,7 @@ pragma solidity ^0.8.26;
 
 import {VmSafe} from "forge-std/Vm.sol";
 import {GameStatus} from "../../src/games/IOspexGames.sol";
-import {OspexBetting} from "../../src/betting/OspexBetting.sol";
+import {IOspexModuleWiring, OspexBetting} from "../../src/betting/OspexBetting.sol";
 import {OspexMarkets} from "../../src/betting/OspexMarkets.sol";
 import {OspexPositions} from "../../src/betting/OspexPositions.sol";
 import {OspexMatching} from "../../src/betting/OspexMatching.sol";
@@ -37,7 +37,10 @@ contract CourierCaller {
 ///         v2's order, away then home; a market settles on nothing but its game's own status; a void and a
 ///         release are voids; there is no fill path in the betting set; only an account changes its couriers,
 ///         and no account has one by default; the registry is exactly the required set and the deployer keeps
-///         nothing. Above each test, "Break:" names the one-line change to src/betting that turns it red.
+///         nothing; a module wired wrong is refused at bootstrap, where the core asks a module of its type for
+///         its core, its games set or its coin, so finalize locks no set wired wrong; and the zero address is
+///         never an approved market contract. Above each test, "Break:" names a change to src/betting, most
+///         of one line, that turns it red.
 contract OspexBettingNeverLinesTest is BettingBase {
     /// @dev The scored game of the rulings: home 121, away 99. Home wins the moneyline; home -3.5 covers. The
     ///      two scores differ, so a read in the other order gives the other team the win.
@@ -758,21 +761,447 @@ contract OspexBettingNeverLinesTest is BettingBase {
         fresh.finalize();
     }
 
-    /// @dev Six fresh modules on `c`, with their types, in the core's order.
-    function _freshSet(OspexBetting c) internal returns (bytes32[] memory types, address[] memory addrs) {
-        types = new bytes32[](6);
-        addrs = new address[](6);
-        types[0] = c.MARKET_MODULE();
-        addrs[0] = address(new OspexMarkets(address(c)));
-        types[1] = c.POSITION_MODULE();
-        addrs[1] = address(new OspexPositions(address(c)));
-        types[2] = c.MATCHING_MODULE();
-        addrs[2] = address(new OspexMatching(address(c)));
-        types[3] = c.MONEYLINE_SCORER_MODULE();
-        addrs[3] = address(new OspexMoneylineScorer(address(c)));
-        types[4] = c.SPREAD_SCORER_MODULE();
-        addrs[4] = address(new OspexSpreadScorer(address(c)));
-        types[5] = c.TOTAL_SCORER_MODULE();
-        addrs[5] = address(new OspexTotalScorer(address(c)));
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // The wiring is checked when a module is registered. The core asks a module for what a module of its type
+    // was deployed with: the three modules for their core, the markets module and the three market contracts
+    // for their games set, the positions module for its coin. One whose answer is not the core's own is wired
+    // wrong, and is refused at bootstrap, so finalize finds nothing wired wrong to lock. A market contract is
+    // asked for no core: it holds none, and is checked on its games set alone. And the zero address is never
+    // one of the three market contracts.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// @dev What the wiring tests hold between their steps: the core under test, the six types and its own six
+    ///      modules in the core's order, the positions module with the fill hook where a step fills, and the
+    ///      two counts. In storage, so that each step is a short function of its own.
+    OspexBetting internal wCore;
+    bytes32[] internal wTypes;
+    address[] internal wOwn;
+    OspexPositionsHarness internal wPositions;
+    uint256 internal wRefused;
+    uint256 internal wNotRefused;
+
+    /// The eighteen: the six kinds of module, built from src/, each deployed with each of the three other
+    /// cores. A module of this repository takes its games set and its coin from its core, so the three ways of
+    /// being wired wrong are three kinds of other core. What each is told, one row for each other core and
+    /// one letter for each kind, in the core's order (markets, positions, matching, moneyline, spread, total):
+    /// G the games set's refusal, T the coin's, C the core's, and "-" for a module that registers.
+    ///
+    ///   the other core differs in its address alone   C C C - - -
+    ///   the other core names the second games set     G C C G G G
+    ///   the other core names the second coin          C T C - - -
+    ///
+    /// The six that register are market contracts whose games set is this core's. A market contract keeps
+    /// nothing of the core it was deployed with but the games set it copied: each of the six has the code hash
+    /// of this core's own market contract, the games set's address included, and each of the three that are
+    /// refused has another.
+    ///
+    /// Break: in OspexBetting._checkWiring, delete the core's comparison, `if (core != address(this)) revert
+    /// OspexBetting__ModuleCoreMismatch(moduleAddress, core);`. Or make it `if (core == address(0))`; or drop
+    /// one type from its condition; or drop one type from the games set's condition; or delete the coin's
+    /// comparison; or, in bootstrapModules, check only the first address of a call, `if (i == 0)
+    /// _checkWiring(moduleTypes[i], moduleAddresses[i]);`.
+    function test_neverLine_aModuleWiredWrongIsRefusedAtBootstrap() public {
+        _deployOtherCores();
+        vm.startPrank(deployer, deployer);
+        _aCoreWithItsOwnSix();
+        _theSixOfAnotherCoreAreRefusedOrRegister(coreOfSameValues, "CCC---");
+        _theSixOfAnotherCoreAreRefusedOrRegister(coreOfGames2, "GCCGGG");
+        _theSixOfAnotherCoreAreRefusedOrRegister(coreOfToken2, "CTC---");
+        assertEq(wRefused, 12, "the modules refused");
+        assertEq(wNotRefused, 6, "the market contracts that register");
+
+        // The control: the six deployed with this core register, here in one call and on another core one at
+        // a time. Every refusal above was made by this core, and none of them wrote to it.
+        assertEq(wCore.s_moduleCount(), 0, "a refusal moved the count");
+        vm.expectEmit(true, true, true, true, address(wCore));
+        emit OspexBetting.ModulesBootstrapped(6);
+        wCore.bootstrapModules(wTypes, wOwn);
+        wCore.finalize();
+        assertTrue(wCore.s_finalized(), "the right six did not finalize");
+
+        _aCoreWithItsOwnSix();
+        for (uint256 j; j < 6; ++j) {
+            (bytes32[] memory t, address[] memory a) = _single(wTypes[j], wOwn[j]);
+            wCore.bootstrapModules(t, a);
+            assertEq(wCore.getModule(wTypes[j]), wOwn[j], "a right module, alone, was not registered");
+        }
+        wCore.finalize();
+        assertTrue(wCore.s_finalized(), "the right six, one at a time, did not finalize");
+        vm.stopPrank();
+    }
+
+    /// For each of the twelve that are refused: the other five register, the wrong one is refused, and finalize
+    /// refuses the five. Then the right module registers under the same type and the set finalizes, so the
+    /// refusal did not use up the type. A whole set of another core, sent in one call, registers nothing. And
+    /// the steps that on a core without the check pay a spread market on another games set's score stop at
+    /// the registration. finalize itself reads no module. What keeps a set wired wrong from being locked is
+    /// that its wrong module is never registered, so every refusal of finalize here is the count's.
+    ///
+    /// Break: in OspexBetting.bootstrapModules, delete `_checkWiring(moduleTypes[i], moduleAddresses[i]);`.
+    function test_neverLine_finalizeLocksNoSetWiredWrong() public {
+        _deployOtherCores();
+        vm.startPrank(deployer, deployer);
+        _noSetLocksWithAModuleOfAnotherCore(coreOfSameValues, "CCC---");
+        _noSetLocksWithAModuleOfAnotherCore(coreOfGames2, "GCCGGG");
+        _noSetLocksWithAModuleOfAnotherCore(coreOfToken2, "CTC---");
+        vm.stopPrank();
+        assertEq(wRefused, 12, "the sets a wrong module was kept out of");
+        assertEq(wNotRefused, 6, "the market contracts that are not wired wrong");
+
+        // The money case, step for step. A core on the first games set, five modules deployed with it, and a
+        // spread contract deployed with a core of the second games set. A game of the same number in both sets
+        // ends home 121, away 99 in the first and home 99, away 121 in the second. On a core that checks a
+        // module's type alone the six register, a market on that spread contract settles on the second set's
+        // score, and the away side is paid. Here the six are refused, and so is the spread contract alone; a
+        // fill that names it is refused; and with this core's own spread contract registered in its place the
+        // market settles on its own game's score, and the home side is paid.
+        address wrong = _theSecondSetsSpreadContractIsRefused();
+        _fund(maker, address(wPositions));
+        _fund(taker, address(wPositions));
+        uint256 game = _verifiedGame();
+        assertEq(_verifiedGameOnGames2(), game, "the game's number differs between the two sets");
+        _assertAFillIsRefused(game, wrong);
+        _theSetLocksAndPaysOnItsOwnGamesScore(game, wrong);
+    }
+
+    /// Eight cores, one for each subset of the three market contracts registered, from none to all three. On
+    /// each the zero address is not approved, before the registrations, after each of them and at the end;
+    /// each market contract registered is approved, and each one not registered is not. Then, on each, the
+    /// three modules and a module of a type outside the six register beside them, so that up to seven are
+    /// registered with a market contract missing or not, and the same holds. Then a whole set, before finalize
+    /// and after it. Then what it would let through: on a core with the moneyline and the
+    /// total registered and the spread not, a fill that names the zero address as its market contract is
+    /// refused, no market is drawn and no coin moves, while a fill that names the moneyline is taken.
+    ///
+    /// Break: in OspexBetting.isApprovedScorer, delete `if (addr == address(0)) return false;`.
+    function test_neverLine_theZeroAddressIsNeverAnApprovedScorer() public {
+        vm.startPrank(deployer, deployer);
+        for (uint256 subset; subset < 8; ++subset) {
+            _theZeroAddressIsNotApprovedWith(subset);
+        }
+
+        // A whole set: before finalize and after it.
+        _aCoreWithItsOwnSix();
+        wCore.bootstrapModules(wTypes, wOwn);
+        assertFalse(wCore.isApprovedScorer(address(0)), "approved with the six registered");
+        wCore.finalize();
+        assertFalse(wCore.isApprovedScorer(address(0)), "approved after finalize");
+        for (uint256 i = 3; i < 6; ++i) {
+            assertTrue(wCore.isApprovedScorer(wOwn[i]), "a market contract of the finalized set");
+        }
+
+        // Every module but the spread registered, the positions module with the fill hook.
+        _aCoreWithItsOwnSixAndTheFillHook();
+        (bytes32[] memory types, address[] memory addrs) = _without(wTypes, wOwn, 4);
+        wCore.bootstrapModules(types, addrs);
+        vm.stopPrank();
+        assertEq(wCore.getModule(wCore.SPREAD_SCORER_MODULE()), address(0), "the spread is registered");
+        assertFalse(wCore.isApprovedScorer(address(0)), "approved with the spread not registered");
+
+        _fund(maker, address(wPositions));
+        _fund(taker, address(wPositions));
+        uint256 game = _verifiedGame();
+        _assertAFillIsRefused(game, address(0));
+        // The same fill on the moneyline, which is registered, is taken: the refusal was the zero address's.
+        uint256 market = wPositions.harnessFill(game, wOwn[3], 0, Side.A, maker, STAKE, taker, STAKE);
+        assertEq(OspexMarkets(wOwn[0]).getMarket(market).scorer, wOwn[3], "the market's contract");
+        assertEq(token.balanceOf(address(wPositions)), 2 * STAKE, "the two stakes");
+    }
+
+    // ──────────────────────────── The wiring's steps ───────────────────
+
+    /// @dev A fresh core on the first games set and the first coin, with six modules built from src/ and
+    ///      deployed with it, none registered.
+    function _aCoreWithItsOwnSix() internal {
+        wCore = new OspexBetting(address(games), address(token));
+        (bytes32[] memory types, address[] memory right) = _freshSet(wCore);
+        wTypes = types;
+        wOwn = right;
+    }
+
+    /// @dev The same, with the positions module that has the fill hook in the positions module's place.
+    function _aCoreWithItsOwnSixAndTheFillHook() internal {
+        _aCoreWithItsOwnSix();
+        wPositions = new OspexPositionsHarness(address(wCore));
+        wOwn[1] = address(wPositions);
+    }
+
+    /// @dev The six modules of `other`, each offered to the core under test: by `told`, one letter a kind,
+    ///      refused with the letter's refusal or, for "-", registered.
+    function _theSixOfAnotherCoreAreRefusedOrRegister(OspexBetting other, string memory told) internal {
+        (, address[] memory wrong) = _freshSet(other);
+        for (uint256 j; j < 6; ++j) {
+            if (bytes(told)[j] == "-") {
+                _aMarketContractOfAnotherCoreRegisters(j, wrong[j]);
+            } else {
+                _aModuleWiredWrongIsRefused(j, wrong[j], _wiringRefusal(bytes(told)[j], wrong[j], address(other)));
+            }
+        }
+    }
+
+    /// @dev `module`, of kind `j`, is refused by the core under test with `refusal`: alone under its own type,
+    ///      and as the last of a call of six whose other five are the core's own. Nothing is written either
+    ///      time. A market contract that is refused does not have the code hash of this core's own.
+    function _aModuleWiredWrongIsRefused(uint256 j, address module, bytes memory refusal) internal {
+        if (j >= 3) {
+            assertTrue(module.codehash != wOwn[j].codehash, "a refused market contract like this core's own");
+        }
+        _assertRefusedAlone(wCore, wTypes[j], module, refusal);
+
+        bytes32[] memory t = wTypes;
+        address[] memory a = wOwn;
+        (t[j], t[5]) = (t[5], t[j]);
+        a[j] = a[5];
+        a[5] = module;
+        vm.expectRevert(refusal);
+        wCore.bootstrapModules(t, a);
+        for (uint256 i; i < 6; ++i) {
+            _assertNotRegistered(wCore, t[i], a[i]);
+        }
+        assertEq(wCore.s_moduleCount(), 0, "the count moved");
+        ++wRefused;
+    }
+
+    /// @dev `module`, a market contract of kind `j` deployed with another core that names this games set, has
+    ///      the code hash of this core's own; a fresh core takes it in place of its own, with its other five
+    ///      in one call, and finalizes.
+    function _aMarketContractOfAnotherCoreRegisters(uint256 j, address module) internal {
+        assertEq(module.codehash, wOwn[j].codehash, "a market contract unlike this core's own");
+        OspexBetting d = new OspexBetting(address(games), address(token));
+        (bytes32[] memory types, address[] memory addrs) = _freshSet(d);
+        addrs[j] = module;
+        d.bootstrapModules(types, addrs);
+        d.finalize();
+        assertTrue(d.s_finalized(), "the set did not finalize");
+        assertEq(d.getModule(types[j]), module, "the module was not registered");
+        assertTrue(d.isApprovedScorer(module), "the market contract is not approved");
+        assertEq(IOspexModuleWiring(module).i_games(), address(games), "its games set is not this core's");
+        ++wNotRefused;
+    }
+
+    /// @dev For each module of `other` that `told` refuses: a fresh core registers its own other five, refuses
+    ///      the wrong one, cannot finalize, then registers its own under the same type and finalizes. Then the
+    ///      whole set of `other`, in one call: the first address, the markets module, is refused, and with it
+    ///      the call.
+    function _noSetLocksWithAModuleOfAnotherCore(OspexBetting other, string memory told) internal {
+        (bytes32[] memory types, address[] memory wrong) = _freshSet(other);
+        for (uint256 j; j < 6; ++j) {
+            if (bytes(told)[j] == "-") {
+                // A market contract that names this core's games set is not wired wrong: the test above
+                // registers it and finalizes.
+                ++wNotRefused;
+            } else {
+                _finalizeWaitsForTheRightModule(j, wrong[j], _wiringRefusal(bytes(told)[j], wrong[j], address(other)));
+                ++wRefused;
+            }
+        }
+
+        OspexBetting c = new OspexBetting(address(games), address(token));
+        vm.expectRevert(_wiringRefusal(bytes(told)[0], wrong[0], address(other)));
+        c.bootstrapModules(types, wrong);
+        assertEq(c.s_moduleCount(), 0, "a module of the other core's set was counted");
+        for (uint256 j; j < 6; ++j) {
+            _assertNotRegistered(c, types[j], wrong[j]);
+        }
+        vm.expectRevert(abi.encodeWithSelector(OspexBetting.OspexBetting__ModuleCountMismatch.selector, 0, 6));
+        c.finalize();
+        assertFalse(c.s_finalized(), "a core with nothing registered finalized");
+    }
+
+    /// @dev On a fresh core: its five modules other than kind `j` register; `wrong` is refused under kind `j`'s
+    ///      type with `refusal`; finalize refuses the five; the core's own module of kind `j` registers under
+    ///      the same type; and the set finalizes.
+    function _finalizeWaitsForTheRightModule(uint256 j, address wrong, bytes memory refusal) internal {
+        _aCoreWithItsOwnSix();
+        (bytes32[] memory t, address[] memory a) = _without(wTypes, wOwn, j);
+        wCore.bootstrapModules(t, a);
+        assertEq(wCore.s_moduleCount(), 5, "the five");
+
+        _assertRefusedAlone(wCore, wTypes[j], wrong, refusal);
+        vm.expectRevert(abi.encodeWithSelector(OspexBetting.OspexBetting__ModuleCountMismatch.selector, 5, 6));
+        wCore.finalize();
+        assertFalse(wCore.s_finalized(), "five modules finalized");
+
+        (t, a) = _single(wTypes[j], wOwn[j]);
+        wCore.bootstrapModules(t, a);
+        vm.expectEmit(true, true, true, true, address(wCore));
+        emit OspexBetting.Finalized();
+        wCore.finalize();
+        assertTrue(wCore.s_finalized(), "the right six did not finalize");
+        assertEq(wCore.getModule(wTypes[j]), wOwn[j], "the type holds another address");
+        assertFalse(wCore.isRegisteredModule(wrong), "the wrong module is registered");
+    }
+
+    /// @dev A fresh core and its own six, with a spread contract deployed with the core of the second games set
+    ///      in the spread's place. The six in one call, as a run on a core without the check sends them, are
+    ///      refused, and there is no set to lock. The five without it register, and the spread contract alone
+    ///      is refused. Returns the spread contract.
+    function _theSecondSetsSpreadContractIsRefused() internal returns (address wrong) {
+        vm.startPrank(deployer, deployer);
+        _aCoreWithItsOwnSixAndTheFillHook();
+        wrong = address(new OspexSpreadScorer(address(coreOfGames2)));
+        bytes memory refusal =
+            abi.encodeWithSelector(OspexBetting.OspexBetting__ModuleGamesMismatch.selector, wrong, address(games2));
+        address[] memory six = wOwn;
+        six[4] = wrong;
+        vm.expectRevert(refusal);
+        wCore.bootstrapModules(wTypes, six);
+        vm.expectRevert(abi.encodeWithSelector(OspexBetting.OspexBetting__ModuleCountMismatch.selector, 0, 6));
+        wCore.finalize();
+
+        (bytes32[] memory t, address[] memory a) = _without(wTypes, wOwn, 4);
+        wCore.bootstrapModules(t, a);
+        _assertRefusedAlone(wCore, wTypes[4], wrong, refusal);
+        vm.stopPrank();
+    }
+
+    /// @dev The core's own spread contract registers under the type the refusal left free, and the set locks.
+    ///      A market on it, on `game`, settles on the first set's score, home 121 and away 99, and side A, the
+    ///      home team, is paid; `wrong`, which reads the second set, answers the other way for the same game.
+    function _theSetLocksAndPaysOnItsOwnGamesScore(uint256 game, address wrong) internal {
+        vm.startPrank(deployer, deployer);
+        (bytes32[] memory t, address[] memory a) = _single(wTypes[4], wOwn[4]);
+        wCore.bootstrapModules(t, a);
+        wCore.finalize();
+        vm.stopPrank();
+        uint256 market = wPositions.harnessFill(game, wOwn[4], -35, Side.A, maker, STAKE, taker, STAKE);
+
+        _score(game, HOME_121, AWAY_99);
+        _scoreOnGames2(game, AWAY_99, HOME_121);
+        (uint32 home2, uint32 away2) = games2.getGameScores(game);
+        assertEq(home2, AWAY_99, "the second set's home score");
+        assertEq(away2, HOME_121, "the second set's away score");
+        assertEq(uint8(OspexSpreadScorer(wrong).outcomeOf(game, -35)), uint8(Outcome.Away), "the second set's read");
+
+        OspexMarkets m = OspexMarkets(wOwn[0]);
+        m.settleMarket(market);
+        assertEq(uint8(m.getMarket(market).outcome), uint8(Outcome.Home), "home -3.5 covers 121-99");
+        uint256 before = token.balanceOf(maker);
+        vm.prank(maker, maker);
+        wPositions.claimPosition(market, Side.A);
+        assertEq(token.balanceOf(maker) - before, 2 * STAKE, "side A, the home team, is paid");
+        vm.prank(taker, taker);
+        vm.expectRevert(OspexPositions.OspexPositions__NoPayout.selector);
+        wPositions.claimPosition(market, Side.B);
+    }
+
+    /// @dev A fresh core with the market contracts of `subset` registered, bit 0 the moneyline, bit 1 the
+    ///      spread and bit 2 the total. The zero address is not approved before the registrations, after each
+    ///      and at the end; a market contract is approved if it is registered, and not if it is not. The same
+    ///      once the three modules and a module of a type outside the six are registered beside them.
+    function _theZeroAddressIsNotApprovedWith(uint256 subset) internal {
+        _aCoreWithItsOwnSix();
+        assertFalse(wCore.isApprovedScorer(address(0)), "approved with nothing registered");
+        for (uint256 i; i < 3; ++i) {
+            if (((subset >> i) & 1) != 0) {
+                (bytes32[] memory t, address[] memory a) = _single(wTypes[3 + i], wOwn[3 + i]);
+                wCore.bootstrapModules(t, a);
+                assertFalse(wCore.isApprovedScorer(address(0)), "approved after a registration");
+            }
+        }
+        for (uint256 i; i < 3; ++i) {
+            assertEq(wCore.isApprovedScorer(wOwn[3 + i]), ((subset >> i) & 1) != 0, "a market contract's approval");
+        }
+        assertFalse(wCore.isApprovedScorer(address(0)), "approved at the end");
+
+        // The three modules and a module of a type outside the six beside them: four more, so six or seven
+        // are registered on the cores where a market contract is still missing.
+        bytes32[] memory types = new bytes32[](4);
+        address[] memory addrs = new address[](4);
+        for (uint256 i; i < 3; ++i) {
+            types[i] = wTypes[i];
+            addrs[i] = wOwn[i];
+        }
+        types[3] = keccak256("EXTRA_MODULE");
+        addrs[3] = address(new ExtraModule());
+        wCore.bootstrapModules(types, addrs);
+        assertFalse(wCore.isApprovedScorer(address(0)), "approved beside the modules");
+        for (uint256 i; i < 3; ++i) {
+            assertEq(wCore.isApprovedScorer(wOwn[3 + i]), ((subset >> i) & 1) != 0, "an approval moved");
+        }
+        for (uint256 i; i < 4; ++i) {
+            assertFalse(wCore.isApprovedScorer(addrs[i]), "a module that is no market contract is approved");
+        }
+    }
+
+    /// @dev A fill on `game` that names `scorer` as its market contract is refused by the markets module by
+    ///      name, through the positions module of the core under test: no market is drawn and no coin moves.
+    function _assertAFillIsRefused(uint256 game, address scorer) internal {
+        uint256 held = token.balanceOf(address(wPositions));
+        uint256 makerCoin = token.balanceOf(maker);
+        uint256 takerCoin = token.balanceOf(taker);
+        uint256 drawn = OspexMarkets(wOwn[0]).marketCount();
+        bytes memory fill =
+            abi.encodeCall(OspexPositionsHarness.harnessFill, (game, scorer, -35, Side.A, maker, STAKE, taker, STAKE));
+        (bool ok, bytes memory err) = address(wPositions).call(fill);
+        assertFalse(ok, "the fill was taken");
+        assertEq(err, abi.encodeWithSelector(OspexMarkets.OspexMarkets__ScorerNotApproved.selector, scorer));
+        assertEq(OspexMarkets(wOwn[0]).marketCount(), drawn, "a market was drawn");
+        assertEq(token.balanceOf(address(wPositions)), held, "coin was pulled");
+        assertEq(token.balanceOf(maker), makerCoin, "the maker's coin moved");
+        assertEq(token.balanceOf(taker), takerCoin, "the taker's coin moved");
+    }
+
+    // ──────────────────────────── The wiring's helpers ─────────────────
+
+    /// @dev One type and one address, as the two arrays bootstrap takes.
+    function _single(bytes32 moduleType, address module)
+        internal
+        pure
+        returns (bytes32[] memory types, address[] memory addrs)
+    {
+        types = new bytes32[](1);
+        addrs = new address[](1);
+        types[0] = moduleType;
+        addrs[0] = module;
+    }
+
+    /// @dev The two arrays without their entry `j`, the others in their order.
+    function _without(bytes32[] memory types, address[] memory addrs, uint256 j)
+        internal
+        pure
+        returns (bytes32[] memory t, address[] memory a)
+    {
+        t = new bytes32[](types.length - 1);
+        a = new address[](types.length - 1);
+        for (uint256 i; i < t.length; ++i) {
+            uint256 from = i < j ? i : i + 1;
+            t[i] = types[from];
+            a[i] = addrs[from];
+        }
+    }
+
+    /// @dev The refusal a table's letter names, for `module` deployed with `other`: G names the second games
+    ///      set as what was found, T the second coin, C the other core. Any other letter is an error in the
+    ///      table.
+    function _wiringRefusal(bytes1 letter, address module, address other) internal view returns (bytes memory) {
+        bytes4 selector;
+        address found;
+        if (letter == "G") {
+            (selector, found) = (OspexBetting.OspexBetting__ModuleGamesMismatch.selector, address(games2));
+        } else if (letter == "T") {
+            (selector, found) = (OspexBetting.OspexBetting__ModuleTokenMismatch.selector, address(token2));
+        } else {
+            require(letter == "C", "a letter the table does not have");
+            (selector, found) = (OspexBetting.OspexBetting__ModuleCoreMismatch.selector, other);
+        }
+        return abi.encodeWithSelector(selector, module, found);
+    }
+
+    /// @dev Nothing of `module` is in `c`'s registry under `moduleType`.
+    function _assertNotRegistered(OspexBetting c, bytes32 moduleType, address module) internal view {
+        assertEq(c.getModule(moduleType), address(0), "the type was taken");
+        assertFalse(c.isRegisteredModule(module), "the address was registered");
+        assertFalse(c.isApprovedScorer(module), "the address is an approved market contract");
+    }
+
+    /// @dev `module`, alone under `moduleType`, is refused by `c` with `refusal`, and nothing is written.
+    function _assertRefusedAlone(OspexBetting c, bytes32 moduleType, address module, bytes memory refusal) internal {
+        uint256 count = c.s_moduleCount();
+        (bytes32[] memory t, address[] memory a) = _single(moduleType, module);
+        vm.expectRevert(refusal);
+        c.bootstrapModules(t, a);
+        _assertNotRegistered(c, moduleType, module);
+        assertEq(c.s_moduleCount(), count, "the count moved");
     }
 }
