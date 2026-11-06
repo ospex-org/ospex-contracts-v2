@@ -326,6 +326,31 @@ contract OspexCrossCallbacksTest is CrossBase {
         assertEq(_filled(taking), takingFilled, string.concat(what, ": the taking order"));
     }
 
+    /// @dev Six resting orders, each of an account of its own and each in one state that skips: the order at
+    ///      a number is skipped under that number's reason.
+    function _sixSkipped(uint256 game, Side restingSide) internal returns (OspexMatching.SignedOrder[] memory six) {
+        six = new OspexMatching.SignedOrder[](6);
+        Signer[6] memory who;
+        for (uint256 i; i < 6; ++i) {
+            who[i] = _account(string.concat("an account whose order is skipped for reason ", vm.toString(i)));
+            if (i != NO_COURIER) _register(who[i].a, sender);
+        }
+        six[NO_COURIER] = _rest(who[NO_COURIER], game, restingSide, 200, 10_000);
+        six[CANCELLED] = _rest(who[CANCELLED], game, restingSide, 200, 10_000);
+        vm.prank(who[CANCELLED].a);
+        matching.cancelOrder(six[CANCELLED].order);
+        six[EXPIRED] = _restUntil(who[EXPIRED], game, restingSide, 200, 10_000, vm.getBlockTimestamp());
+        // Filled to its signed stake by an earlier Cross.
+        six[NO_ROOM] = _rest(who[NO_ROOM], game, restingSide, 200, 10_000);
+        _cross(sender, _take(tk, game, _other(restingSide), 200, 10_000), _list(six[NO_ROOM]));
+        // One lot at 1.50 is 100 against 50.
+        six[NOTHING_FITS] = _rest(who[NOTHING_FITS], game, restingSide, 150, 100);
+        // Its account lets the positions module take nothing.
+        six[PULL_REFUSED] = _rest(who[PULL_REFUSED], game, restingSide, 200, 10_000);
+        vm.prank(who[PULL_REFUSED].a);
+        trick.approve(address(positions), 0);
+    }
+
     /// @dev Nothing the four calls would have changed is changed.
     function _untouched(uint256 game, OspexMatching.SignedOrder memory spare, address other) internal view {
         bytes32 key = keccak256(abi.encode(game, address(moneyline), int32(0)));
@@ -336,9 +361,10 @@ contract OspexCrossCallbacksTest is CrossBase {
     }
 
     /// The exclusion holds from the first check of a Cross to its end: through a leg that filled, and past an
-    /// order that was skipped.
-    /// Break: in OspexMatching._leg, clear the exclusion's mark once a leg has filled. Another turns it red: the
-    /// mark cleared in cross once an order has been skipped.
+    /// order that was skipped, for each of the six reasons.
+    /// Break: in OspexMatching._leg, clear the exclusion's mark once a leg has filled. Others turn it red: the
+    /// mark cleared in cross once an order has been skipped; cleared in _leg after a refused pull; and cleared
+    /// in _leg where an order nothing fits is skipped.
     function test_neverLine_theExclusionHoldsThroughEveryLeg() public {
         _throughCases(Side.B);
         _throughCases(Side.A);
@@ -350,9 +376,7 @@ contract OspexCrossCallbacksTest is CrossBase {
         uint256 game = _verifiedGame();
         OspexMatching.SignedOrder memory taking = _take(tk, game, takingSide, 200, 20_000);
         OspexMatching.SignedOrder memory fills = _rest(m1, game, restingSide, 200, 10_000);
-        OspexMatching.SignedOrder memory skipped = _rest(m1, game, restingSide, 200, 10_000);
-        vm.prank(m1.a);
-        matching.cancelOrder(skipped.order);
+        OspexMatching.SignedOrder[] memory six = _sixSkipped(game, restingSide);
         OspexMatching.SignedOrder memory hooked = _rest(y, game, restingSide, 200, 10_000);
         OspexMatching.SignedOrder memory spare = _rest(y, game, restingSide, 200, 10_000);
         address other = makeAddr("another courier");
@@ -369,9 +393,17 @@ contract OspexCrossCallbacksTest is CrossBase {
             _laterSibling(calls[i], taking, _list(fills, hooked), 20_000, "after a leg that filled");
             _untouched(game, spare, other);
             vm.revertToState(snap);
-            _laterSibling(calls[i], taking, _list(skipped, hooked), 10_000, "after an order that was skipped");
-            _untouched(game, spare, other);
-            vm.revertToState(snap);
+            for (uint8 reason; reason < 6; ++reason) {
+                _laterSibling(
+                    calls[i],
+                    taking,
+                    _list(six[reason], hooked),
+                    10_000,
+                    string.concat("after an order skipped for reason ", vm.toString(reason))
+                );
+                _untouched(game, spare, other);
+                vm.revertToState(snap);
+            }
         }
         vm.revertToState(start);
     }
