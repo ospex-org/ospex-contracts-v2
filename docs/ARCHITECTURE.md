@@ -300,6 +300,8 @@ Every call one contract of the set makes to another, or out of the set, with the
 | `OspexBetting`, in `bootstrapModules` | `i_ospexCore()` of the markets, the positions and the matching module | Nothing: a public read of an immutable. The core refuses a module whose answer is not the core's own address. A market contract is not asked: it holds no core |
 | `OspexMarkets` and the market contracts, in their constructors | `OspexBetting.i_games` | Nothing: a public read, copied once |
 | `OspexPositions`, in its constructor | `OspexBetting.i_token` | Nothing: a public read, copied once |
+| `OspexMatching`, in its constructor | `OspexBetting.i_games`, then that games set's `i_timelock` | Nothing: two public reads of immutables, copied once. The matching module refuses a games address with no code or with a wallet's delegation, and a zero timelock |
+| The Polygon timelock | `OspexMatching.liftTakingStakeCap` | The caller is the timelock the matching module read at its deploy; the cap has not been lifted; no Cross is in progress |
 | `OspexPositions` | `OspexMarkets.createMarket` | The caller is the address registered as the positions module |
 | `OspexPositions`, at a fill | `OspexMarkets.getMarketId` | Nothing: a public read |
 | `OspexPositions`, at a fill | `OspexMarkets.requireBetsOpen`, the close gate | Nothing about the caller: a public read. It refuses an id that is not a market, a settled market, a game that has ended, and a game at or after its start + n |
@@ -372,6 +374,7 @@ Each state change of the three modules emits a typed event from the module and, 
 | `ORDER_MATCHED` | `OrderMatched` | `OspexMatching` |
 | `ORDER_SKIPPED` | `OrderSkipped` | `OspexMatching` |
 | `CROSSED` | `Crossed` | `OspexMatching` |
+| `TAKING_STAKE_CAP_LIFTED` | `TakingStakeCapLifted` | `OspexMatching` |
 
 The fill's two names differ: the typed event is `PositionFilled` and the core type is `POSITION_MATCHED_PAIR`. The core checks that the emitter is a registered module, and nothing about the type or the payload. The core's own four events (`GamesSet`, `TokenSet`, `ModulesBootstrapped`, `Finalized`) are emitted once, by the core. This table is the eleven as they stand; the schema the spec asks for, for an indexer, is written when the set's events are complete.
 
