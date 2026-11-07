@@ -2,6 +2,8 @@
 pragma solidity ^0.8.26;
 
 import {OspexBetting} from "../../src/betting/OspexBetting.sol";
+import {OspexMatching} from "../../src/betting/OspexMatching.sol";
+import {IOspexPositions} from "../../src/betting/IOspexPositions.sol";
 import {MarketStatus, Outcome, Side} from "../../src/betting/OspexBettingTypes.sol";
 import {BettingBase} from "./BettingBase.sol";
 
@@ -26,6 +28,7 @@ contract OspexBettingInterfaceTest is BettingBase {
             "MONEYLINE_SCORER_MODULE();POSITION_MODULE();TOTAL_SCORER_MODULE();"
             "createMarket(uint256,address,int32,address,address);getMarket(uint256);"
             "getMarketId(uint256,address,int32);getModuleType();i_games();i_ospexCore();marketCount();"
+            "requireBetsOpen(uint256);"
             "s_marketCount();s_marketLookup(uint256,address,int32);s_markets(uint256);settleMarket(uint256)"
         );
         _assertFunctions(
@@ -37,15 +40,18 @@ contract OspexBettingInterfaceTest is BettingBase {
         );
         _assertFunctions(
             "OspexMatching",
-            "COMMITMENT_TYPEHASH();EVENT_COMMITMENT_CANCELLED();EVENT_COURIER_REGISTERED();"
-            "EVENT_COURIER_UNREGISTERED();EVENT_MIN_NONCE_UPDATED();MARKET_MODULE();"
-            "MATCHING_MODULE();MAX_LINE_TICKS();MAX_ODDS();MIN_ODDS();ODDS_SCALE();POSITION_MODULE();"
-            "cancelCommitment((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256));"
-            "eip712Domain();"
-            "getCommitmentHash((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256));"
+            "EVENT_COURIER_REGISTERED();EVENT_COURIER_UNREGISTERED();EVENT_CROSSED();EVENT_MIN_NONCE_UPDATED();"
+            "EVENT_ORDER_CANCELLED();EVENT_ORDER_MATCHED();EVENT_ORDER_SKIPPED();LOT();MARKET_MODULE();"
+            "MATCHING_MODULE();MAX_LINE_TICKS();MAX_ODDS();MAX_TAKING_LIFE();MIN_ODDS();ODDS_SCALE();"
+            "ORDER_TYPEHASH();POSITION_MODULE();"
+            "cancelOrder((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256));"
+            "cross(((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256),bytes),"
+            "((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256),bytes)[]);" "eip712Domain();"
+            "getOrderHash((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256));"
             "getDomainSeparator();getModuleType();i_ospexCore();isCourier(address,address);"
             "raiseMinNonce(uint256,address,int32,uint256);registerCourier(address);"
-            "s_cancelledCommitments(bytes32);s_minNonces(address,bytes32);unregisterCourier(address)"
+            "s_cancelledOrders(bytes32);s_filledRisk(bytes32);s_minNonces(address,bytes32);"
+            "unregisterCourier(address)"
         );
         _assertFunctions(
             "OspexMoneylineScorer",
@@ -96,26 +102,38 @@ contract OspexBettingInterfaceTest is BettingBase {
         );
         _assertErrors(
             "OspexMarkets",
-            "OspexMarkets__AlreadySettled(uint256 marketId);OspexMarkets__GameEnded(uint256 gameId,uint8 status);"
+            "OspexMarkets__AlreadySettled(uint256 marketId);OspexMarkets__BetsClosed(uint256 gameId,uint256 closesAt);"
+            "OspexMarkets__GameEnded(uint256 gameId,uint8 status);"
             "OspexMarkets__GameNotEnded(uint256 gameId,uint8 status);OspexMarkets__InvalidAddress();"
             "OspexMarkets__InvalidLineTicks(address scorer,int32 lineTicks);"
             "OspexMarkets__LineTicksOutOfRange(int32 lineTicks);OspexMarkets__MarketExists(uint256 marketId);"
+            "OspexMarkets__MarketSettled(uint256 marketId);"
             "OspexMarkets__ModuleNotSet(bytes32 moduleType);OspexMarkets__NotAuthorized(address caller);"
             "OspexMarkets__ScorerNotApproved(address scorer);OspexMarkets__UnknownMarket(uint256 marketId)"
         );
         _assertErrors(
             "OspexPositions",
             "OspexPositions__AlreadyClaimed();OspexPositions__InvalidAddress();OspexPositions__InvalidAmount();"
-            "OspexPositions__MarketNotOpen(uint256 marketId);OspexPositions__ModuleNotSet(bytes32 moduleType);"
+            "OspexPositions__MakerPullRefused(address maker,uint256 makerRisk);"
+            "OspexPositions__ModuleNotSet(bytes32 moduleType);"
             "OspexPositions__NoPayout();OspexPositions__NotMatchingModule(address caller);"
-            "OspexPositions__NotSettled(uint256 marketId);ReentrancyGuardReentrantCall();"
+            "OspexPositions__NotSettled(uint256 marketId);OspexPositions__ShortReceipt(uint256 owed,uint256 held);"
+            "OspexPositions__TakerPullRefused(address taker,uint256 takerRisk);ReentrancyGuardReentrantCall();"
             "SafeERC20FailedOperation(address token)"
         );
         _assertErrors(
             "OspexMatching",
-            "InvalidShortString();OspexMatching__CourierNotRegistered(address account,address courier);"
+            "InvalidShortString();OspexMatching__BadSignature(bytes32 orderHash);"
+            "OspexMatching__CourierNotRegistered(address account,address courier);OspexMatching__CrossInProgress();"
             "OspexMatching__InvalidAddress();OspexMatching__NonceMustIncrease();"
-            "OspexMatching__NotCommitmentMaker();OspexMatching__ZeroCourier();StringTooLong(string str)"
+            "OspexMatching__NotOrderAccount();OspexMatching__NothingFilled(uint8[] reasons);"
+            "OspexMatching__OtherGame(bytes32 orderHash);OspexMatching__OtherLine(bytes32 orderHash);"
+            "OspexMatching__OtherScorer(bytes32 orderHash);OspexMatching__PriceOutOfRange(bytes32 orderHash);"
+            "OspexMatching__PricesDoNotMeet(bytes32 orderHash);OspexMatching__SameSide(bytes32 orderHash);"
+            "OspexMatching__SenderNotCourier(address account,address sender);"
+            "OspexMatching__StakeNotInLots(bytes32 orderHash);OspexMatching__TakingOrderCancelled(bytes32 orderHash);"
+            "OspexMatching__TakingOrderExpired(bytes32 orderHash);OspexMatching__TakingOrderFilled(bytes32 orderHash);"
+            "OspexMatching__TakingOrderTooLong(bytes32 orderHash);OspexMatching__ZeroCourier();StringTooLong(string str)"
         );
         _assertErrors("OspexMoneylineScorer", "OspexScorer__InvalidCore()");
         _assertErrors("OspexSpreadScorer", "OspexScorer__InvalidCore()");
@@ -194,19 +212,97 @@ contract OspexBettingInterfaceTest is BettingBase {
         );
         _assertEvents(
             "OspexMatching",
-            "CommitmentCancelled(indexed bytes32 commitmentHash,indexed address maker,uint256 gameId,"
+            "CourierRegistered(indexed address account,indexed address courier);"
+            "CourierUnregistered(indexed address account,indexed address courier);"
+            "Crossed(indexed address courier,indexed bytes32 takingOrderHash,indexed address taker,uint256 marketId,"
+            "uint256 totalMakerRisk,uint256 totalTakerRisk);EIP712DomainChanged();"
+            "MinNonceUpdated(indexed address account,uint256 gameId,"
+            "address scorer,int32 lineTicks,uint256 newMinNonce,indexed bytes32 marketKey);"
+            "OrderCancelled(indexed bytes32 orderHash,indexed address account,uint256 gameId,"
             "address scorer,int32 lineTicks,uint8 positionType,uint16 oddsTick,uint256 riskAmount,uint256 nonce,"
-            "uint256 expiry);CourierRegistered(indexed address account,indexed address courier);"
-            "CourierUnregistered(indexed address account,indexed address courier);EIP712DomainChanged();"
-            "MinNonceUpdated(indexed address maker,uint256 gameId,"
-            "address scorer,int32 lineTicks,uint256 newMinNonce,indexed bytes32 marketKey)"
+            "uint256 expiry);"
+            "OrderMatched(indexed bytes32 orderHash,indexed address maker,indexed address taker,uint256 gameId,"
+            "uint256 marketId,address scorer,int32 lineTicks,uint8 makerPositionType,uint16 oddsTick,"
+            "uint256 makerRisk,uint256 takerRisk,uint256 orderRiskAmount,uint256 nonce,uint256 expiry);"
+            "OrderSkipped(indexed bytes32 orderHash,indexed address account,indexed bytes32 takingOrderHash,"
+            "uint8 reason)"
         );
         _assertEvents("OspexMoneylineScorer", "");
         _assertEvents("OspexSpreadScorer", "");
         _assertEvents("OspexTotalScorer", "");
     }
 
-    /// The enums the events and the reads carry, by number: a market's status, its outcome and a side.
+    /// What the renames and the Cross put on the wire, each as a literal worked out outside the contracts: the
+    /// selectors of the renamed and the new calls, the first topic of each of the matching module's events,
+    /// its hub tags, and the selector of the one error the matching module reads from the positions module.
+    /// A v2 name gives another value for each: `cancelCommitment`, `CommitmentCancelled`, `COMMITMENT_CANCELLED`.
+    /// Break: in OspexMatching.sol, give `OrderCancelled`'s price a wider type, `uint32 oddsTick`: its first
+    /// topic moves.
+    function test_theSelectorsTopicsAndTagsAreThese() public view {
+        assertEq(OspexMatching.cancelOrder.selector, bytes4(0x66227e83), "cancelOrder");
+        assertEq(OspexMatching.getOrderHash.selector, bytes4(0x3c7be929), "getOrderHash");
+        assertEq(OspexMatching.cross.selector, bytes4(0x3e4f7e53), "cross");
+        assertEq(matching.s_cancelledOrders.selector, bytes4(0xbb31a508), "s_cancelledOrders");
+        assertEq(matching.s_filledRisk.selector, bytes4(0x0c67b3ca), "s_filledRisk");
+        assertEq(matching.ORDER_TYPEHASH.selector, bytes4(0xf973a209), "ORDER_TYPEHASH");
+        assertEq(matching.EVENT_ORDER_CANCELLED.selector, bytes4(0x896db280), "EVENT_ORDER_CANCELLED");
+        assertEq(markets.requireBetsOpen.selector, bytes4(0xfd088e68), "requireBetsOpen");
+
+        assertEq(
+            OspexMatching.OrderCancelled.selector,
+            0xc2fac86830ff191a97423c2fe77a6161c1dd9227a861efa3a8248c6d3a32f764,
+            "OrderCancelled's first topic"
+        );
+        assertEq(
+            OspexMatching.OrderMatched.selector,
+            0xd6f246784aa1c45054116b92ee58caffba4dd1a8265a41643b1621f46365485d,
+            "OrderMatched's first topic"
+        );
+        assertEq(
+            OspexMatching.OrderSkipped.selector,
+            0x42b88ad95f0ff22337a218edd256a98ffff608a3688fc0af8b50cefb361dad92,
+            "OrderSkipped's first topic"
+        );
+        assertEq(
+            OspexMatching.Crossed.selector,
+            0x3f1220a2d8e3b575fafae8903189042bf84dccbab62fee8daeea03012f4794ce,
+            "Crossed's first topic"
+        );
+        assertEq(
+            OspexMatching.MinNonceUpdated.selector,
+            0x0f7ff1d4c2299e0abe408168a40ea050f9cfb2fb7951b3c69685c0838e0d6420,
+            "MinNonceUpdated's first topic, which no rename moved"
+        );
+
+        assertEq(
+            matching.EVENT_ORDER_CANCELLED(),
+            0x69d3d039f79879d241ea815c12015cedeca0cfad0556cdf56843bd9afd23e930,
+            "the hub tag ORDER_CANCELLED"
+        );
+        assertEq(
+            matching.EVENT_ORDER_MATCHED(),
+            0xfa322e978a2adfc727435b82e5488c09e09c277b51c8b62e3ce9a85e2bba78ec,
+            "the hub tag ORDER_MATCHED"
+        );
+        assertEq(
+            matching.EVENT_ORDER_SKIPPED(),
+            0xd9ee87ea103f803246394f2ae69781709fe90256e32b4dfbf61e28297ccf41a3,
+            "the hub tag ORDER_SKIPPED"
+        );
+        assertEq(
+            matching.EVENT_CROSSED(),
+            0x1463f72f87d1265b9cefafa5540efab1350a6d3d6e2486dc2d46a16974521fdb,
+            "the hub tag CROSSED"
+        );
+
+        assertEq(IOspexPositions.OspexPositions__MakerPullRefused.selector, bytes4(0x71feab86), "MakerPullRefused");
+        assertEq(IOspexPositions.OspexPositions__TakerPullRefused.selector, bytes4(0x56f4806f), "TakerPullRefused");
+        assertEq(OspexMatching.OspexMatching__CrossInProgress.selector, bytes4(0x5eabe743), "CrossInProgress");
+        assertEq(OspexMatching.OspexMatching__NothingFilled.selector, bytes4(0x8240428c), "NothingFilled");
+    }
+
+    /// The enums the events and the reads carry, by number: a market's status, its outcome, a side, and the
+    /// reason a resting order was skipped for.
     /// Break: in OspexBettingTypes.sol, swap Over and Under in Outcome.
     function test_theNumbersAreThese() public view {
         string memory json = _artifact("OspexMarkets");
@@ -222,6 +318,10 @@ contract OspexBettingInterfaceTest is BettingBase {
         _assertParams(json, position, "risk;profit;side;claimed", "uint256;uint256;uint8;bool");
         assertEq(vm.parseJsonString(json, string.concat(position, "[2].internalType")), "enum Side");
 
+        json = _artifact("OspexMatching");
+        string memory skipped = "$.abi[?(@.name == 'OrderSkipped')].inputs";
+        assertEq(vm.parseJsonString(json, string.concat(skipped, "[3].internalType")), "enum OspexMatching.SkipReason");
+
         // The numbers themselves: 0 is never a settled outcome; side A is 0.
         assertEq(uint8(MarketStatus.Open), 0);
         assertEq(uint8(MarketStatus.Closed), 1);
@@ -234,6 +334,13 @@ contract OspexBettingInterfaceTest is BettingBase {
         assertEq(uint8(Outcome.Void), 6);
         assertEq(uint8(Side.A), 0);
         assertEq(uint8(Side.B), 1);
+        // A skip's reasons, in the order they are tested.
+        assertEq(uint8(OspexMatching.SkipReason.NoCourier), 0);
+        assertEq(uint8(OspexMatching.SkipReason.Cancelled), 1);
+        assertEq(uint8(OspexMatching.SkipReason.Expired), 2);
+        assertEq(uint8(OspexMatching.SkipReason.NoRoom), 3);
+        assertEq(uint8(OspexMatching.SkipReason.NothingFits), 4);
+        assertEq(uint8(OspexMatching.SkipReason.PullRefused), 5);
     }
 
     // ──────────────────────────── Helpers ──────────────────────────────

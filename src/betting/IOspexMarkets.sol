@@ -7,10 +7,10 @@ import {IOspexModule} from "./IOspexModule.sol";
 /**
  * @title IOspexMarkets
  * @author ospex.org
- * @notice The markets module: each market's record, drawn at its first fill, and its settlement, which anyone
- *         may call once the market's game has ended. A market settles only on its game's own status, read from
- *         the games set: a scored game settles it through its market contract; a voided or a released game
- *         voids it.
+ * @notice The markets module: each market's record, drawn at its first fill; the close gate every fill passes;
+ *         and its settlement, which anyone may call once the market's game has ended. A market settles only on
+ *         its game's own status, read from the games set: a scored game settles it through its market
+ *         contract; a voided or a released game voids it.
  */
 interface IOspexMarkets is IOspexModule {
     /// @notice Emitted when a market is drawn, at its first fill. The two accounts are in this event alone: the
@@ -49,6 +49,15 @@ interface IOspexMarkets is IOspexModule {
     ///         settled. Nothing settles a market on its own: it stays Open after its game ends until this call.
     /// @param marketId The market
     function settleMarket(uint256 marketId) external;
+
+    /// @notice The close gate: returns when a fill may land in a market, and refuses, by name, when it may not.
+    ///         The positions module calls it at every fill. Refused: an id that is not a market; a settled
+    ///         market; a game that has ended, scored, voided or released; and a game whose start is written,
+    ///         verified or disputed, at or after its start + n, n being the game's own window. A game whose
+    ///         start is not written has no start + n and is not refused: it takes fills until it is verified or
+    ///         released. Nothing is refused at the start itself, or after it inside n.
+    /// @param marketId The market
+    function requireBetsOpen(uint256 marketId) external view;
 
     /// @notice A market's record. Refused for an id that is not a market.
     function getMarket(uint256 marketId) external view returns (Market memory market);

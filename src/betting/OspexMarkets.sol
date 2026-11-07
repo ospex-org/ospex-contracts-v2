@@ -19,23 +19,35 @@ import {Market, MarketStatus, Outcome} from "./OspexBettingTypes.sol";
  *         settles the market through its market contract, which reads the two scores, the home team's then the
  *         away team's, from the games set; a voided game voids the market, and so does a released game, which
  *         the betting set reads as a void. A game that has not ended, a dispute record included, settles
- *         nothing: the dispute record is a record, not an end. Nothing here reads a start, waits a cooldown or
- *         voids a game: the games set's clocks end every game, and this contract follows. Spec: "Two pieces",
- *         "How a game ends", "Must never happen" (a market settles on anything but its game's own status).
+ *         nothing: the dispute record is a record, not an end. A settlement reads no start, waits no cooldown
+ *         and voids no game: the games set's clocks end every game, and this contract follows. Spec: "Two
+ *         pieces", "How a game ends", "Must never happen" (a market settles on anything but its game's own
+ *         status).
+ *
+ *         Bets close when the game scores or at start + n, whichever comes first. The close gate,
+ *         requireBetsOpen, is what holds that: the positions module calls it at every fill, and it refuses a
+ *         settled market, a game that has ended, and a game whose start is written at or after its start + n.
+ *         n is the game's own window, read from the games set at each call and never a constant here. A
+ *         dispute record is not an end: a disputed game takes fills until its start + n. A game whose start
+ *         is not written has no start + n and takes fills until it is verified or released. Nothing checks
+ *         the start itself: stopping at kickoff is the courier's. Spec: "How a game ends", and item 4 of its
+ *         first milestone.
  *
  *         A market is drawn on a game that exists in the games set and has not ended, with one of the three
  *         market contracts and a line the contract takes: 0 for a moneyline, at least 0 for a total, any line
  *         inside MAX_LINE_TICKS for a spread, where the line is the home team's handicap. No fee is taken to
- *         draw one. getMarket and settleMarket refuse an id that is not a market, by name, and getMarket is
- *         the read the positions module makes at every fill and every claim. The raw getter, s_markets, does
+ *         draw one. getMarket, settleMarket and the close gate refuse an id that is not a market, by name;
+ *         getMarket is the read the positions module makes at every claim. The raw getter, s_markets, does
  *         not refuse: for such an id it answers the empty record.
  *
  *         Who calls it, and what it calls. Only the positions module draws a market, checked against the
- *         core's registry at each call; anyone settles one, and anyone reads. It calls the games set's status
- *         read, when it draws a market and when it settles one; a market contract's outcomeOf, when it
- *         settles a market on a scored game; and the core, for its registry reads and its event hub. It
- *         writes nothing to the games set. Nothing settles a market on its own: a market stays Open after its
- *         game ends until someone settles it.
+ *         core's registry at each call; anyone settles one, and anyone reads, the close gate included. It
+ *         calls the games set's status read, when it draws a market, at the close gate and when it settles a
+ *         market; the games set's start and window reads, at the close gate, for a game whose start is
+ *         written; a market contract's outcomeOf, when it settles a market on a scored game; and the core,
+ *         for its registry reads and its event hub. It writes nothing to the games set. Nothing settles a
+ *         market on its own: a market stays Open after its game ends until someone settles it, and the close
+ *         gate refuses its fills meanwhile.
  *
  *         It has no owner, no setter and no pause. No function of it pulls coin, sends it or keeps an account
  *         of it: coin sent to its address belongs to no market, and no function sends it back.
@@ -64,12 +76,17 @@ contract OspexMarkets is IOspexMarkets {
     error OspexMarkets__NotAuthorized(address caller);
     /// @notice Thrown when a market that is already settled is settled again
     error OspexMarkets__AlreadySettled(uint256 marketId);
-    /// @notice Thrown by getMarket and by settleMarket for an id that is not a market
+    /// @notice Thrown by getMarket, by settleMarket and by the close gate for an id that is not a market
     error OspexMarkets__UnknownMarket(uint256 marketId);
     /// @notice Thrown when a market is drawn on a game, market contract and line that already have one
     error OspexMarkets__MarketExists(uint256 marketId);
-    /// @notice Thrown when a market is drawn on a game that has ended: scored, voided or released
+    /// @notice Thrown when a market is drawn on a game that has ended, scored, voided or released, and by the
+    ///         close gate for a fill into a market on such a game
     error OspexMarkets__GameEnded(uint256 gameId, GameStatus status);
+    /// @notice Thrown by the close gate for a fill into a market that is settled
+    error OspexMarkets__MarketSettled(uint256 marketId);
+    /// @notice Thrown by the close gate at or after a game's start + n: closesAt is that second
+    error OspexMarkets__BetsClosed(uint256 gameId, uint256 closesAt);
     /// @notice Thrown when a market is settled while its game has not ended, a dispute record or not
     error OspexMarkets__GameNotEnded(uint256 gameId, GameStatus status);
     /// @notice Thrown when the core address is zero
@@ -164,6 +181,26 @@ contract OspexMarkets is IOspexMarkets {
         emit MarketCreated(marketId, gameId, scorer, lineTicks, maker, taker);
         i_ospexCore.emitCoreEvent(EVENT_MARKET_CREATED, abi.encode(marketId, gameId, scorer, lineTicks, maker, taker));
         return marketId;
+    }
+
+    // ──────────────────────────── The close gate ──────────────────────
+
+    /// @inheritdoc IOspexMarkets
+    /// @dev Three tests, each with its own name. The market is not settled. The game has not ended. And, for
+    ///      a game whose start is written, the block's time is before start + n: the start and the window are
+    ///      read only for a verified or a disputed game, since the start read refuses a game without one, and a
+    ///      dispute arises only from a verified game. The second the gate closes is start + n itself.
+    function requireBetsOpen(uint256 marketId) external view override {
+        Market storage m = _market(marketId);
+        if (m.status != MarketStatus.Open) revert OspexMarkets__MarketSettled(marketId);
+
+        uint256 gameId = m.gameId;
+        GameStatus status = i_games.getGameStatus(gameId);
+        if (status >= GameStatus.Scored) revert OspexMarkets__GameEnded(gameId, status);
+        if (status == GameStatus.Verified || status == GameStatus.Disputed) {
+            uint256 closesAt = uint256(i_games.getGameStart(gameId)) + i_games.getGameWindow(gameId);
+            if (block.timestamp >= closesAt) revert OspexMarkets__BetsClosed(gameId, closesAt);
+        }
     }
 
     // ──────────────────────────── Settlement ──────────────────────────

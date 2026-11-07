@@ -301,20 +301,23 @@ Every call one contract of the set makes to another, or out of the set, with the
 | `OspexMarkets` and the market contracts, in their constructors | `OspexBetting.i_games` | Nothing: a public read, copied once |
 | `OspexPositions`, in its constructor | `OspexBetting.i_token` | Nothing: a public read, copied once |
 | `OspexPositions` | `OspexMarkets.createMarket` | The caller is the address registered as the positions module |
-| `OspexPositions` | `OspexMarkets.getMarketId`, `getMarket` | Nothing: public reads. `getMarket` refuses an id that is not a market |
-| `OspexMatching` | `OspexPositions.recordFill` | The caller is the address registered as the matching module. No function of `OspexMatching` makes this call yet |
-| `OspexMarkets`, `OspexPositions` | `OspexBetting.getModule` | Nothing: a public read of the registry |
+| `OspexPositions`, at a fill | `OspexMarkets.getMarketId` | Nothing: a public read |
+| `OspexPositions`, at a fill | `OspexMarkets.requireBetsOpen`, the close gate | Nothing about the caller: a public read. It refuses an id that is not a market, a settled market, a game that has ended, and a game at or after its start + n |
+| `OspexPositions`, at a claim | `OspexMarkets.getMarket` | Nothing: a public read, which refuses an id that is not a market |
+| `OspexMatching`, in `cross` | `OspexPositions.recordFill`, once for each leg it attempts | The caller is the address registered as the matching module. `cross` is the one function that makes this call |
+| `OspexMarkets`, `OspexPositions`, `OspexMatching` | `OspexBetting.getModule` | Nothing: a public read of the registry |
 | `OspexMarkets` | `OspexBetting.isApprovedScorer` | Nothing: a public read of the registry |
 | `OspexMarkets`, `OspexPositions`, `OspexMatching` | `OspexBetting.emitCoreEvent` | The caller is a registered module |
 | `OspexMarkets` | A market contract's `outcomeOf` | Nothing: a public read |
 | `OspexMarkets` | The games set's `getGameStatus` | Nothing: a public read, which refuses an id that is not a game |
+| `OspexMarkets`, at the close gate | The games set's `getGameStart` and `getGameWindow` | Nothing: public reads. `getGameStart` refuses a game whose start is not written, so the gate reads it only for a verified or a disputed game |
 | The market contracts | The games set's `getGameScores` | Nothing: a public read, which refuses a game that is not scored |
-| `OspexPositions`, at a fill | The coin's `transferFrom`, once from each of the two accounts | The coin's own, among them the account's allowance to `OspexPositions` |
+| `OspexPositions`, at a fill | The coin's `transferFrom`, once from each of the two accounts, the maker's first; and its `balanceOf` for itself, before the two and after | The coin's own, among them the account's allowance to `OspexPositions` |
 | `OspexPositions`, at a claim | The coin's `transfer`, to the account that claims | The coin's own. An ERC-20 `transfer` reads no allowance: the account approves nothing to be paid |
 
-From outside the set: anyone settles a market (`settleMarket`) and reads; an account claims its own position (`claimPosition`), cancels its own order (`cancelCommitment`), raises its own floor (`raiseMinNonce`), and registers and drops its own couriers (`registerCourier`, `unregisterCourier`). The games set calls nothing in the betting set, and the betting set writes nothing to the games set.
+From outside the set: anyone settles a market (`settleMarket`) and reads; an account claims its own position (`claimPosition`), cancels its own order (`cancelOrder`), raises its own floor (`raiseMinNonce`), and registers and drops its own couriers (`registerCourier`, `unregisterCourier`); and a courier sends a Cross (`cross`). The games set calls nothing in the betting set, and the betting set writes nothing to the games set.
 
-**An account's couriers are the account's to write.** A courier is an address an account names to send the fills of its orders. `registerCourier` and `unregisterCourier` take the courier and nothing else: the account is the caller, `msg.sender`, never `tx.origin`, so a contract an account calls writes its own couriers and not the account's. They are the only two functions that write a courier, and each writes the caller's own: no module, courier or other account writes an account's couriers for it, the contract has no owner, and an account that registered none has none, so there is no default. An account may hold several, its own address among them. `isCourier` is the read; no contract of the set calls it yet.
+**An account's couriers are the account's to write.** A courier is an address an account names to send the fills of its orders. `registerCourier` and `unregisterCourier` take the courier and nothing else: the account is the caller, `msg.sender`, never `tx.origin`, so a contract an account calls writes its own couriers and not the account's. They are the only two functions that write a courier, and each writes the caller's own: no module, courier or other account writes an account's couriers for it, the contract has no owner, and an account that registered none has none, so there is no default. An account may hold several, its own address among them. `isCourier` is the read. `cross` checks its sender, the immediate caller, against the same record: the taking order's account must have registered it, or the call reverts, and a resting order whose account has not is skipped. An account that sends its own Cross has registered itself, like any other sender.
 
 **The registry is wired once, then locked.** Each check above that names a registered module is a lookup in the core's registry at the time of the call, `msg.sender == core.getModule(type)`. The registry writes a type's address once, at its registration, and refuses a second registration of that type; `finalize` refuses any count of modules but six and any set but the required one, and after it nothing registers. So the lookups are not swap machinery: no call replaces a module, before finalize or after. Each contract declares the type hashes it looks up as constants of its own, and `bootstrapModules` checks each module's own answer to `getModuleType()` against the type it is registered under, and then its wiring, below. A type that is not registered resolves to the zero address, which `_getModule` refuses by name and which no caller is. `isApprovedScorer` refuses it too: it answers false for the zero address at every stage, before any market contract is registered, between their registrations and after finalize, so the empty slot of a market contract not yet registered approves nothing.
 
@@ -326,20 +329,35 @@ What the check does not prove. It reads what a module answers and not its code, 
 
 ### Where coin is accepted, and the one approval
 
-The set pulls coin in one place: `OspexPositions._record`, reached only through `recordFill`, pulls the maker's stake and the taker's stake with `transferFrom`. Those stakes are the coin the set accounts for. Both accounts approve `OspexPositions` for the coin and nothing else: no fee is taken at a fill, so there is no second spender. The set sends coin in one place: `claimPosition` pays a position's payout to the account that claims it, with `transfer`. Coin can also be sent to a contract of the set by a plain transfer, outside any function of the set: that coin is counted by nothing, belongs to no position, and no function sends it back (see "The coin").
+The set pulls coin in one place: `OspexPositions._record`, reached only through `recordFill`, pulls the maker's stake and then the taker's with `transferFrom`. A pull the coin refuses, by reverting or by answering false, reverts the fill under its own name, one for each of the two accounts, carrying the account and the amount; no balance or allowance is read first. After the two pulls the fill reverts unless the contract's balance rose by at least the two stakes: coin that arrives beside the pulls cannot fail that, and a short receipt always does. Those stakes are the coin the set accounts for. Both accounts approve `OspexPositions` for the coin and nothing else: no fee is taken at a fill, so there is no second spender. The set sends coin in one place: `claimPosition` pays a position's payout to the account that claims it, with `transfer`. Coin can also be sent to a contract of the set by a plain transfer, outside any function of the set: that coin is counted by nothing, belongs to no position, and no function sends it back (see "The coin").
 
 What a fill is checked against, and where:
 
 - That the caller is the matching module: `OspexPositions.recordFill`.
 - That both stakes are above zero: `OspexPositions._fill`.
 - At the first fill on a game, a market contract and a line, when the market is drawn: `OspexMarkets._create` checks the line's bound, that the game is a game of the games set and has not ended, that the market contract is one of the three, and that it takes the line.
-- At every fill: `OspexPositions._record` reads the market, which refuses an id that is not a market, and refuses a market that is settled.
+- At every fill: `OspexPositions._record` calls the close gate, `OspexMarkets.requireBetsOpen`, which refuses an id that is not a market, a settled market, a game that has ended, and a game whose start is written at or after its start + n, n being the game's own window. Bets close when the game scores or at start + n, whichever comes first. A game whose start is not written has no start + n and takes fills until it is verified or released. Nothing checks the start itself: at kickoff and after it, inside n, a fill lands.
+- Everything about the signed orders: `OspexMatching.cross`, before it calls `recordFill`. See "The Cross" below.
 
-Not checked at a fill here: the game's status once its market exists. A market stays open after its game ends until someone settles it. The close of fills at a game's end, and everything about the signed order (its signature, its expiry, its price, its cancelled mark, its floor, the courier that sends it), belong to the Cross, which is not built: until it is, `OspexMatching` has no function that calls `recordFill`, so the set records no fill at all. An account's couriers are recorded ahead of it, and nothing checks a sender against them until a fill does.
+A market stays `Open` after its game ends until someone settles it; the close gate, which reads the game, is what refuses its fills meanwhile.
+
+### The Cross
+
+`cross(taking, resting)` is the one path a fill arrives by. The sender, the immediate caller and never `tx.origin`, lists one taking order and the resting orders it is to fill against, in order, each with its signature. It chooses the orders and their order and nothing else.
+
+Before anything moves, each of these reverts the whole call under its own name: a Cross already in progress; a sender the taking order's account has not registered; a taking order that is badly signed, at a price or for a stake that is not admissible, cancelled, expired, more than 30 seconds from its expiry, or full; and a resting order, anywhere in the list, that is badly signed, not admissible, on another game, market contract or line, on the taking order's side, or at a price that does not meet the taking order's. The order among these checks is not promised, but for this: an order's own price and stake are tested before its room is read and before its price is compared with another order's, since a zero stake has no room and a price out of range meets no price. A call with two faults otherwise reverts under either name.
+
+Then the walk, one leg for each resting order in list order. An order is filled or skipped, and a skipped order is recorded under the first reason that applies, in this order: its account has not registered the sender; it is cancelled, by its own cancel or under its account's floor; it has expired; it has no room left; nothing fits the lot; the coin refused the pull of its account's stake. A leg takes k lots of 100 units of resting stake, k being the smaller of the resting order's room over 100 and the taking stake left over p, p the resting price's ticks less 100: the resting account stakes 100 x k and the taking account k x p, which is the resting price to the unit, and a leg fills only if neither stake is under 100 units. One filled amount is kept for each order, by its hash, in its own stake, whichever role it plays and across Crosses. If no leg filled, the call reverts, and its refusal carries each listed order's reason: the skip records of a reverted call do not exist.
+
+What each side of the seam decides. `OspexMatching` decides which orders may fill, and for how much; it holds no coin and is approved for none. `OspexPositions` decides whether the fill lands: the market, the close gate, the two pulls and the receipt. The matching module reads one failure of that call as a skip: the positions module's `OspexPositions__MakerPullRefused`, recognised only when the revert data is exactly that error for this leg, 68 bytes, the selector, then this leg's resting account and resting stake. It then writes both orders' filled amounts back as they were. Every other revert of the call reverts the Cross with its data unchanged: the taking account's refused pull, a short receipt, the close gate, a market that cannot be drawn.
+
+One Cross at a time. While a Cross is in progress, the matching module refuses another Cross, a cancel, a raised floor, a registration and a drop, each under one name. These five are its only functions that change state, so from a Cross's first check to its end nothing but that Cross changes a cancel mark, a floor, a courier or a filled amount. The positions module keeps its own guard on `recordFill` and `claimPosition`. The reads are not held: one made from inside a Cross, by a contract the coin calls during a pull, shows the legs done so far and the leg in progress, which is taken back if that leg is skipped.
+
+What this build is not. Each stake is pulled in full at each leg: netting, one rebalance for the taking account and pay-backs come with shared collateral. The account's own key signs, with a 65-byte signature: the approved agent and contract wallets come with the agent. There is no cap on a stake, and a position is claimed by its owner.
 
 ### One event, emitted twice
 
-Each state change of the three modules emits a typed event from the module and, through `OspexBetting.emitCoreEvent`, a `CoreEventEmitted` from the core that carries the event's type, the module that emitted it and a payload, so an indexer can follow one address. There are eight types, each the keccak256 of the string below, and each payload is the typed event's parameters in the typed event's order, ABI-encoded:
+Each state change of the three modules emits a typed event from the module and, through `OspexBetting.emitCoreEvent`, a `CoreEventEmitted` from the core that carries the event's type, the module that emitted it and a payload, so an indexer can follow one address. There are eleven types, each the keccak256 of the string below, and each payload is the typed event's parameters in the typed event's order, ABI-encoded:
 
 | Core event type | Typed event | Emitted by |
 |-----------------|-------------|------------|
@@ -347,12 +365,17 @@ Each state change of the three modules emits a typed event from the module and, 
 | `MARKET_SETTLED` | `MarketSettled` | `OspexMarkets` |
 | `POSITION_MATCHED_PAIR` | `PositionFilled` | `OspexPositions` |
 | `POSITION_CLAIMED` | `PositionClaimed` | `OspexPositions` |
-| `COMMITMENT_CANCELLED` | `CommitmentCancelled` | `OspexMatching` |
+| `ORDER_CANCELLED` | `OrderCancelled` | `OspexMatching` |
 | `MIN_NONCE_UPDATED` | `MinNonceUpdated` | `OspexMatching` |
 | `COURIER_REGISTERED` | `CourierRegistered` | `OspexMatching` |
 | `COURIER_UNREGISTERED` | `CourierUnregistered` | `OspexMatching` |
+| `ORDER_MATCHED` | `OrderMatched` | `OspexMatching` |
+| `ORDER_SKIPPED` | `OrderSkipped` | `OspexMatching` |
+| `CROSSED` | `Crossed` | `OspexMatching` |
 
-The fill's two names differ: the typed event is `PositionFilled` and the core type is `POSITION_MATCHED_PAIR`. The core checks that the emitter is a registered module, and nothing about the type or the payload. The core's own four events (`GamesSet`, `TokenSet`, `ModulesBootstrapped`, `Finalized`) are emitted once, by the core. This table is the eight as they stand; the schema the spec asks for, for an indexer, is written when the set's events are complete.
+The fill's two names differ: the typed event is `PositionFilled` and the core type is `POSITION_MATCHED_PAIR`. The core checks that the emitter is a registered module, and nothing about the type or the payload. The core's own four events (`GamesSet`, `TokenSet`, `ModulesBootstrapped`, `Finalized`) are emitted once, by the core. This table is the eleven as they stand; the schema the spec asks for, for an indexer, is written when the set's events are complete.
+
+What a Cross emits, in order, each followed by its copy through the hub: for a filled leg, `MarketCreated` if the leg draws the market, then `PositionFilled`, then `OrderMatched`; for a skipped order, `OrderSkipped`; and once, last, `Crossed`. `PositionFilled`'s taker is the taking order's account, never the sender; `Crossed` names the sender, as its courier. `OrderMatched` carries the fields v2's per-order fill event carried, in their order and with the same three indexed, under v3's names. `OrderSkipped` carries the reason as a number, in the order the reasons are tested: 0 no courier, 1 cancelled, 2 expired, 3 no room, 4 nothing fits, 5 pull refused. It exists only for a Cross that filled at least one leg.
 
 ### The market contracts and the one outcome enum
 
@@ -364,13 +387,17 @@ The two scales are stated once, in `OspexBettingTypes.sol`: a line is in tenths 
 
 ### The games set
 
-The betting set reads the games set through two calls. `OspexMarkets` reads `getGameStatus` when it draws a market, where the game must exist and must not have ended, and when it settles one, where the status alone decides: on a scored game the market contract names the outcome; on a voided or a released game the outcome is `Void`; anything else, a dispute record included, is refused. A market contract reads `getGameScores`, the home team's score then the away team's, which the games set refuses unless the game is scored; the status is read first, so the scores are read only on a scored game.
+The betting set reads the games set through four calls. `OspexMarkets` reads `getGameStatus` when it draws a market, where the game must exist and must not have ended; at the close gate, at every fill; and when it settles a market, where the status alone decides: on a scored game the market contract names the outcome; on a voided or a released game the outcome is `Void`; anything else, a dispute record included, is refused. At the close gate it also reads `getGameStart` and `getGameWindow`, for a game whose start is written, and refuses the fill at or after their sum. A market contract reads `getGameScores`, the home team's score then the away team's, which the games set refuses unless the game is scored; the status is read first, so the scores are read only on a scored game.
 
-Nothing here reads a game's start, waits out a clock or ends a game: the games set ends every game, and a market follows. A market on an ended game is settled by whoever calls `settleMarket`; nothing settles it on its own.
+A settlement reads no start and waits out no clock, and nothing here ends a game: the games set ends every game, and a market follows. A market on an ended game is settled by whoever calls `settleMarket`; nothing settles it on its own.
 
 ### The coin
 
-The coin is fixed at the core's deploy and copied by the positions module at its own. The positions module's accounting assumes a coin that moves exactly the amount asked, as USDC does: with such a coin, what the module holds for a market is what the market's positions can claim. A coin that takes a fee on a transfer, or that rebases, would break that, and choosing the coin is the deploy's. Coin sent to the module outside a fill belongs to no position, and nothing sends it back.
+The coin is fixed at the core's deploy and copied by the positions module at its own. With a coin that moves exactly the amount asked, as USDC does, what the module holds for a market is what the market's positions can claim. Coin sent to the module outside a pull belongs to no position, and nothing sends it back.
+
+What the set holds with any coin, and what it does not. A fill is recorded only if the positions module's balance rose by at least the two stakes it writes into the two positions, and a call the coin makes during a pull can record no fill, pay no claim, cancel no order, raise no floor, change no courier and start no Cross: the positions module's guard and the matching module's exclusion refuse each. So whatever a coin does during a fill, no position is recorded that the contract's balance did not rise to cover. What a coin does outside a fill, a rebase or a fee on the transfer that pays a claim, is not checked: choosing the coin is the deploy's.
+
+A coin that calls the debited account during a transfer hands that account a way to make a Cross fail. From inside its own pull it can end the game, where the game's release is open to anyone: the next leg then meets the close gate, the whole Cross reverts, and the release reverts with it. Or it can spend the gas passed to it, so that the Cross runs out of gas. Either way the account pays no coin and every fill of that Cross is lost. Nothing is built against this: no gas limit is put on a pull, which could one day fail real transfers, and no leg is skipped at the close gate. USDC makes no such call.
 
 ### What the cut removed from the list
 

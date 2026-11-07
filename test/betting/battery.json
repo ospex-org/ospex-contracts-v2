@@ -1,5 +1,5 @@
 {
- "about": "Breaks of the betting set, most of one line, each with a test it turns red; a break may turn others red too. For each: apply its edits to the file (each find occurs exactly once in the file as committed; a find of several lines is one anchor), run the named test alone and see it fail, restore the file byte for byte and see it pass. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis. Check that exactly one test ran. Ids: B, the cut's: the (home, away) order, the settlement's status read, the fill path, the registry and the interface pins. C, the couriers': who writes an account's couriers, no courier by default, the refusals, the repeated registration, the events and the two calls' signatures. From C17 on, the same lines read through the transaction's origin, or told apart by it, and a write beside the one the caller named. C31 and C32, a second write no list of addresses would reach. C33 to C35, one courier at a time and an event emitted twice. C36 to C45, the two calls that change nothing: a repeated registration succeeds and neither writes nor emits, and a drop of a courier the account does not have is refused. C46 to C62, behaviour that differs for one kind of caller, courier, time or count: a contract as the caller or as the courier, the account naming itself, the set's deployer as the caller, a write hidden by the order couriers are named in, a courier event from the cancel, a courier that appears or lapses with time or is written at deploy, a courier dropped several times, a courier asked about its own drop, a courier cancelling its account's order, a registration that returns a value, and a call made to the courier. W, the wiring's: the reads the core makes of a module at bootstrap, which types are asked which and in what order, that an address is read before it is written and never at finalize, that a read cannot write and that one that fails fails the call, every place of a call, the zero address as a market contract, and the pins of the core's three refusals and of the modules' deploy values.",
+ "about": "Breaks of the betting set, most of one line, each with a test it turns red; a break may turn others red too. For each: apply its edits to the file (each find occurs exactly once in the file as committed; a find of several lines is one anchor), run the named test alone and see it fail, restore the file byte for byte and see it pass. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis. Check that exactly one test ran. Ids: B, the cut's: the (home, away) order, the settlement's status read, the fill path, the registry and the interface pins. C, the couriers': who writes an account's couriers, no courier by default, the refusals, the repeated registration, the events and the two calls' signatures. From C17 on, the same lines read through the transaction's origin, or told apart by it, and a write beside the one the caller named. C31 and C32, a second write no list of addresses would reach. C33 to C35, one courier at a time and an event emitted twice. C36 to C45, the two calls that change nothing: a repeated registration succeeds and neither writes nor emits, and a drop of a courier the account does not have is refused. C46 to C62, behaviour that differs for one kind of caller, courier, time or count: a contract as the caller or as the courier, the account naming itself, the set's deployer as the caller, a write hidden by the order couriers are named in, a courier event from the cancel, a courier that appears or lapses with time or is written at deploy, a courier dropped several times, a courier asked about its own drop, a courier cancelling its account's order, a registration that returns a value, and a call made to the courier. W, the wiring's: the reads the core makes of a module at bootstrap, which types are asked which and in what order, that an address is read before it is written and never at finalize, that a read cannot write and that one that fails fails the call, every place of a call, the zero address as a market contract, and the pins of the core's three refusals and of the modules' deploy values. X, the Cross's: the courier each order's account registered (X1 to X9); the one fill path (X10); the close gate (X11 to X17); the filled amount and the signed stake (X18 to X24); the cancel and the floor (X25 to X35); the price and the lot (X36 to X39); the minimum (X40, X41); what is pulled and who holds it (X42 to X45); the skips, their order and what they leave (X46 to X58); the receipt (X59, X60); the refused pull's recognition and the two pulls (X61 to X69); a Cross that fills nothing (X70, X71); the taking order's thirty seconds (X72 to X75); the exclusion while a Cross is in progress and the positions module's guard (X76 to X85); the signature, the type and the domain (X86 to X100); the market, the side and the price (X101 to X105); an admissible price and stake (X106 to X110); the events (X111 to X126); and the gate's read (X127). Then what an independent pass found the first fixtures could not tell apart: a fault or a dead order late in a list (X128 to X139); a floor on a line that is not 0 (X140); an order that rests before it takes (X141); a refused pull at a price that is not even (X142, X143); stakes of many lots (X144, X145); the exclusion past the first leg (X146, X147); the filled amounts written before the pull (X148, X149); the receipt on either side (X150); a read made before a pull (X151, X152); a cancel through the transaction's origin (X153); the skip record's hub copy and the floor's place among the reasons (X154, X155); the market and the line in the records (X156 to X158); what the Cross returns (X159); the side a position records (X160); the exclusion past a refused pull and past an order nothing fits (X161, X162); and a full order whose account cannot pay (X163, X164).",
  "command": "FOUNDRY_SRC=src FOUNDRY_TEST=test/betting FOUNDRY_SCRIPT=none forge test --via-ir --optimize --match-path <testPath> --match-test '^<test>\\\\('",
  "breaks": [
   {
@@ -76,17 +76,13 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "import {Side} from \"./OspexBettingTypes.sol\";",
-     "replace": "import {Side} from \"./OspexBettingTypes.sol\";\nimport {IOspexPositions} from \"./IOspexPositions.sol\";"
-    },
-    {
      "find": "    /// @notice Returns the EIP-712 domain separator",
-     "replace": "    function matchCommitment(uint256 gameId, address scorer, int32 lineTicks, Side side, address maker, uint256 makerRisk, uint256 takerRisk) external {\n        IOspexPositions(i_ospexCore.getModule(POSITION_MODULE)).recordFill(gameId, scorer, lineTicks, side, maker, makerRisk, msg.sender, takerRisk);\n    }\n\n    /// @notice Returns the EIP-712 domain separator"
+     "replace": "    function fill(uint256 gameId, address scorer, int32 lineTicks, Side side, address maker, uint256 makerRisk, uint256 takerRisk) external {\n        IOspexPositions(i_ospexCore.getModule(POSITION_MODULE)).recordFill(gameId, scorer, lineTicks, side, maker, makerRisk, msg.sender, takerRisk);\n    }\n\n    /// @notice Returns the EIP-712 domain separator"
     }
    ],
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
-   "test": "test_neverLine_noFillPathInTheBettingSet",
-   "breaks": "the matching module gains a fill function"
+   "test": "test_neverLine_theCrossIsTheOneFillPath",
+   "breaks": "the matching module gains a second fill function"
   },
   {
    "id": "B7-count",
@@ -145,13 +141,13 @@
    "file": "src/betting/OspexPositions.sol",
    "edits": [
     {
-     "find": "        if (m.status != MarketStatus.Open) revert OspexPositions__MarketNotOpen(marketId);\n",
+     "find": "        markets.requireBetsOpen(marketId);\n",
      "replace": ""
     }
    ],
    "testPath": "test/betting/OspexPositions.t.sol",
    "test": "test_fill_refusesASettledMarket",
-   "breaks": "a fill into a settled market is taken"
+   "breaks": "the close gate is not called: a fill into a settled market is taken"
   },
   {
    "id": "B12-unknownmarket",
@@ -171,21 +167,21 @@
    "file": "src/betting/OspexMarkets.sol",
    "edits": [
     {
-     "find": "        if (status >= GameStatus.Scored) revert OspexMarkets__GameEnded(gameId, status);\n",
-     "replace": ""
+     "find": "        if (status >= GameStatus.Scored) revert OspexMarkets__GameEnded(gameId, status);\n\n        if (!i_ospexCore.isApprovedScorer(scorer))",
+     "replace": "        if (!i_ospexCore.isApprovedScorer(scorer))"
     }
    ],
    "testPath": "test/betting/OspexMarkets.t.sol",
    "test": "test_create_refusesAGameThatHasEnded",
-   "breaks": "a market is drawn on an ended game"
+   "breaks": "the markets module draws a market on an ended game when the positions module asks"
   },
   {
    "id": "B14-typehash",
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        \"OspexCommitment(\" \"address maker,\" \"uint256 gameId,\"",
-     "replace": "        \"OspexCommitment(\" \"address maker,\" \"uint256 contestId,\""
+     "find": "        \"OspexOrder(\" \"address account,\" \"uint256 gameId,\" \"address scorer,\" \"int32 lineTicks,\" \"uint8 positionType,\"",
+     "replace": "        \"OspexOrder(\" \"address account,\" \"uint256 contestId,\" \"address scorer,\" \"int32 lineTicks,\" \"uint8 positionType,\""
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -258,7 +254,7 @@
     }
    ],
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
-   "test": "test_neverLine_noFillPathInTheBettingSet",
+   "test": "test_neverLine_theCrossIsTheOneFillPath",
    "breaks": "anyone records a fill"
   },
   {
@@ -344,7 +340,7 @@
    "file": "src/betting/OspexPositions.sol",
    "edits": [
     {
-     "find": "        i_token.safeTransferFrom(maker, address(this), makerRisk);\n",
+     "find": "        if (!i_token.trySafeTransferFrom(maker, address(this), makerRisk)) {\n            revert OspexPositions__MakerPullRefused(maker, makerRisk);\n        }\n",
      "replace": ""
     }
    ],
@@ -565,8 +561,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        s_cancelledCommitments[commitmentHash] = true;",
-     "replace": "        s_cancelledCommitments[commitmentHash] = true;\n        s_couriers[msg.sender][commitment.scorer] = true;"
+     "find": "        s_cancelledOrders[orderHash] = true;",
+     "replace": "        s_cancelledOrders[orderHash] = true;\n        s_couriers[msg.sender][order.scorer] = true;"
     }
    ],
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
@@ -786,8 +782,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        s_cancelledCommitments[commitmentHash] = true;",
-     "replace": "        s_cancelledCommitments[commitmentHash] = true;\n        s_couriers[address(uint160(0xC0FFEE))][msg.sender] = true;"
+     "find": "        s_cancelledOrders[orderHash] = true;",
+     "replace": "        s_cancelledOrders[orderHash] = true;\n        s_couriers[address(uint160(0xC0FFEE))][msg.sender] = true;"
     }
    ],
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
@@ -1080,8 +1076,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        s_cancelledCommitments[commitmentHash] = true;",
-     "replace": "        s_cancelledCommitments[commitmentHash] = true;\n        emit CourierRegistered(msg.sender, commitment.scorer);"
+     "find": "        s_cancelledOrders[orderHash] = true;",
+     "replace": "        s_cancelledOrders[orderHash] = true;\n        emit CourierRegistered(msg.sender, order.scorer);"
     }
    ],
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
@@ -1198,13 +1194,13 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (msg.sender != commitment.maker) revert OspexMatching__NotCommitmentMaker();",
-     "replace": "        if (msg.sender != commitment.maker && !s_couriers[commitment.maker][msg.sender]) revert OspexMatching__NotCommitmentMaker();"
+     "find": "        if (msg.sender != order.account) revert OspexMatching__NotOrderAccount();",
+     "replace": "        if (msg.sender != order.account && !s_couriers[order.account][msg.sender]) revert OspexMatching__NotOrderAccount();"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
    "test": "test_cancel_byTheMakerOnly",
-   "breaks": "a maker's courier cancels the maker's order"
+   "breaks": "an account's courier cancels the account's order"
   },
   {
    "id": "C61-returnsvalue",
@@ -1701,6 +1697,2198 @@
    "testPath": "test/betting/OspexBetting.t.sol",
    "test": "test_bootstrap_asksEachTypeForItsOwnValues",
    "breaks": "the zero type, outside the six, is asked its core"
+  },
+  {
+   "id": "X1-takingcourier",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (!_isCourier(t.account, msg.sender)) revert OspexMatching__SenderNotCourier(t.account, msg.sender);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_anOrderNeverFillsThroughACourierItsAccountHasNotRegistered",
+   "breaks": "the taking account's courier check is dropped"
+  },
+  {
+   "id": "X2-restingcourier",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_anOrderNeverFillsThroughACourierItsAccountHasNotRegistered",
+   "breaks": "the resting accounts' courier row is dropped"
+  },
+  {
+   "id": "X3-restingreverts",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier);",
+     "replace": "        if (!_isCourier(r.account, msg.sender)) revert OspexMatching__SenderNotCourier(r.account, msg.sender);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_anOrderNeverFillsThroughACourierItsAccountHasNotRegistered",
+   "breaks": "a resting account that has not registered the sender reverts the whole Cross"
+  },
+  {
+   "id": "X4-restingreadstaking",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier);",
+     "replace": "        if (!_isCourier(t.account, msg.sender)) return (false, SkipReason.NoCourier);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_anOrderNeverFillsThroughACourierItsAccountHasNotRegistered",
+   "breaks": "the resting row reads the taking account's couriers"
+  },
+  {
+   "id": "X5-takingorigin",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (!_isCourier(t.account, msg.sender)) revert OspexMatching__SenderNotCourier(t.account, msg.sender);",
+     "replace": "        if (!_isCourier(t.account, tx.origin)) revert OspexMatching__SenderNotCourier(t.account, msg.sender);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_anOrderNeverFillsThroughACourierItsAccountHasNotRegistered",
+   "breaks": "the taking account's check reads the transaction's origin"
+  },
+  {
+   "id": "X6-restingorigin",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier);",
+     "replace": "        if (!_isCourier(r.account, tx.origin)) return (false, SkipReason.NoCourier);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_anOrderNeverFillsThroughACourierItsAccountHasNotRegistered",
+   "breaks": "the resting row reads the transaction's origin"
+  },
+  {
+   "id": "X7-takingself",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (!_isCourier(t.account, msg.sender)) revert OspexMatching__SenderNotCourier(t.account, msg.sender);",
+     "replace": "        if (!_isCourier(t.account, msg.sender) && msg.sender != t.account) revert OspexMatching__SenderNotCourier(t.account, msg.sender);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_anOrderNeverFillsThroughACourierItsAccountHasNotRegistered",
+   "breaks": "a taking account counts as its own courier"
+  },
+  {
+   "id": "X8-restingself",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier);",
+     "replace": "        if (!_isCourier(r.account, msg.sender) && msg.sender != r.account) return (false, SkipReason.NoCourier);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_anOrderNeverFillsThroughACourierItsAccountHasNotRegistered",
+   "breaks": "a resting account counts as its own courier"
+  },
+  {
+   "id": "X9-endtoend",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (!_isCourier(t.account, msg.sender)) revert OspexMatching__SenderNotCourier(t.account, msg.sender);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossProperties.t.sol",
+   "test": "test_endToEnd_twoAccountsACourierAScoreAndAClaim",
+   "breaks": "an address neither account registered fills the two orders"
+  },
+  {
+   "id": "X10-cancelfills",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        s_cancelledOrders[orderHash] = true;",
+     "replace": "        s_cancelledOrders[orderHash] = true;\n        IOspexPositions(i_ospexCore.getModule(POSITION_MODULE)).recordFill(order.gameId, order.scorer, order.lineTicks, order.positionType, order.account, order.riskAmount, msg.sender, order.riskAmount);"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_theCrossIsTheOneFillPath",
+   "breaks": "a cancel records a fill of the order it cancels"
+  },
+  {
+   "id": "X11-closeinclusive",
+   "file": "src/betting/OspexMarkets.sol",
+   "edits": [
+    {
+     "find": "            if (block.timestamp >= closesAt) revert OspexMarkets__BetsClosed(gameId, closesAt);",
+     "replace": "            if (block.timestamp > closesAt) revert OspexMarkets__BetsClosed(gameId, closesAt);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_noFillOnceBetsClose",
+   "breaks": "a fill lands at start + n itself"
+  },
+  {
+   "id": "X12-gatestatus",
+   "file": "src/betting/OspexMarkets.sol",
+   "edits": [
+    {
+     "find": "        if (status >= GameStatus.Scored) revert OspexMarkets__GameEnded(gameId, status);\n        if (status == GameStatus.Verified || status == GameStatus.Disputed) {",
+     "replace": "        if (status == GameStatus.Verified || status == GameStatus.Disputed) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_noFillOnceBetsClose",
+   "breaks": "the close gate does not test the game's status"
+  },
+  {
+   "id": "X13-gateclock",
+   "file": "src/betting/OspexMarkets.sol",
+   "edits": [
+    {
+     "find": "            if (block.timestamp >= closesAt) revert OspexMarkets__BetsClosed(gameId, closesAt);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_noFillOnceBetsClose",
+   "breaks": "the close gate does not test the clock"
+  },
+  {
+   "id": "X14-gatesettled",
+   "file": "src/betting/OspexMarkets.sol",
+   "edits": [
+    {
+     "find": "        if (m.status != MarketStatus.Open) revert OspexMarkets__MarketSettled(marketId);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_noFillOnceBetsClose",
+   "breaks": "the close gate does not test that the market is settled"
+  },
+  {
+   "id": "X15-constantn",
+   "file": "src/betting/OspexMarkets.sol",
+   "edits": [
+    {
+     "find": "            uint256 closesAt = uint256(i_games.getGameStart(gameId)) + i_games.getGameWindow(gameId);",
+     "replace": "            uint256 closesAt = uint256(i_games.getGameStart(gameId)) + 1 days;"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_noFillOnceBetsClose",
+   "breaks": "a constant day in place of the game's own n"
+  },
+  {
+   "id": "X16-verifiedonly",
+   "file": "src/betting/OspexMarkets.sol",
+   "edits": [
+    {
+     "find": "        if (status == GameStatus.Verified || status == GameStatus.Disputed) {",
+     "replace": "        if (status == GameStatus.Verified) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_noFillOnceBetsClose",
+   "breaks": "the clock is read for a verified game only: a disputed game never closes"
+  },
+  {
+   "id": "X17-gateatdraw",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        markets.requireBetsOpen(marketId);\n\n",
+     "replace": ""
+    },
+    {
+     "find": "        if (marketId == 0) marketId = markets.createMarket(gameId, scorer, lineTicks, maker, taker);\n",
+     "replace": "        if (marketId == 0) {\n            marketId = markets.createMarket(gameId, scorer, lineTicks, maker, taker);\n            markets.requireBetsOpen(marketId);\n        }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_noFillOnceBetsClose",
+   "breaks": "the close gate is called only when the market is drawn"
+  },
+  {
+   "id": "X18-restingwrite",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        s_filledRisk[restingHash] = restingFilled + makerRisk;\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_anOrderNeverFillsPastItsSignedStake",
+   "breaks": "the resting order's filled amount is not written"
+  },
+  {
+   "id": "X19-takingwrite",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        s_filledRisk[takingHash] = takingFilled + takerRisk;\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_anOrderNeverFillsPastItsSignedStake",
+   "breaks": "the taking order's filled amount is not written"
+  },
+  {
+   "id": "X20-wrongkey",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        s_filledRisk[restingHash] = restingFilled + makerRisk;",
+     "replace": "        s_filledRisk[takingHash] = restingFilled + makerRisk;"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_anOrderNeverFillsPastItsSignedStake",
+   "breaks": "the resting order's filled amount is written under the taking order's hash"
+  },
+  {
+   "id": "X21-otherstake",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        s_filledRisk[restingHash] = restingFilled + makerRisk;",
+     "replace": "        s_filledRisk[restingHash] = restingFilled + takerRisk;"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_anOrderNeverFillsPastItsSignedStake",
+   "breaks": "the resting order's filled amount records the taking stake"
+  },
+  {
+   "id": "X22-roomignoresfilled",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        uint256 lots = (r.riskAmount - restingFilled) / LOT;",
+     "replace": "        uint256 lots = r.riskAmount / LOT;"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_anOrderNeverFillsPastItsSignedStake",
+   "breaks": "the filled amount is left out of the room"
+  },
+  {
+   "id": "X23-restingroomexact",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom);",
+     "replace": "        if (restingFilled == r.riskAmount) return (false, SkipReason.NoRoom);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_aFilledAmountPastASignedStakeReadsAsFull",
+   "breaks": "a resting order is full only at exactly its stake"
+  },
+  {
+   "id": "X24-takingroomexact",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_filledRisk[orderHash] >= t.riskAmount) revert OspexMatching__TakingOrderFilled(orderHash);",
+     "replace": "        if (s_filledRisk[orderHash] == t.riskAmount) revert OspexMatching__TakingOrderFilled(orderHash);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_aFilledAmountPastASignedStakeReadsAsFull",
+   "breaks": "a taking order is full only at exactly its stake"
+  },
+  {
+   "id": "X25-restingcancel",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {",
+     "replace": "        if (r.nonce < s_minNonces[r.account][marketKey]) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_aCancelledOrderNeverFillsInEitherRole",
+   "breaks": "a resting order's cancel mark is not read"
+  },
+  {
+   "id": "X26-takingcancel",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_cancelledOrders[orderHash] || t.nonce < s_minNonces[t.account][marketKey]) {",
+     "replace": "        if (t.nonce < s_minNonces[t.account][marketKey]) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_aCancelledOrderNeverFillsInEitherRole",
+   "breaks": "the taking order's cancel mark is not read"
+  },
+  {
+   "id": "X27-restingfloor",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {",
+     "replace": "        if (s_cancelledOrders[restingHash]) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_aCancelledOrderNeverFillsInEitherRole",
+   "breaks": "a resting order's floor is not read"
+  },
+  {
+   "id": "X28-takingfloor",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_cancelledOrders[orderHash] || t.nonce < s_minNonces[t.account][marketKey]) {",
+     "replace": "        if (s_cancelledOrders[orderHash]) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_aCancelledOrderNeverFillsInEitherRole",
+   "breaks": "the taking order's floor is not read"
+  },
+  {
+   "id": "X29-restingatfloor",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {",
+     "replace": "        if (s_cancelledOrders[restingHash] || r.nonce <= s_minNonces[r.account][marketKey]) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_aCancelledOrderNeverFillsInEitherRole",
+   "breaks": "a resting order at its floor is dead"
+  },
+  {
+   "id": "X30-takingatfloor",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_cancelledOrders[orderHash] || t.nonce < s_minNonces[t.account][marketKey]) {",
+     "replace": "        if (s_cancelledOrders[orderHash] || t.nonce <= s_minNonces[t.account][marketKey]) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_aCancelledOrderNeverFillsInEitherRole",
+   "breaks": "a taking order at its floor is dead"
+  },
+  {
+   "id": "X31-restingsenderfloor",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {",
+     "replace": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[msg.sender][marketKey]) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_aCancelledOrderNeverFillsInEitherRole",
+   "breaks": "the sender's floor is read for a resting order"
+  },
+  {
+   "id": "X32-takingsenderfloor",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_cancelledOrders[orderHash] || t.nonce < s_minNonces[t.account][marketKey]) {",
+     "replace": "        if (s_cancelledOrders[orderHash] || t.nonce < s_minNonces[msg.sender][marketKey]) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_aCancelledOrderNeverFillsInEitherRole",
+   "breaks": "the sender's floor is read for the taking order"
+  },
+  {
+   "id": "X33-restingotherkey",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {",
+     "replace": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][bytes32(0)]) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_aCancelledOrderNeverFillsInEitherRole",
+   "breaks": "a resting order's floor is read under another key than its market's"
+  },
+  {
+   "id": "X34-takingotherkey",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_cancelledOrders[orderHash] || t.nonce < s_minNonces[t.account][marketKey]) {",
+     "replace": "        if (s_cancelledOrders[orderHash] || t.nonce < s_minNonces[t.account][bytes32(0)]) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_aCancelledOrderNeverFillsInEitherRole",
+   "breaks": "the taking order's floor is read under another key than its market's"
+  },
+  {
+   "id": "X35-keywithoutgame",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        bytes32 marketKey = keccak256(abi.encode(t.gameId, t.scorer, t.lineTicks));",
+     "replace": "        bytes32 marketKey = keccak256(abi.encode(t.scorer, t.lineTicks));"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_aCancelledOrderNeverFillsInEitherRole",
+   "breaks": "the floor's key leaves the game out"
+  },
+  {
+   "id": "X36-clip",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (left / p < lots) lots = left / p;",
+     "replace": "        uint256 fit = (left * LOT + p - 1) / p / LOT;\n        if (fit < lots) lots = fit;"
+    },
+    {
+     "find": "        uint256 takerRisk = lots * p;",
+     "replace": "        uint256 takerRisk = lots * p > left ? left : lots * p;"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_theFillIsAtTheRestingPriceInsideBothFloors",
+   "breaks": "v2's clip: the lots counted from the taking stake rounded up, and the taking stake clipped to what is left"
+  },
+  {
+   "id": "X37-meetloose",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if ((uint256(r.oddsTick) - ODDS_SCALE) * takingP > uint256(ODDS_SCALE) * ODDS_SCALE) {",
+     "replace": "            if ((uint256(r.oddsTick) - ODDS_SCALE) * takingP > uint256(ODDS_SCALE) * (ODDS_SCALE + 1)) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_theFillIsAtTheRestingPriceInsideBothFloors",
+   "breaks": "the prices meet up to 10,100"
+  },
+  {
+   "id": "X38-takingprice",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        uint256 p = uint256(r.oddsTick) - ODDS_SCALE;",
+     "replace": "        uint256 p = uint256(t.oddsTick) - ODDS_SCALE;"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_theFillIsAtTheRestingPriceInsideBothFloors",
+   "breaks": "the leg's price is the taking order's"
+  },
+  {
+   "id": "X39-lotten",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "    uint256 public constant LOT = 100;",
+     "replace": "    uint256 public constant LOT = 10;"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_theFillIsAtTheRestingPriceInsideBothFloors",
+   "breaks": "the lot is 10 units"
+  },
+  {
+   "id": "X40-nominimum",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (lots * p < LOT) return (false, SkipReason.NothingFits);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_neitherStakeOfAFillIsUnderTheMinimum",
+   "breaks": "the minimum is dropped"
+  },
+  {
+   "id": "X41-zeroonly",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (lots * p < LOT) return (false, SkipReason.NothingFits);",
+     "replace": "        if (lots == 0) return (false, SkipReason.NothingFits);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_neitherStakeOfAFillIsUnderTheMinimum",
+   "breaks": "the minimum refuses only a leg of no lots"
+  },
+  {
+   "id": "X42-pullmore",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (!i_token.trySafeTransferFrom(maker, address(this), makerRisk)) {",
+     "replace": "        if (!i_token.trySafeTransferFrom(maker, address(this), makerRisk + 1)) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_nothingStaysAndNothingBelongsToTheSender",
+   "breaks": "one unit more is pulled from the maker than is recorded"
+  },
+  {
+   "id": "X43-profitless",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        takerPos.profit += makerRisk;",
+     "replace": "        takerPos.profit += makerRisk - 1;"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_nothingStaysAndNothingBelongsToTheSender",
+   "breaks": "one unit less profit is recorded than is pulled"
+  },
+  {
+   "id": "X44-senderastaker",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            t.gameId, t.scorer, t.lineTicks, r.positionType, r.account, makerRisk, t.account, takerRisk\n",
+     "replace": "            t.gameId, t.scorer, t.lineTicks, r.positionType, r.account, makerRisk, msg.sender, takerRisk\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_nothingStaysAndNothingBelongsToTheSender",
+   "breaks": "the sender is passed to the positions module as the taker"
+  },
+  {
+   "id": "X45-senderasmaker",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            t.gameId, t.scorer, t.lineTicks, r.positionType, r.account, makerRisk, t.account, takerRisk\n",
+     "replace": "            t.gameId, t.scorer, t.lineTicks, r.positionType, msg.sender, makerRisk, t.account, takerRisk\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_nothingStaysAndNothingBelongsToTheSender",
+   "breaks": "the sender is passed to the positions module as the maker"
+  },
+  {
+   "id": "X46-catchall",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (!_isMakerPullRefused(refusal, r.account, makerRisk)) {\n                assembly (\"memory-safe\") {\n                    revert(add(refusal, 0x20), mload(refusal))\n                }\n            }\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "breaks": "every error of the positions call is a skip"
+  },
+  {
+   "id": "X47-notputback",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            s_filledRisk[restingHash] = restingFilled;\n            s_filledRisk[takingHash] = takingFilled;\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "breaks": "neither filled amount is put back after a refused pull"
+  },
+  {
+   "id": "X48-restingnotputback",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            s_filledRisk[restingHash] = restingFilled;\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "breaks": "the resting order's filled amount is not put back"
+  },
+  {
+   "id": "X49-takingnotputback",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            s_filledRisk[takingHash] = takingFilled;\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "breaks": "the taking order's filled amount is not put back"
+  },
+  {
+   "id": "X50-noselector",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        return (head & SELECTOR_MASK) == bytes32(IOspexPositions.OspexPositions__MakerPullRefused.selector)\n            && account == bytes32(uint256(uint160(maker))) && amount == bytes32(makerRisk);",
+     "replace": "        return account == bytes32(uint256(uint160(maker))) && amount == bytes32(makerRisk);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "breaks": "the refused pull is recognised without its selector: the taking account's refusal for the same account and amount is a skip"
+  },
+  {
+   "id": "X51-cancelledfirst",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier);\n        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {\n            return (false, SkipReason.Cancelled);\n        }",
+     "replace": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {\n            return (false, SkipReason.Cancelled);\n        }\n        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "breaks": "cancelled is tested before no courier"
+  },
+  {
+   "id": "X52-expiredfirst",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {\n            return (false, SkipReason.Cancelled);\n        }\n        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired);",
+     "replace": "        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired);\n        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {\n            return (false, SkipReason.Cancelled);\n        }"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "breaks": "expired is tested before cancelled"
+  },
+  {
+   "id": "X53-noroomfirst",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired);\n\n        uint256 restingFilled = s_filledRisk[restingHash];\n        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom);",
+     "replace": "        uint256 restingFilled = s_filledRisk[restingHash];\n        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom);\n        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "breaks": "no room is tested before expired"
+  },
+  {
+   "id": "X54-nothingfitsfirst",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom);\n",
+     "replace": ""
+    },
+    {
+     "find": "        uint256 lots = (r.riskAmount - restingFilled) / LOT;",
+     "replace": "        uint256 lots = restingFilled >= r.riskAmount ? 0 : (r.riskAmount - restingFilled) / LOT;"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "breaks": "a full order is recorded as nothing fits"
+  },
+  {
+   "id": "X55-minimumreachespull",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (lots * p < LOT) return (false, SkipReason.NothingFits);",
+     "replace": "        if (lots == 0) return (false, SkipReason.NothingFits);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "breaks": "an order nothing fits reaches the pull, and is recorded for its refusal"
+  },
+  {
+   "id": "X56-coinasked",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (lots * p < LOT) return (false, SkipReason.NothingFits);",
+     "replace": "        if (lots == 0) return (false, SkipReason.NothingFits);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_anOrderNothingFitsNeverReachesTheCoin",
+   "breaks": "the coin is asked for the stake of an order nothing fits"
+  },
+  {
+   "id": "X57-restingexpiry",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "breaks": "a resting order's expiry is not tested"
+  },
+  {
+   "id": "X58-restingatexpiry",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired);",
+     "replace": "        if (block.timestamp > r.expiry) return (false, SkipReason.Expired);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "breaks": "a resting order fills at its expiry"
+  },
+  {
+   "id": "X59-receiptexact",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (held < owed) revert OspexPositions__ShortReceipt(owed, held);",
+     "replace": "        if (held != owed) revert OspexPositions__ShortReceipt(owed, held);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_theReceiptCheckIsAtLeastTheTwoStakes",
+   "breaks": "the receipt must be exact: coin the contract did not ask for fails the fill"
+  },
+  {
+   "id": "X60-noreceipt",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (held < owed) revert OspexPositions__ShortReceipt(owed, held);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_theReceiptCheckIsAtLeastTheTwoStakes",
+   "breaks": "the receipt is not checked"
+  },
+  {
+   "id": "X61-nolength",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (refusal.length != 68) return false;\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_aRefusedPullIsRecognisedBySelectorLengthAndBothArguments",
+   "breaks": "the refusal's length is not tested"
+  },
+  {
+   "id": "X62-noselectorbytes",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        return (head & SELECTOR_MASK) == bytes32(IOspexPositions.OspexPositions__MakerPullRefused.selector)\n            && account == bytes32(uint256(uint160(maker))) && amount == bytes32(makerRisk);",
+     "replace": "        return account == bytes32(uint256(uint160(maker))) && amount == bytes32(makerRisk);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_aRefusedPullIsRecognisedBySelectorLengthAndBothArguments",
+   "breaks": "the refusal's selector is not compared"
+  },
+  {
+   "id": "X63-noaccount",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        return (head & SELECTOR_MASK) == bytes32(IOspexPositions.OspexPositions__MakerPullRefused.selector)\n            && account == bytes32(uint256(uint160(maker))) && amount == bytes32(makerRisk);",
+     "replace": "        return (head & SELECTOR_MASK) == bytes32(IOspexPositions.OspexPositions__MakerPullRefused.selector)\n            && amount == bytes32(makerRisk);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_aRefusedPullIsRecognisedBySelectorLengthAndBothArguments",
+   "breaks": "the refusal's account is not compared"
+  },
+  {
+   "id": "X64-noamount",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        return (head & SELECTOR_MASK) == bytes32(IOspexPositions.OspexPositions__MakerPullRefused.selector)\n            && account == bytes32(uint256(uint160(maker))) && amount == bytes32(makerRisk);",
+     "replace": "        return (head & SELECTOR_MASK) == bytes32(IOspexPositions.OspexPositions__MakerPullRefused.selector)\n            && account == bytes32(uint256(uint160(maker)));"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_aRefusedPullIsRecognisedBySelectorLengthAndBothArguments",
+   "breaks": "the refusal's amount is not compared"
+  },
+  {
+   "id": "X65-accountasaddress",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        return (head & SELECTOR_MASK) == bytes32(IOspexPositions.OspexPositions__MakerPullRefused.selector)\n            && account == bytes32(uint256(uint160(maker))) && amount == bytes32(makerRisk);",
+     "replace": "        return (head & SELECTOR_MASK) == bytes32(IOspexPositions.OspexPositions__MakerPullRefused.selector)\n            && address(uint160(uint256(account))) == maker && amount == bytes32(makerRisk);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_aRefusedPullIsRecognisedBySelectorLengthAndBothArguments",
+   "breaks": "the refusal's account is compared as an address, its upper bits ignored"
+  },
+  {
+   "id": "X66-coinbytesbubble",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (!i_token.trySafeTransferFrom(maker, address(this), makerRisk)) {\n            revert OspexPositions__MakerPullRefused(maker, makerRisk);\n        }\n",
+     "replace": "        i_token.safeTransferFrom(maker, address(this), makerRisk);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_aRefusedPullIsRecognisedBySelectorLengthAndBothArguments",
+   "breaks": "the coin's own revert data is passed up from the maker's pull"
+  },
+  {
+   "id": "X67-takernamedmaker",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "            revert OspexPositions__TakerPullRefused(taker, takerRisk);",
+     "replace": "            revert OspexPositions__MakerPullRefused(taker, takerRisk);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_aRefusedPullIsRecognisedBySelectorLengthAndBothArguments",
+   "breaks": "the taker's refused pull is raised under the maker's error"
+  },
+  {
+   "id": "X68-takerfirst",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (!i_token.trySafeTransferFrom(maker, address(this), makerRisk)) {\n            revert OspexPositions__MakerPullRefused(maker, makerRisk);\n        }\n        if (!i_token.trySafeTransferFrom(taker, address(this), takerRisk)) {\n            revert OspexPositions__TakerPullRefused(taker, takerRisk);\n        }\n",
+     "replace": "        if (!i_token.trySafeTransferFrom(taker, address(this), takerRisk)) {\n            revert OspexPositions__TakerPullRefused(taker, takerRisk);\n        }\n        if (!i_token.trySafeTransferFrom(maker, address(this), makerRisk)) {\n            revert OspexPositions__MakerPullRefused(maker, makerRisk);\n        }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_aRefusedPullIsRecognisedBySelectorLengthAndBothArguments",
+   "breaks": "the taker's stake is pulled first"
+  },
+  {
+   "id": "X69-notakerpull",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (!i_token.trySafeTransferFrom(taker, address(this), takerRisk)) {\n            revert OspexPositions__TakerPullRefused(taker, takerRisk);\n        }\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexPositions.t.sol",
+   "test": "test_fill_writesBothPositionsAndPullsBothStakes",
+   "breaks": "the taker's stake is not pulled"
+  },
+  {
+   "id": "X70-nothingfilled",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (tally.legs == 0) revert OspexMatching__NothingFilled(reasons);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aCrossThatFillsNothingRevertsAndLeavesNothing",
+   "breaks": "a Cross of skips alone succeeds"
+  },
+  {
+   "id": "X71-noreasons",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            reasons[i] = reason;\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aCrossThatFillsNothingRevertsAndLeavesNothing",
+   "breaks": "the refusal does not carry the reasons"
+  },
+  {
+   "id": "X72-thirtyone",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "    uint256 public constant MAX_TAKING_LIFE = 30;",
+     "replace": "    uint256 public constant MAX_TAKING_LIFE = 31;"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_aTakingOrderIsUnexpiredAndHasAtMostThirtySecondsLeft",
+   "breaks": "a taking order may have 31 seconds left"
+  },
+  {
+   "id": "X73-takingexpiry",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (block.timestamp >= t.expiry) revert OspexMatching__TakingOrderExpired(orderHash);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_aTakingOrderIsUnexpiredAndHasAtMostThirtySecondsLeft",
+   "breaks": "the taking order's expiry is not tested"
+  },
+  {
+   "id": "X74-takingatexpiry",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (block.timestamp >= t.expiry) revert OspexMatching__TakingOrderExpired(orderHash);",
+     "replace": "        if (block.timestamp > t.expiry) revert OspexMatching__TakingOrderExpired(orderHash);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_aTakingOrderIsUnexpiredAndHasAtMostThirtySecondsLeft",
+   "breaks": "a taking order fills at its expiry"
+  },
+  {
+   "id": "X75-restinglife",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired);",
+     "replace": "        if (block.timestamp >= r.expiry || r.expiry - block.timestamp > MAX_TAKING_LIFE) return (false, SkipReason.Expired);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_aTakingOrderIsUnexpiredAndHasAtMostThirtySecondsLeft",
+   "breaks": "the thirty seconds are put on resting orders too"
+  },
+  {
+   "id": "X76-cancelopen",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (_crossInProgress()) revert OspexMatching__CrossInProgress();\n        if (msg.sender != order.account) revert OspexMatching__NotOrderAccount();",
+     "replace": "        if (msg.sender != order.account) revert OspexMatching__NotOrderAccount();"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_nothingInTheMatchingContractChangesWhileACrossIsInProgress",
+   "breaks": "a cancel is taken while a Cross is in progress"
+  },
+  {
+   "id": "X77-flooropen",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (_crossInProgress()) revert OspexMatching__CrossInProgress();\n        bytes32 marketKey = keccak256(abi.encode(gameId, scorer, lineTicks));",
+     "replace": "        bytes32 marketKey = keccak256(abi.encode(gameId, scorer, lineTicks));"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_nothingInTheMatchingContractChangesWhileACrossIsInProgress",
+   "breaks": "a raised floor is taken while a Cross is in progress"
+  },
+  {
+   "id": "X78-registeropen",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (_crossInProgress()) revert OspexMatching__CrossInProgress();\n        if (courier == address(0)) revert OspexMatching__ZeroCourier();",
+     "replace": "        if (courier == address(0)) revert OspexMatching__ZeroCourier();"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_nothingInTheMatchingContractChangesWhileACrossIsInProgress",
+   "breaks": "a registration is taken while a Cross is in progress"
+  },
+  {
+   "id": "X79-dropopen",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (_crossInProgress()) revert OspexMatching__CrossInProgress();\n        if (!s_couriers[msg.sender][courier]) revert OspexMatching__CourierNotRegistered(msg.sender, courier);",
+     "replace": "        if (!s_couriers[msg.sender][courier]) revert OspexMatching__CourierNotRegistered(msg.sender, courier);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_nothingInTheMatchingContractChangesWhileACrossIsInProgress",
+   "breaks": "a drop is taken while a Cross is in progress"
+  },
+  {
+   "id": "X80-crossopen",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (_crossInProgress()) revert OspexMatching__CrossInProgress();\n        CROSS_IN_PROGRESS_SLOT.asBoolean().tstore(true);",
+     "replace": "        CROSS_IN_PROGRESS_SLOT.asBoolean().tstore(true);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_nothingInTheMatchingContractChangesWhileACrossIsInProgress",
+   "breaks": "a second Cross is taken while a Cross is in progress"
+  },
+  {
+   "id": "X81-nomark",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        CROSS_IN_PROGRESS_SLOT.asBoolean().tstore(true);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_nothingInTheMatchingContractChangesWhileACrossIsInProgress",
+   "breaks": "the Cross never marks itself in progress"
+  },
+  {
+   "id": "X82-writeafter",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        s_filledRisk[restingHash] = restingFilled + makerRisk;\n        s_filledRisk[takingHash] = takingFilled + takerRisk;\n\n",
+     "replace": ""
+    },
+    {
+     "find": "            tally.legs += 1;\n",
+     "replace": "            s_filledRisk[restingHash] = restingFilled + makerRisk;\n            s_filledRisk[takingHash] = takingFilled + takerRisk;\n            tally.legs += 1;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_nothingInTheMatchingContractChangesWhileACrossIsInProgress",
+   "breaks": "the two filled amounts are written after the positions call"
+  },
+  {
+   "id": "X83-marknotcleared",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "\n        CROSS_IN_PROGRESS_SLOT.asBoolean().tstore(false);\n    }",
+     "replace": "\n    }"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_theExclusionEndsWithItsCross",
+   "breaks": "the mark is not cleared when a Cross ends"
+  },
+  {
+   "id": "X84-fillunguarded",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "    ) external override nonReentrant returns (uint256) {",
+     "replace": "    ) external override returns (uint256) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_aClaimFromInsideAPullIsRefused",
+   "breaks": "recordFill does not hold the guard"
+  },
+  {
+   "id": "X85-claimunguarded",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "    function claimPosition(uint256 marketId, Side side) external override nonReentrant {",
+     "replace": "    function claimPosition(uint256 marketId, Side side) external override {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_aClaimFromInsideAPullIsRefused",
+   "breaks": "claimPosition does not hold the guard"
+  },
+  {
+   "id": "X86-restingunsigned",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            bytes32 orderHash = _checkSigned(resting[i]);",
+     "replace": "            bytes32 orderHash = _hashOrder(r);\n            if (r.oddsTick < MIN_ODDS || r.oddsTick > MAX_ODDS) revert OspexMatching__PriceOutOfRange(orderHash);\n            if (r.riskAmount == 0 || r.riskAmount % LOT != 0) revert OspexMatching__StakeNotInLots(orderHash);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_anOrderBindsOnlyTheAccountThatSignedIt",
+   "breaks": "a resting order's signature is not checked"
+  },
+  {
+   "id": "X87-takingunsigned",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        orderHash = _checkSigned(taking);",
+     "replace": "        orderHash = _hashOrder(t);\n        if (t.oddsTick < MIN_ODDS || t.oddsTick > MAX_ODDS) revert OspexMatching__PriceOutOfRange(orderHash);\n        if (t.riskAmount == 0 || t.riskAmount % LOT != 0) revert OspexMatching__StakeNotInLots(orderHash);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_anOrderBindsOnlyTheAccountThatSignedIt",
+   "breaks": "the taking order's signature is not checked"
+  },
+  {
+   "id": "X88-signerissender",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (err != ECDSA.RecoverError.NoError || signer != order.account) {",
+     "replace": "        if (err != ECDSA.RecoverError.NoError || signer != msg.sender) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_anOrderBindsOnlyTheAccountThatSignedIt",
+   "breaks": "the signer is compared with the sender"
+  },
+  {
+   "id": "X89-versionone",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "    constructor(address core) EIP712(\"Ospex\", \"3\") {",
+     "replace": "    constructor(address core) EIP712(\"Ospex\", \"1\") {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_anOrderBindsOnlyTheAccountThatSignedIt",
+   "breaks": "the domain's version is 1"
+  },
+  {
+   "id": "X90-hashaccount",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                    ORDER_TYPEHASH,\n                    order.account,\n",
+     "replace": "                    ORDER_TYPEHASH,\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_anOrderBindsOnlyTheAccountThatSignedIt",
+   "breaks": "the account is left out of the order's hash"
+  },
+  {
+   "id": "X91-hashgame",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                    order.account,\n                    order.gameId,\n",
+     "replace": "                    order.account,\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_anOrderBindsOnlyTheAccountThatSignedIt",
+   "breaks": "the game is left out of the order's hash"
+  },
+  {
+   "id": "X92-hashscorer",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                    order.gameId,\n                    order.scorer,\n",
+     "replace": "                    order.gameId,\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_anOrderBindsOnlyTheAccountThatSignedIt",
+   "breaks": "the market contract is left out of the order's hash"
+  },
+  {
+   "id": "X93-hashline",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                    order.scorer,\n                    order.lineTicks,\n",
+     "replace": "                    order.scorer,\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_anOrderBindsOnlyTheAccountThatSignedIt",
+   "breaks": "the line is left out of the order's hash"
+  },
+  {
+   "id": "X94-hashside",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                    uint8(order.positionType),\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_anOrderBindsOnlyTheAccountThatSignedIt",
+   "breaks": "the side is left out of the order's hash"
+  },
+  {
+   "id": "X95-hashprice",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                    uint8(order.positionType),\n                    order.oddsTick,\n",
+     "replace": "                    uint8(order.positionType),\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_anOrderBindsOnlyTheAccountThatSignedIt",
+   "breaks": "the price is left out of the order's hash"
+  },
+  {
+   "id": "X96-hashstake",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                    order.oddsTick,\n                    order.riskAmount,\n",
+     "replace": "                    order.oddsTick,\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_anOrderBindsOnlyTheAccountThatSignedIt",
+   "breaks": "the stake is left out of the order's hash"
+  },
+  {
+   "id": "X97-hashnonce",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                    order.riskAmount,\n                    order.nonce,\n",
+     "replace": "                    order.riskAmount,\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_anOrderBindsOnlyTheAccountThatSignedIt",
+   "breaks": "the nonce is left out of the order's hash"
+  },
+  {
+   "id": "X98-hashexpiry",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                    order.nonce,\n                    order.expiry\n",
+     "replace": "                    order.nonce\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_anOrderBindsOnlyTheAccountThatSignedIt",
+   "breaks": "the expiry is left out of the order's hash"
+  },
+  {
+   "id": "X99-frozenversion",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "    constructor(address core) EIP712(\"Ospex\", \"3\") {",
+     "replace": "    constructor(address core) EIP712(\"Ospex\", \"1\") {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_theFrozenOutsideSignatureIsAccepted",
+   "breaks": "the domain's version is 1: the frozen signature is over another hash"
+  },
+  {
+   "id": "X100-frozenmaker",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        \"OspexOrder(\" \"address account,\" \"uint256 gameId,\" \"address scorer,\" \"int32 lineTicks,\" \"uint8 positionType,\"",
+     "replace": "        \"OspexOrder(\" \"address maker,\" \"uint256 gameId,\" \"address scorer,\" \"int32 lineTicks,\" \"uint8 positionType,\""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_theFrozenOutsideSignatureIsAccepted",
+   "breaks": "the type's first field is named maker: the frozen signature is over another hash"
+  },
+  {
+   "id": "X101-othergame",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (r.gameId != t.gameId) revert OspexMatching__OtherGame(orderHash);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_everyRestingOrderIsOnTheTakingOrdersMarketSideAndPrice",
+   "breaks": "a resting order on another game fills"
+  },
+  {
+   "id": "X102-otherscorer",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (r.scorer != t.scorer) revert OspexMatching__OtherScorer(orderHash);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_everyRestingOrderIsOnTheTakingOrdersMarketSideAndPrice",
+   "breaks": "a resting order on another market contract fills"
+  },
+  {
+   "id": "X103-otherline",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (r.lineTicks != t.lineTicks) revert OspexMatching__OtherLine(orderHash);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_everyRestingOrderIsOnTheTakingOrdersMarketSideAndPrice",
+   "breaks": "a resting order on another line fills"
+  },
+  {
+   "id": "X104-sameside",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (r.positionType == t.positionType) revert OspexMatching__SameSide(orderHash);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_everyRestingOrderIsOnTheTakingOrdersMarketSideAndPrice",
+   "breaks": "a resting order on the taking order's side fills"
+  },
+  {
+   "id": "X105-pricesnotmet",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if ((uint256(r.oddsTick) - ODDS_SCALE) * takingP > uint256(ODDS_SCALE) * ODDS_SCALE) {\n                revert OspexMatching__PricesDoNotMeet(orderHash);\n            }\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_everyRestingOrderIsOnTheTakingOrdersMarketSideAndPrice",
+   "breaks": "a resting order at a price that does not meet fills"
+  },
+  {
+   "id": "X106-nolowerbound",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (order.oddsTick < MIN_ODDS || order.oddsTick > MAX_ODDS) revert OspexMatching__PriceOutOfRange(orderHash);",
+     "replace": "        if (order.oddsTick > MAX_ODDS) revert OspexMatching__PriceOutOfRange(orderHash);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_anOrderThatIsNotAdmissibleFillsInNeitherRole",
+   "breaks": "the price's lower bound is dropped"
+  },
+  {
+   "id": "X107-noupperbound",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (order.oddsTick < MIN_ODDS || order.oddsTick > MAX_ODDS) revert OspexMatching__PriceOutOfRange(orderHash);",
+     "replace": "        if (order.oddsTick < MIN_ODDS) revert OspexMatching__PriceOutOfRange(orderHash);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_anOrderThatIsNotAdmissibleFillsInNeitherRole",
+   "breaks": "the price's upper bound is dropped"
+  },
+  {
+   "id": "X108-zerostake",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (order.riskAmount == 0 || order.riskAmount % LOT != 0) revert OspexMatching__StakeNotInLots(orderHash);",
+     "replace": "        if (order.riskAmount % LOT != 0) revert OspexMatching__StakeNotInLots(orderHash);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_anOrderThatIsNotAdmissibleFillsInNeitherRole",
+   "breaks": "a stake of zero is admissible"
+  },
+  {
+   "id": "X109-nolotrule",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (order.riskAmount == 0 || order.riskAmount % LOT != 0) revert OspexMatching__StakeNotInLots(orderHash);",
+     "replace": "        if (order.riskAmount == 0) revert OspexMatching__StakeNotInLots(orderHash);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_anOrderThatIsNotAdmissibleFillsInNeitherRole",
+   "breaks": "a stake need not be a whole number of lots"
+  },
+  {
+   "id": "X110-lotruleresting",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (order.riskAmount == 0 || order.riskAmount % LOT != 0) revert OspexMatching__StakeNotInLots(orderHash);",
+     "replace": "        if (order.riskAmount == 0) revert OspexMatching__StakeNotInLots(orderHash);"
+    },
+    {
+     "find": "            bytes32 orderHash = _checkSigned(resting[i]);",
+     "replace": "            bytes32 orderHash = _checkSigned(resting[i]);\n            if (r.riskAmount % LOT != 0) revert OspexMatching__StakeNotInLots(orderHash);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_anOrderThatIsNotAdmissibleFillsInNeitherRole",
+   "breaks": "the lot rule is kept for resting orders alone"
+  },
+  {
+   "id": "X111-fillnamessender",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            t.gameId, t.scorer, t.lineTicks, r.positionType, r.account, makerRisk, t.account, takerRisk\n",
+     "replace": "            t.gameId, t.scorer, t.lineTicks, r.positionType, r.account, makerRisk, msg.sender, takerRisk\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_theFillNamesTheTakingAccountAndTheCrossNamesTheSender",
+   "breaks": "the fill's taker is the sender"
+  },
+  {
+   "id": "X112-matchednamessender",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            _emitMatched(restingHash, r, t.account, marketId, makerRisk, takerRisk);",
+     "replace": "            _emitMatched(restingHash, r, msg.sender, marketId, makerRisk, takerRisk);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_theFillNamesTheTakingAccountAndTheCrossNamesTheSender",
+   "breaks": "OrderMatched's taker is the sender"
+  },
+  {
+   "id": "X113-crossednamestaker",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        emit Crossed(msg.sender, takingHash, t.account, tally.marketId, tally.makerRisk, tally.takerRisk);",
+     "replace": "        emit Crossed(t.account, takingHash, t.account, tally.marketId, tally.makerRisk, tally.takerRisk);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_theFillNamesTheTakingAccountAndTheCrossNamesTheSender",
+   "breaks": "Crossed's courier is the taking account"
+  },
+  {
+   "id": "X114-nomatchedhub",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        i_ospexCore.emitCoreEvent(\n            EVENT_ORDER_MATCHED,\n            abi.encode(\n                restingHash,\n                r.account,\n                taker,\n                r.gameId,\n                marketId,\n                r.scorer,\n                r.lineTicks,\n                r.positionType,\n                r.oddsTick,\n                makerRisk,\n                takerRisk,\n                r.riskAmount,\n                r.nonce,\n                r.expiry\n            )\n        );\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_theFillNamesTheTakingAccountAndTheCrossNamesTheSender",
+   "breaks": "OrderMatched has no copy through the hub"
+  },
+  {
+   "id": "X115-noskippedhub",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            i_ospexCore.emitCoreEvent(\n                EVENT_ORDER_SKIPPED, abi.encode(hashes[i], resting[i].order.account, takingHash, reason)\n            );\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_theFillNamesTheTakingAccountAndTheCrossNamesTheSender",
+   "breaks": "OrderSkipped has no copy through the hub"
+  },
+  {
+   "id": "X116-nocrossedhub",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        i_ospexCore.emitCoreEvent(\n            EVENT_CROSSED,\n            abi.encode(msg.sender, takingHash, t.account, tally.marketId, tally.makerRisk, tally.takerRisk)\n        );\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_theFillNamesTheTakingAccountAndTheCrossNamesTheSender",
+   "breaks": "Crossed has no copy through the hub"
+  },
+  {
+   "id": "X117-crossedtwice",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        emit Crossed(msg.sender, takingHash, t.account, tally.marketId, tally.makerRisk, tally.takerRisk);",
+     "replace": "        emit Crossed(msg.sender, takingHash, t.account, tally.marketId, tally.makerRisk, tally.takerRisk);\n        emit Crossed(msg.sender, takingHash, t.account, tally.marketId, tally.makerRisk, tally.takerRisk);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_theFillNamesTheTakingAccountAndTheCrossNamesTheSender",
+   "breaks": "Crossed is emitted twice"
+  },
+  {
+   "id": "X118-stakesswapped",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            makerRisk,\n            takerRisk,\n            r.riskAmount,\n",
+     "replace": "            takerRisk,\n            makerRisk,\n            r.riskAmount,\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_theFillNamesTheTakingAccountAndTheCrossNamesTheSender",
+   "breaks": "OrderMatched carries its two stakes swapped"
+  },
+  {
+   "id": "X119-payloadswapped",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                makerRisk,\n                takerRisk,\n                r.riskAmount,\n",
+     "replace": "                takerRisk,\n                makerRisk,\n                r.riskAmount,\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_theFillNamesTheTakingAccountAndTheCrossNamesTheSender",
+   "breaks": "OrderMatched's hub copy carries its two stakes swapped"
+  },
+  {
+   "id": "X120-skipforafill",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (filled) continue;\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_theFillNamesTheTakingAccountAndTheCrossNamesTheSender",
+   "breaks": "a skip record is emitted for a filled leg"
+  },
+  {
+   "id": "X121-skiphashesswapped",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            emit OrderSkipped(hashes[i], resting[i].order.account, takingHash, reason);",
+     "replace": "            emit OrderSkipped(takingHash, resting[i].order.account, hashes[i], reason);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_theFillNamesTheTakingAccountAndTheCrossNamesTheSender",
+   "breaks": "the skip record carries its two hashes swapped"
+  },
+  {
+   "id": "X122-skipnamestaker",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            emit OrderSkipped(hashes[i], resting[i].order.account, takingHash, reason);",
+     "replace": "            emit OrderSkipped(hashes[i], t.account, takingHash, reason);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_theFillNamesTheTakingAccountAndTheCrossNamesTheSender",
+   "breaks": "the skip record names the taking account"
+  },
+  {
+   "id": "X123-totalsswapped",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        emit Crossed(msg.sender, takingHash, t.account, tally.marketId, tally.makerRisk, tally.takerRisk);",
+     "replace": "        emit Crossed(msg.sender, takingHash, t.account, tally.marketId, tally.takerRisk, tally.makerRisk);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_theFillNamesTheTakingAccountAndTheCrossNamesTheSender",
+   "breaks": "Crossed carries its two totals swapped"
+  },
+  {
+   "id": "X124-nomarketinCrossed",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            tally.marketId = marketId;\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_theFillNamesTheTakingAccountAndTheCrossNamesTheSender",
+   "breaks": "Crossed does not carry the market"
+  },
+  {
+   "id": "X125-cancelledtopic",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        Side positionType,\n        uint16 oddsTick,\n        uint256 riskAmount,\n",
+     "replace": "        Side positionType,\n        uint32 oddsTick,\n        uint256 riskAmount,\n"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingInterface.t.sol",
+   "test": "test_theSelectorsTopicsAndTagsAreThese",
+   "breaks": "OrderCancelled's price is a wider type: its first topic moves"
+  },
+  {
+   "id": "X126-reasonnumbers",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        /// @dev 0: the order's account has not registered the sender as a courier.\n        NoCourier,\n        /// @dev 1: the order's hash is marked cancelled, or its nonce is under its account's floor for the market.\n        Cancelled,\n",
+     "replace": "        /// @dev 0: the order's account has not registered the sender as a courier.\n        Cancelled,\n        /// @dev 1: the order's hash is marked cancelled, or its nonce is under its account's floor for the market.\n        NoCourier,\n"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingInterface.t.sol",
+   "test": "test_theNumbersAreThese",
+   "breaks": "two skip reasons trade numbers"
+  },
+  {
+   "id": "X127-gateunknown",
+   "file": "src/betting/OspexMarkets.sol",
+   "edits": [
+    {
+     "find": "        Market storage m = _market(marketId);\n        if (m.status != MarketStatus.Open) revert OspexMarkets__MarketSettled(marketId);",
+     "replace": "        Market storage m = s_markets[marketId];\n        if (m.status != MarketStatus.Open) revert OspexMarkets__MarketSettled(marketId);"
+    }
+   ],
+   "testPath": "test/betting/OspexMarkets.t.sol",
+   "test": "test_gate_isAReadThatRefusesAnIdThatIsNotAMarket",
+   "breaks": "the close gate reads the raw record: an id that is not a market is not refused by name"
+  },
+  {
+   "id": "X128-laterownchecks",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            bytes32 orderHash = _checkSigned(resting[i]);",
+     "replace": "            bytes32 orderHash = i < 2 ? _checkSigned(resting[i]) : _hashOrder(r);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossDepth.t.sol",
+   "test": "test_neverLine_aFaultAtAnyPlaceInTheListRevertsTheCross",
+   "breaks": "a resting order listed third or later is not tested for its signature, price or stake"
+  },
+  {
+   "id": "X129-takersownunchecked",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            bytes32 orderHash = _checkSigned(resting[i]);",
+     "replace": "            bytes32 orderHash = r.account == t.account ? _hashOrder(r) : _checkSigned(resting[i]);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossDepth.t.sol",
+   "test": "test_neverLine_aFaultAtAnyPlaceInTheListRevertsTheCross",
+   "breaks": "a resting order of the taking account's own is not tested for its signature, price or stake"
+  },
+  {
+   "id": "X130-latergame",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (r.gameId != t.gameId) revert OspexMatching__OtherGame(orderHash);",
+     "replace": "            if (i < 2 && r.gameId != t.gameId) revert OspexMatching__OtherGame(orderHash);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossDepth.t.sol",
+   "test": "test_neverLine_aFaultAtAnyPlaceInTheListRevertsTheCross",
+   "breaks": "a resting order listed third or later may name another game"
+  },
+  {
+   "id": "X131-laterscorer",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (r.scorer != t.scorer) revert OspexMatching__OtherScorer(orderHash);",
+     "replace": "            if (i < 2 && r.scorer != t.scorer) revert OspexMatching__OtherScorer(orderHash);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossDepth.t.sol",
+   "test": "test_neverLine_aFaultAtAnyPlaceInTheListRevertsTheCross",
+   "breaks": "a resting order listed third or later may name another scorer"
+  },
+  {
+   "id": "X132-laterline",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (r.lineTicks != t.lineTicks) revert OspexMatching__OtherLine(orderHash);",
+     "replace": "            if (i < 2 && r.lineTicks != t.lineTicks) revert OspexMatching__OtherLine(orderHash);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossDepth.t.sol",
+   "test": "test_neverLine_aFaultAtAnyPlaceInTheListRevertsTheCross",
+   "breaks": "a resting order listed third or later may name another line"
+  },
+  {
+   "id": "X133-laterside",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (r.positionType == t.positionType) revert OspexMatching__SameSide(orderHash);",
+     "replace": "            if (i < 2 && r.positionType == t.positionType) revert OspexMatching__SameSide(orderHash);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossDepth.t.sol",
+   "test": "test_neverLine_aFaultAtAnyPlaceInTheListRevertsTheCross",
+   "breaks": "a resting order listed third or later may be on the taking order's side"
+  },
+  {
+   "id": "X134-laterprice",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if ((uint256(r.oddsTick) - ODDS_SCALE) * takingP > uint256(ODDS_SCALE) * ODDS_SCALE) {",
+     "replace": "            if (i < 2 && (uint256(r.oddsTick) - ODDS_SCALE) * takingP > uint256(ODDS_SCALE) * ODDS_SCALE) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossDepth.t.sol",
+   "test": "test_neverLine_aFaultAtAnyPlaceInTheListRevertsTheCross",
+   "breaks": "a resting order listed third or later need not meet the taking order's price"
+  },
+  {
+   "id": "X135-latercourier",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier);",
+     "replace": "        if (tally.legs < 2 && !_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossDepth.t.sol",
+   "test": "test_neverLine_aDeadOrderAtAnyPlaceInTheListIsSkipped",
+   "breaks": "once two legs have filled, a resting account's courier is not tested"
+  },
+  {
+   "id": "X136-latercancel",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {",
+     "replace": "        if ((tally.legs < 2 && s_cancelledOrders[restingHash]) || r.nonce < s_minNonces[r.account][marketKey]) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossDepth.t.sol",
+   "test": "test_neverLine_aDeadOrderAtAnyPlaceInTheListIsSkipped",
+   "breaks": "once two legs have filled, a resting order's cancel mark is not tested"
+  },
+  {
+   "id": "X137-laterfloor",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {",
+     "replace": "        if (s_cancelledOrders[restingHash] || (tally.legs < 2 && r.nonce < s_minNonces[r.account][marketKey])) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossDepth.t.sol",
+   "test": "test_neverLine_aDeadOrderAtAnyPlaceInTheListIsSkipped",
+   "breaks": "once two legs have filled, a resting order's floor is not tested"
+  },
+  {
+   "id": "X138-laterexpiry",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired);",
+     "replace": "        if (tally.legs < 2 && block.timestamp >= r.expiry) return (false, SkipReason.Expired);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossDepth.t.sol",
+   "test": "test_neverLine_aDeadOrderAtAnyPlaceInTheListIsSkipped",
+   "breaks": "once two legs have filled, a resting order's expiry is not tested"
+  },
+  {
+   "id": "X139-laterroom",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom);",
+     "replace": "        if (tally.legs < 2 && restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossDepth.t.sol",
+   "test": "test_neverLine_aDeadOrderAtAnyPlaceInTheListIsSkipped",
+   "breaks": "once two legs have filled, a full order is not recorded as full"
+  },
+  {
+   "id": "X140-floorline",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        bytes32 marketKey = keccak256(abi.encode(t.gameId, t.scorer, t.lineTicks));",
+     "replace": "        bytes32 marketKey = keccak256(abi.encode(t.gameId, t.scorer, int32(0)));"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossDepth.t.sol",
+   "test": "test_neverLine_aFloorCancelsOnItsOwnLineAndFromNoOther",
+   "breaks": "the Cross reads every floor under the line 0"
+  },
+  {
+   "id": "X141-restedroom",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "    mapping(bytes32 => uint256) public s_filledRisk;\n",
+     "replace": "    mapping(bytes32 => uint256) public s_filledRisk;\n    mapping(bytes32 => uint256) internal s_rested;\n"
+    },
+    {
+     "find": "        s_filledRisk[restingHash] = restingFilled + makerRisk;",
+     "replace": "        s_filledRisk[restingHash] = restingFilled + makerRisk; s_rested[restingHash] += makerRisk;"
+    },
+    {
+     "find": "            s_filledRisk[restingHash] = restingFilled;\n",
+     "replace": "            s_filledRisk[restingHash] = restingFilled; s_rested[restingHash] -= makerRisk;\n"
+    },
+    {
+     "find": "        if (s_filledRisk[orderHash] >= t.riskAmount) revert OspexMatching__TakingOrderFilled(orderHash);",
+     "replace": "        if (s_filledRisk[orderHash] - s_rested[orderHash] >= t.riskAmount) revert OspexMatching__TakingOrderFilled(orderHash);"
+    },
+    {
+     "find": "        uint256 left = takingFilled >= t.riskAmount ? 0 : t.riskAmount - takingFilled;",
+     "replace": "        uint256 left = takingFilled - s_rested[takingHash] >= t.riskAmount ? 0 : t.riskAmount - (takingFilled - s_rested[takingHash]);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossDepth.t.sol",
+   "test": "test_neverLine_anOrderThatRestedThenTakesHasOnlyWhatIsLeft",
+   "breaks": "what an order filled while resting is left out of its room as a taking order"
+  },
+  {
+   "id": "X142-refusalagainsttaking",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "_isMakerPullRefused(refusal, r.account, makerRisk)",
+     "replace": "_isMakerPullRefused(refusal, r.account, takerRisk)"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossDepth.t.sol",
+   "test": "test_neverLine_aRefusedPullAtAPriceThatIsNotEven",
+   "breaks": "the refused resting pull is recognised against the leg's taking stake"
+  },
+  {
+   "id": "X143-takerrefusalstake",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "revert OspexPositions__TakerPullRefused(taker, takerRisk);",
+     "replace": "revert OspexPositions__TakerPullRefused(taker, makerRisk);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossDepth.t.sol",
+   "test": "test_neverLine_aRefusedPullAtAPriceThatIsNotEven",
+   "breaks": "the taking account's refusal carries the resting stake"
+  },
+  {
+   "id": "X144-lots24",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (left / p < lots) lots = left / p;",
+     "replace": "        if (left / p < lots) lots = left / p;\n        lots = uint24(lots);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossDepth.t.sol",
+   "test": "test_neverLine_aStakeOfManyLotsFillsInFull",
+   "breaks": "a leg's lot count is cut to 24 bits"
+  },
+  {
+   "id": "X145-lots64",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (left / p < lots) lots = left / p;",
+     "replace": "        if (left / p < lots) lots = left / p;\n        lots = uint64(lots);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossDepth.t.sol",
+   "test": "test_neverLine_aStakeOfManyLotsFillsInFull",
+   "breaks": "a leg's lot count is cut to 64 bits"
+  },
+  {
+   "id": "X146-markafterfill",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            tally.legs += 1;\n",
+     "replace": "            tally.legs += 1;\n            CROSS_IN_PROGRESS_SLOT.asBoolean().tstore(false);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_theExclusionHoldsThroughEveryLeg",
+   "breaks": "the mark is cleared once a leg has filled"
+  },
+  {
+   "id": "X147-markafterskip",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            reasons[i] = reason;\n",
+     "replace": "            reasons[i] = reason;\n            CROSS_IN_PROGRESS_SLOT.asBoolean().tstore(false);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_theExclusionHoldsThroughEveryLeg",
+   "breaks": "the mark is cleared once an order has been skipped"
+  },
+  {
+   "id": "X148-restingwriteafter",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        s_filledRisk[restingHash] = restingFilled + makerRisk;\n",
+     "replace": ""
+    },
+    {
+     "find": "            tally.legs += 1;\n",
+     "replace": "            s_filledRisk[restingHash] = restingFilled + makerRisk;\n            tally.legs += 1;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_aSkippedLegsFilledAmountsAreWrittenFirstAndPutBack",
+   "breaks": "the resting order's filled amount is written after the positions call"
+  },
+  {
+   "id": "X149-takingwriteafter",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        s_filledRisk[takingHash] = takingFilled + takerRisk;\n",
+     "replace": ""
+    },
+    {
+     "find": "            tally.legs += 1;\n",
+     "replace": "            s_filledRisk[takingHash] = takingFilled + takerRisk;\n            tally.legs += 1;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_aSkippedLegsFilledAmountsAreWrittenFirstAndPutBack",
+   "breaks": "the taking order's filled amount is written after the positions call"
+  },
+  {
+   "id": "X150-receiptsidea",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (held < owed) revert OspexPositions__ShortReceipt(owed, held);",
+     "replace": "        if (makerSide == Side.A && held < owed) revert OspexPositions__ShortReceipt(owed, held);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_theReceiptCheckIsAtLeastTheTwoStakes",
+   "breaks": "the receipt is tested only when the resting order is on side A"
+  },
+  {
+   "id": "X151-allowancefirst",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        uint256 owed = i_token.balanceOf(address(this)) + makerRisk + takerRisk;",
+     "replace": "        if (i_token.allowance(maker, address(this)) < makerRisk) revert OspexPositions__MakerPullRefused(maker, makerRisk);\n        uint256 owed = i_token.balanceOf(address(this)) + makerRisk + takerRisk;"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_aPullIsTheCoinsTransferAndNoReadBeforeIt",
+   "breaks": "the maker's allowance is read before the pull, and a short read refuses it"
+  },
+  {
+   "id": "X152-balancefirst",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        uint256 owed = i_token.balanceOf(address(this)) + makerRisk + takerRisk;",
+     "replace": "        if (i_token.balanceOf(maker) < makerRisk) revert OspexPositions__MakerPullRefused(maker, makerRisk);\n        uint256 owed = i_token.balanceOf(address(this)) + makerRisk + takerRisk;"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_aPullIsTheCoinsTransferAndNoReadBeforeIt",
+   "breaks": "the maker's balance is read before the pull, and a short read refuses it"
+  },
+  {
+   "id": "X153-cancelorigin",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (msg.sender != order.account) revert OspexMatching__NotOrderAccount();",
+     "replace": "        if (msg.sender != order.account && tx.origin != order.account) revert OspexMatching__NotOrderAccount();"
+    }
+   ],
+   "testPath": "test/betting/OspexMatching.t.sol",
+   "test": "test_cancel_byTheMakerOnly",
+   "breaks": "a contract the account calls cancels the account's order"
+  },
+  {
+   "id": "X154-hubreason",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "EVENT_ORDER_SKIPPED, abi.encode(hashes[i], resting[i].order.account, takingHash, reason)",
+     "replace": "EVENT_ORDER_SKIPPED, abi.encode(hashes[i], resting[i].order.account, takingHash, SkipReason.Cancelled)"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "breaks": "the hub's copy of a skip record always carries one reason"
+  },
+  {
+   "id": "X155-floorlate",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {",
+     "replace": "        if (s_cancelledOrders[restingHash]) {"
+    },
+    {
+     "find": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom);",
+     "replace": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom);\n        if (r.nonce < s_minNonces[r.account][marketKey]) return (false, SkipReason.Cancelled);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "breaks": "the floor is tested after the expiry and the room"
+  },
+  {
+   "id": "X156-matchedmarketgame",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            _emitMatched(restingHash, r, t.account, marketId, makerRisk, takerRisk);",
+     "replace": "            _emitMatched(restingHash, r, t.account, t.gameId, makerRisk, takerRisk);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_theFillNamesTheTakingAccountAndTheCrossNamesTheSender",
+   "breaks": "OrderMatched carries the game's id as the market's"
+  },
+  {
+   "id": "X157-crossedmarketgame",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "tally.marketId = marketId;",
+     "replace": "tally.marketId = t.gameId;"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_theFillNamesTheTakingAccountAndTheCrossNamesTheSender",
+   "breaks": "Crossed carries the game's id as the market's"
+  },
+  {
+   "id": "X158-matchedlinesign",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            r.scorer,\n            r.lineTicks,\n            r.positionType,",
+     "replace": "            r.scorer,\n            -r.lineTicks,\n            r.positionType,"
+    },
+    {
+     "find": "                r.scorer,\n                r.lineTicks,\n                r.positionType,",
+     "replace": "                r.scorer,\n                -r.lineTicks,\n                r.positionType,"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_theFillNamesTheTakingAccountAndTheCrossNamesTheSender",
+   "breaks": "OrderMatched carries the line with its sign turned"
+  },
+  {
+   "id": "X159-crossreturns",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "    function cross(SignedOrder calldata taking, SignedOrder[] calldata resting) external {",
+     "replace": "    function cross(SignedOrder calldata taking, SignedOrder[] calldata resting) external returns (uint256 legs) {"
+    },
+    {
+     "find": "\n        CROSS_IN_PROGRESS_SLOT.asBoolean().tstore(false);\n    }",
+     "replace": "\n        legs = tally.legs;\n        CROSS_IN_PROGRESS_SLOT.asBoolean().tstore(false);\n    }"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossProperties.t.sol",
+   "test": "test_endToEnd_twoAccountsACourierAScoreAndAClaim",
+   "breaks": "the Cross returns a value"
+  },
+  {
+   "id": "X160-makersidea",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        makerPos.side = makerSide;",
+     "replace": "        makerPos.side = Side.A;"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossNeverLines.t.sol",
+   "test": "test_neverLine_nothingStaysAndNothingBelongsToTheSender",
+   "breaks": "the resting account's position always records side A"
+  },
+  {
+   "id": "X161-markafterrefusedpull",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            s_filledRisk[takingHash] = takingFilled;\n",
+     "replace": "            s_filledRisk[takingHash] = takingFilled;\n            CROSS_IN_PROGRESS_SLOT.asBoolean().tstore(false);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_theExclusionHoldsThroughEveryLeg",
+   "breaks": "the mark is cleared after a refused resting pull"
+  },
+  {
+   "id": "X162-markafternothingfits",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (lots * p < LOT) return (false, SkipReason.NothingFits);",
+     "replace": "        if (lots * p < LOT) {\n            CROSS_IN_PROGRESS_SLOT.asBoolean().tstore(false);\n            return (false, SkipReason.NothingFits);\n        }"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_theExclusionHoldsThroughEveryLeg",
+   "breaks": "the mark is cleared where an order nothing fits is skipped"
+  },
+  {
+   "id": "X163-fullreachesthepull",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom);\n",
+     "replace": ""
+    },
+    {
+     "find": "        uint256 lots = (r.riskAmount - restingFilled) / LOT;",
+     "replace": "        uint256 lots = r.riskAmount / LOT;"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aFullOrderThatCannotPayIsRecordedAsFullAndTheCoinIsNotAsked",
+   "breaks": "an order's filled amount is not looked at before the pull: a full order's account is asked for coin"
+  },
+  {
+   "id": "X164-fullasksthecoin",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom);",
+     "replace": "        if (restingFilled >= r.riskAmount) {\n            try positions.recordFill(t.gameId, t.scorer, t.lineTicks, r.positionType, r.account, LOT, t.account, LOT) returns (uint256) {} catch {}\n            return (false, SkipReason.NoRoom);\n        }"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aFullOrderThatCannotPayIsRecordedAsFullAndTheCoinIsNotAsked",
+   "breaks": "a full order's account is asked for a lot of coin before the order is recorded as full"
   }
  ]
 }

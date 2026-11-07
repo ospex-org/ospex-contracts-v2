@@ -12,7 +12,7 @@ import {OspexSpreadScorer} from "../../src/betting/OspexSpreadScorer.sol";
 import {OspexTotalScorer} from "../../src/betting/OspexTotalScorer.sol";
 import {IOspexModule} from "../../src/betting/IOspexModule.sol";
 import {Market, MarketStatus, Outcome, Position, Side} from "../../src/betting/OspexBettingTypes.sol";
-import {BettingBase, OspexPositionsHarness} from "./BettingBase.sol";
+import {BettingBase} from "./BettingBase.sol";
 
 /// @dev A module of a type the set does not require.
 contract ExtraModule is IOspexModule {
@@ -35,7 +35,7 @@ contract CourierCaller {
 
 /// @notice One test per line that must never happen in the betting set as it stands: a score is never read in
 ///         v2's order, away then home; a market settles on nothing but its game's own status; a void and a
-///         release are voids; there is no fill path in the betting set; only an account changes its couriers,
+///         release are voids; the Cross is the one fill path in the betting set; only an account changes its couriers,
 ///         and no account has one by default; the registry is exactly the required set and the deployer keeps
 ///         nothing; a module wired wrong is refused at bootstrap, where the core asks a module of its type for
 ///         its core, its games set or its coin, so finalize locks no set wired wrong; and the zero address is
@@ -219,49 +219,50 @@ contract OspexBettingNeverLinesTest is BettingBase {
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
-    // No fill path in the betting set: nothing in it takes a signed order into a position until the Cross is
-    // built with the courier's check inside it. The claim is this set's: v2's matching module, in src/modules/,
-    // keeps its own fill as deployed, and these tests fill through a hook of their own. Neither is in the set.
+    // The Cross is the one fill path. The matching module's functions are exactly a written list, five of
+    // them state-changing; the Cross is the only one that records a fill, and the positions module takes a
+    // fill from the matching module alone. The claim is this set's: v2's matching module, in src/modules/,
+    // keeps its own fill as deployed and is not in the set.
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-    /// Break: add to OspexMatching a function that records a fill, such as
-    /// `function matchCommitment(uint256 gameId, address scorer, int32 lineTicks, Side side, address maker,
+    /// Break: add to OspexMatching a second function that records a fill, such as
+    /// `function fill(uint256 gameId, address scorer, int32 lineTicks, Side side, address maker,
     /// uint256 makerRisk, uint256 takerRisk) external { IOspexPositions(i_ospexCore.getModule(POSITION_MODULE))
-    /// .recordFill(gameId, scorer, lineTicks, side, maker, makerRisk, msg.sender, takerRisk); }`.
-    function test_neverLine_noFillPathInTheBettingSet() public {
-        // The matching module's functions are exactly these: the per-order cancel, the per-line floor, the two
-        // courier registration calls, the reads and the constants. None records a fill, and none takes a
-        // signature.
+    /// .recordFill(gameId, scorer, lineTicks, side, maker, makerRisk, msg.sender, takerRisk); }`. Two more turn
+    /// it red: cancelOrder made to record a fill of the order it cancels, and recordFill's caller check dropped.
+    function test_neverLine_theCrossIsTheOneFillPath() public {
+        // The matching module's functions are exactly these: the Cross, the per-order cancel, the per-line
+        // floor, the two courier registration calls, the reads and the constants.
         string[] memory want = vm.split(
-            "COMMITMENT_TYPEHASH();EVENT_COMMITMENT_CANCELLED();EVENT_COURIER_REGISTERED();"
-            "EVENT_COURIER_UNREGISTERED();EVENT_MIN_NONCE_UPDATED();MARKET_MODULE();"
-            "MATCHING_MODULE();MAX_LINE_TICKS();MAX_ODDS();MIN_ODDS();ODDS_SCALE();POSITION_MODULE();"
-            "cancelCommitment((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256));"
-            "eip712Domain();"
-            "getCommitmentHash((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256));"
+            "EVENT_COURIER_REGISTERED();EVENT_COURIER_UNREGISTERED();EVENT_CROSSED();EVENT_MIN_NONCE_UPDATED();"
+            "EVENT_ORDER_CANCELLED();EVENT_ORDER_MATCHED();EVENT_ORDER_SKIPPED();LOT();MARKET_MODULE();"
+            "MATCHING_MODULE();MAX_LINE_TICKS();MAX_ODDS();MAX_TAKING_LIFE();MIN_ODDS();ODDS_SCALE();"
+            "ORDER_TYPEHASH();POSITION_MODULE();"
+            "cancelOrder((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256));"
+            "cross(((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256),bytes),"
+            "((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256),bytes)[]);" "eip712Domain();"
+            "getOrderHash((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256));"
             "getDomainSeparator();getModuleType();i_ospexCore();isCourier(address,address);"
             "raiseMinNonce(uint256,address,int32,uint256);registerCourier(address);"
-            "s_cancelledCommitments(bytes32);s_minNonces(address,bytes32);unregisterCourier(address)",
+            "s_cancelledOrders(bytes32);s_filledRisk(bytes32);s_minNonces(address,bytes32);"
+            "unregisterCourier(address)",
             ";"
         );
-        string[] memory got = vm.parseJsonKeys(_artifact("OspexMatching"), "$.methodIdentifiers");
-        _assertSameSet(got, want, "function");
+        string memory json = _artifact("OspexMatching");
+        _assertSameSet(vm.parseJsonKeys(json, "$.methodIdentifiers"), want, "function");
+        // Five of them change state, by the compiled interface: every other one is a view or a constant.
+        _assertSameSet(
+            _stateChanging(json),
+            vm.split("cancelOrder;cross;raiseMinNonce;registerCourier;unregisterCourier", ";"),
+            "state-changing function"
+        );
 
         uint256 game = _verifiedGame();
 
-        // Its four calls that change state, each made by an account that holds coin and has approved the
-        // positions module for it: no coin moves, no market is drawn and no position is written.
-        OspexMatching.OspexCommitment memory order = OspexMatching.OspexCommitment({
-            maker: maker,
-            gameId: game,
-            scorer: address(moneyline),
-            lineTicks: 0,
-            positionType: Side.A,
-            oddsTick: 200,
-            riskAmount: STAKE,
-            nonce: 1,
-            expiry: block.timestamp + 1 days
-        });
+        // The four that are not the Cross, each on its success path, made by an account that holds coin and has
+        // approved the positions module for it: no coin moves, no market is drawn and no position is written.
+        OspexMatching.OspexOrder memory order =
+            _order(maker, game, address(moneyline), 0, Side.A, 200, STAKE, 1, vm.getBlockTimestamp() + 1 days);
         uint256 makerCoin = token.balanceOf(maker);
         assertGe(makerCoin, STAKE, "the account holds no coin a fill could move");
         assertGe(
@@ -269,22 +270,27 @@ contract OspexBettingNeverLinesTest is BettingBase {
         );
         vm.startPrank(maker, maker);
         matching.registerCourier(taker);
-        matching.cancelCommitment(order);
+        matching.cancelOrder(order);
         matching.raiseMinNonce(game, address(moneyline), 0, 2);
         matching.unregisterCourier(taker);
         vm.stopPrank();
+        assertTrue(matching.s_cancelledOrders(matching.getOrderHash(order)), "the cancel did not land");
         assertEq(token.balanceOf(maker), makerCoin, "a call of the matching module moved the account's coin");
         assertEq(token.balanceOf(address(positions)), 0, "a call of the matching module moved coin");
         assertEq(markets.marketCount(), 0, "a call of the matching module drew a market");
         assertEq(positions.getPosition(1, maker, Side.A).risk, 0, "a call of the matching module wrote a position");
 
-        // The positions module takes a fill from the matching module alone, and that module sends none: from
-        // every other address a fill is refused by name, and nothing moves.
-        address[11] memory callers = [
+        // The positions module takes a fill from the matching module alone: from every other address a fill is
+        // refused by name, and nothing moves. A courier both accounts registered is one of them.
+        address registered = makeAddr("a courier both accounts registered");
+        _register(maker, registered);
+        _register(taker, registered);
+        address[12] memory callers = [
             stranger,
             deployer,
             maker,
             taker,
+            registered,
             address(core),
             address(markets),
             address(moneyline),
@@ -308,6 +314,32 @@ contract OspexBettingNeverLinesTest is BettingBase {
         assertEq(token.balanceOf(address(positions)), 0, "coin moved");
         assertEq(markets.marketCount(), 0, "a market was drawn");
         assertEq(positions.getPosition(1, maker, Side.A).risk, 0, "a position was written");
+
+        // And the Cross does fill: the same two stakes, through signed orders, sent by a registered courier,
+        // on another market of the game, since the floor raised above stands on the first.
+        uint256 market = _market(game, address(spread), -35);
+        assertEq(token.balanceOf(address(positions)), 2 * STAKE, "the Cross moved the two stakes");
+        assertEq(positions.getPosition(market, maker, Side.A).risk, STAKE, "the Cross wrote the resting position");
+        assertEq(positions.getPosition(market, taker, Side.B).risk, STAKE, "the Cross wrote the taking position");
+    }
+
+    /// @dev The names of an artifact's functions that are neither view nor pure.
+    function _stateChanging(string memory json) internal view returns (string[] memory out) {
+        string[] memory found = new string[](64);
+        uint256 n;
+        for (uint256 i; vm.keyExistsJson(json, string.concat("$.abi[", vm.toString(i), "]")); ++i) {
+            string memory entry = string.concat("$.abi[", vm.toString(i), "]");
+            if (keccak256(bytes(vm.parseJsonString(json, string.concat(entry, ".type")))) != keccak256("function")) {
+                continue;
+            }
+            bytes32 mutability = keccak256(bytes(vm.parseJsonString(json, string.concat(entry, ".stateMutability"))));
+            if (mutability == keccak256("view") || mutability == keccak256("pure")) continue;
+            found[n++] = vm.parseJsonString(json, string.concat(entry, ".name"));
+        }
+        out = new string[](n);
+        for (uint256 i; i < n; ++i) {
+            out[i] = found[i];
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -471,8 +503,8 @@ contract OspexBettingNeverLinesTest is BettingBase {
         for (uint256 direct; direct < 2; ++direct) {
             address sentFrom = direct == 1 ? stranger : origin;
             address fresh = makeAddr(direct == 1 ? "one more courier" : "another courier");
-            OspexMatching.OspexCommitment memory order = OspexMatching.OspexCommitment({
-                maker: stranger,
+            OspexMatching.OspexOrder memory order = OspexMatching.OspexOrder({
+                account: stranger,
                 gameId: 7,
                 scorer: fresh,
                 lineTicks: 0,
@@ -482,10 +514,10 @@ contract OspexBettingNeverLinesTest is BettingBase {
                 nonce: 1,
                 expiry: 1_900_000_000
             });
-            bytes32 hash = matching.getCommitmentHash(order);
+            bytes32 hash = matching.getOrderHash(order);
             bytes32 key = keccak256(abi.encode(uint256(7), fresh, int32(0)));
             assertFalse(matching.isCourier(stranger, fresh), "the fresh courier is registered already");
-            assertFalse(matching.s_cancelledCommitments(hash), "the fresh order is cancelled already");
+            assertFalse(matching.s_cancelledOrders(hash), "the fresh order is cancelled already");
             assertEq(matching.s_minNonces(stranger, key), 0, "the fresh floor is raised already");
             uint256 before = _slotsWritten();
 
@@ -499,9 +531,9 @@ contract OspexBettingNeverLinesTest is BettingBase {
             assertEq(_slotsWritten() - before, 1, "a repeated registration wrote a slot");
 
             vm.prank(stranger, sentFrom);
-            matching.cancelCommitment(order);
+            matching.cancelOrder(order);
             assertEq(_slotsWritten() - before, 2, "a cancel did not write exactly one slot");
-            assertTrue(matching.s_cancelledCommitments(hash), "the slot a cancel wrote is not its mark");
+            assertTrue(matching.s_cancelledOrders(hash), "the slot a cancel wrote is not its mark");
 
             vm.prank(stranger, sentFrom);
             matching.raiseMinNonce(7, fresh, 0, ++lastFloor);
@@ -631,8 +663,8 @@ contract OspexBettingNeverLinesTest is BettingBase {
     function _theCancelAndTheFloorWriteNoCourier(address[] memory all, bool direct) internal {
         for (uint256 i; i < CALLERS; ++i) {
             for (uint256 j; j < all.length; ++j) {
-                OspexMatching.OspexCommitment memory order = OspexMatching.OspexCommitment({
-                    maker: all[i],
+                OspexMatching.OspexOrder memory order = OspexMatching.OspexOrder({
+                    account: all[i],
                     gameId: 7,
                     scorer: all[j],
                     lineTicks: 0,
@@ -644,7 +676,7 @@ contract OspexBettingNeverLinesTest is BettingBase {
                 });
                 vm.recordLogs();
                 vm.startPrank(all[i], direct ? all[i] : origin);
-                matching.cancelCommitment(order);
+                matching.cancelOrder(order);
                 matching.raiseMinNonce(7, all[j], 0, ++lastFloor);
                 vm.stopPrank();
                 // Each emits twice, its own event and the hub's: no event of the couriers' beside them.
@@ -771,12 +803,12 @@ contract OspexBettingNeverLinesTest is BettingBase {
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// @dev What the wiring tests hold between their steps: the core under test, the six types and its own six
-    ///      modules in the core's order, the positions module with the fill hook where a step fills, and the
-    ///      two counts. In storage, so that each step is a short function of its own.
+    ///      modules in the core's order, its positions module where a step fills, and the two counts. In
+    ///      storage, so that each step is a short function of its own.
     OspexBetting internal wCore;
     bytes32[] internal wTypes;
     address[] internal wOwn;
-    OspexPositionsHarness internal wPositions;
+    OspexPositions internal wPositions;
     uint256 internal wRefused;
     uint256 internal wNotRefused;
 
@@ -890,8 +922,8 @@ contract OspexBettingNeverLinesTest is BettingBase {
             assertTrue(wCore.isApprovedScorer(wOwn[i]), "a market contract of the finalized set");
         }
 
-        // Every module but the spread registered, the positions module with the fill hook.
-        _aCoreWithItsOwnSixAndTheFillHook();
+        // Every module but the spread registered.
+        _aCoreWithItsOwnSix();
         (bytes32[] memory types, address[] memory addrs) = _without(wTypes, wOwn, 4);
         wCore.bootstrapModules(types, addrs);
         vm.stopPrank();
@@ -903,7 +935,7 @@ contract OspexBettingNeverLinesTest is BettingBase {
         uint256 game = _verifiedGame();
         _assertAFillIsRefused(game, address(0));
         // The same fill on the moneyline, which is registered, is taken: the refusal was the zero address's.
-        uint256 market = wPositions.harnessFill(game, wOwn[3], 0, Side.A, maker, STAKE, taker, STAKE);
+        uint256 market = _wFill(game, wOwn[3], 0);
         assertEq(OspexMarkets(wOwn[0]).getMarket(market).scorer, wOwn[3], "the market's contract");
         assertEq(token.balanceOf(address(wPositions)), 2 * STAKE, "the two stakes");
     }
@@ -917,13 +949,15 @@ contract OspexBettingNeverLinesTest is BettingBase {
         (bytes32[] memory types, address[] memory right) = _freshSet(wCore);
         wTypes = types;
         wOwn = right;
+        wPositions = OspexPositions(right[1]);
     }
 
-    /// @dev The same, with the positions module that has the fill hook in the positions module's place.
-    function _aCoreWithItsOwnSixAndTheFillHook() internal {
-        _aCoreWithItsOwnSix();
-        wPositions = new OspexPositionsHarness(address(wCore));
-        wOwn[1] = address(wPositions);
+    /// @dev A fill of STAKE against STAKE on `game`, the maker on side A, sent to the positions module of the
+    ///      core under test as that core's matching module sends one. The Cross has its own tests; these
+    ///      are about what the core registers.
+    function _wFill(uint256 game, address scorer, int32 line) internal returns (uint256 market) {
+        vm.prank(wOwn[2]);
+        market = wPositions.recordFill(game, scorer, line, Side.A, maker, STAKE, taker, STAKE);
     }
 
     /// @dev The six modules of `other`, each offered to the core under test: by `told`, one letter a kind,
@@ -1038,7 +1072,7 @@ contract OspexBettingNeverLinesTest is BettingBase {
     ///      is refused. Returns the spread contract.
     function _theSecondSetsSpreadContractIsRefused() internal returns (address wrong) {
         vm.startPrank(deployer, deployer);
-        _aCoreWithItsOwnSixAndTheFillHook();
+        _aCoreWithItsOwnSix();
         wrong = address(new OspexSpreadScorer(address(coreOfGames2)));
         bytes memory refusal =
             abi.encodeWithSelector(OspexBetting.OspexBetting__ModuleGamesMismatch.selector, wrong, address(games2));
@@ -1064,7 +1098,7 @@ contract OspexBettingNeverLinesTest is BettingBase {
         wCore.bootstrapModules(t, a);
         wCore.finalize();
         vm.stopPrank();
-        uint256 market = wPositions.harnessFill(game, wOwn[4], -35, Side.A, maker, STAKE, taker, STAKE);
+        uint256 market = _wFill(game, wOwn[4], -35);
 
         _score(game, HOME_121, AWAY_99);
         _scoreOnGames2(game, AWAY_99, HOME_121);
@@ -1132,7 +1166,8 @@ contract OspexBettingNeverLinesTest is BettingBase {
         uint256 takerCoin = token.balanceOf(taker);
         uint256 drawn = OspexMarkets(wOwn[0]).marketCount();
         bytes memory fill =
-            abi.encodeCall(OspexPositionsHarness.harnessFill, (game, scorer, -35, Side.A, maker, STAKE, taker, STAKE));
+            abi.encodeCall(OspexPositions.recordFill, (game, scorer, -35, Side.A, maker, STAKE, taker, STAKE));
+        vm.prank(wOwn[2]);
         (bool ok, bytes memory err) = address(wPositions).call(fill);
         assertFalse(ok, "the fill was taken");
         assertEq(err, abi.encodeWithSelector(OspexMarkets.OspexMarkets__ScorerNotApproved.selector, scorer));

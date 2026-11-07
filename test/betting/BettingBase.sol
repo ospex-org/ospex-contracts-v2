@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.26;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {GameStatus, IOspexGames, ReporterKind} from "../../src/games/IOspexGames.sol";
 import {OspexBetting} from "../../src/betting/OspexBetting.sol";
 import {OspexMarkets} from "../../src/betting/OspexMarkets.sol";
@@ -12,27 +13,6 @@ import {OspexTotalScorer} from "../../src/betting/OspexTotalScorer.sol";
 import {Market, MarketStatus, Outcome, Position, Side} from "../../src/betting/OspexBettingTypes.sol";
 import {RefusingCoin} from "../games/CoinFixtures.sol";
 import {Deploy, GamesBase, MockReporter, OspexGamesHarness} from "../games/GamesBase.sol";
-
-/// @dev The positions module with one test-only hook: a fill recorded without the matching module. The set has
-///      no fill path until the Cross is built with the courier's check inside it, so the tests put positions
-///      into a market through this hook, which calls the production fill from the matching module's gate
-///      inward. It overrides nothing, so every other call runs the production code.
-contract OspexPositionsHarness is OspexPositions {
-    constructor(address core) OspexPositions(core) {}
-
-    function harnessFill(
-        uint256 gameId,
-        address scorer,
-        int32 lineTicks,
-        Side makerSide,
-        address maker,
-        uint256 makerRisk,
-        address taker,
-        uint256 takerRisk
-    ) external returns (uint256) {
-        return _fill(gameId, scorer, lineTicks, makerSide, maker, makerRisk, taker, takerRisk);
-    }
-}
 
 /// @dev A stand-in for a module: it answers the core's four reads as it was told at its deploy, or as it was last
 ///      told to answer. It is no module of the repository. The core's checks are tested against it one answer at a
@@ -181,22 +161,54 @@ contract ObservingModule {
 }
 
 /// @dev Shared setup: the games test base, with its games contract, reporters, coin and timelock, and the
-///      betting set deployed beside it, bootstrapped and finalized by the deployer; two funded accounts; and
-///      helpers that score a game through the production report path and put positions into a market.
+///      betting set deployed beside it, bootstrapped and finalized by the deployer; two funded accounts that
+///      are keys, so they sign; and helpers that score a game through the production report path, sign orders
+///      and put positions into a market through the Cross. Every contract of the set here is the production
+///      contract: there is no test-only hook.
 abstract contract BettingBase is GamesBase {
     /// @dev A stake in a test that is not about the amount: 10 USDC in six decimals.
     uint256 internal constant STAKE = 10_000_000;
 
+    /// @dev The signed order's type, written out: nine fields, the first named `account`. The digests the tests
+    ///      sign are built from this string and the two domain strings below, never from the contract's reads.
+    string internal constant ORDER_TYPE =
+        "OspexOrder(address account,uint256 gameId,address scorer,int32 lineTicks,uint8 positionType,uint16 oddsTick,uint256 riskAmount,uint256 nonce,uint256 expiry)";
+    string internal constant DOMAIN_NAME = "Ospex";
+    string internal constant DOMAIN_VERSION = "3";
+    bytes32 internal constant DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+
     OspexBetting internal core;
     OspexMarkets internal markets;
-    OspexPositionsHarness internal positions;
+    OspexPositions internal positions;
     OspexMatching internal matching;
     OspexMoneylineScorer internal moneyline;
     OspexSpreadScorer internal spread;
     OspexTotalScorer internal total;
 
-    address internal maker = makeAddr("maker");
-    address internal taker = makeAddr("taker");
+    /// @dev The two accounts of most tests, each a key. In a fill made by _fill, the maker's order rests and the
+    ///      taker's takes.
+    address internal maker;
+    uint256 internal makerKey;
+    address internal taker;
+    uint256 internal takerKey;
+    /// @dev The address that sends the Crosses of _fill. The maker and the taker register it at their first
+    ///      fill, each from its own address, and not before: a test that makes no fill starts with no courier
+    ///      registered by anyone.
+    address internal fillCourier = makeAddr("fillCourier");
+    /// @dev The transaction origin of every Cross the helpers send: an address that is no account, no courier
+    ///      and no contract of the set, so a line that read tx.origin where it should read msg.sender would
+    ///      find nobody.
+    address internal crossOrigin = makeAddr("crossOrigin");
+    /// @dev The nonce of the next order _fill signs, so two fills of the same amounts are two orders.
+    uint256 internal fillNonce = 1;
+    /// @dev Whether the maker and the taker have registered fillCourier.
+    bool internal fillCourierRegistered;
+
+    constructor() {
+        (maker, makerKey) = makeAddrAndKey("maker");
+        (taker, takerKey) = makeAddrAndKey("taker");
+    }
 
     /// @dev A second games set with its own first-n reporter, and a second coin: what a module must not be
     ///      wired to. Deployed by _deployOtherCores, for the tests that need them, and not by setUp.
@@ -219,10 +231,15 @@ abstract contract BettingBase is GamesBase {
     /// @dev The set as deploy day will make it: the core with the games set and the coin, the six modules on
     ///      the core, bootstrapped under their types, finalized.
     function _deploySet() internal {
+        _deploySetOn(address(token));
+    }
+
+    /// @dev The same set on a coin of the test's choosing. It replaces the set the helpers act on.
+    function _deploySetOn(address coin) internal {
         vm.startPrank(deployer, deployer);
-        core = new OspexBetting(address(games), address(token));
+        core = new OspexBetting(address(games), coin);
         markets = new OspexMarkets(address(core));
-        positions = new OspexPositionsHarness(address(core));
+        positions = new OspexPositions(address(core));
         matching = new OspexMatching(address(core));
         moneyline = new OspexMoneylineScorer(address(core));
         spread = new OspexSpreadScorer(address(core));
@@ -344,33 +361,237 @@ abstract contract BettingBase is GamesBase {
         _scoreBy(first, game, home, away);
     }
 
+    // ──────────────────────────── Orders ───────────────────────────────
+
+    /// @dev An order, field by field.
+    function _order(
+        address account,
+        uint256 game,
+        address scorer,
+        int32 line,
+        Side side,
+        uint16 tick,
+        uint256 risk,
+        uint256 nonce,
+        uint256 expiry
+    ) internal pure returns (OspexMatching.OspexOrder memory o) {
+        o = OspexMatching.OspexOrder({
+            account: account,
+            gameId: game,
+            scorer: scorer,
+            lineTicks: line,
+            positionType: side,
+            oddsTick: tick,
+            riskAmount: risk,
+            nonce: nonce,
+            expiry: expiry
+        });
+    }
+
+    /// @dev A price in ticks, as an order carries it. Refuses a number an order's price field does not hold.
+    function _tick(uint256 tick) internal pure returns (uint16) {
+        require(tick <= type(uint16).max, "not a price in ticks");
+        // casting to 'uint16' is safe because the line above refuses anything wider
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return uint16(tick);
+    }
+
+    /// @dev The EIP-712 domain separator of a matching module at `verifying`, from the two strings written out.
+    function _domainSeparator(address verifying) internal view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                DOMAIN_TYPEHASH,
+                keccak256(bytes(DOMAIN_NAME)),
+                keccak256(bytes(DOMAIN_VERSION)),
+                block.chainid,
+                verifying
+            )
+        );
+    }
+
+    /// @dev The struct hash of an order under a type string.
+    function _structHash(OspexMatching.OspexOrder memory o, string memory orderType) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                keccak256(bytes(orderType)),
+                o.account,
+                o.gameId,
+                o.scorer,
+                o.lineTicks,
+                uint8(o.positionType),
+                o.oddsTick,
+                o.riskAmount,
+                o.nonce,
+                o.expiry
+            )
+        );
+    }
+
+    /// @dev The hash an account signs for an order on the set's matching module, built here from first
+    ///      principles: the domain over the struct hash.
+    function _digest(OspexMatching.OspexOrder memory o) internal view returns (bytes32) {
+        return _digestOn(address(matching), o);
+    }
+
+    /// @dev The same, for a matching module at another address.
+    function _digestOn(address verifying, OspexMatching.OspexOrder memory o) internal view returns (bytes32) {
+        return keccak256(abi.encodePacked(hex"1901", _domainSeparator(verifying), _structHash(o, ORDER_TYPE)));
+    }
+
+    /// @dev A 65-byte signature by `key` over `digest`: r, s, v.
+    function _signature(uint256 key, bytes32 digest) internal pure returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    /// @dev An order signed by `key` for the set's matching module.
+    function _signed(OspexMatching.OspexOrder memory o, uint256 key)
+        internal
+        view
+        returns (OspexMatching.SignedOrder memory)
+    {
+        return OspexMatching.SignedOrder({order: o, signature: _signature(key, _digest(o))});
+    }
+
+    /// @dev A list of one order.
+    function _list(OspexMatching.SignedOrder memory a) internal pure returns (OspexMatching.SignedOrder[] memory l) {
+        l = new OspexMatching.SignedOrder[](1);
+        l[0] = a;
+    }
+
+    /// @dev The other side.
+    function _other(Side side) internal pure returns (Side) {
+        return side == Side.A ? Side.B : Side.A;
+    }
+
+    // ──────────────────────────── The Cross ────────────────────────────
+
+    /// @dev `who` registers `to` as its courier, unless it has.
+    function _register(address who, address to) internal {
+        if (matching.isCourier(who, to)) return;
+        vm.prank(who);
+        matching.registerCourier(to);
+    }
+
+    /// @dev `sender` sends a Cross, with the result. The sender is the immediate caller, and the transaction's
+    ///      origin is another address.
+    function _tryCross(
+        address sender,
+        OspexMatching.SignedOrder memory taking,
+        OspexMatching.SignedOrder[] memory resting
+    ) internal returns (bool ok, bytes memory err) {
+        return _tryCrossAs(sender, crossOrigin, taking, resting);
+    }
+
+    /// @dev The same, with the transaction's origin named.
+    function _tryCrossAs(
+        address sender,
+        address origin,
+        OspexMatching.SignedOrder memory taking,
+        OspexMatching.SignedOrder[] memory resting
+    ) internal returns (bool ok, bytes memory err) {
+        vm.prank(sender, origin);
+        (ok, err) = address(matching).call(abi.encodeCall(OspexMatching.cross, (taking, resting)));
+    }
+
+    /// @dev A Cross that must fill. It returns nothing: the events are its record.
+    function _cross(address sender, OspexMatching.SignedOrder memory taking, OspexMatching.SignedOrder[] memory resting)
+        internal
+    {
+        (bool ok, bytes memory err) = _tryCross(sender, taking, resting);
+        assertTrue(ok, string.concat("the Cross was refused: ", vm.toString(err)));
+        assertEq(err.length, 0, "the Cross returned a value");
+    }
+
     // ──────────────────────────── Fills ────────────────────────────────
 
-    /// @dev A fill through the hook: `maker` on `makerSide` risks `makerRisk`, `taker` on the other side risks
-    ///      `takerRisk`. Draws the market at the first fill on its three fields.
+    /// @dev A fill through the Cross: the maker's order rests on `makerSide` for `makerRisk`, at the price that
+    ///      makes the taker's stake `takerRisk`; the taker's order takes on the other side for `takerRisk`, at
+    ///      the shortest price, which every resting price meets; fillCourier sends it. The two amounts must be
+    ///      a fill an order can express: a resting stake in whole lots, and a taking stake that is the resting
+    ///      stake times a price in ticks. Draws the market at the first fill on its three fields.
     function _fill(uint256 game, address scorer, int32 line, Side makerSide, uint256 makerRisk, uint256 takerRisk)
         internal
         returns (uint256 marketId)
     {
-        marketId = positions.harnessFill(game, scorer, line, makerSide, maker, makerRisk, taker, takerRisk);
+        (bool ok, bytes memory err) = _tryFill(game, scorer, line, makerSide, makerRisk, takerRisk);
+        assertTrue(ok, string.concat("the fill was refused: ", vm.toString(err)));
+        marketId = markets.getMarketId(game, scorer, line);
     }
 
-    /// @dev A market on `game`, `scorer` and `line`, with the maker on side A and the taker on side B, each
-    ///      risking STAKE.
-    function _market(uint256 game, address scorer, int32 line) internal returns (uint256 marketId) {
-        marketId = _fill(game, scorer, line, Side.A, STAKE, STAKE);
-    }
-
-    /// @dev The same fill, with its result: for refusals whose name a test checks.
+    /// @dev The same fill, with its result: for refusals whose name a test checks. A refusal of the positions
+    ///      module or the markets module comes back as that module raised it.
     function _tryFill(uint256 game, address scorer, int32 line, Side makerSide, uint256 makerRisk, uint256 takerRisk)
         internal
         returns (bool ok, bytes memory err)
     {
-        (ok, err) = address(positions).call(
-            abi.encodeCall(
-                OspexPositionsHarness.harnessFill, (game, scorer, line, makerSide, maker, makerRisk, taker, takerRisk)
-            )
+        require(makerRisk != 0 && makerRisk % 100 == 0 && takerRisk % 100 == 0, "not a fill an order can express");
+        require((takerRisk * 100) % makerRisk == 0, "not a fill at a price in ticks");
+        uint256 p = takerRisk * 100 / makerRisk;
+        require(p >= 1 && p <= 10_000, "not a fill at an admissible price");
+        _readyToFill();
+        OspexMatching.SignedOrder memory resting = _signed(
+            _order(
+                maker,
+                game,
+                scorer,
+                line,
+                makerSide,
+                _tick(100 + p),
+                makerRisk,
+                fillNonce++,
+                vm.getBlockTimestamp() + 1 days
+            ),
+            makerKey
         );
+        OspexMatching.SignedOrder memory taking = _signed(
+            _order(
+                taker, game, scorer, line, _other(makerSide), 101, takerRisk, fillNonce++, vm.getBlockTimestamp() + 30
+            ),
+            takerKey
+        );
+        (ok, err) = _tryCross(fillCourier, taking, _list(resting));
+    }
+
+    /// @dev The maker and the taker register fillCourier, once. A fill does it for itself; a test that watches
+    ///      the events of its first fill calls this before it starts to watch.
+    function _readyToFill() internal {
+        if (fillCourierRegistered) return;
+        _register(maker, fillCourier);
+        _register(taker, fillCourier);
+        fillCourierRegistered = true;
+    }
+
+    /// @dev A market on `game`, `scorer` and `line`, with the maker on side A and the taker on side B, each
+    ///      risking STAKE: a fill at 2.00.
+    function _market(uint256 game, address scorer, int32 line) internal returns (uint256 marketId) {
+        marketId = _fill(game, scorer, line, Side.A, STAKE, STAKE);
+    }
+
+    /// @dev A fill sent to the positions module as the matching module sends one, with its result: for the
+    ///      fills no order can express, a zero stake and two stakes at no price in ticks, which the Cross
+    ///      never sends. It is the production entry point, called from the one address it takes a fill from.
+    function _tryRawFill(uint256 game, address scorer, int32 line, Side makerSide, uint256 makerRisk, uint256 takerRisk)
+        internal
+        returns (bool ok, bytes memory err)
+    {
+        vm.prank(address(matching));
+        (ok, err) = address(positions)
+            .call(
+                abi.encodeCall(
+                    OspexPositions.recordFill, (game, scorer, line, makerSide, maker, makerRisk, taker, takerRisk)
+                )
+            );
+    }
+
+    /// @dev The same, for a fill that must be taken.
+    function _rawFill(uint256 game, address scorer, int32 line, Side makerSide, uint256 makerRisk, uint256 takerRisk)
+        internal
+        returns (uint256 marketId)
+    {
+        (bool ok, bytes memory err) = _tryRawFill(game, scorer, line, makerSide, makerRisk, takerRisk);
+        assertTrue(ok, string.concat("the fill was refused: ", vm.toString(err)));
+        marketId = markets.getMarketId(game, scorer, line);
     }
 
     // ──────────────────────────── Settlement and claims ────────────────
@@ -392,12 +613,13 @@ abstract contract BettingBase is GamesBase {
         (ok, err) = address(positions).call(abi.encodeCall(OspexPositions.claimPosition, (marketId, side)));
     }
 
-    /// @dev `who` claims a position that must pay, and the coin it was paid.
+    /// @dev `who` claims a position that must pay, and the coin it was paid, in the set's coin.
     function _claim(address who, uint256 marketId, Side side) internal returns (uint256 paid) {
-        uint256 before = token.balanceOf(who);
+        IERC20 coin = positions.i_token();
+        uint256 before = coin.balanceOf(who);
         (bool ok, bytes memory err) = _tryClaim(who, marketId, side);
         assertTrue(ok, string.concat("claim refused: ", vm.toString(err)));
-        paid = token.balanceOf(who) - before;
+        paid = coin.balanceOf(who) - before;
     }
 
     /// @dev A market's outcome as its read gives it.
