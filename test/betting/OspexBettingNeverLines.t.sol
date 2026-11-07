@@ -232,28 +232,28 @@ contract OspexBettingNeverLinesTest is BettingBase {
     /// it red: cancelOrder made to record a fill of the order it cancels, and recordFill's caller check dropped.
     function test_neverLine_theCrossIsTheOneFillPath() public {
         // The matching module's functions are exactly these: the Cross, the per-order cancel, the per-line
-        // floor, the two courier registration calls, the reads and the constants.
+        // floor, the two courier registration calls, the cap's lift, the reads and the constants.
         string[] memory want = vm.split(
             "EVENT_COURIER_REGISTERED();EVENT_COURIER_UNREGISTERED();EVENT_CROSSED();EVENT_MIN_NONCE_UPDATED();"
-            "EVENT_ORDER_CANCELLED();EVENT_ORDER_MATCHED();EVENT_ORDER_SKIPPED();LOT();MARKET_MODULE();"
-            "MATCHING_MODULE();MAX_LINE_TICKS();MAX_ODDS();MAX_TAKING_LIFE();MIN_ODDS();ODDS_SCALE();"
-            "ORDER_TYPEHASH();POSITION_MODULE();"
+            "EVENT_ORDER_CANCELLED();EVENT_ORDER_MATCHED();EVENT_ORDER_SKIPPED();EVENT_TAKING_STAKE_CAP_LIFTED();"
+            "LOT();MARKET_MODULE();MATCHING_MODULE();MAX_LINE_TICKS();MAX_ODDS();MAX_TAKING_LIFE();MIN_ODDS();"
+            "ODDS_SCALE();ORDER_TYPEHASH();POSITION_MODULE();TAKING_STAKE_CAP();"
             "cancelOrder((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256));"
             "cross(((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256),bytes),"
             "((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256),bytes)[]);" "eip712Domain();"
             "getOrderHash((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256));"
-            "getDomainSeparator();getModuleType();i_ospexCore();isCourier(address,address);"
-            "raiseMinNonce(uint256,address,int32,uint256);registerCourier(address);"
+            "getDomainSeparator();getModuleType();i_ospexCore();i_timelock();isCourier(address,address);"
+            "liftTakingStakeCap();raiseMinNonce(uint256,address,int32,uint256);registerCourier(address);"
             "s_cancelledOrders(bytes32);s_filledRisk(bytes32);s_minNonces(address,bytes32);"
-            "unregisterCourier(address)",
+            "s_takingStakeCapLifted();unregisterCourier(address)",
             ";"
         );
         string memory json = _artifact("OspexMatching");
         _assertSameSet(vm.parseJsonKeys(json, "$.methodIdentifiers"), want, "function");
-        // Five of them change state, by the compiled interface: every other one is a view or a constant.
+        // Six of them change state, by the compiled interface: every other one is a view or a constant.
         _assertSameSet(
             _stateChanging(json),
-            vm.split("cancelOrder;cross;raiseMinNonce;registerCourier;unregisterCourier", ";"),
+            vm.split("cancelOrder;cross;liftTakingStakeCap;raiseMinNonce;registerCourier;unregisterCourier", ";"),
             "state-changing function"
         );
 
@@ -279,6 +279,22 @@ contract OspexBettingNeverLinesTest is BettingBase {
         assertEq(token.balanceOf(address(positions)), 0, "a call of the matching module moved coin");
         assertEq(markets.marketCount(), 0, "a call of the matching module drew a market");
         assertEq(positions.getPosition(1, maker, Side.A).risk, 0, "a call of the matching module wrote a position");
+
+        // The sixth, the cap's lift, on a set of its own whose cap is still in force, made by the timelock's
+        // address: it moves no coin, draws no market and writes no position.
+        OspexBetting capped = new OspexBetting(address(games), address(token));
+        (bytes32[] memory types, address[] memory addrs) = _freshSet(capped);
+        capped.bootstrapModules(types, addrs);
+        capped.finalize();
+        OspexMatching cappedMatching = OspexMatching(addrs[2]);
+        assertFalse(cappedMatching.s_takingStakeCapLifted(), "the fresh set's cap was lifted at deploy");
+        vm.prank(address(timelock));
+        cappedMatching.liftTakingStakeCap();
+        assertTrue(cappedMatching.s_takingStakeCapLifted(), "the lift did not land");
+        assertEq(token.balanceOf(maker), makerCoin, "the lift moved the account's coin");
+        assertEq(token.balanceOf(addrs[1]), 0, "the lift moved coin");
+        assertEq(OspexMarkets(addrs[0]).marketCount(), 0, "the lift drew a market");
+        assertEq(OspexPositions(addrs[1]).getPosition(1, maker, Side.A).risk, 0, "the lift wrote a position");
 
         // The positions module takes a fill from the matching module alone: from every other address a fill is
         // refused by name, and nothing moves. A courier both accounts registered is one of them.

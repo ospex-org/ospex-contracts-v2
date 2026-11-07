@@ -565,6 +565,8 @@ contract OspexMatchingTest is BettingBase {
     function test_module_answersItsTypeAndTheCore() public view {
         assertEq(matching.getModuleType(), core.MATCHING_MODULE());
         assertEq(address(matching.i_ospexCore()), address(core));
+        assertEq(matching.i_timelock(), address(timelock), "the timelock, read from the games set at the deploy");
+        assertEq(matching.TAKING_STAKE_CAP(), 10_000, "the cap: one cent, 100 lots");
         assertEq(matching.ODDS_SCALE(), 100);
         assertEq(matching.MIN_ODDS(), 101);
         assertEq(matching.MAX_ODDS(), 10100);
