@@ -3,7 +3,9 @@ pragma solidity ^0.8.26;
 
 import {Vm} from "forge-std/Vm.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
+import {OspexBetting} from "../../src/betting/OspexBetting.sol";
 import {OspexMatching} from "../../src/betting/OspexMatching.sol";
 import {OspexPositions} from "../../src/betting/OspexPositions.sol";
 import {Side} from "../../src/betting/OspexBettingTypes.sol";
@@ -189,6 +191,109 @@ contract OspexCrossCapTest is CrossBase {
             "a price of 1.00 at 20,000, tested before the cap"
         );
         vm.revertToState(snap);
+
+        // The shapes an independent pass found the cases above holding constant, each refused by the cap's name.
+        game = _verifiedGame();
+        // 10,100 against one resting 10,000: a check made after the walk on what filled would let it fill.
+        OspexMatching.SignedOrder memory one = _take(tk, game, takingSide, 200, 10_100);
+        _refused(
+            sender,
+            one,
+            _list(_rest(m1, game, restingSide, 200, 10_000)),
+            _refusal(OspexMatching.OspexMatching__TakingStakeAboveCap.selector, one),
+            "10,100 against one resting 10,000"
+        );
+        // A one-cent order that filled 5,000 while resting takes for the rest: the signed stake, not the sum.
+        OspexMatching.SignedOrder memory cent = _take(tk, game, takingSide, 200, CAP);
+        _cross(sender, _take(m1, game, restingSide, 200, 5_000), _list(cent));
+        assertEq(_filled(cent), 5_000, "the cent filled 5,000 while resting");
+        _cross(sender, cent, _list(_rest(m2, game, restingSide, 200, 10_000)));
+        assertEq(_filled(cent), 10_000, "the cent, taken for its rest");
+        // An order signed for 20,000 that filled 10,100 while resting is still refused as the taking order.
+        OspexMatching.SignedOrder memory past = _take(tk, game, takingSide, 200, 20_000);
+        _cross(sender, _take(m1, game, restingSide, 200, 10_000), _list(past));
+        _cross(sender, _take(m1, game, restingSide, 200, 100), _list(past));
+        assertEq(_filled(past), 10_100, "the order filled 10,100 while resting");
+        _refused(
+            sender,
+            past,
+            _list(_rest(m2, game, restingSide, 200, 10_000)),
+            _refusal(OspexMatching.OspexMatching__TakingStakeAboveCap.selector, past),
+            "an order signed for 20,000, filled 10,100 while resting, as the taking order"
+        );
+        // Magnitudes: past a 16-bit lot count, past 32 bits, past a dollar and past a hundred dollars.
+        _refusedAboveCap(game, takingSide, 6_553_700);
+        _refusedAboveCap(game, takingSide, 4_294_967_300);
+        _refusedAboveCap(game, takingSide, 100_000_100);
+        _refusedAboveCap(game, takingSide, 1_000_000_000_000);
+        // Another market, another price, the taking account as its own sender, as the origin, and with code.
+        OspexMatching.SignedOrder memory onSpread = _takeOn(tk, game, address(spread), -35, takingSide, 200, 10_100);
+        _refused(
+            sender,
+            onSpread,
+            _list(_restOn(m1, game, address(spread), -35, restingSide, 200, 10_000)),
+            _refusal(OspexMatching.OspexMatching__TakingStakeAboveCap.selector, onSpread),
+            "10,100 on the spread"
+        );
+        OspexMatching.SignedOrder memory shorter = _take(tk, game, takingSide, 190, 10_100);
+        _refused(
+            sender,
+            shorter,
+            _list(_rest(m1, game, restingSide, 210, 10_000)),
+            _refusal(OspexMatching.OspexMatching__TakingStakeAboveCap.selector, shorter),
+            "10,100 at 1.90"
+        );
+        _register(tk.a, tk.a);
+        OspexMatching.SignedOrder memory own = _take(tk, game, takingSide, 200, 10_100);
+        _refused(
+            tk.a,
+            own,
+            _list(_rest(m1, game, restingSide, 200, 10_000)),
+            _refusal(OspexMatching.OspexMatching__TakingStakeAboveCap.selector, own),
+            "10,100 sent by its own account"
+        );
+        OspexMatching.SignedOrder memory asOrigin = _take(tk, game, takingSide, 200, 10_100);
+        (bool okOrigin, bytes memory errOrigin) =
+            _tryCrossAs(sender, tk.a, asOrigin, _list(_rest(m1, game, restingSide, 200, 10_000)));
+        assertFalse(okOrigin, "10,100 filled with its account as the origin");
+        assertEq(
+            errOrigin,
+            _refusal(OspexMatching.OspexMatching__TakingStakeAboveCap.selector, asOrigin),
+            "10,100 with its account as the origin"
+        );
+        Signer memory coded = _account("taking account with code");
+        vm.etch(coded.a, address(new CallbackAccount()).code);
+        _register(coded.a, sender);
+        OspexMatching.SignedOrder memory byCode = _take(coded, game, takingSide, 200, 10_100);
+        _refused(
+            sender,
+            byCode,
+            _list(_rest(m1, game, restingSide, 200, 10_000)),
+            _refusal(OspexMatching.OspexMatching__TakingStakeAboveCap.selector, byCode),
+            "10,100 from an account with code"
+        );
+        // And the cap does not expire by the clock.
+        vm.warp(2_100_000_000);
+        _refusedAboveCap(game, takingSide, 10_100);
+        vm.revertToState(snap);
+    }
+
+    /// A refused taking stake never reaches the coin: from here to the end of the test the coin must not be asked
+    /// to move anything, whatever a check made after the pulls would undo.
+    /// Break: in OspexMatching, move the cap's check to after the walk, on the taking order's filled amount.
+    function test_neverLine_aRefusedTakingStakeNeverReachesTheCoin() public {
+        uint256 game = _verifiedGame();
+        vm.expectCall(address(_coin()), abi.encodeWithSelector(IERC20.transferFrom.selector), 0);
+        _refusedAboveCap(game, Side.B, 10_100);
+        _refusedAboveCap(game, Side.A, 10_100);
+        OspexMatching.SignedOrder memory one = _take(tk, game, Side.B, 200, 10_100);
+        _refused(
+            sender,
+            one,
+            _list(_rest(m1, game, Side.A, 200, 10_000)),
+            _refusal(OspexMatching.OspexMatching__TakingStakeAboveCap.selector, one),
+            "10,100 against one resting 10,000"
+        );
     }
 
     // ──────────────────────────── 18 ────────────────────
@@ -239,6 +344,23 @@ contract OspexCrossCapTest is CrossBase {
         (ok,) = _tryClaim(losesFifty, fiftyMarket, Side.B);
         assertFalse(ok, "side B was paid on the fifty dollars' market");
         assertEq(_coin().balanceOf(address(positions)), 0, "the positions module holds coin after the claims");
+
+        // A resting order signed past fifty dollars fills the same leg, settles and pays the same, and none of it
+        // moved the flag.
+        uint256 more = _verifiedGame();
+        resting = _rest(m2, more, restingSide, 210, 50_000_100);
+        taking = _take(tk, more, takingSide, 190, CAP);
+        _cross(sender, taking, _list(resting));
+        uint256 moreMarket = markets.getMarketId(more, address(moneyline), 0);
+        assertEq(_filled(resting), 9_000, "fifty dollars and a lot, filled");
+        _score(more, HOME, AWAY);
+        _settle(moreMarket);
+        (address winsMore, address losesMore) = restingSide == Side.A ? (m2.a, tk.a) : (tk.a, m2.a);
+        assertEq(_claim(winsMore, moreMarket, Side.A), 18_900, "9,000 and 9,900, to side A, past fifty dollars");
+        (ok,) = _tryClaim(losesMore, moreMarket, Side.B);
+        assertFalse(ok, "side B was paid past fifty dollars");
+        assertEq(_coin().balanceOf(address(positions)), 0, "the positions module holds coin at the end");
+        assertFalse(matching.s_takingStakeCapLifted(), "a resting fill moved the flag");
     }
 
     // ──────────────────────────── 19 ────────────────────
@@ -253,8 +375,24 @@ contract OspexCrossCapTest is CrossBase {
         uint256 game = _verifiedGame();
         _refusedAboveCap(game, Side.B, 10_100);
 
-        // Anyone but the timelock: refused by name, the flag unmoved, and 10,100 still refused.
-        address[7] memory callers = [deployer, address(core), timelockKey, sender, m1.a, tk.a, stranger];
+        // Anyone but the timelock: refused by name, the flag unmoved, and 10,100 still refused. Among them the
+        // contracts of the set, the games set, the coin, and a second stock timelock with the same code.
+        TimelockController twin = new TimelockController(DELAY, _one(timelockKey), _one(address(0)), address(0));
+        address[13] memory callers = [
+            deployer,
+            address(core),
+            timelockKey,
+            sender,
+            m1.a,
+            tk.a,
+            stranger,
+            address(games),
+            address(positions),
+            address(markets),
+            address(matching),
+            address(_coin()),
+            address(twin)
+        ];
         for (uint256 i; i < callers.length; ++i) {
             vm.prank(callers[i], callers[i]);
             (bool taken, bytes memory refusal) = address(matching).call(_lift());
@@ -276,6 +414,18 @@ contract OspexCrossCapTest is CrossBase {
         );
         assertFalse(matching.s_takingStakeCapLifted(), "the flag moved under a refused lift");
         _refusedAboveCap(game, Side.A, 10_100);
+        // The caller's check does not expire by the clock.
+        uint256 later = vm.snapshotState();
+        vm.warp(2_100_000_000);
+        vm.prank(stranger, stranger);
+        (bool okLater, bytes memory errLater) = address(matching).call(_lift());
+        assertFalse(okLater, "a stranger lifted the cap years later");
+        assertEq(
+            errLater,
+            abi.encodeWithSelector(OspexMatching.OspexMatching__NotTheTimelock.selector, stranger),
+            "a stranger's lift, years later"
+        );
+        vm.revertToState(later);
 
         // The timelock's address lifts it: zero bytes back, the two logs as literals, the flag true.
         vm.recordLogs();
@@ -302,6 +452,8 @@ contract OspexCrossCapTest is CrossBase {
         _fillsAboveCap(game, Side.A, 10_100);
         _fillsAboveCap(game, Side.B, 1_000_000);
         _fillsAboveCap(game, Side.A, 1_000_000);
+        // Past a hundred dollars too: after the lift only the signed stake bounds a fill.
+        _fillsAboveCap(game, Side.B, 100_000_100);
 
         // Twice: refused by name, and the flag stays.
         vm.prank(address(timelock), address(timelock));
@@ -319,9 +471,27 @@ contract OspexCrossCapTest is CrossBase {
     /// Break: in OspexMatching.registerCourier, add `s_takingStakeCapLifted = true;`.
     function test_neverLine_theLiftIsTheOnlyWriteOfTheFlag() public {
         uint256 game = _verifiedGame();
+        // Every other state-changing function, on its success path and on its other branches, with the storage
+        // writes of the matching module recorded.
+        vm.record();
         _eachOtherFunctionLeavesTheFlag(game, false);
+        (, bytes32[] memory writesBefore) = vm.accesses(address(matching));
+        // The lift: one storage slot of the matching module written, the flag's.
+        vm.record();
         _liftTheCap();
+        (, bytes32[] memory liftWrites) = vm.accesses(address(matching));
+        assertEq(liftWrites.length, 1, "the lift writes one slot");
+        bytes32 flagSlot = liftWrites[0];
+        vm.record();
         _eachOtherFunctionLeavesTheFlag(game, true);
+        (, bytes32[] memory writesAfter) = vm.accesses(address(matching));
+        // Nothing but the lift wrote that slot, before or after.
+        for (uint256 i; i < writesBefore.length; ++i) {
+            assertTrue(writesBefore[i] != flagSlot, "the flag's slot was written before the lift by another call");
+        }
+        for (uint256 i; i < writesAfter.length; ++i) {
+            assertTrue(writesAfter[i] != flagSlot, "the flag's slot was written after the lift by another call");
+        }
     }
 
     function _eachOtherFunctionLeavesTheFlag(uint256 game, bool expected) internal {
@@ -331,6 +501,8 @@ contract OspexCrossCapTest is CrossBase {
         vm.startPrank(m1.a, m1.a);
         matching.registerCourier(other);
         assertEq(matching.s_takingStakeCapLifted(), expected, "after a registration");
+        matching.registerCourier(other);
+        assertEq(matching.s_takingStakeCapLifted(), expected, "after a repeated registration");
         matching.unregisterCourier(other);
         assertEq(matching.s_takingStakeCapLifted(), expected, "after a drop");
         matching.cancelOrder(toCancel);
@@ -338,8 +510,31 @@ contract OspexCrossCapTest is CrossBase {
         matching.raiseMinNonce(game, address(spread), -35, floor);
         assertEq(matching.s_takingStakeCapLifted(), expected, "after a raised floor");
         vm.stopPrank();
+        // A Cross that fills one leg.
         _cross(sender, _take(tk, game, Side.B, 200, CAP), _list(_rest(m1, game, Side.A, 200, 10_000)));
         assertEq(matching.s_takingStakeCapLifted(), expected, "after a Cross");
+        // A Cross that skips a leg for no courier, then fills: the skip record's branch.
+        Signer memory unregistered = _account(expected ? "unregistered, after" : "unregistered, before");
+        _cross(
+            sender,
+            _take(tk, game, Side.B, 200, CAP),
+            _list(_rest(unregistered, game, Side.A, 200, 10_000), _rest(m1, game, Side.A, 200, 10_000))
+        );
+        assertEq(matching.s_takingStakeCapLifted(), expected, "after a Cross with a skipped leg");
+        // A Cross whose first leg's pull is refused, then fills: the put-back branch.
+        Signer memory broke = _account(expected ? "cannot pay, after" : "cannot pay, before");
+        _register(broke.a, sender);
+        vm.prank(broke.a);
+        _coin().approve(address(positions), 0);
+        _cross(
+            sender,
+            _take(tk, game, Side.B, 200, CAP),
+            _list(_rest(broke, game, Side.A, 200, 10_000), _rest(m1, game, Side.A, 200, 10_000))
+        );
+        assertEq(matching.s_takingStakeCapLifted(), expected, "after a Cross with a refused pull");
+        // A leg whose resting order is signed for far more than the cap.
+        _cross(sender, _take(tk, game, Side.B, 200, CAP), _list(_rest(m1, game, Side.A, 200, 200_000)));
+        assertEq(matching.s_takingStakeCapLifted(), expected, "after a leg against a large resting order");
     }
 
     /// The lift is a timelock operation anyone may run once it is ready, so an account whose code the coin calls
@@ -525,11 +720,12 @@ contract OspexCrossCapTest is CrossBase {
 
     /// Before the lift only a stake at or under the cap fills; after it, only the signed stake bounds a fill.
     function testFuzz_onlyAStakeAtOrUnderTheCapFillsBeforeTheLift(uint256 lots) public {
-        lots = bound(lots, 1, 300);
+        // Up to half the purse: past a 16-bit lot count and a 32-bit unit count.
+        lots = bound(lots, 1, 5_000_000_000);
         uint256 stake = lots * 100;
         uint256 game = _verifiedGame();
         OspexMatching.SignedOrder memory taking = _take(tk, game, Side.B, 200, stake);
-        OspexMatching.SignedOrder memory resting = _rest(m1, game, Side.A, 200, 100_000);
+        OspexMatching.SignedOrder memory resting = _rest(m1, game, Side.A, 200, stake);
         if (stake > CAP) {
             _refused(
                 sender,
@@ -545,7 +741,7 @@ contract OspexCrossCapTest is CrossBase {
         }
         _liftTheCap();
         taking = _take(tk, game, Side.B, 200, stake);
-        _cross(sender, taking, _list(_rest(m2, game, Side.A, 200, 100_000)));
+        _cross(sender, taking, _list(_rest(m2, game, Side.A, 200, stake)));
         assertEq(_filled(taking), stake, "after the lift only the signed stake bounds a fill");
     }
 
@@ -582,5 +778,103 @@ contract OspexCrossCapTest is CrossBase {
         _cross(sender, taking, _list(_rest(m1, third, Side.A, 200, 10_100)));
         emit log_named_uint("10,100, one leg, the market's first fill, after the lift", vm.lastCallGas().gasTotalUsed);
         assertEq(_filled(taking), 10_100);
+    }
+}
+
+/// @dev A core that answers the one read the matching module's constructor makes of it, and takes the hub's call:
+///      what a matching module is deployed against in the constructor tests below.
+contract AnsweringCore {
+    address public i_games;
+
+    constructor(address games) {
+        i_games = games;
+    }
+
+    function emitCoreEvent(bytes32, bytes calldata) external {}
+}
+
+/// @dev A games set whose timelock answer can be changed: what a live read would follow, and a stored one not.
+contract AnsweringGames {
+    address public i_timelock;
+
+    function set(address timelock) external {
+        i_timelock = timelock;
+    }
+}
+
+/// @notice The matching module's constructor: the timelock read once from the games set the core names and
+///         kept, and the games addresses it refuses.
+contract OspexCrossCapConstructorTest is CrossBase {
+    function setUp() public override {
+        liftAtDeploy = false;
+        super.setUp();
+    }
+
+    /// The timelock is the games set's answer when the matching module is deployed, and nothing the games set
+    /// answers later changes it: a lift by the later answer is refused, and a lift by the first succeeds.
+    /// Break: in OspexMatching.liftTakingStakeCap, compare the caller with the games set's answer read then,
+    /// `IOspexGamesTimelock(address(i_ospexCore.i_games())).i_timelock()`, instead of i_timelock.
+    function test_neverLine_theTimelockIsReadOnceAtDeployAndKept() public {
+        address first = makeAddr("the timelock at the deploy");
+        address later = makeAddr("a timelock answered later");
+        AnsweringGames answering = new AnsweringGames();
+        answering.set(first);
+        OspexMatching m = new OspexMatching(address(new AnsweringCore(address(answering))));
+        assertEq(m.i_timelock(), first, "the timelock read at the deploy");
+
+        answering.set(later);
+        assertEq(answering.i_timelock(), later, "the games set's later answer");
+        assertEq(m.i_timelock(), first, "the matching module followed the games set's later answer");
+        vm.prank(later, later);
+        (bool ok, bytes memory err) = address(m).call(abi.encodeCall(OspexMatching.liftTakingStakeCap, ()));
+        assertFalse(ok, "the later answer lifted the cap");
+        assertEq(
+            err,
+            abi.encodeWithSelector(OspexMatching.OspexMatching__NotTheTimelock.selector, later),
+            "the later answer's refusal"
+        );
+        assertFalse(m.s_takingStakeCapLifted(), "the flag after the later answer's refusal");
+        vm.prank(first, first);
+        m.liftTakingStakeCap();
+        assertTrue(m.s_takingStakeCapLifted(), "the first answer did not lift the cap");
+    }
+
+    /// The constructor refuses a games address it cannot read a timelock from: one with no code, one whose code is a
+    /// wallet's delegation, and one that answers zero. The delegation is the one the core itself lets through, since
+    /// the core checks only that the address has code.
+    /// Breaks: in OspexMatching's constructor, drop `games.code.length == 0 ||`; drop `|| _isDelegated(games)`; drop
+    /// the zero check.
+    function test_neverLine_theConstructorRefusesAGamesAddressItCannotReadATimelockFrom() public {
+        address empty = makeAddr("a games address with no code");
+        AnsweringCore emptyCore = new AnsweringCore(empty);
+        vm.expectRevert(abi.encodeWithSelector(OspexMatching.OspexMatching__GamesNotAContract.selector, empty));
+        new OspexMatching(address(emptyCore));
+
+        address delegated = makeAddr("a games address that is a wallet's delegation");
+        vm.etch(delegated, abi.encodePacked(hex"ef0100", address(games)));
+        assertEq(delegated.code.length, 23, "the delegation's length");
+        // The core takes it: its check is that the address has code.
+        OspexBetting coreOnDelegation = new OspexBetting(delegated, address(token));
+        assertEq(address(coreOnDelegation.i_games()), delegated, "the core's games address");
+        vm.expectRevert(abi.encodeWithSelector(OspexMatching.OspexMatching__GamesNotAContract.selector, delegated));
+        new OspexMatching(address(coreOnDelegation));
+
+        AnsweringGames silent = new AnsweringGames();
+        AnsweringCore silentCore = new AnsweringCore(address(silent));
+        vm.expectRevert(
+            abi.encodeWithSelector(OspexMatching.OspexMatching__GamesHasNoTimelock.selector, address(silent))
+        );
+        new OspexMatching(address(silentCore));
+    }
+
+    /// The cap is in force at deploy on every chain: the flag is false under Polygon's chain id as under the test's.
+    /// Break: in OspexMatching's constructor, `s_takingStakeCapLifted = block.chainid == 137;`.
+    function test_neverLine_theCapIsInForceAtDeployOnEveryChain() public {
+        assertFalse(matching.s_takingStakeCapLifted(), "the flag at deploy, on the test's chain");
+        uint256 chain = block.chainid;
+        vm.chainId(137);
+        _deploySetWith(address(games), address(token));
+        assertFalse(matching.s_takingStakeCapLifted(), "the flag at deploy, under Polygon's chain id");
+        vm.chainId(chain);
     }
 }
