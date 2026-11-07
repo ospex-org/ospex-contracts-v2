@@ -240,12 +240,17 @@ abstract contract GamesBase is Test {
     /// @dev Runs `call` on the games contract the way it runs live: K schedules it through the timelock, the
     ///      delay passes, and a stranger runs it. Reverts with the call's own refusal if it is refused.
     function _throughTimelock(bytes memory call) internal {
+        _throughTimelockTo(address(games), call);
+    }
+
+    /// @dev The same, on any target the timelock may call: the games contract, or a contract of the betting set.
+    function _throughTimelockTo(address target, bytes memory call) internal {
         bytes32 s = bytes32(++salt);
         vm.prank(timelockKey);
-        timelock.schedule(address(games), 0, call, bytes32(0), s, DELAY);
+        timelock.schedule(target, 0, call, bytes32(0), s, DELAY);
         vm.warp(vm.getBlockTimestamp() + DELAY);
         vm.prank(stranger);
-        timelock.execute(address(games), 0, call, bytes32(0), s);
+        timelock.execute(target, 0, call, bytes32(0), s);
     }
 
     /// @dev The same call, made by the timelock's address at once, with its result: for refusals whose name a
