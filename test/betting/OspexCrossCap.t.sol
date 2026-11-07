@@ -515,22 +515,25 @@ contract OspexCrossCapTest is CrossBase {
         assertEq(matching.s_takingStakeCapLifted(), expected, "after a Cross");
         // A Cross that skips a leg for no courier, then fills: the skip record's branch.
         Signer memory unregistered = _account(expected ? "unregistered, after" : "unregistered, before");
-        _cross(
-            sender,
-            _take(tk, game, Side.B, 200, CAP),
-            _list(_rest(unregistered, game, Side.A, 200, 10_000), _rest(m1, game, Side.A, 200, 10_000))
-        );
+        OspexMatching.SignedOrder memory skipped = _rest(unregistered, game, Side.A, 200, 10_000);
+        OspexMatching.SignedOrder memory filled = _rest(m1, game, Side.A, 200, 10_000);
+        _cross(sender, _take(tk, game, Side.B, 200, CAP), _list(skipped, filled));
+        assertEq(_filled(skipped), 0, "the unregistered account's order was not skipped");
+        assertEq(_filled(filled), 10_000, "the leg after the skip did not fill");
         assertEq(matching.s_takingStakeCapLifted(), expected, "after a Cross with a skipped leg");
-        // A Cross whose first leg's pull is refused, then fills: the put-back branch.
+        // A Cross whose first leg's pull is refused, then fills: the put-back branch. The coin is read before the
+        // prank, so the prank reaches the approval.
         Signer memory broke = _account(expected ? "cannot pay, after" : "cannot pay, before");
         _register(broke.a, sender);
+        IERC20 coin = _coin();
         vm.prank(broke.a);
-        _coin().approve(address(positions), 0);
-        _cross(
-            sender,
-            _take(tk, game, Side.B, 200, CAP),
-            _list(_rest(broke, game, Side.A, 200, 10_000), _rest(m1, game, Side.A, 200, 10_000))
-        );
+        coin.approve(address(positions), 0);
+        assertEq(coin.allowance(broke.a, address(positions)), 0, "the account still has an allowance");
+        OspexMatching.SignedOrder memory refused = _rest(broke, game, Side.A, 200, 10_000);
+        filled = _rest(m1, game, Side.A, 200, 10_000);
+        _cross(sender, _take(tk, game, Side.B, 200, CAP), _list(refused, filled));
+        assertEq(_filled(refused), 0, "the order whose pull was refused filled");
+        assertEq(_filled(filled), 10_000, "the leg after the refused pull did not fill");
         assertEq(matching.s_takingStakeCapLifted(), expected, "after a Cross with a refused pull");
         // A leg whose resting order is signed for far more than the cap.
         _cross(sender, _take(tk, game, Side.B, 200, CAP), _list(_rest(m1, game, Side.A, 200, 200_000)));
