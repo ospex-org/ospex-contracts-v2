@@ -9,6 +9,12 @@ import {IOspexPositions} from "./IOspexPositions.sol";
 import {OspexBetting} from "./OspexBetting.sol";
 import {Side} from "./OspexBettingTypes.sol";
 
+/// @dev The one read the matching module makes of the games set, in its constructor: the timelock the games set
+///      answers to, a public immutable of OspexGames that IOspexGames does not declare.
+interface IOspexGamesTimelock {
+    function i_timelock() external view returns (address);
+}
+
 /**
  * @title OspexMatching
  * @author ospex.org
@@ -53,7 +59,15 @@ import {Side} from "./OspexBettingTypes.sol";
  *         What this build is not. Each stake is pulled in full at each leg: netting, one rebalance for the
  *         taking account and pay-backs come with shared collateral. The account's own key signs: the approved
  *         agent and contract wallets come with the agent. An order's nonce is compared whole with its
- *         account's floor. There is no cap on a stake.
+ *         account's floor.
+ *
+ *         The cap and its switch. Until the switch, a taking order's signed stake is at most TAKING_STAKE_CAP,
+ *         one cent: a taking order signed for more is refused by name before anything moves, whatever it has
+ *         filled so far and on either side. Resting stakes are not capped: what the other side puts up follows
+ *         from the odds. The switch is liftTakingStakeCap, which only the Polygon timelock may call, once, and
+ *         which nothing reverses. The timelock's address is read once, from the games set the core names, when
+ *         this contract is deployed, and kept as i_timelock. Spec: the alpha's one-cent cap, the Polygon
+ *         timelock's calls, and item 16 of its first milestone.
  */
 contract OspexMatching is IOspexModule, EIP712 {
     using TransientSlot for bytes32;
@@ -76,6 +90,7 @@ contract OspexMatching is IOspexModule, EIP712 {
     bytes32 public constant EVENT_ORDER_MATCHED = keccak256("ORDER_MATCHED");
     bytes32 public constant EVENT_ORDER_SKIPPED = keccak256("ORDER_SKIPPED");
     bytes32 public constant EVENT_CROSSED = keccak256("CROSSED");
+    bytes32 public constant EVENT_TAKING_STAKE_CAP_LIFTED = keccak256("TAKING_STAKE_CAP_LIFTED");
 
     /// @notice EIP-712 typehash for the OspexOrder struct: the nine fields, the first named `account`
     bytes32 public constant ORDER_TYPEHASH = keccak256(
@@ -98,11 +113,15 @@ contract OspexMatching is IOspexModule, EIP712 {
     uint256 public constant LOT = 100;
     /// @notice The most seconds a taking order may have left to its expiry when its Cross runs
     uint256 public constant MAX_TAKING_LIFE = 30;
+    /// @notice The most a taking order may sign until the switch: one cent, 10,000 units of a coin of six
+    ///         decimals, 100 lots. A taking order signed for more is refused by name while
+    ///         s_takingStakeCapLifted is false. Resting stakes are not capped.
+    uint256 public constant TAKING_STAKE_CAP = 10_000;
 
     /// @dev The first four bytes of a word: where revert data carries its error's selector.
     bytes32 private constant SELECTOR_MASK = bytes32(bytes4(0xffffffff));
     /// @dev Where the Cross-in-progress mark is kept, in transient storage: set by cross for the length of the
-    ///      call, read by the four other state-changing functions, and gone at the transaction's end.
+    ///      call, read by the five other state-changing functions, and gone at the transaction's end.
     bytes32 private constant CROSS_IN_PROGRESS_SLOT = keccak256("ospex.matching.cross-in-progress");
 
     // ──────────────────────────── Errors ───────────────────────────────
@@ -117,9 +136,18 @@ contract OspexMatching is IOspexModule, EIP712 {
     error OspexMatching__ZeroCourier();
     /// @notice Thrown when an account drops a courier it does not have
     error OspexMatching__CourierNotRegistered(address account, address courier);
+    /// @notice Thrown by the constructor when the games set the core names has no code, or has only a wallet's
+    ///         delegation
+    error OspexMatching__GamesNotAContract(address games);
+    /// @notice Thrown by the constructor when the games set the core names answers no timelock
+    error OspexMatching__GamesHasNoTimelock(address games);
+    /// @notice Thrown by liftTakingStakeCap when the caller is not the timelock
+    error OspexMatching__NotTheTimelock(address caller);
+    /// @notice Thrown by liftTakingStakeCap when the cap has been lifted already
+    error OspexMatching__CapAlreadyLifted();
 
-    /// @notice Thrown by cross, cancelOrder, raiseMinNonce, registerCourier and unregisterCourier while a Cross
-    ///         is in progress
+    /// @notice Thrown by cross, cancelOrder, raiseMinNonce, registerCourier, unregisterCourier and
+    ///         liftTakingStakeCap while a Cross is in progress
     error OspexMatching__CrossInProgress();
     /// @notice Thrown by cross when the taking order's account has not registered the sender as a courier
     error OspexMatching__SenderNotCourier(address account, address sender);
@@ -130,6 +158,9 @@ contract OspexMatching is IOspexModule, EIP712 {
     error OspexMatching__PriceOutOfRange(bytes32 orderHash);
     /// @notice Thrown by cross when an order's signed stake is zero or not a whole number of lots, in either role
     error OspexMatching__StakeNotInLots(bytes32 orderHash);
+    /// @notice Thrown by cross when the taking order's signed stake is above TAKING_STAKE_CAP and the cap has
+    ///         not been lifted
+    error OspexMatching__TakingStakeAboveCap(bytes32 orderHash);
     /// @notice Thrown by cross when the taking order is cancelled: its hash is marked, or its nonce is under its
     ///         account's floor for the market
     error OspexMatching__TakingOrderCancelled(bytes32 orderHash);
@@ -186,6 +217,10 @@ contract OspexMatching is IOspexModule, EIP712 {
 
     /// @notice Emitted when an account drops a courier. The account is the caller.
     event CourierUnregistered(address indexed account, address indexed courier);
+
+    /// @notice Emitted once, when the timelock lifts the cap on a taking order's signed stake. From then on only
+    ///         the signed stake bounds a fill.
+    event TakingStakeCapLifted();
 
     /// @notice Emitted once for each leg of a Cross that fills, after the positions module's PositionFilled.
     /// @param orderHash The resting order's hash
@@ -313,6 +348,10 @@ contract OspexMatching is IOspexModule, EIP712 {
 
     /// @notice The core
     OspexBetting public immutable i_ospexCore;
+    /// @notice The Polygon timelock: the one address that lifts the cap. Read once from the games set the core
+    ///         names, when this contract is deployed, and kept: what that games set answers later changes
+    ///         nothing here.
+    address public immutable i_timelock;
 
     /// @notice Per-market minimum valid nonce: account → market key → minimum nonce. The market key is
     ///         keccak256(abi.encode(gameId, scorer, lineTicks)).
@@ -328,14 +367,25 @@ contract OspexMatching is IOspexModule, EIP712 {
     ///      unregisterCourier, each at the caller's own entry and no other, and read through isCourier and,
     ///      by the same read, by the Cross.
     mapping(address => mapping(address => bool)) internal s_couriers;
+    /// @notice Whether the cap on a taking order's signed stake has been lifted. False at deploy; written once,
+    ///         to true, by liftTakingStakeCap, and by nothing else.
+    bool public s_takingStakeCapLifted;
 
     // ──────────────────────────── Constructor ──────────────────────────
 
-    /// @notice Deploys the matching module with EIP-712 domain "Ospex" version "3"
+    /// @notice Deploys the matching module with EIP-712 domain "Ospex" version "3", and reads the timelock once
+    ///         from the games set the core names
     /// @param core The betting set's core
     constructor(address core) EIP712("Ospex", "3") {
         if (core == address(0)) revert OspexMatching__InvalidAddress();
         i_ospexCore = OspexBetting(core);
+        // The timelock, read once and kept. The games address gets the check the games set makes on its own
+        // timelock: a contract, and not a wallet's delegation.
+        address games = address(OspexBetting(core).i_games());
+        if (games.code.length == 0 || _isDelegated(games)) revert OspexMatching__GamesNotAContract(games);
+        address timelock = IOspexGamesTimelock(games).i_timelock();
+        if (timelock == address(0)) revert OspexMatching__GamesHasNoTimelock(games);
+        i_timelock = timelock;
     }
 
     // ──────────────────────────── Module Identity ─────────────────────
@@ -358,8 +408,9 @@ contract OspexMatching is IOspexModule, EIP712 {
      *      - A Cross is already in progress.
      *      - The taking order's account has not registered the sender.
      *      - The taking order: its signature is not its account's; its price or its stake is not admissible;
-     *        it is cancelled, by its own cancel or under its account's floor; it has expired; it has more than
-     *        MAX_TAKING_LIFE seconds left; it has no room left.
+     *        its signed stake is above TAKING_STAKE_CAP and the cap has not been lifted; it is cancelled, by
+     *        its own cancel or under its account's floor; it has expired; it has more than MAX_TAKING_LIFE
+     *        seconds left; it has no room left.
      *      - A resting order, anywhere in the list: its signature is not its account's; its price or its stake
      *        is not admissible; its game, market contract or line is not the taking order's; it is on the
      *        taking order's side; its price does not meet the taking order's.
@@ -425,13 +476,18 @@ contract OspexMatching is IOspexModule, EIP712 {
         CROSS_IN_PROGRESS_SLOT.asBoolean().tstore(false);
     }
 
-    /// @dev The taking order's own checks, each a revert of the whole call: signature, price and stake, cancel
-    ///      and floor, expiry, the life left, room. The expiry is tested before the life left is subtracted,
-    ///      so an expired order is refused by name and not as an arithmetic error; the room is a comparison,
-    ///      with nothing subtracted.
+    /// @dev The taking order's own checks, each a revert of the whole call: signature, price and stake, the cap
+    ///      on its signed stake until the switch, cancel and floor, expiry, the life left, room. The expiry is
+    ///      tested before the life left is subtracted, so an expired order is refused by name and not as an
+    ///      arithmetic error; the room is a comparison, with nothing subtracted.
     function _checkTaking(SignedOrder calldata taking, bytes32 marketKey) private view returns (bytes32 orderHash) {
         OspexOrder calldata t = taking.order;
         orderHash = _checkSigned(taking);
+        // The cap compares the signed stake, never what is left to fill, and reads the switch only for a stake
+        // above it: a stake at or under the cap makes no storage read here.
+        if (t.riskAmount > TAKING_STAKE_CAP && !s_takingStakeCapLifted) {
+            revert OspexMatching__TakingStakeAboveCap(orderHash);
+        }
         if (s_cancelledOrders[orderHash] || t.nonce < s_minNonces[t.account][marketKey]) {
             revert OspexMatching__TakingOrderCancelled(orderHash);
         }
@@ -723,6 +779,28 @@ contract OspexMatching is IOspexModule, EIP712 {
         );
     }
 
+    // ──────────────────────────── The cap ─────────────────────────────
+
+    /**
+     * @notice Lift the cap on a taking order's signed stake. Only the timelock calls it, and once.
+     * @dev The caller is msg.sender, which must be i_timelock: the Polygon timelock, read from the games set
+     *      when this contract was deployed. So a lift waits the timelock's delay and is public while it waits,
+     *      and the key that holds the timelock is refused here like any other address. A second lift is refused
+     *      by name, and no function puts the cap back. It writes the one flag and emits TakingStakeCapLifted
+     *      and its hub copy; it moves no coin, draws no market and writes no position.
+     *
+     *      Refused while a Cross is in progress: the stock timelock lets anyone run a ready call, so a coin
+     *      that calls out during a pull could otherwise run the lift from inside a leg.
+     */
+    function liftTakingStakeCap() external {
+        if (_crossInProgress()) revert OspexMatching__CrossInProgress();
+        if (msg.sender != i_timelock) revert OspexMatching__NotTheTimelock(msg.sender);
+        if (s_takingStakeCapLifted) revert OspexMatching__CapAlreadyLifted();
+        s_takingStakeCapLifted = true;
+        emit TakingStakeCapLifted();
+        i_ospexCore.emitCoreEvent(EVENT_TAKING_STAKE_CAP_LIFTED, "");
+    }
+
     // ──────────────────────────── Reads ───────────────────────────────
 
     /// @notice Whether an account has a courier registered: true from the account's registerCourier until its
@@ -757,6 +835,12 @@ contract OspexMatching is IOspexModule, EIP712 {
     /// @dev Whether a Cross is in progress in this transaction.
     function _crossInProgress() private view returns (bool) {
         return CROSS_IN_PROGRESS_SLOT.asBoolean().tload();
+    }
+
+    /// @dev True when the account's code is a wallet's delegation (EIP-7702): 23 bytes, 0xef0100 and an address.
+    ///      The games set's own check, made here on the games address the constructor reads.
+    function _isDelegated(address account) private view returns (bool) {
+        return account.code.length == 23 && bytes3(account.code) == 0xef0100;
     }
 
     /// @dev The EIP-712 typed data hash of an order: the domain separator over the struct hash
