@@ -1,5 +1,5 @@
 {
- "about": "Breaks of the betting set, most of one line, each with a test it turns red; a break may turn others red too. For each: apply its edits to the file (each find occurs exactly once in the file as committed; a find of several lines is one anchor), run the named test alone and see it fail, restore the file byte for byte and see it pass. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis. Check that exactly one test ran. Ids: B, the cut's: the (home, away) order, the settlement's status read, the fill path, the registry and the interface pins. C, the couriers': who writes an account's couriers, no courier by default, the refusals, the repeated registration, the events and the two calls' signatures. From C17 on, the same lines read through the transaction's origin, or told apart by it, and a write beside the one the caller named. C31 and C32, a second write no list of addresses would reach. C33 to C35, one courier at a time and an event emitted twice. C36 to C45, the two calls that change nothing: a repeated registration succeeds and neither writes nor emits, and a drop of a courier the account does not have is refused. C46 to C62, behaviour that differs for one kind of caller, courier, time or count: a contract as the caller or as the courier, the account naming itself, the set's deployer as the caller, a write hidden by the order couriers are named in, a courier event from the cancel, a courier that appears or lapses with time or is written at deploy, a courier dropped several times, a courier asked about its own drop, a courier cancelling its account's order, a registration that returns a value, and a call made to the courier. W, the wiring's: the reads the core makes of a module at bootstrap, which types are asked which and in what order, that an address is read before it is written and never at finalize, that a read cannot write and that one that fails fails the call, every place of a call, the zero address as a market contract, and the pins of the core's three refusals and of the modules' deploy values. X, the Cross's: the courier each order's account registered (X1 to X9); the one fill path (X10); the close gate (X11 to X17); the filled amount and the signed stake (X18 to X24); the cancel and the floor (X25 to X35); the price and the lot (X36 to X39); the minimum (X40, X41); what is pulled and who holds it (X42 to X45); the skips, their order and what they leave (X46 to X58); the receipt (X59, X60); the refused pull's recognition and the two pulls (X61 to X69); a Cross that fills nothing (X70, X71); the taking order's thirty seconds (X72 to X75); the exclusion while a Cross is in progress and the positions module's guard (X76 to X85); the signature, the type and the domain (X86 to X100); the market, the side and the price (X101 to X105); an admissible price and stake (X106 to X110); the events (X111 to X126); and the gate's read (X127). Then what an independent pass found the first fixtures could not tell apart: a fault or a dead order late in a list (X128 to X139); a floor on a line that is not 0 (X140); an order that rests before it takes (X141); a refused pull at a price that is not even (X142, X143); stakes of many lots (X144, X145); the exclusion past the first leg (X146, X147); the filled amounts written before the pull (X148, X149); the receipt on either side (X150); a read made before a pull (X151, X152); a cancel through the transaction's origin (X153); the skip record's hub copy and the floor's place among the reasons (X154, X155); the market and the line in the records (X156 to X158); what the Cross returns (X159); the side a position records (X160); the exclusion past a refused pull and past an order nothing fits (X161, X162); and a full order whose account cannot pay (X163, X164).",
+ "about": "Breaks of the betting set, most of one line, each with a test it turns red; a break may turn others red too. For each: apply its edits to the file (each find occurs exactly once in the file as committed; a find of several lines is one anchor), run the named test alone and see it fail, restore the file byte for byte and see it pass. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis. Check that exactly one test ran. Ids: B, the cut's: the (home, away) order, the settlement's status read, the fill path, the registry and the interface pins. C, the couriers': who writes an account's couriers, no courier by default, the refusals, the repeated registration, the events and the two calls' signatures. From C17 on, the same lines read through the transaction's origin, or told apart by it, and a write beside the one the caller named. C31 and C32, a second write no list of addresses would reach. C33 to C35, one courier at a time and an event emitted twice. C36 to C45, the two calls that change nothing: a repeated registration succeeds and neither writes nor emits, and a drop of a courier the account does not have is refused. C46 to C62, behaviour that differs for one kind of caller, courier, time or count: a contract as the caller or as the courier, the account naming itself, the set's deployer as the caller, a write hidden by the order couriers are named in, a courier event from the cancel, a courier that appears or lapses with time or is written at deploy, a courier dropped several times, a courier asked about its own drop, a courier cancelling its account's order, a registration that returns a value, and a call made to the courier. W, the wiring's: the reads the core makes of a module at bootstrap, which types are asked which and in what order, that an address is read before it is written and never at finalize, that a read cannot write and that one that fails fails the call, every place of a call, the zero address as a market contract, and the pins of the core's three refusals and of the modules' deploy values. X, the Cross's: the courier each order's account registered (X1 to X9); the one fill path (X10); the close gate (X11 to X17); the filled amount and the signed stake (X18 to X24); the cancel and the floor (X25 to X35); the price and the lot (X36 to X39); the minimum (X40, X41); what is pulled and who holds it (X42 to X45); the skips, their order and what they leave (X46 to X58); the receipt (X59, X60); the refused pull's recognition and the two pulls (X61 to X69); a Cross that fills nothing (X70, X71); the taking order's thirty seconds (X72 to X75); the exclusion while a Cross is in progress and the positions module's guard (X76 to X85); the signature, the type and the domain (X86 to X100); the market, the side and the price (X101 to X105); an admissible price and stake (X106 to X110); the events (X111 to X126); and the gate's read (X127). Then what an independent pass found the first fixtures could not tell apart: a fault or a dead order late in a list (X128 to X139); a floor on a line that is not 0 (X140); an order that rests before it takes (X141); a refused pull at a price that is not even (X142, X143); stakes of many lots (X144, X145); the exclusion past the first leg (X146, X147); the filled amounts written before the pull (X148, X149); the receipt on either side (X150); a read made before a pull (X151, X152); a cancel through the transaction's origin (X153); the skip record's hub copy and the floor's place among the reasons (X154, X155); the market and the line in the records (X156 to X158); what the Cross returns (X159); the side a position records (X160); the exclusion past a refused pull and past an order nothing fits (X161, X162); and a full order whose account cannot pay (X163, X164). T, the cap and its switch (T1 to T22): the cap deleted, at or above, on the remainder, on the lot count, ten cents, a tenth of a cent, a refusal naming no order, the cap ahead of the signature (T1 to T8); a resting order or a leg capped (T9, T10); the lift for anyone, by the origin, twice, writing nothing, without its event or its hub copy, returning a value, lifted at deploy (T11 to T18); a registration that lifts (T19); the lift inside a Cross, and clearing the mark (T20, T21); a function that puts the cap back (T22).",
  "command": "FOUNDRY_SRC=src FOUNDRY_TEST=test/betting FOUNDRY_SCRIPT=none forge test --via-ir --optimize --match-path <testPath> --match-test '^<test>\\\\('",
  "breaks": [
   {
@@ -3889,6 +3889,296 @@
    "testPath": "test/betting/OspexCrossSkips.t.sol",
    "test": "test_neverLine_aFullOrderThatCannotPayIsRecordedAsFullAndTheCoinIsNotAsked",
    "breaks": "a full order's account is asked for a lot of coin before the order is recorded as full"
+  },
+  {
+   "id": "T1-capcheck",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (t.riskAmount > TAKING_STAKE_CAP && !s_takingStakeCapLifted) {\n            revert OspexMatching__TakingStakeAboveCap(orderHash);\n        }",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCap.t.sol",
+   "test": "test_neverLine_noTakingStakeAboveOneCentFillsBeforeTheSwitch",
+   "breaks": "a taking order signed for more than one cent fills before the switch"
+  },
+  {
+   "id": "T2-capgte",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (t.riskAmount > TAKING_STAKE_CAP && !s_takingStakeCapLifted) {",
+     "replace": "        if (t.riskAmount >= TAKING_STAKE_CAP && !s_takingStakeCapLifted) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCap.t.sol",
+   "test": "test_neverLine_noTakingStakeAboveOneCentFillsBeforeTheSwitch",
+   "breaks": "a taking order signed for exactly one cent is refused"
+  },
+  {
+   "id": "T3-capremainder",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (t.riskAmount > TAKING_STAKE_CAP && !s_takingStakeCapLifted) {",
+     "replace": "        if (t.riskAmount - s_filledRisk[orderHash] > TAKING_STAKE_CAP && !s_takingStakeCapLifted) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCap.t.sol",
+   "test": "test_neverLine_noTakingStakeAboveOneCentFillsBeforeTheSwitch",
+   "breaks": "the cap compares what is left to fill, not the signed stake"
+  },
+  {
+   "id": "T4-caplots",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (t.riskAmount > TAKING_STAKE_CAP && !s_takingStakeCapLifted) {",
+     "replace": "        if (t.riskAmount / LOT > TAKING_STAKE_CAP && !s_takingStakeCapLifted) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCap.t.sol",
+   "test": "test_neverLine_noTakingStakeAboveOneCentFillsBeforeTheSwitch",
+   "breaks": "the cap compares the lot count with a cap in units"
+  },
+  {
+   "id": "T5-caphundredthousand",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "    uint256 public constant TAKING_STAKE_CAP = 10_000;",
+     "replace": "    uint256 public constant TAKING_STAKE_CAP = 100_000;"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCap.t.sol",
+   "test": "test_neverLine_noTakingStakeAboveOneCentFillsBeforeTheSwitch",
+   "breaks": "the cap is ten cents"
+  },
+  {
+   "id": "T6-capthousand",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "    uint256 public constant TAKING_STAKE_CAP = 10_000;",
+     "replace": "    uint256 public constant TAKING_STAKE_CAP = 1_000;"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCap.t.sol",
+   "test": "test_neverLine_noTakingStakeAboveOneCentFillsBeforeTheSwitch",
+   "breaks": "the cap is a tenth of a cent"
+  },
+  {
+   "id": "T7-capzerohash",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            revert OspexMatching__TakingStakeAboveCap(orderHash);",
+     "replace": "            revert OspexMatching__TakingStakeAboveCap(bytes32(0));"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCap.t.sol",
+   "test": "test_neverLine_noTakingStakeAboveOneCentFillsBeforeTheSwitch",
+   "breaks": "the refusal names no order"
+  },
+  {
+   "id": "T8-capbeforesigned",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        orderHash = _checkSigned(taking);\n        // The cap compares the signed stake, never what is left to fill, and reads the switch only for a stake\n        // above it: a stake at or under the cap makes no storage read here.\n        if (t.riskAmount > TAKING_STAKE_CAP && !s_takingStakeCapLifted) {\n            revert OspexMatching__TakingStakeAboveCap(orderHash);\n        }",
+     "replace": "        if (t.riskAmount > TAKING_STAKE_CAP && !s_takingStakeCapLifted) {\n            revert OspexMatching__TakingStakeAboveCap(_hashOrder(t));\n        }\n        orderHash = _checkSigned(taking);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCap.t.sol",
+   "test": "test_neverLine_noTakingStakeAboveOneCentFillsBeforeTheSwitch",
+   "breaks": "the cap is tested before the signature, the price and the lot"
+  },
+  {
+   "id": "T9-restingcap",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            bytes32 orderHash = _checkSigned(resting[i]);",
+     "replace": "            bytes32 orderHash = _checkSigned(resting[i]);\n            if (r.riskAmount > TAKING_STAKE_CAP && !s_takingStakeCapLifted) revert OspexMatching__TakingStakeAboveCap(orderHash);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCap.t.sol",
+   "test": "test_neverLine_theOtherSideIsNotCapped",
+   "breaks": "a resting order's signed stake is capped too"
+  },
+  {
+   "id": "T10-legcap",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (left / p < lots) lots = left / p;",
+     "replace": "        if (left / p < lots) lots = left / p;\n        if (lots * LOT > TAKING_STAKE_CAP && !s_takingStakeCapLifted) return (false, SkipReason.NothingFits);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCap.t.sol",
+   "test": "test_neverLine_theOtherSideIsNotCapped",
+   "breaks": "a leg's resting stake is capped too"
+  },
+  {
+   "id": "T11-liftnocaller",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (msg.sender != i_timelock) revert OspexMatching__NotTheTimelock(msg.sender);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCap.t.sol",
+   "test": "test_neverLine_theSwitchActsOnceByTheTimelockAloneAndNeverBack",
+   "breaks": "anyone lifts the cap"
+  },
+  {
+   "id": "T12-liftorigin",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (msg.sender != i_timelock) revert OspexMatching__NotTheTimelock(msg.sender);",
+     "replace": "        if (tx.origin != i_timelock) revert OspexMatching__NotTheTimelock(tx.origin);"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCap.t.sol",
+   "test": "test_neverLine_theSwitchActsOnceByTheTimelockAloneAndNeverBack",
+   "breaks": "the lift reads the transaction's origin, not the caller"
+  },
+  {
+   "id": "T13-lifttwice",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (s_takingStakeCapLifted) revert OspexMatching__CapAlreadyLifted();\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCap.t.sol",
+   "test": "test_neverLine_theSwitchActsOnceByTheTimelockAloneAndNeverBack",
+   "breaks": "the switch acts twice"
+  },
+  {
+   "id": "T14-liftnowrite",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        s_takingStakeCapLifted = true;\n        emit TakingStakeCapLifted();",
+     "replace": "        emit TakingStakeCapLifted();"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCap.t.sol",
+   "test": "test_neverLine_theSwitchActsOnceByTheTimelockAloneAndNeverBack",
+   "breaks": "the lift writes nothing"
+  },
+  {
+   "id": "T15-liftnoevent",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        emit TakingStakeCapLifted();\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCap.t.sol",
+   "test": "test_neverLine_theSwitchActsOnceByTheTimelockAloneAndNeverBack",
+   "breaks": "the lift emits no event"
+  },
+  {
+   "id": "T16-liftnohub",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        i_ospexCore.emitCoreEvent(EVENT_TAKING_STAKE_CAP_LIFTED, \"\");\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCap.t.sol",
+   "test": "test_neverLine_theSwitchActsOnceByTheTimelockAloneAndNeverBack",
+   "breaks": "the lift has no hub copy"
+  },
+  {
+   "id": "T17-liftreturns",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "    function liftTakingStakeCap() external {",
+     "replace": "    function liftTakingStakeCap() external returns (bool) {"
+    },
+    {
+     "find": "        i_ospexCore.emitCoreEvent(EVENT_TAKING_STAKE_CAP_LIFTED, \"\");\n    }",
+     "replace": "        i_ospexCore.emitCoreEvent(EVENT_TAKING_STAKE_CAP_LIFTED, \"\");\n        return true;\n    }"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCap.t.sol",
+   "test": "test_neverLine_theSwitchActsOnceByTheTimelockAloneAndNeverBack",
+   "breaks": "the lift returns a value"
+  },
+  {
+   "id": "T18-liftedatdeploy",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        i_timelock = timelock;\n    }",
+     "replace": "        i_timelock = timelock;\n        s_takingStakeCapLifted = true;\n    }"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCap.t.sol",
+   "test": "test_neverLine_theSwitchActsOnceByTheTimelockAloneAndNeverBack",
+   "breaks": "the cap is lifted at deploy"
+  },
+  {
+   "id": "T19-registersets",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        s_couriers[msg.sender][courier] = true;",
+     "replace": "        s_couriers[msg.sender][courier] = true;\n        s_takingStakeCapLifted = true;"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCap.t.sol",
+   "test": "test_neverLine_theLiftIsTheOnlyWriteOfTheFlag",
+   "breaks": "a registration lifts the cap"
+  },
+  {
+   "id": "T20-liftnoexclusion",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "    function liftTakingStakeCap() external {\n        if (_crossInProgress()) revert OspexMatching__CrossInProgress();",
+     "replace": "    function liftTakingStakeCap() external {"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCap.t.sol",
+   "test": "test_neverLine_aLiftFromInsideAPullIsRefused",
+   "breaks": "the lift is taken while a Cross is in progress"
+  },
+  {
+   "id": "T21-liftclearsmark",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "    function liftTakingStakeCap() external {\n        if (_crossInProgress()) revert OspexMatching__CrossInProgress();",
+     "replace": "    function liftTakingStakeCap() external {\n        CROSS_IN_PROGRESS_SLOT.asBoolean().tstore(false);\n        if (_crossInProgress()) revert OspexMatching__CrossInProgress();"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCap.t.sol",
+   "test": "test_neverLine_aLiftFromInsideAPullIsRefused",
+   "breaks": "the lift clears the in-progress mark before its check"
+  },
+  {
+   "id": "T22-clearfunction",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "    function liftTakingStakeCap() external {",
+     "replace": "    function restoreTakingStakeCap() external {\n        s_takingStakeCapLifted = false;\n    }\n\n    function liftTakingStakeCap() external {"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_theCrossIsTheOneFillPath",
+   "breaks": "a function puts the cap back"
   }
  ]
 }
