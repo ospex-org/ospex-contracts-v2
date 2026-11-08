@@ -204,6 +204,11 @@ abstract contract BettingBase is GamesBase {
     uint256 internal fillNonce = 1;
     /// @dev Whether the maker and the taker have registered fillCourier.
     bool internal fillCourierRegistered;
+    /// @dev Whether _deploySetOn lifts the cap on a taking order's signed stake once the set is finalized, the
+    ///      way it is lifted live: K schedules the lift on the stock timelock, the delay passes, a stranger runs
+    ///      it. True by default, since the fills of most tests are above a cent; a test of the cap sets it false
+    ///      before setUp, so its set starts with the cap in force.
+    bool internal liftAtDeploy = true;
 
     constructor() {
         (maker, makerKey) = makeAddrAndKey("maker");
@@ -236,8 +241,14 @@ abstract contract BettingBase is GamesBase {
 
     /// @dev The same set on a coin of the test's choosing. It replaces the set the helpers act on.
     function _deploySetOn(address coin) internal {
+        _deploySetWith(address(games), coin);
+        if (liftAtDeploy) _liftTheCap();
+    }
+
+    /// @dev The set on a games set and a coin of the test's choosing, with the cap as deployed: in force.
+    function _deploySetWith(address gamesSet, address coin) internal {
         vm.startPrank(deployer, deployer);
-        core = new OspexBetting(address(games), coin);
+        core = new OspexBetting(gamesSet, coin);
         markets = new OspexMarkets(address(core));
         positions = new OspexPositions(address(core));
         matching = new OspexMatching(address(core));
@@ -247,6 +258,13 @@ abstract contract BettingBase is GamesBase {
         core.bootstrapModules(_types(), _modules());
         core.finalize();
         vm.stopPrank();
+    }
+
+    /// @dev Lifts the cap on the set's matching module the way it is lifted live, through the stock timelock
+    ///      the games base deploys: never a storage write.
+    function _liftTheCap() internal {
+        _throughTimelockTo(address(matching), abi.encodeCall(OspexMatching.liftTakingStakeCap, ()));
+        assertTrue(matching.s_takingStakeCapLifted(), "the cap was not lifted");
     }
 
     /// @dev The six module types, in the order the core's finalize names them.

@@ -41,17 +41,17 @@ contract OspexBettingInterfaceTest is BettingBase {
         _assertFunctions(
             "OspexMatching",
             "EVENT_COURIER_REGISTERED();EVENT_COURIER_UNREGISTERED();EVENT_CROSSED();EVENT_MIN_NONCE_UPDATED();"
-            "EVENT_ORDER_CANCELLED();EVENT_ORDER_MATCHED();EVENT_ORDER_SKIPPED();LOT();MARKET_MODULE();"
-            "MATCHING_MODULE();MAX_LINE_TICKS();MAX_ODDS();MAX_TAKING_LIFE();MIN_ODDS();ODDS_SCALE();"
-            "ORDER_TYPEHASH();POSITION_MODULE();"
+            "EVENT_ORDER_CANCELLED();EVENT_ORDER_MATCHED();EVENT_ORDER_SKIPPED();EVENT_TAKING_STAKE_CAP_LIFTED();"
+            "LOT();MARKET_MODULE();MATCHING_MODULE();MAX_LINE_TICKS();MAX_ODDS();MAX_TAKING_LIFE();MIN_ODDS();"
+            "ODDS_SCALE();ORDER_TYPEHASH();POSITION_MODULE();TAKING_STAKE_CAP();"
             "cancelOrder((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256));"
             "cross(((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256),bytes),"
             "((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256),bytes)[]);" "eip712Domain();"
             "getOrderHash((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256));"
-            "getDomainSeparator();getModuleType();i_ospexCore();isCourier(address,address);"
-            "raiseMinNonce(uint256,address,int32,uint256);registerCourier(address);"
+            "getDomainSeparator();getModuleType();i_ospexCore();i_timelock();isCourier(address,address);"
+            "liftTakingStakeCap();raiseMinNonce(uint256,address,int32,uint256);registerCourier(address);"
             "s_cancelledOrders(bytes32);s_filledRisk(bytes32);s_minNonces(address,bytes32);"
-            "unregisterCourier(address)"
+            "s_takingStakeCapLifted();unregisterCourier(address)"
         );
         _assertFunctions(
             "OspexMoneylineScorer",
@@ -123,31 +123,37 @@ contract OspexBettingInterfaceTest is BettingBase {
         );
         _assertErrors(
             "OspexMatching",
-            "InvalidShortString();OspexMatching__BadSignature(bytes32 orderHash);"
+            "InvalidShortString();OspexMatching__BadSignature(bytes32 orderHash);OspexMatching__CapAlreadyLifted();"
             "OspexMatching__CourierNotRegistered(address account,address courier);OspexMatching__CrossInProgress();"
+            "OspexMatching__GamesHasNoTimelock(address games);OspexMatching__GamesNotAContract(address games);"
             "OspexMatching__InvalidAddress();OspexMatching__NonceMustIncrease();"
-            "OspexMatching__NotOrderAccount();OspexMatching__NothingFilled(uint8[] reasons);"
+            "OspexMatching__NotOrderAccount();OspexMatching__NotTheTimelock(address caller);"
+            "OspexMatching__NothingFilled(uint8[] reasons);"
             "OspexMatching__OtherGame(bytes32 orderHash);OspexMatching__OtherLine(bytes32 orderHash);"
             "OspexMatching__OtherScorer(bytes32 orderHash);OspexMatching__PriceOutOfRange(bytes32 orderHash);"
             "OspexMatching__PricesDoNotMeet(bytes32 orderHash);OspexMatching__SameSide(bytes32 orderHash);"
             "OspexMatching__SenderNotCourier(address account,address sender);"
             "OspexMatching__StakeNotInLots(bytes32 orderHash);OspexMatching__TakingOrderCancelled(bytes32 orderHash);"
             "OspexMatching__TakingOrderExpired(bytes32 orderHash);OspexMatching__TakingOrderFilled(bytes32 orderHash);"
-            "OspexMatching__TakingOrderTooLong(bytes32 orderHash);OspexMatching__ZeroCourier();StringTooLong(string str)"
+            "OspexMatching__TakingOrderTooLong(bytes32 orderHash);OspexMatching__TakingStakeAboveCap(bytes32 orderHash);"
+            "OspexMatching__ZeroCourier();StringTooLong(string str)"
         );
         _assertErrors("OspexMoneylineScorer", "OspexScorer__InvalidCore()");
         _assertErrors("OspexSpreadScorer", "OspexScorer__InvalidCore()");
         _assertErrors("OspexTotalScorer", "OspexScorer__InvalidCore()");
     }
 
-    /// Every deploy value a module holds behind a getter is one the core reads when it registers the module.
-    /// The list of each module's `i_` functions comes from its compiled artifact and is pinned here: the
-    /// markets module's games set and core, the positions module's coin and core, the matching module's core,
-    /// and each market contract's games set. Then the six, built from src/, are registered on a fresh core, and
-    /// the core must be seen to call each of those getters on the module that has it. So a module that gains a
-    /// deploy value with a getter turns this red twice: the pinned list, and the read the core does not make.
-    /// A value with no getter is not seen here. The reads the core's own interface for a module's wiring
-    /// declares are those three getters; the type's read is IOspexModule's.
+    /// Every deploy value a module holds behind a getter is one the core reads when it registers the module, or
+    /// one derived from such a value. The list of each module's `i_` functions comes from its compiled artifact
+    /// and is pinned here, whole: the markets module's games set and core, the positions module's coin and core,
+    /// the matching module's core and its timelock, and each market contract's games set. Then the six, built
+    /// from src/, are registered on a fresh core, and the core must be seen to call each of the read getters on
+    /// the module that has it. The one derived value, the matching module's timelock, is not read by the core:
+    /// it is read once by the module's own constructor from the core's games set, and is asserted here to be
+    /// that games set's. So a module that gains a deploy value with a getter turns this red: the pinned list,
+    /// and, unless it is listed as derived, the read the core does not make. A value with no getter is not seen
+    /// here. The reads the core's own interface for a module's wiring declares are the three read getters; the
+    /// type's read is IOspexModule's.
     /// Break: in OspexPositions.sol, add a second deploy value with a getter, `address public immutable i_payer
     /// = address(1);`.
     function test_theDeployValuesAreExactlyTheOnesTheCoreReads() public {
@@ -159,9 +165,12 @@ contract OspexBettingInterfaceTest is BettingBase {
             "OspexSpreadScorer",
             "OspexTotalScorer"
         ];
-        string[6] memory want = [
+        // What the core reads of each at bootstrap.
+        string[6] memory read = [
             "i_games();i_ospexCore()", "i_ospexCore();i_token()", "i_ospexCore()", "i_games()", "i_games()", "i_games()"
         ];
+        // What is derived from one of those, and not read by the core: the matching module's timelock.
+        string[6] memory derived = ["", "", "i_timelock()", "", "", ""];
 
         vm.startPrank(deployer, deployer);
         OspexBetting c = new OspexBetting(address(games), address(token));
@@ -169,16 +178,29 @@ contract OspexBettingInterfaceTest is BettingBase {
         uint256 reads;
         for (uint256 i; i < names.length; ++i) {
             string[] memory values = _deployValues(names[i]);
-            _assertSameSet(values, vm.split(want[i], ";"), string.concat(names[i], " deploy value"));
-            for (uint256 v; v < values.length; ++v) {
+            string[] memory reads_ = vm.split(read[i], ";");
+            _assertSameSet(values, _together(reads_, derived[i]), string.concat(names[i], " deploy value"));
+            for (uint256 v; v < reads_.length; ++v) {
                 // The call below must make this read of this module, or the test fails when it ends.
-                vm.expectCall(addrs[i], abi.encodePacked(bytes4(keccak256(bytes(values[v])))));
+                vm.expectCall(addrs[i], abi.encodePacked(bytes4(keccak256(bytes(reads_[v])))));
                 ++reads;
             }
         }
         c.bootstrapModules(types, addrs);
         vm.stopPrank();
         assertEq(reads, 8, "the reads expected of the six");
+        // The derived value is its derivation: the timelock the core's games set answers to, which is the one
+        // the test base deployed.
+        assertEq(
+            OspexMatching(addrs[2]).i_timelock(),
+            games.i_timelock(),
+            "the matching module's timelock is the games set's"
+        );
+        assertEq(
+            OspexMatching(addrs[2]).i_timelock(),
+            address(timelock),
+            "the matching module's timelock is the stock timelock"
+        );
 
         string memory wiring =
             vm.readFile(string.concat(vm.projectRoot(), "/out/OspexBetting.sol/IOspexModuleWiring.json"));
@@ -225,7 +247,7 @@ contract OspexBettingInterfaceTest is BettingBase {
             "uint256 marketId,address scorer,int32 lineTicks,uint8 makerPositionType,uint16 oddsTick,"
             "uint256 makerRisk,uint256 takerRisk,uint256 orderRiskAmount,uint256 nonce,uint256 expiry);"
             "OrderSkipped(indexed bytes32 orderHash,indexed address account,indexed bytes32 takingOrderHash,"
-            "uint8 reason)"
+            "uint8 reason);TakingStakeCapLifted()"
         );
         _assertEvents("OspexMoneylineScorer", "");
         _assertEvents("OspexSpreadScorer", "");
@@ -299,6 +321,29 @@ contract OspexBettingInterfaceTest is BettingBase {
         assertEq(IOspexPositions.OspexPositions__TakerPullRefused.selector, bytes4(0x56f4806f), "TakerPullRefused");
         assertEq(OspexMatching.OspexMatching__CrossInProgress.selector, bytes4(0x5eabe743), "CrossInProgress");
         assertEq(OspexMatching.OspexMatching__NothingFilled.selector, bytes4(0x8240428c), "NothingFilled");
+
+        // The cap and its switch.
+        assertEq(OspexMatching.liftTakingStakeCap.selector, bytes4(0xefa465af), "liftTakingStakeCap");
+        assertEq(matching.s_takingStakeCapLifted.selector, bytes4(0x95b3ff17), "s_takingStakeCapLifted");
+        assertEq(matching.TAKING_STAKE_CAP.selector, bytes4(0xbf5bf23c), "TAKING_STAKE_CAP");
+        assertEq(matching.i_timelock.selector, bytes4(0x4d9939ee), "i_timelock");
+        assertEq(
+            OspexMatching.TakingStakeCapLifted.selector,
+            0xd83df7f0d15f92a8c607aaceb0537d8f43a1b3f6b1e37dc069f7ede6e80ffce8,
+            "TakingStakeCapLifted's first topic"
+        );
+        assertEq(
+            matching.EVENT_TAKING_STAKE_CAP_LIFTED(),
+            0xc832d7a937dd65998090c171fdb041bc614b1b5245ff3a624d32391c4f58499a,
+            "the hub tag TAKING_STAKE_CAP_LIFTED"
+        );
+        assertEq(OspexMatching.OspexMatching__TakingStakeAboveCap.selector, bytes4(0x17d791ff), "TakingStakeAboveCap");
+        assertEq(OspexMatching.OspexMatching__NotTheTimelock.selector, bytes4(0x3b374a89), "NotTheTimelock");
+        assertEq(OspexMatching.OspexMatching__CapAlreadyLifted.selector, bytes4(0xd648d5dd), "CapAlreadyLifted");
+        assertEq(matching.EVENT_TAKING_STAKE_CAP_LIFTED.selector, bytes4(0xdb051412), "EVENT_TAKING_STAKE_CAP_LIFTED");
+        assertEq(OspexMatching.OspexMatching__GamesNotAContract.selector, bytes4(0xdfa33803), "GamesNotAContract");
+        assertEq(OspexMatching.OspexMatching__GamesHasNoTimelock.selector, bytes4(0x08d9f5ce), "GamesHasNoTimelock");
+        assertEq(matching.TAKING_STAKE_CAP(), 10_000, "the cap: one cent of a six-decimal coin, 100 lots");
     }
 
     /// The enums the events and the reads carry, by number: a market's status, its outcome, a side, and the
@@ -363,6 +408,16 @@ contract OspexBettingInterfaceTest is BettingBase {
         for (uint256 i; i < n; ++i) {
             got[i] = found[i];
         }
+    }
+
+    /// @dev `a` with `b` appended, or `a` alone when `b` is empty.
+    function _together(string[] memory a, string memory b) internal pure returns (string[] memory out) {
+        if (bytes(b).length == 0) return a;
+        out = new string[](a.length + 1);
+        for (uint256 i; i < a.length; ++i) {
+            out[i] = a[i];
+        }
+        out[a.length] = b;
     }
 
     function _assertErrors(string memory name, string memory want) internal view {
