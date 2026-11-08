@@ -1,5 +1,5 @@
 {
- "about": "Breaks of the betting set, most of one line, each with a test it turns red; a break may turn others red too. For each: apply its edits to the file (each find occurs exactly once in the file as committed; a find of several lines is one anchor), run the named test alone and see it fail, restore the file byte for byte and see it pass. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis. Check that exactly one test ran. Ids: B, the cut's: the (home, away) order, the settlement's status read, the fill path, the registry and the interface pins. C, the couriers': who writes an account's couriers, no courier by default, the refusals, the repeated registration, the events and the two calls' signatures. From C17 on, the same lines read through the transaction's origin, or told apart by it, and a write beside the one the caller named. C31 and C32, a second write no list of addresses would reach. C33 to C35, one courier at a time and an event emitted twice. C36 to C45, the two calls that change nothing: a repeated registration succeeds and neither writes nor emits, and a drop of a courier the account does not have is refused. C46 to C62, behaviour that differs for one kind of caller, courier, time or count: a contract as the caller or as the courier, the account naming itself, the set's deployer as the caller, a write hidden by the order couriers are named in, a courier event from the cancel, a courier that appears or lapses with time or is written at deploy, a courier dropped several times, a courier asked about its own drop, a courier cancelling its account's order, a registration that returns a value, and a call made to the courier. W, the wiring's: the reads the core makes of a module at bootstrap, which types are asked which and in what order, that an address is read before it is written and never at finalize, that a read cannot write and that one that fails fails the call, every place of a call, the zero address as a market contract, and the pins of the core's three refusals and of the modules' deploy values. X, the Cross's: the courier each order's account registered (X1 to X9); the one fill path (X10); the close gate (X11 to X17); the filled amount and the signed stake (X18 to X24); the cancel and the floor (X25 to X35); the price and the lot (X36 to X39); the minimum (X40, X41); what is pulled and who holds it (X42 to X45); the skips, their order and what they leave (X46 to X58); the receipt (X59, X60); the refused pull's recognition and the two pulls (X61 to X69); a Cross that fills nothing (X70, X71); the taking order's thirty seconds (X72 to X75); the exclusion while a Cross is in progress and the positions module's guard (X76 to X85); the signature, the type and the domain (X86 to X100); the market, the side and the price (X101 to X105); an admissible price and stake (X106 to X110); the events (X111 to X126); and the gate's read (X127). Then what an independent pass found the first fixtures could not tell apart: a fault or a dead order late in a list (X128 to X139); a floor on a line that is not 0 (X140); an order that rests before it takes (X141); a refused pull at a price that is not even (X142, X143); stakes of many lots (X144, X145); the exclusion past the first leg (X146, X147); the filled amounts written before the pull (X148, X149); the receipt on either side (X150); a read made before a pull (X151, X152); a cancel through the transaction's origin (X153); the skip record's hub copy and the floor's place among the reasons (X154, X155); the market and the line in the records (X156 to X158); what the Cross returns (X159); the side a position records (X160); the exclusion past a refused pull and past an order nothing fits (X161, X162); and a full order whose account cannot pay (X163, X164). T, the cap and its switch (T1 to T22): the cap deleted, at or above, on the remainder, on the lot count, ten cents, a tenth of a cent, a refusal naming no order, the cap ahead of the signature (T1 to T8); a resting order or a leg capped (T9, T10); the lift for anyone, by the origin, twice, writing nothing, without its event or its hub copy, returning a value, lifted at deploy (T11 to T18); a registration that lifts (T19); the lift inside a Cross, and clearing the mark (T20, T21); a function that puts the cap back (T22). T23 to T38, from an independent pass against the cap's tests: the cap tested after the walk (T23); the lift reading the timelock live (T24); the cap only at 2.00 or longer, only on the moneyline, in 32 bits, waived for an account sending its own Cross or one with code (T25 to T27, T34, T35); the flag written on a skip, a repeated registration and a refused pull (T28, T36, T37); the lift by any contract with the timelock's code (T29); lifted at deploy on Polygon's chain id (T30); the constructor taking a delegation, a zero timelock, or an address with no code (T31, T32, T38); a ceiling left after the lift (T33). T39 and T40, from an attack on the built cap: the cap waived at the shortest price (T39) and on a positive line (T40). T23 names the test whose Break line it is, the count of the coin's pulls during refused Crosses.",
+ "about": "Breaks of the betting set, most of one line, each with a test it turns red; a break may turn others red too. For each: apply its edits to the file (each find occurs exactly once in the file as committed; a find of several lines is one anchor), run the named test alone and see it fail, restore the file byte for byte and see it pass. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis. Check that exactly one test ran. Ids: B, the cut's: the (home, away) order, the settlement's status read, the fill path, the registry and the interface pins. C, the couriers': who writes an account's couriers, no courier by default, the refusals, the repeated registration, the events and the two calls' signatures. From C17 on, the same lines read through the transaction's origin, or told apart by it, and a write beside the one the caller named. C31 and C32, a second write no list of addresses would reach. C33 to C35, one courier at a time and an event emitted twice. C36 to C45, the two calls that change nothing: a repeated registration succeeds and neither writes nor emits, and a drop of a courier the account does not have is refused. C46 to C62, behaviour that differs for one kind of caller, courier, time or count: a contract as the caller or as the courier, the account naming itself, the set's deployer as the caller, a write hidden by the order couriers are named in, a courier event from the cancel, a courier that appears or lapses with time or is written at deploy, a courier dropped several times, a courier asked about its own drop, a courier cancelling its account's order, a registration that returns a value, and a call made to the courier. W, the wiring's: the reads the core makes of a module at bootstrap, which types are asked which and in what order, that an address is read before it is written and never at finalize, that a read cannot write and that one that fails fails the call, every place of a call, the zero address as a market contract, and the pins of the core's three refusals and of the modules' deploy values. X, the Cross's: the courier each order's account registered (X1 to X9); the one fill path (X10); the close gate (X11 to X17); the filled amount and the signed stake (X18 to X24); the cancel and the floor (X25 to X35); the price and the lot (X36 to X39); the minimum (X40, X41); what is pulled and who holds it (X42 to X45); the skips, their order and what they leave (X46 to X58); the receipt (X59, X60); the refused pull's recognition and the two pulls (X61 to X69); a Cross that fills nothing (X70, X71); the taking order's thirty seconds (X72 to X75); the exclusion while a Cross is in progress and the positions module's guard (X76 to X85); the signature, the type and the domain (X86 to X100); the market, the side and the price (X101 to X105); an admissible price and stake (X106 to X110); the events (X111 to X126); and the gate's read (X127). Then what an independent pass found the first fixtures could not tell apart: a fault or a dead order late in a list (X128 to X139); a floor on a line that is not 0 (X140); an order that rests before it takes (X141); a refused pull at a price that is not even (X142, X143); stakes of many lots (X144, X145); the exclusion past the first leg (X146, X147); the filled amounts written before the pull (X148, X149); the receipt on either side (X150); a read made before a pull (X151, X152); a cancel through the transaction's origin (X153); the skip record's hub copy and the floor's place among the reasons (X154, X155); the market and the line in the records (X156 to X158); what the Cross returns (X159); the side a position records (X160); the exclusion past a refused pull and past an order nothing fits (X161, X162); and a full order whose account cannot pay (X163, X164). T, the cap and its switch (T1 to T22): the cap deleted, at or above, on the remainder, on the lot count, ten cents, a tenth of a cent, a refusal naming no order, the cap ahead of the signature (T1 to T8); a resting order or a leg capped (T9, T10); the lift for anyone, by the origin, twice, writing nothing, without its event or its hub copy, returning a value, lifted at deploy (T11 to T18); a registration that lifts (T19); the lift inside a Cross, and clearing the mark (T20, T21); a function that puts the cap back (T22). T23 to T38, from an independent pass against the cap's tests: the cap tested after the walk (T23); the lift reading the timelock live (T24); the cap only at 2.00 or longer, only on the moneyline, in 32 bits, waived for an account sending its own Cross or one with code (T25 to T27, T34, T35); the flag written on a skip, a repeated registration and a refused pull (T28, T36, T37); the lift by any contract with the timelock's code (T29); lifted at deploy on Polygon's chain id (T30); the constructor taking a delegation, a zero timelock, or an address with no code (T31, T32, T38); a ceiling left after the lift (T33). T39 and T40, from an attack on the built cap: the cap waived at the shortest price (T39) and on a positive line (T40). T23 names the test whose Break line it is, the count of the coin's pulls during refused Crosses. M, the minimum fill's (M1 to M37), each naming the one test it turns red: the tail and the resting check deleted, inverted, or reading the wrong stake, the wrong minimum, the whole filled amount or the room before the walk (M1 to M8); a short Cross returning, or reverting bare (M9, M10); the minimum out of the hash, in lots or as a flag (M11 to M13); the report wrong six ways (M14 to M19); the seventh reason appended last, tested after the pull or before the lot, the bound made a skip, and the test base's old number for the refused pull, an entry that edits test/betting/CrossBase.sol (M20 to M24); the boundaries (M25 to M30); the type string's tenth field renamed, moved, or removed with the hash's (M31 to M33), beside X99 and X100, kept against the new frozen fixture; the room read from the signed stake (M34); the fill event's and the cancel event's minimum (M35 to M37). X165, the minimum out of the hash, against the signature test. Q, the independent pass's: the mutants a reviewer briefed to defeat the minimum fill's tests wrote without running them, each a waiver keyed on the sender, the origin, code, the line, the cap or the clock, a comparison in the wrong unit or width, a wrong stake at a price under 2.00, or the Cross's event tallying the wrong legs; each is a break of the shapes test or the in-cap test, added with them.",
  "command": "FOUNDRY_SRC=src FOUNDRY_TEST=test/betting FOUNDRY_SCRIPT=none forge test --via-ir --optimize --match-path <testPath> --match-test '^<test>\\\\('",
  "breaks": [
   {
@@ -1716,7 +1716,7 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier);\n",
+     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier, 0, 0);\n",
      "replace": ""
     }
    ],
@@ -1729,7 +1729,7 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier);",
+     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier, 0, 0);",
      "replace": "        if (!_isCourier(r.account, msg.sender)) revert OspexMatching__SenderNotCourier(r.account, msg.sender);"
     }
    ],
@@ -1742,8 +1742,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier);",
-     "replace": "        if (!_isCourier(t.account, msg.sender)) return (false, SkipReason.NoCourier);"
+     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier, 0, 0);",
+     "replace": "        if (!_isCourier(t.account, msg.sender)) return (false, SkipReason.NoCourier, 0, 0);"
     }
    ],
    "testPath": "test/betting/OspexCrossNeverLines.t.sol",
@@ -1768,8 +1768,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier);",
-     "replace": "        if (!_isCourier(r.account, tx.origin)) return (false, SkipReason.NoCourier);"
+     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier, 0, 0);",
+     "replace": "        if (!_isCourier(r.account, tx.origin)) return (false, SkipReason.NoCourier, 0, 0);"
     }
    ],
    "testPath": "test/betting/OspexCrossNeverLines.t.sol",
@@ -1794,8 +1794,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier);",
-     "replace": "        if (!_isCourier(r.account, msg.sender) && msg.sender != r.account) return (false, SkipReason.NoCourier);"
+     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier, 0, 0);",
+     "replace": "        if (!_isCourier(r.account, msg.sender) && msg.sender != r.account) return (false, SkipReason.NoCourier, 0, 0);"
     }
    ],
    "testPath": "test/betting/OspexCrossNeverLines.t.sol",
@@ -1993,8 +1993,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom);",
-     "replace": "        if (restingFilled == r.riskAmount) return (false, SkipReason.NoRoom);"
+     "find": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom, 0, 0);",
+     "replace": "        if (restingFilled == r.riskAmount) return (false, SkipReason.NoRoom, 0, 0);"
     }
    ],
    "testPath": "test/betting/OspexCrossNeverLines.t.sol",
@@ -2166,8 +2166,8 @@
      "replace": "        uint256 fit = (left * LOT + p - 1) / p / LOT;\n        if (fit < lots) lots = fit;"
     },
     {
-     "find": "        uint256 takerRisk = lots * p;",
-     "replace": "        uint256 takerRisk = lots * p > left ? left : lots * p;"
+     "find": "        takerRisk = lots * p;",
+     "replace": "        takerRisk = lots * p > left ? left : lots * p;"
     }
    ],
    "testPath": "test/betting/OspexCrossNeverLines.t.sol",
@@ -2218,7 +2218,7 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (lots * p < LOT) return (false, SkipReason.NothingFits);\n",
+     "find": "        if (lots * p < LOT) return (false, SkipReason.NothingFits, 0, 0);\n",
      "replace": ""
     }
    ],
@@ -2231,8 +2231,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (lots * p < LOT) return (false, SkipReason.NothingFits);",
-     "replace": "        if (lots == 0) return (false, SkipReason.NothingFits);"
+     "find": "        if (lots * p < LOT) return (false, SkipReason.NothingFits, 0, 0);",
+     "replace": "        if (lots == 0) return (false, SkipReason.NothingFits, 0, 0);"
     }
    ],
    "testPath": "test/betting/OspexCrossNeverLines.t.sol",
@@ -2301,7 +2301,7 @@
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
    "breaks": "every error of the positions call is a skip"
   },
   {
@@ -2314,7 +2314,7 @@
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
    "breaks": "neither filled amount is put back after a refused pull"
   },
   {
@@ -2327,7 +2327,7 @@
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
    "breaks": "the resting order's filled amount is not put back"
   },
   {
@@ -2340,7 +2340,7 @@
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
    "breaks": "the taking order's filled amount is not put back"
   },
   {
@@ -2353,7 +2353,7 @@
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
    "breaks": "the refused pull is recognised without its selector: the taking account's refusal for the same account and amount is a skip"
   },
   {
@@ -2361,12 +2361,12 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier);\n        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {\n            return (false, SkipReason.Cancelled);\n        }",
-     "replace": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {\n            return (false, SkipReason.Cancelled);\n        }\n        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier);"
+     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier, 0, 0);\n        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {\n            return (false, SkipReason.Cancelled, 0, 0);\n        }",
+     "replace": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {\n            return (false, SkipReason.Cancelled, 0, 0);\n        }\n        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier, 0, 0);"
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
    "breaks": "cancelled is tested before no courier"
   },
   {
@@ -2374,12 +2374,12 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {\n            return (false, SkipReason.Cancelled);\n        }\n        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired);",
-     "replace": "        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired);\n        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {\n            return (false, SkipReason.Cancelled);\n        }"
+     "find": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {\n            return (false, SkipReason.Cancelled, 0, 0);\n        }\n        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired, 0, 0);",
+     "replace": "        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired, 0, 0);\n        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {\n            return (false, SkipReason.Cancelled, 0, 0);\n        }"
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
    "breaks": "expired is tested before cancelled"
   },
   {
@@ -2387,12 +2387,12 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired);\n\n        uint256 restingFilled = s_filledRisk[restingHash];\n        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom);",
-     "replace": "        uint256 restingFilled = s_filledRisk[restingHash];\n        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom);\n        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired);"
+     "find": "        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired, 0, 0);\n\n        uint256 restingFilled = s_filledRisk[restingHash];\n        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom, 0, 0);",
+     "replace": "        uint256 restingFilled = s_filledRisk[restingHash];\n        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom, 0, 0);\n        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired, 0, 0);"
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
    "breaks": "no room is tested before expired"
   },
   {
@@ -2400,7 +2400,7 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom);\n",
+     "find": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom, 0, 0);\n",
      "replace": ""
     },
     {
@@ -2409,7 +2409,7 @@
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
    "breaks": "a full order is recorded as nothing fits"
   },
   {
@@ -2417,12 +2417,12 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (lots * p < LOT) return (false, SkipReason.NothingFits);",
-     "replace": "        if (lots == 0) return (false, SkipReason.NothingFits);"
+     "find": "        if (lots * p < LOT) return (false, SkipReason.NothingFits, 0, 0);",
+     "replace": "        if (lots == 0) return (false, SkipReason.NothingFits, 0, 0);"
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
    "breaks": "an order nothing fits reaches the pull, and is recorded for its refusal"
   },
   {
@@ -2430,8 +2430,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (lots * p < LOT) return (false, SkipReason.NothingFits);",
-     "replace": "        if (lots == 0) return (false, SkipReason.NothingFits);"
+     "find": "        if (lots * p < LOT) return (false, SkipReason.NothingFits, 0, 0);",
+     "replace": "        if (lots == 0) return (false, SkipReason.NothingFits, 0, 0);"
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
@@ -2443,12 +2443,12 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired);\n",
+     "find": "        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired, 0, 0);\n",
      "replace": ""
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
    "breaks": "a resting order's expiry is not tested"
   },
   {
@@ -2456,12 +2456,12 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired);",
-     "replace": "        if (block.timestamp > r.expiry) return (false, SkipReason.Expired);"
+     "find": "        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired, 0, 0);",
+     "replace": "        if (block.timestamp > r.expiry) return (false, SkipReason.Expired, 0, 0);"
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
    "breaks": "a resting order fills at its expiry"
   },
   {
@@ -2612,7 +2612,7 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (tally.legs == 0) revert OspexMatching__NothingFilled(reasons);\n",
+     "find": "        if (tally.legs == 0) revert OspexMatching__NothingFilled(_reasonsOf(report));\n",
      "replace": ""
     }
    ],
@@ -2625,7 +2625,7 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "            reasons[i] = reason;\n",
+     "find": "            reasons[i] = report[i].reason;\n",
      "replace": ""
     }
    ],
@@ -2677,8 +2677,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired);",
-     "replace": "        if (block.timestamp >= r.expiry || r.expiry - block.timestamp > MAX_TAKING_LIFE) return (false, SkipReason.Expired);"
+     "find": "        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired, 0, 0);",
+     "replace": "        if (block.timestamp >= r.expiry || r.expiry - block.timestamp > MAX_TAKING_LIFE) return (false, SkipReason.Expired, 0, 0);"
     }
    ],
    "testPath": "test/betting/OspexCrossOrders.t.sol",
@@ -2980,8 +2980,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "                    order.nonce,\n                    order.expiry\n",
-     "replace": "                    order.nonce\n"
+     "find": "                    order.nonce,\n                    order.expiry,\n",
+     "replace": "                    order.nonce,\n"
     }
    ],
    "testPath": "test/betting/OspexCrossOrders.t.sol",
@@ -3192,7 +3192,7 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        i_ospexCore.emitCoreEvent(\n            EVENT_ORDER_MATCHED,\n            abi.encode(\n                restingHash,\n                r.account,\n                taker,\n                r.gameId,\n                marketId,\n                r.scorer,\n                r.lineTicks,\n                r.positionType,\n                r.oddsTick,\n                makerRisk,\n                takerRisk,\n                r.riskAmount,\n                r.nonce,\n                r.expiry\n            )\n        );\n",
+     "find": "        i_ospexCore.emitCoreEvent(\n            EVENT_ORDER_MATCHED,\n            abi.encode(\n                restingHash,\n                r.account,\n                taker,\n                r.gameId,\n                marketId,\n                r.scorer,\n                r.lineTicks,\n                r.positionType,\n                r.oddsTick,\n                makerRisk,\n                takerRisk,\n                r.riskAmount,\n                r.nonce,\n                r.expiry,\n                r.minFill\n            )\n        );\n",
      "replace": ""
     }
    ],
@@ -3465,8 +3465,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier);",
-     "replace": "        if (tally.legs < 2 && !_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier);"
+     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier, 0, 0);",
+     "replace": "        if (tally.legs < 2 && !_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier, 0, 0);"
     }
    ],
    "testPath": "test/betting/OspexCrossDepth.t.sol",
@@ -3504,8 +3504,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired);",
-     "replace": "        if (tally.legs < 2 && block.timestamp >= r.expiry) return (false, SkipReason.Expired);"
+     "find": "        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired, 0, 0);",
+     "replace": "        if (tally.legs < 2 && block.timestamp >= r.expiry) return (false, SkipReason.Expired, 0, 0);"
     }
    ],
    "testPath": "test/betting/OspexCrossDepth.t.sol",
@@ -3517,8 +3517,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom);",
-     "replace": "        if (tally.legs < 2 && restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom);"
+     "find": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom, 0, 0);",
+     "replace": "        if (tally.legs < 2 && restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom, 0, 0);"
     }
    ],
    "testPath": "test/betting/OspexCrossDepth.t.sol",
@@ -3637,8 +3637,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "            reasons[i] = reason;\n",
-     "replace": "            reasons[i] = reason;\n            CROSS_IN_PROGRESS_SLOT.asBoolean().tstore(false);\n"
+     "find": "            if (filled) continue;\n            emit OrderSkipped(hashes[i], resting[i].order.account, takingHash, reason);",
+     "replace": "            if (filled) continue;\n            CROSS_IN_PROGRESS_SLOT.asBoolean().tstore(false);\n            emit OrderSkipped(hashes[i], resting[i].order.account, takingHash, reason);"
     }
    ],
    "testPath": "test/betting/OspexCrossCallbacks.t.sol",
@@ -3741,7 +3741,7 @@
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
    "breaks": "the hub's copy of a skip record always carries one reason"
   },
   {
@@ -3753,12 +3753,12 @@
      "replace": "        if (s_cancelledOrders[restingHash]) {"
     },
     {
-     "find": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom);",
-     "replace": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom);\n        if (r.nonce < s_minNonces[r.account][marketKey]) return (false, SkipReason.Cancelled);"
+     "find": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom, 0, 0);",
+     "replace": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom, 0, 0);\n        if (r.nonce < s_minNonces[r.account][marketKey]) return (false, SkipReason.Cancelled, 0, 0);"
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
    "breaks": "the floor is tested after the expiry and the room"
   },
   {
@@ -3852,8 +3852,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (lots * p < LOT) return (false, SkipReason.NothingFits);",
-     "replace": "        if (lots * p < LOT) {\n            CROSS_IN_PROGRESS_SLOT.asBoolean().tstore(false);\n            return (false, SkipReason.NothingFits);\n        }"
+     "find": "        if (lots * p < LOT) return (false, SkipReason.NothingFits, 0, 0);",
+     "replace": "        if (lots * p < LOT) {\n            CROSS_IN_PROGRESS_SLOT.asBoolean().tstore(false);\n            return (false, SkipReason.NothingFits, 0, 0);\n        }"
     }
    ],
    "testPath": "test/betting/OspexCrossCallbacks.t.sol",
@@ -3865,7 +3865,7 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom);\n",
+     "find": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom, 0, 0);\n",
      "replace": ""
     },
     {
@@ -3882,8 +3882,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom);",
-     "replace": "        if (restingFilled >= r.riskAmount) {\n            try positions.recordFill(t.gameId, t.scorer, t.lineTicks, r.positionType, r.account, LOT, t.account, LOT) returns (uint256) {} catch {}\n            return (false, SkipReason.NoRoom);\n        }"
+     "find": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom, 0, 0);",
+     "replace": "        if (restingFilled >= r.riskAmount) {\n            try positions.recordFill(t.gameId, t.scorer, t.lineTicks, r.positionType, r.account, LOT, t.account, LOT) returns (uint256) {} catch {}\n            return (false, SkipReason.NoRoom, 0, 0);\n        }"
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
@@ -4013,7 +4013,7 @@
    "edits": [
     {
      "find": "        if (left / p < lots) lots = left / p;",
-     "replace": "        if (left / p < lots) lots = left / p;\n        if (lots * LOT > TAKING_STAKE_CAP && !s_takingStakeCapLifted) return (false, SkipReason.NothingFits);"
+     "replace": "        if (left / p < lots) lots = left / p;\n        if (lots * LOT > TAKING_STAKE_CAP && !s_takingStakeCapLifted) return (false, SkipReason.NothingFits, 0, 0);"
     }
    ],
    "testPath": "test/betting/OspexCrossCap.t.sol",
@@ -4189,8 +4189,8 @@
      "replace": ""
     },
     {
-     "find": "        if (tally.legs == 0) revert OspexMatching__NothingFilled(reasons);",
-     "replace": "        if (tally.legs == 0) revert OspexMatching__NothingFilled(reasons);\n        if (s_filledRisk[takingHash] > TAKING_STAKE_CAP && !s_takingStakeCapLifted) {\n            revert OspexMatching__TakingStakeAboveCap(takingHash);\n        }"
+     "find": "        if (tally.legs == 0) revert OspexMatching__NothingFilled(_reasonsOf(report));",
+     "replace": "        if (tally.legs == 0) revert OspexMatching__NothingFilled(_reasonsOf(report));\n        if (s_filledRisk[takingHash] > TAKING_STAKE_CAP && !s_takingStakeCapLifted) {\n            revert OspexMatching__TakingStakeAboveCap(takingHash);\n        }"
     }
    ],
    "testPath": "test/betting/OspexCrossCap.t.sol",
@@ -4254,8 +4254,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "            if (filled) continue;\n            reasons[i] = reason;",
-     "replace": "            if (filled) continue;\n            reasons[i] = reason;\n            s_takingStakeCapLifted = true;"
+     "find": "            if (filled) continue;\n            emit OrderSkipped(hashes[i], resting[i].order.account, takingHash, reason);",
+     "replace": "            if (filled) continue;\n            s_takingStakeCapLifted = true;\n            emit OrderSkipped(hashes[i], resting[i].order.account, takingHash, reason);"
     }
    ],
    "testPath": "test/betting/OspexCrossCap.t.sol",
@@ -4371,8 +4371,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "            s_filledRisk[takingHash] = takingFilled;\n            return (false, SkipReason.PullRefused);",
-     "replace": "            s_filledRisk[takingHash] = takingFilled;\n            s_takingStakeCapLifted = true;\n            return (false, SkipReason.PullRefused);"
+     "find": "            s_filledRisk[takingHash] = takingFilled;\n            return (false, SkipReason.PullRefused, makerRisk, takerRisk);",
+     "replace": "            s_filledRisk[takingHash] = takingFilled;\n            s_takingStakeCapLifted = true;\n            return (false, SkipReason.PullRefused, makerRisk, takerRisk);"
     }
    ],
    "testPath": "test/betting/OspexCrossCap.t.sol",
@@ -4417,6 +4417,899 @@
    "testPath": "test/betting/OspexCrossCap.t.sol",
    "test": "test_neverLine_noTakingStakeAboveOneCentFillsBeforeTheSwitch",
    "breaks": "the cap is waived on a positive line"
+  },
+  {
+   "id": "M1-notail",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        uint256 room = t.riskAmount - s_filledRisk[takingHash];\n        if (tally.takerRisk < t.minFill && room >= LOT) {\n            revert OspexMatching__TakingOrderUnderMinFill(takingHash, tally.takerRisk, t.minFill, room, report);\n        }\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_noFillBelowMinFillInEitherRole",
+   "breaks": "the taking order's minimum is not tested"
+  },
+  {
+   "id": "M2-norestingcheck",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {\n            return (false, SkipReason.UnderMinFill, makerRisk, takerRisk);\n        }\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_noFillBelowMinFillInEitherRole",
+   "breaks": "the resting order's minimum is not tested"
+  },
+  {
+   "id": "M3-restinginverted",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {",
+     "replace": "        if (makerRisk >= r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_noFillBelowMinFillInEitherRole",
+   "breaks": "the resting check inverted: a leg at or above the minimum is skipped"
+  },
+  {
+   "id": "M4-tailmakerstake",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (tally.takerRisk < t.minFill && room >= LOT) {",
+     "replace": "        if (tally.makerRisk < t.minFill && room >= LOT) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_noFillBelowMinFillInEitherRole",
+   "breaks": "the tail measures the resting stakes against the taking order's minimum"
+  },
+  {
+   "id": "M5-legtakerstake",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {",
+     "replace": "        if (takerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_noFillBelowMinFillInEitherRole",
+   "breaks": "the leg measures the taking stake against the resting order's minimum"
+  },
+  {
+   "id": "M6-legtakingminimum",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {",
+     "replace": "        if (makerRisk < t.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_noFillBelowMinFillInEitherRole",
+   "breaks": "the leg measures the resting stake against the taking order's minimum"
+  },
+  {
+   "id": "M7-tailcumulative",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (tally.takerRisk < t.minFill && room >= LOT) {",
+     "replace": "        if (s_filledRisk[takingHash] < t.minFill && room >= LOT) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_noFillBelowMinFillInEitherRole",
+   "breaks": "the tail measures the order's whole filled amount, not this Cross's"
+  },
+  {
+   "id": "M8-roombefore",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        uint256 room = t.riskAmount - s_filledRisk[takingHash];\n",
+     "replace": ""
+    },
+    {
+     "find": "        Tally memory tally;\n        for (uint256 i; i < resting.length; ++i) {",
+     "replace": "        Tally memory tally;\n        uint256 room = t.riskAmount - s_filledRisk[takingHash];\n        for (uint256 i; i < resting.length; ++i) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_noFillBelowMinFillInEitherRole",
+   "breaks": "the tail reads the room before the walk"
+  },
+  {
+   "id": "M9-tailreturns",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            revert OspexMatching__TakingOrderUnderMinFill(takingHash, tally.takerRisk, t.minFill, room, report);",
+     "replace": "            emit Crossed(msg.sender, takingHash, t.account, tally.marketId, tally.makerRisk, tally.takerRisk);\n            CROSS_IN_PROGRESS_SLOT.asBoolean().tstore(false);\n            return;"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_aShortCrossCommitsNothing",
+   "breaks": "a short Cross emits Crossed and returns where it should revert"
+  },
+  {
+   "id": "M10-tailbarerevert",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            revert OspexMatching__TakingOrderUnderMinFill(takingHash, tally.takerRisk, t.minFill, room, report);",
+     "replace": "            revert();"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_aShortCrossCommitsNothing",
+   "breaks": "a short Cross reverts with no data"
+  },
+  {
+   "id": "M11-hashnominfill",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                    order.expiry,\n                    order.minFill\n",
+     "replace": "                    order.expiry\n"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_minFillIsInTheHash",
+   "breaks": "the minimum is left out of the order's hash"
+  },
+  {
+   "id": "M12-hashinlots",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                    order.minFill\n                )",
+     "replace": "                    order.minFill / LOT\n                )"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_minFillIsInTheHash",
+   "breaks": "the minimum is hashed in lots: 100 and 150 are one hash"
+  },
+  {
+   "id": "M13-hashasflag",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                    order.minFill\n                )",
+     "replace": "                    order.minFill > 0\n                )"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_minFillIsInTheHash",
+   "breaks": "the minimum is hashed as a flag: 1 and 10,000 are one hash"
+  },
+  {
+   "id": "M14-allskipped",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                filled: filled,\n",
+     "replace": "                filled: false,\n"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_theShortReportIsExact",
+   "breaks": "every record of the report reads skipped"
+  },
+  {
+   "id": "M15-filledfromreason",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                filled: filled,\n",
+     "replace": "                filled: reason == SkipReason.NoCourier,\n"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_theShortReportIsExact",
+   "breaks": "a record's filled flag is read from its reason word, as a report built from the reasons array would read it"
+  },
+  {
+   "id": "M16-zerostakesfilled",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                makerRisk: filled ? makerRisk : 0,\n                takerRisk: filled ? takerRisk : 0\n",
+     "replace": "                makerRisk: 0,\n                takerRisk: 0\n"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_theShortReportIsExact",
+   "breaks": "the stakes are written zero on a filled record"
+  },
+  {
+   "id": "M17-computedstakesonskip",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                makerRisk: filled ? makerRisk : 0,\n                takerRisk: filled ? takerRisk : 0\n",
+     "replace": "                makerRisk: makerRisk,\n                takerRisk: takerRisk\n"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_theShortReportIsExact",
+   "breaks": "the stakes are written as the leg computed them on a skipped record"
+  },
+  {
+   "id": "M18-lastrecordunwritten",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            report[i] = LegReport({",
+     "replace": "            if (i + 1 < resting.length) report[i] = LegReport({"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_theShortReportIsExact",
+   "breaks": "the last record of the report is left unwritten"
+  },
+  {
+   "id": "M19-shortwhennothingfilled",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (tally.legs == 0) revert OspexMatching__NothingFilled(_reasonsOf(report));",
+     "replace": "        if (tally.legs == 0) {\n            revert OspexMatching__TakingOrderUnderMinFill(\n                takingHash, 0, t.minFill, t.riskAmount - s_filledRisk[takingHash], report\n            );\n        }"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_theShortReportIsExact",
+   "breaks": "the short refusal is raised where nothing filled"
+  },
+  {
+   "id": "M20-reasonappended",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        /// @dev 5: the leg would take less than the order's minimum fill and leave a lot or more of its room.\n        UnderMinFill,\n        /// @dev 6: the coin refused the pull of the resting stake from the order's account.\n        PullRefused",
+     "replace": "        /// @dev 5: the coin refused the pull of the resting stake from the order's account.\n        PullRefused,\n        /// @dev 6: the leg would take less than the order's minimum fill and leave a lot or more of its room.\n        UnderMinFill"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingInterface.t.sol",
+   "test": "test_theNumbersAreThese",
+   "breaks": "the seventh reason is appended after the refused pull: 6, with the refused pull still 5"
+  },
+  {
+   "id": "M21-checkafterpull",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {\n            return (false, SkipReason.UnderMinFill, makerRisk, takerRisk);\n        }\n",
+     "replace": ""
+    },
+    {
+     "find": "        ) {\n            tally.legs += 1;",
+     "replace": "        ) {\n            if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {\n                s_filledRisk[restingHash] = restingFilled;\n                s_filledRisk[takingHash] = takingFilled;\n                return (false, SkipReason.UnderMinFill, makerRisk, takerRisk);\n            }\n            tally.legs += 1;"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_theSeventhReasonHasItsPlaceInTheOrder",
+   "breaks": "the minimum's check is made after the pull, on the positions call's success path"
+  },
+  {
+   "id": "M22-checkbeforenothingfits",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {\n            return (false, SkipReason.UnderMinFill, makerRisk, takerRisk);\n        }\n",
+     "replace": ""
+    },
+    {
+     "find": "        if (lots * p < LOT) return (false, SkipReason.NothingFits, 0, 0);",
+     "replace": "        if (lots * LOT < r.minFill && (r.riskAmount - restingFilled) - lots * LOT >= LOT) {\n            return (false, SkipReason.UnderMinFill, lots * LOT, lots * p);\n        }\n        if (lots * p < LOT) return (false, SkipReason.NothingFits, 0, 0);"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_theSeventhReasonHasItsPlaceInTheOrder",
+   "breaks": "the minimum's check is made before the lot's minimum"
+  },
+  {
+   "id": "M23-boundasaskip",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (order.minFill > order.riskAmount) {\n            revert OspexMatching__MinFillAboveStake(orderHash, order.minFill, order.riskAmount);\n        }\n",
+     "replace": ""
+    },
+    {
+     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier, 0, 0);",
+     "replace": "        if (r.minFill > r.riskAmount) return (false, SkipReason.UnderMinFill, 0, 0);\n        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier, 0, 0);"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_theSeventhReasonHasItsPlaceInTheOrder",
+   "breaks": "the bound on the minimum is a skip in the walk, not a refusal at the signature checks"
+  },
+  {
+   "id": "M24-pullrefusedliteral",
+   "file": "test/betting/CrossBase.sol",
+   "edits": [
+    {
+     "find": "    uint8 internal constant PULL_REFUSED = 6;",
+     "replace": "    uint8 internal constant PULL_REFUSED = 5;"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
+   "breaks": "a break of the tests, scored once to show the pins bite: the test base's number for the refused pull left at 5"
+  },
+  {
+   "id": "M25-tailatequal",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (tally.takerRisk < t.minFill && room >= LOT) {",
+     "replace": "        if (tally.takerRisk <= t.minFill && room >= LOT) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_theMinimumHoldsAtItsBoundaries",
+   "breaks": "the tail refuses a fill at exactly the minimum"
+  },
+  {
+   "id": "M26-tailroomover",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (tally.takerRisk < t.minFill && room >= LOT) {",
+     "replace": "        if (tally.takerRisk < t.minFill && room > LOT) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_theMinimumHoldsAtItsBoundaries",
+   "breaks": "the tail accepts a short fill that leaves exactly a lot"
+  },
+  {
+   "id": "M27-restingatequal",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {",
+     "replace": "        if (makerRisk <= r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_theMinimumHoldsAtItsBoundaries",
+   "breaks": "the resting check skips a leg at exactly the minimum"
+  },
+  {
+   "id": "M28-restingroomover",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {",
+     "replace": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk > LOT) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_theMinimumHoldsAtItsBoundaries",
+   "breaks": "the resting check fills a short leg that leaves exactly a lot"
+  },
+  {
+   "id": "M29-boundatequal",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (order.minFill > order.riskAmount) {",
+     "replace": "        if (order.minFill >= order.riskAmount) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_theMinimumHoldsAtItsBoundaries",
+   "breaks": "a minimum equal to the stake is refused"
+  },
+  {
+   "id": "M30-taillotplusone",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (tally.takerRisk < t.minFill && room >= LOT) {",
+     "replace": "        if (tally.takerRisk < t.minFill && room >= LOT + 1) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_neverLine_theMinimumHoldsAtItsBoundaries",
+   "breaks": "the tail's lot is a lot and one unit"
+  },
+  {
+   "id": "M31-typefieldrenamed",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        \"uint16 oddsTick,\" \"uint256 riskAmount,\" \"uint256 nonce,\" \"uint256 expiry,\" \"uint256 minFill\" \")\"",
+     "replace": "        \"uint16 oddsTick,\" \"uint256 riskAmount,\" \"uint256 nonce,\" \"uint256 expiry,\" \"uint256 minimumFill\" \")\""
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_theFrozenOutsideSignatureIsAccepted",
+   "breaks": "the type string names the tenth field minimumFill: the frozen signature is over another hash"
+  },
+  {
+   "id": "M32-fieldmovedbeforeexpiry",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        \"uint16 oddsTick,\" \"uint256 riskAmount,\" \"uint256 nonce,\" \"uint256 expiry,\" \"uint256 minFill\" \")\"",
+     "replace": "        \"uint16 oddsTick,\" \"uint256 riskAmount,\" \"uint256 nonce,\" \"uint256 minFill,\" \"uint256 expiry\" \")\""
+    },
+    {
+     "find": "                    order.nonce,\n                    order.expiry,\n                    order.minFill\n",
+     "replace": "                    order.nonce,\n                    order.minFill,\n                    order.expiry\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_theFrozenOutsideSignatureIsAccepted",
+   "breaks": "the tenth field is moved before the expiry in the type string and the hash together"
+  },
+  {
+   "id": "M33-ninefieldrestored",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        \"uint16 oddsTick,\" \"uint256 riskAmount,\" \"uint256 nonce,\" \"uint256 expiry,\" \"uint256 minFill\" \")\"",
+     "replace": "        \"uint16 oddsTick,\" \"uint256 riskAmount,\" \"uint256 nonce,\" \"uint256 expiry\" \")\""
+    },
+    {
+     "find": "                    order.expiry,\n                    order.minFill\n",
+     "replace": "                    order.expiry\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_theFrozenOutsideSignatureIsAccepted",
+   "breaks": "the nine-field type restored and the minimum dropped from the hash together: the old fixture fills again"
+  },
+  {
+   "id": "M34-roomfromsignedstake",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {",
+     "replace": "        if (makerRisk < r.minFill && r.riskAmount - makerRisk >= LOT) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_aMinimumAcrossDuplicatesAndRoles",
+   "breaks": "the resting check reads the room from the signed stake, not the room left"
+  },
+  {
+   "id": "M35-matchedtakingminimum",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            _emitMatched(restingHash, r, t.account, marketId, makerRisk, takerRisk);",
+     "replace": "            _emitMatched(restingHash, r, t, marketId, makerRisk, takerRisk);"
+    },
+    {
+     "find": "        OspexOrder calldata r,\n        address taker,\n        uint256 marketId,",
+     "replace": "        OspexOrder calldata r,\n        OspexOrder calldata t,\n        uint256 marketId,"
+    },
+    {
+     "find": "            r.account,\n            taker,\n            r.gameId,",
+     "replace": "            r.account,\n            t.account,\n            r.gameId,"
+    },
+    {
+     "find": "                r.account,\n                taker,\n                r.gameId,",
+     "replace": "                r.account,\n                t.account,\n                r.gameId,"
+    },
+    {
+     "find": "            r.expiry,\n            r.minFill\n        );",
+     "replace": "            r.expiry,\n            t.minFill\n        );"
+    },
+    {
+     "find": "                r.expiry,\n                r.minFill\n            )",
+     "replace": "                r.expiry,\n                t.minFill\n            )"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theEventsCarryTheOrdersOwnMinimum",
+   "breaks": "the fill event and its hub copy carry the taking order's minimum"
+  },
+  {
+   "id": "M36-hubminfillzero",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                r.expiry,\n                r.minFill\n            )",
+     "replace": "                r.expiry,\n                uint256(0)\n            )"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theEventsCarryTheOrdersOwnMinimum",
+   "breaks": "the fill event's hub copy carries zero as the minimum"
+  },
+  {
+   "id": "M37-cancelminfillzero",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            order.expiry,\n            order.minFill\n        );",
+     "replace": "            order.expiry,\n            uint256(0)\n        );"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theEventsCarryTheOrdersOwnMinimum",
+   "breaks": "the cancel event carries zero as the minimum"
+  },
+  {
+   "id": "X165-hashminfill",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                    order.expiry,\n                    order.minFill\n",
+     "replace": "                    order.expiry\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossOrders.t.sol",
+   "test": "test_neverLine_anOrderBindsOnlyTheAccountThatSignedIt",
+   "breaks": "the minimum is left out of the order's hash"
+  },
+  {
+   "id": "Q01-tail-room-before-vs-minimum",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (tally.takerRisk < t.minFill && room >= LOT) {",
+     "replace": "        if (tally.takerRisk < t.minFill && room >= LOT && room + tally.takerRisk >= t.minFill) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the tail is waived once the room before the walk is under the minimum"
+  },
+  {
+   "id": "Q07-tail-waived-self-sender",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (tally.takerRisk < t.minFill && room >= LOT) {",
+     "replace": "        if (tally.takerRisk < t.minFill && room >= LOT && msg.sender != t.account) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the tail is waived for the taking account sending its own Cross"
+  },
+  {
+   "id": "Q09-tail-waived-origin",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (tally.takerRisk < t.minFill && room >= LOT) {",
+     "replace": "        if (tally.takerRisk < t.minFill && room >= LOT && tx.origin != t.account) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the tail is waived for the taking account as the transaction's origin"
+  },
+  {
+   "id": "Q11-tail-waived-account-with-code",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (tally.takerRisk < t.minFill && room >= LOT) {",
+     "replace": "        if (tally.takerRisk < t.minFill && room >= LOT && t.account.code.length == 0) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the tail is waived for a taking account with code"
+  },
+  {
+   "id": "Q13-tail-waived-off-zero-line",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (tally.takerRisk < t.minFill && room >= LOT) {",
+     "replace": "        if (tally.takerRisk < t.minFill && room >= LOT && t.lineTicks == 0) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the tail holds on the zero line alone"
+  },
+  {
+   "id": "Q20-tail-in-32-bits",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (tally.takerRisk < t.minFill && room >= LOT) {",
+     "replace": "        if (uint32(tally.takerRisk) < uint32(t.minFill) && room >= LOT) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the tail compares the fill and the minimum in thirty-two bits"
+  },
+  {
+   "id": "Q23-tail-both-stakes-under",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (tally.takerRisk < t.minFill && room >= LOT) {",
+     "replace": "        if (tally.takerRisk < t.minFill && tally.makerRisk < t.minFill && room >= LOT) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the tail fires only with both totals under the minimum"
+  },
+  {
+   "id": "Q24-short-reports-larger-total",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            revert OspexMatching__TakingOrderUnderMinFill(takingHash, tally.takerRisk, t.minFill, room, report);",
+     "replace": "            revert OspexMatching__TakingOrderUnderMinFill(\n                takingHash, tally.makerRisk > tally.takerRisk ? tally.makerRisk : tally.takerRisk, t.minFill, room, report\n            );"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the short refusal carries the larger of the two totals"
+  },
+  {
+   "id": "Q25-report-legs-smaller-stake-first",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                makerRisk: filled ? makerRisk : 0,\n                takerRisk: filled ? takerRisk : 0\n",
+     "replace": "                makerRisk: filled ? (makerRisk < takerRisk ? makerRisk : takerRisk) : 0,\n                takerRisk: filled ? (makerRisk < takerRisk ? takerRisk : makerRisk) : 0\n"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "a filled record writes the smaller stake first"
+  },
+  {
+   "id": "Q22-crossed-cumulative-taker",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        emit Crossed(msg.sender, takingHash, t.account, tally.marketId, tally.makerRisk, tally.takerRisk);",
+     "replace": "        emit Crossed(msg.sender, takingHash, t.account, tally.marketId, tally.makerRisk, t.riskAmount - room);"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the Cross's event carries the taking order's whole filled amount"
+  },
+  {
+   "id": "Q03-tally-maker-at-computation",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            tally.makerRisk += makerRisk;\n            tally.takerRisk += takerRisk;",
+     "replace": "            tally.takerRisk += takerRisk;"
+    },
+    {
+     "find": "        takerRisk = lots * p;\n",
+     "replace": "        takerRisk = lots * p;\n        tally.makerRisk += makerRisk;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the Cross's event tallies a skipped leg's resting stake"
+  },
+  {
+   "id": "Q04-tally-maker-on-pull-refused",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            return (false, SkipReason.PullRefused, makerRisk, takerRisk);",
+     "replace": "            tally.makerRisk += makerRisk;\n            return (false, SkipReason.PullRefused, makerRisk, takerRisk);"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the Cross's event tallies a refused pull's resting stake"
+  },
+  {
+   "id": "Q05-cap-net-of-minimum",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (t.riskAmount > TAKING_STAKE_CAP && !s_takingStakeCapLifted) {",
+     "replace": "        if (t.riskAmount - t.minFill > TAKING_STAKE_CAP && !s_takingStakeCapLifted) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_aOneCentBetUnderTheCap",
+   "breaks": "the cap compares the stake less the minimum"
+  },
+  {
+   "id": "Q06-cap-on-minimum-when-set",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (t.riskAmount > TAKING_STAKE_CAP && !s_takingStakeCapLifted) {",
+     "replace": "        if ((t.minFill == 0 ? t.riskAmount : t.minFill) > TAKING_STAKE_CAP && !s_takingStakeCapLifted) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_aOneCentBetUnderTheCap",
+   "breaks": "the cap compares the minimum when one is set"
+  },
+  {
+   "id": "Q02-resting-either-stake-under",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {",
+     "replace": "        if ((makerRisk < r.minFill || takerRisk < r.minFill) && (r.riskAmount - restingFilled) - makerRisk >= LOT) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "a resting order is skipped when either stake is under its minimum"
+  },
+  {
+   "id": "Q08-resting-waived-self-sender",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {",
+     "replace": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT && msg.sender != r.account) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the resting check is waived for the resting account sending the Cross"
+  },
+  {
+   "id": "Q12-resting-waived-account-with-code",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {",
+     "replace": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT && r.account.code.length == 0) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the resting check is waived for a resting account with code"
+  },
+  {
+   "id": "Q14-resting-waived-off-zero-line",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {",
+     "replace": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT && r.lineTicks == 0) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the resting check holds on the zero line alone"
+  },
+  {
+   "id": "Q15-resting-waived-while-cap-in-force",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {",
+     "replace": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT && s_takingStakeCapLifted) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_aOneCentBetUnderTheCap",
+   "breaks": "the resting check is waived while the cap is in force"
+  },
+  {
+   "id": "Q16-resting-waived-own-account",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {",
+     "replace": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT && r.account != t.account) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the resting check is waived for the taking account's own resting order"
+  },
+  {
+   "id": "Q17-resting-waived-contract-sender",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {",
+     "replace": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT && msg.sender.code.length == 0) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the resting check is waived for a sender with code"
+  },
+  {
+   "id": "Q18-resting-waived-within-thirty-seconds",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {",
+     "replace": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT && r.expiry - block.timestamp > MAX_TAKING_LIFE) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the resting check is waived with thirty seconds or less to live"
+  },
+  {
+   "id": "Q21-resting-in-32-bits",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {",
+     "replace": "        if (uint32(makerRisk) < uint32(r.minFill) && (r.riskAmount - restingFilled) - makerRisk >= LOT) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the resting check compares the stake and the minimum in thirty-two bits"
+  },
+  {
+   "id": "Q26-resting-in-whole-lots",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {",
+     "replace": "        if (makerRisk / LOT < r.minFill / LOT && (r.riskAmount - restingFilled) - makerRisk >= LOT) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the resting check compares in whole lots"
+  },
+  {
+   "id": "Q27-resting-room-vs-minimum",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {",
+     "replace": "        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) >= r.minFill) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the resting check reads the room against the minimum in place of the lot"
+  },
+  {
+   "id": "Q10-bound-waived-self-sender",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (order.minFill > order.riskAmount) {",
+     "replace": "        if (order.minFill > order.riskAmount && msg.sender != order.account) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the bound is waived for an account sending its own Cross"
+  },
+  {
+   "id": "Q19-bound-waived-account-with-code",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (order.minFill > order.riskAmount) {",
+     "replace": "        if (order.minFill > order.riskAmount && order.account.code.length == 0) {"
+    }
+   ],
+   "testPath": "test/betting/OspexMinFill.t.sol",
+   "test": "test_minFill_theMinimumHoldsInEveryShape",
+   "breaks": "the bound is waived for an account with code"
   }
  ]
 }
