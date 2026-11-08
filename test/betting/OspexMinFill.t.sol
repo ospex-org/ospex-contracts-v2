@@ -461,7 +461,9 @@ contract OspexMinFillTest is CrossBase {
 
     /// Breaks: in OspexMatching._leg, the minimum's check moved after the pull, into the positions call's
     /// success path; the check moved before the lot's minimum; in OspexMatching._checkSigned, the bound on the
-    /// minimum deleted and made a skip at the top of OspexMatching._leg.
+    /// minimum deleted and made a skip at the top of OspexMatching._leg; in OspexMatching.cross, the hub copy of
+    /// a skip under the minimum carrying a zero hash, caught by the test base's whole comparison of each skip's
+    /// copy with its record.
     function test_neverLine_theSeventhReasonHasItsPlaceInTheOrder() public {
         // A counted expectation holds for the whole test and is set once: the coin is never asked for the stake of
         // the account under its minimum that cannot pay, in either role. The account is the one the cases make.
@@ -1477,10 +1479,13 @@ contract OspexMinFillInCapTest is CrossBase {
     /// One cent at 1.90 against the maker's 2.10 fills 9,900 and leaves exactly a lot, so a minimum of 9,900 is
     /// met and a minimum of 10,000 is not; a second resting order at 2.00 behind it takes the last lot, and the
     /// minimum of 10,000 is met. The cap's refusal at 10,100 stands, and the bound on the minimum is tested before
-    /// the cap, which reads the signed stake alone; and a resting order is held to its minimum under the cap.
+    /// the cap, which reads the signed stake alone; a resting order is held to its minimum under the cap; and under
+    /// 2.00, where the taking stake of a leg is the smaller, a short taking fill is refused whole with the cap in
+    /// force.
     /// Breaks: in OspexMatching.cross, the cap comparing the stake less the minimum, or the minimum when one is
-    /// set; in OspexMatching._leg, the resting check waived while the cap is in force. 21's and 26's breaks are
-    /// scored against their own tests.
+    /// set; the tail waived while the cap is in force where the taking stake of the Cross is the smaller; in
+    /// OspexMatching._leg, the resting check waived while the cap is in force. 21's and 26's breaks are scored
+    /// against their own tests.
     function test_minFill_aOneCentBetUnderTheCap() public {
         assertFalse(matching.s_takingStakeCapLifted(), "the cap was lifted at deploy");
         _capCases(Side.B);
@@ -1567,6 +1572,36 @@ contract OspexMinFillInCapTest is CrossBase {
         );
         _cross(sender, _take(tk, game, takingSide, 200, 5_000), _list(asking));
         assertEq(_filled(asking), 5_000, "asking for 5,000, offered 5,000, before the switch");
+        vm.revertToState(snap);
+
+        // Under 2.00 the taking stake of a leg is the smaller, and the cap is in force: 10,000 at 2.90 against
+        // 5,000 at 1.50 is fifty lots, 5,000 of resting stake for 2,500 of taking stake, with 7,500 left. Asking
+        // for 2,501 is short, the whole refusal compared, and nothing moves; asking for 2,500 fills.
+        OspexMatching.SignedOrder memory under = _rest(m1, game, restingSide, 150, 5_000);
+        taking = _takeMin(tk, game, takingSide, 290, 10_000, 2_501);
+        legs[0] = _filledLeg(under, 5_000, 2_500);
+        address[] memory who = new address[](3);
+        who[0] = tk.a;
+        who[1] = m1.a;
+        who[2] = sender;
+        bytes32[] memory orders = new bytes32[](2);
+        orders[0] = _hash(taking);
+        orders[1] = _hash(under);
+        bytes32 before = _fingerprint(who, orders);
+        _refused(
+            sender,
+            taking,
+            _list(under),
+            _short(taking, 2_500, 7_500, legs),
+            "asking for 2,501 at 2.90 against 1.50, before the switch"
+        );
+        assertEq(_fingerprint(who, orders), before, "the short Cross under the cap left something");
+        assertEq(_filled(taking), 0, "the short Cross under the cap left the taking order a filled amount");
+        assertEq(_filled(under), 0, "the short Cross under the cap left the resting order a filled amount");
+        taking = _takeMin(tk, game, takingSide, 290, 10_000, 2_500);
+        _cross(sender, taking, _list(under));
+        assertEq(_filled(taking), 2_500, "asking for 2,500 at 2.90 against 1.50, before the switch: the taking stake");
+        assertEq(_filled(under), 5_000, "asking for 2,500 at 2.90 against 1.50, before the switch: the resting stake");
         vm.revertToState(snap);
     }
 

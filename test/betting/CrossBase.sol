@@ -317,7 +317,8 @@ abstract contract CrossBase is BettingBase {
     // ──────────────────────────── What a Cross leaves ──────────────────
 
     /// @dev The skip records among a call's logs, in order. Each is checked against its copy through the
-    ///      hub, which is read from the core's own log: the same number of them, the same reasons.
+    ///      hub, which is read from the core's own log: the same number of them, and each copy's payload the
+    ///      record's four words, the skipped order's hash, its account, the taking order's hash and the reason.
     function _skips(Vm.Log[] memory logs) internal view returns (Skip[] memory out) {
         uint256 n;
         for (uint256 i; i < logs.length; ++i) {
@@ -334,28 +335,35 @@ abstract contract CrossBase is BettingBase {
                 reason: abi.decode(logs[i].data, (uint8))
             });
         }
-        uint8[] memory hub = _hubSkipReasons(logs);
+        bytes[] memory hub = _hubSkipCopies(logs);
         assertEq(hub.length, n, "the skip records and their hub copies are not the same number");
         for (uint256 i; i < n; ++i) {
-            assertEq(hub[i], out[i].reason, "a skip record's hub copy carries another reason");
+            assertEq(
+                hub[i],
+                abi.encode(out[i].orderHash, out[i].account, out[i].takingOrderHash, out[i].reason),
+                "a skip record's hub copy differs from the record"
+            );
         }
     }
 
-    /// @dev The reasons the hub's copies of a call's skip records carry, in order: each copy is the core's
-    ///      event under the skip's tag, and its payload ends with the reason.
-    function _hubSkipReasons(Vm.Log[] memory logs) internal view returns (uint8[] memory out) {
+    /// @dev The payloads of the hub's copies of a call's skip records, in order: each copy is the core's event
+    ///      under the skip's tag, emitted for the matching module, and its payload is the record's four words.
+    function _hubSkipCopies(Vm.Log[] memory logs) internal view returns (bytes[] memory out) {
         bytes32 tag = keccak256("ORDER_SKIPPED");
         uint256 n;
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter == address(core) && logs[i].topics.length == 3 && logs[i].topics[1] == tag) ++n;
         }
-        out = new uint8[](n);
+        out = new bytes[](n);
         n = 0;
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(core) || logs[i].topics.length != 3 || logs[i].topics[1] != tag) continue;
-            bytes memory payload = abi.decode(logs[i].data, (bytes));
-            (,,, uint8 reason) = abi.decode(payload, (bytes32, address, bytes32, uint8));
-            out[n++] = reason;
+            assertEq(
+                logs[i].topics[2],
+                bytes32(uint256(uint160(address(matching)))),
+                "a skip record's hub copy names another module"
+            );
+            out[n++] = abi.decode(logs[i].data, (bytes));
         }
     }
 
