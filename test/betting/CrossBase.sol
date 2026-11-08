@@ -33,12 +33,13 @@ abstract contract CrossBase is BettingBase {
     uint8 internal constant EXPIRED = 2;
     uint8 internal constant NO_ROOM = 3;
     uint8 internal constant NOTHING_FITS = 4;
-    uint8 internal constant PULL_REFUSED = 5;
+    uint8 internal constant UNDER_MIN_FILL = 5;
+    uint8 internal constant PULL_REFUSED = 6;
 
     /// @dev The first topics of the matching module's three Cross events, each the hash of its signature
     ///      written out.
     bytes32 internal constant ORDER_MATCHED_TOPIC = keccak256(
-        "OrderMatched(bytes32,address,address,uint256,uint256,address,int32,uint8,uint16,uint256,uint256,uint256,uint256,uint256)"
+        "OrderMatched(bytes32,address,address,uint256,uint256,address,int32,uint8,uint16,uint256,uint256,uint256,uint256,uint256,uint256)"
     );
     bytes32 internal constant ORDER_SKIPPED_TOPIC = keccak256("OrderSkipped(bytes32,address,bytes32,uint8)");
     bytes32 internal constant CROSSED_TOPIC = keccak256("Crossed(address,bytes32,address,uint256,uint256,uint256)");
@@ -131,6 +132,31 @@ abstract contract CrossBase is BettingBase {
         return _signed(_order(t.a, game, address(moneyline), 0, side, _tick(tick), risk, nextNonce++, expiry), t.key);
     }
 
+    /// @dev A resting order of `m` on the game's moneyline with a minimum fill, live for a day, signed.
+    function _restMin(Signer memory m, uint256 game, Side side, uint256 tick, uint256 risk, uint256 minFill)
+        internal
+        returns (OspexMatching.SignedOrder memory)
+    {
+        uint256 expiry = vm.getBlockTimestamp() + 1 days;
+        return
+            _signed(
+                _order(m.a, game, address(moneyline), 0, side, _tick(tick), risk, nextNonce++, expiry, minFill), m.key
+            );
+    }
+
+    /// @dev A taking order of `t` on the game's moneyline with a minimum fill, thirty seconds to its expiry,
+    ///      signed.
+    function _takeMin(Signer memory t, uint256 game, Side side, uint256 tick, uint256 risk, uint256 minFill)
+        internal
+        returns (OspexMatching.SignedOrder memory)
+    {
+        uint256 expiry = vm.getBlockTimestamp() + 30;
+        return
+            _signed(
+                _order(t.a, game, address(moneyline), 0, side, _tick(tick), risk, nextNonce++, expiry, minFill), t.key
+            );
+    }
+
     /// @dev The hash a signer would sign for an order under another type string, version, chain or contract:
     ///      what a signature made for something else is over.
     function _digestUnder(
@@ -200,6 +226,79 @@ abstract contract CrossBase is BettingBase {
     function _reasons(uint8 a) internal pure returns (uint8[] memory r) {
         r = new uint8[](1);
         r[0] = a;
+    }
+
+    /// @dev The short refusal, laid out as the contract lays it out: the selector, the taking order's hash,
+    ///      what this Cross filled of it, its minimum, the room it has left, and one record per listed order.
+    function _short(
+        OspexMatching.SignedOrder memory taking,
+        uint256 filledThisCross,
+        uint256 roomLeft,
+        OspexMatching.LegReport[] memory legs
+    ) internal view returns (bytes memory) {
+        return abi.encodeWithSelector(
+            OspexMatching.OspexMatching__TakingOrderUnderMinFill.selector,
+            _hash(taking),
+            filledThisCross,
+            taking.order.minFill,
+            roomLeft,
+            legs
+        );
+    }
+
+    /// @dev A filled leg's record: the order's hash, filled, no reason, the leg's two stakes.
+    function _filledLeg(OspexMatching.SignedOrder memory s, uint256 makerRisk, uint256 takerRisk)
+        internal
+        view
+        returns (OspexMatching.LegReport memory)
+    {
+        return OspexMatching.LegReport({
+            orderHash: _hash(s),
+            filled: true,
+            reason: OspexMatching.SkipReason.NoCourier,
+            makerRisk: makerRisk,
+            takerRisk: takerRisk
+        });
+    }
+
+    /// @dev A skipped order's record: the order's hash, not filled, its reason, zero stakes.
+    function _skippedLeg(OspexMatching.SignedOrder memory s, uint8 reason)
+        internal
+        view
+        returns (OspexMatching.LegReport memory)
+    {
+        return OspexMatching.LegReport({
+            orderHash: _hash(s), filled: false, reason: OspexMatching.SkipReason(reason), makerRisk: 0, takerRisk: 0
+        });
+    }
+
+    /// @dev The short refusal's five fields, decoded from a Cross's revert data: refuses any other selector.
+    function _decodeShort(bytes memory err)
+        internal
+        pure
+        returns (
+            bytes32 takingHash,
+            uint256 filledThisCross,
+            uint256 minFill,
+            uint256 roomLeft,
+            OspexMatching.LegReport[] memory legs
+        )
+    {
+        assertGe(err.length, 4, "no selector in the refusal");
+        bytes4 selector;
+        assembly ("memory-safe") {
+            selector := mload(add(err, 0x20))
+        }
+        assertEq(
+            bytes32(selector),
+            bytes32(OspexMatching.OspexMatching__TakingOrderUnderMinFill.selector),
+            "not the short refusal"
+        );
+        bytes memory body = new bytes(err.length - 4);
+        for (uint256 i; i < body.length; ++i) {
+            body[i] = err[i + 4];
+        }
+        return abi.decode(body, (bytes32, uint256, uint256, uint256, OspexMatching.LegReport[]));
     }
 
     /// @dev A Cross that must be refused with exactly `want`.

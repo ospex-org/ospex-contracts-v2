@@ -238,10 +238,10 @@ contract OspexBettingNeverLinesTest is BettingBase {
             "EVENT_ORDER_CANCELLED();EVENT_ORDER_MATCHED();EVENT_ORDER_SKIPPED();EVENT_TAKING_STAKE_CAP_LIFTED();"
             "LOT();MARKET_MODULE();MATCHING_MODULE();MAX_LINE_TICKS();MAX_ODDS();MAX_TAKING_LIFE();MIN_ODDS();"
             "ODDS_SCALE();ORDER_TYPEHASH();POSITION_MODULE();TAKING_STAKE_CAP();"
-            "cancelOrder((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256));"
-            "cross(((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256),bytes),"
-            "((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256),bytes)[]);" "eip712Domain();"
-            "getOrderHash((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256));"
+            "cancelOrder((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256,uint256));"
+            "cross(((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256,uint256),bytes),"
+            "((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256,uint256),bytes)[]);" "eip712Domain();"
+            "getOrderHash((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256,uint256));"
             "getDomainSeparator();getModuleType();i_ospexCore();i_timelock();isCourier(address,address);"
             "liftTakingStakeCap();raiseMinNonce(uint256,address,int32,uint256);registerCourier(address);"
             "s_cancelledOrders(bytes32);s_filledRisk(bytes32);s_minNonces(address,bytes32);"
@@ -529,7 +529,8 @@ contract OspexBettingNeverLinesTest is BettingBase {
                 oddsTick: 200,
                 riskAmount: STAKE,
                 nonce: 1,
-                expiry: 1_900_000_000
+                expiry: 1_900_000_000,
+                minFill: 0
             });
             bytes32 hash = matching.getOrderHash(order);
             bytes32 key = keccak256(abi.encode(uint256(7), fresh, int32(0)));
@@ -689,7 +690,8 @@ contract OspexBettingNeverLinesTest is BettingBase {
                     oddsTick: 200,
                     riskAmount: STAKE,
                     nonce: 1,
-                    expiry: 1_900_000_000
+                    expiry: 1_900_000_000,
+                    minFill: 0
                 });
                 vm.recordLogs();
                 vm.startPrank(all[i], direct ? all[i] : origin);

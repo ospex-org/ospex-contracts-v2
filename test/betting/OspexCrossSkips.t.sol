@@ -55,7 +55,7 @@ contract OspexCrossSkipsTest is CrossBase {
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
-    // 9. A skipped order leaves nothing, and only the six reasons skip.
+    // 9. A skipped order leaves nothing, and only the seven reasons skip.
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// @dev The second resting account's order `x`, listed between two orders that fill, is skipped for `reason`
@@ -97,8 +97,10 @@ contract OspexCrossSkipsTest is CrossBase {
     /// in the refused pull's recognition; the taking stake's minimum dropped, so that an order nothing fits
     /// reaches the pull; each neighbouring pair of the walk's first four rows swapped; and a resting order's
     /// expiry not tested, or tested with `>`; the floor tested after the expiry and the room; and the hub's
-    /// copy of a skip record carrying one fixed reason.
-    function test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSixReasonsSkip() public {
+    /// copy of a skip record carrying one fixed reason. And one break of the tests themselves, scored once to
+    /// show the pins bite: `CrossBase.PULL_REFUSED` left at 5, the number the refused pull had before the seventh
+    /// reason, under which each refused pull here is asserted against the wrong number.
+    function test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip() public {
         _skipCases(Side.B);
         _skipCases(Side.A);
     }
@@ -150,6 +152,12 @@ contract OspexCrossSkipsTest is CrossBase {
 
         // Nothing fits: one lot at 1.50 is 100 against 50, under the minimum.
         _skippedInTheMiddle(game, takingSide, _rest(m2, game, restingSide, 150, 100), NOTHING_FITS, "nothing fits");
+
+        // Under its minimum: a resting 20,000 asking for 15,000 at least, against the 10,000 the taking order has
+        // left after the first leg. The leg would take 10,000 and leave 10,000, a lot or more, so it is skipped.
+        _skippedInTheMiddle(
+            game, takingSide, _restMin(m2, game, restingSide, 200, 20_000, 15_000), UNDER_MIN_FILL, "under its minimum"
+        );
 
         // Pull refused, three ways, each on an order an earlier Cross filled 2,000 of: the filled amount is put
         // back to that figure. No balance.
@@ -425,73 +433,80 @@ contract OspexCrossSkipsTest is CrossBase {
         Side restingSide = _other(takingSide);
         Signer memory unregistered = _account("unregistered");
         Signer memory full = _account("full");
+        Signer memory under = _account("under its minimum");
         Signer memory unpaid = _account("unpaid");
         _registerAll(sender);
         _register(full.a, sender);
+        _register(under.a, sender);
         _register(unpaid.a, sender);
 
-        // One order in each of the six states.
-        OspexMatching.SignedOrder[] memory six = new OspexMatching.SignedOrder[](6);
-        six[NO_COURIER] = _rest(unregistered, game, restingSide, 200, 10_000);
-        six[CANCELLED] = _rest(m1, game, restingSide, 200, 10_000);
+        // One order in each of the seven states.
+        OspexMatching.SignedOrder[] memory seven = new OspexMatching.SignedOrder[](7);
+        seven[NO_COURIER] = _rest(unregistered, game, restingSide, 200, 10_000);
+        seven[CANCELLED] = _rest(m1, game, restingSide, 200, 10_000);
         vm.prank(m1.a);
-        matching.cancelOrder(six[CANCELLED].order);
-        six[EXPIRED] = _restUntil(m2, game, restingSide, 200, 10_000, vm.getBlockTimestamp());
-        six[NO_ROOM] = _rest(full, game, restingSide, 200, 10_000);
-        _cross(sender, _take(tk, game, takingSide, 200, 10_000), _list(six[NO_ROOM]));
-        six[NOTHING_FITS] = _rest(m3, game, restingSide, 150, 100);
-        six[PULL_REFUSED] = _rest(unpaid, game, restingSide, 200, 10_000);
+        matching.cancelOrder(seven[CANCELLED].order);
+        seven[EXPIRED] = _restUntil(m2, game, restingSide, 200, 10_000, vm.getBlockTimestamp());
+        seven[NO_ROOM] = _rest(full, game, restingSide, 200, 10_000);
+        _cross(sender, _take(tk, game, takingSide, 200, 10_000), _list(seven[NO_ROOM]));
+        seven[NOTHING_FITS] = _rest(m3, game, restingSide, 150, 100);
+        // Under its minimum: 30,000 asking for 25,000 at least, against a taking order of 20,000, which would
+        // take 20,000 of it and leave 10,000, a lot or more.
+        seven[UNDER_MIN_FILL] = _restMin(under, game, restingSide, 200, 30_000, 25_000);
+        seven[PULL_REFUSED] = _rest(unpaid, game, restingSide, 200, 10_000);
         IERC20 coin = _coin();
         vm.prank(unpaid.a);
         coin.approve(address(positions), 0);
 
         OspexMatching.SignedOrder memory taking = _take(tk, game, takingSide, 200, 20_000);
-        bytes32 before = _print(taking, six[CANCELLED], six[EXPIRED], six[NOTHING_FITS]);
+        bytes32 before = _print(taking, seven[CANCELLED], seven[EXPIRED], seven[NOTHING_FITS]);
         uint256 held = coin.balanceOf(address(positions));
 
         // An empty list.
         _refused(sender, taking, _list(), _nothingFilled(new uint8[](0)), "an empty list");
-        // Each of the six alone.
-        for (uint8 reason; reason < 6; ++reason) {
-            _refused(sender, taking, _list(six[reason]), _nothingFilled(_reasons(reason)), "one skip alone");
+        // Each of the seven alone.
+        for (uint8 reason; reason < 7; ++reason) {
+            _refused(sender, taking, _list(seven[reason]), _nothingFilled(_reasons(reason)), "one skip alone");
         }
-        // All six together: the refusal carries the reasons in list order, here and in another order.
-        uint8[] memory inOrder = new uint8[](6);
-        for (uint8 i; i < 6; ++i) {
+        // All seven together: the refusal carries the reasons in list order, here and in another order.
+        uint8[] memory inOrder = new uint8[](7);
+        for (uint8 i; i < 7; ++i) {
             inOrder[i] = i;
         }
-        _refused(sender, taking, six, _nothingFilled(inOrder), "all six, in the order of the reasons");
-        uint8[] memory shuffled = new uint8[](3);
+        _refused(sender, taking, seven, _nothingFilled(inOrder), "all seven, in the order of the reasons");
+        uint8[] memory shuffled = new uint8[](4);
         shuffled[0] = PULL_REFUSED;
-        shuffled[1] = NO_ROOM;
-        shuffled[2] = NO_COURIER;
-        _refused(
-            sender,
-            taking,
-            _list(six[PULL_REFUSED], six[NO_ROOM], six[NO_COURIER]),
-            _nothingFilled(shuffled),
-            "three of them, in another order"
-        );
+        shuffled[1] = UNDER_MIN_FILL;
+        shuffled[2] = NO_ROOM;
+        shuffled[3] = NO_COURIER;
+        OspexMatching.SignedOrder[] memory four = new OspexMatching.SignedOrder[](4);
+        for (uint256 i; i < 4; ++i) {
+            four[i] = seven[shuffled[i]];
+        }
+        _refused(sender, taking, four, _nothingFilled(shuffled), "four of them, in another order");
         // Nothing of any of them remains.
         assertEq(
-            _print(taking, six[CANCELLED], six[EXPIRED], six[NOTHING_FITS]), before, "a refused Cross left something"
+            _print(taking, seven[CANCELLED], seven[EXPIRED], seven[NOTHING_FITS]),
+            before,
+            "a refused Cross left something"
         );
         assertEq(coin.balanceOf(address(positions)), held, "a refused Cross moved coin");
-        assertEq(_filled(six[PULL_REFUSED]), 0, "a refused Cross left a filled amount");
+        assertEq(_filled(seven[PULL_REFUSED]), 0, "a refused Cross left a filled amount");
+        assertEq(_filled(seven[UNDER_MIN_FILL]), 0, "a refused Cross left a filled amount under the minimum");
         assertEq(_filled(taking), 0, "a refused Cross filled the taking order");
 
-        // The same orders in a later Cross beside one that fills: the six skips are recorded then, in order.
-        OspexMatching.SignedOrder[] memory seven = new OspexMatching.SignedOrder[](7);
-        for (uint256 i; i < 6; ++i) {
-            seven[i] = six[i];
+        // The same orders in a later Cross beside one that fills: the seven skips are recorded then, in order.
+        OspexMatching.SignedOrder[] memory eight = new OspexMatching.SignedOrder[](8);
+        for (uint256 i; i < 7; ++i) {
+            eight[i] = seven[i];
         }
-        seven[6] = _rest(m1, game, restingSide, 200, 10_000);
+        eight[7] = _rest(m1, game, restingSide, 200, 10_000);
         vm.recordLogs();
-        _cross(sender, taking, seven);
+        _cross(sender, taking, eight);
         Skip[] memory skips = _skips(vm.getRecordedLogs());
-        assertEq(skips.length, 6, "six skip records beside one fill");
-        for (uint8 reason; reason < 6; ++reason) {
-            _assertSkip(skips[reason], six[reason], taking, reason, "a skip beside a fill");
+        assertEq(skips.length, 7, "seven skip records beside one fill");
+        for (uint8 reason; reason < 7; ++reason) {
+            _assertSkip(skips[reason], seven[reason], taking, reason, "a skip beside a fill");
         }
         assertEq(_filled(taking), 10_000, "the one order that fills");
     }
@@ -682,7 +697,7 @@ contract OspexCrossSkipsTest is CrossBase {
         string memory what
     ) internal view {
         OspexMatching.OspexOrder memory o = resting.order;
-        bytes memory rest = abi.encode(o.oddsTick, makerRisk, takerRisk, o.riskAmount, o.nonce, o.expiry);
+        bytes memory rest = abi.encode(o.oddsTick, makerRisk, takerRisk, o.riskAmount, o.nonce, o.expiry, o.minFill);
         bytes memory data = bytes.concat(abi.encode(o.gameId, market, o.scorer, o.lineTicks, o.positionType), rest);
         bytes memory payload = bytes.concat(abi.encode(_hash(resting), o.account, tk.a), data);
         _assertPair(

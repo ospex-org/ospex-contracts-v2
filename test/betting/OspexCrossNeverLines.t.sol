@@ -442,9 +442,9 @@ contract OspexCrossNeverLinesTest is CrossBase {
         _cross(sender, t3, _list(r));
         assertEq(_filled(r), 10_000, "after the third Cross: its signed stake, and no more");
         assertEq(_filled(t3), 3_300, "the third taking order took what the room allowed: 30 lots");
-        // The next Cross skips it. Signed again, the same nine values are the same order and the same record.
+        // The next Cross skips it. Signed again, the same ten values are the same order and the same record.
         OspexMatching.SignedOrder memory again = _signed(r.order, m1.key);
-        assertEq(_hash(again), _hash(r), "the same nine values are another order");
+        assertEq(_hash(again), _hash(r), "the same ten values are another order");
         OspexMatching.SignedOrder memory t4 = _take(tk, game, takingSide, 190, 1_100);
         _refused(sender, t4, _list(again), _nothingFilled(_reasons(NO_ROOM)), "a full order, offered again");
         assertEq(_filled(r), 10_000, "a full order's filled amount moved");
@@ -602,7 +602,7 @@ contract OspexCrossNeverLinesTest is CrossBase {
         vm.prank(m1.a);
         matching.cancelOrder(dead.order);
         _restingIsSkippedAsCancelled(taking, dead, live, "cancelled by its account");
-        // Signing it again revives nothing: the same nine values are the same hash, and the mark is on the hash.
+        // Signing it again revives nothing: the same ten values are the same hash, and the mark is on the hash.
         vm.revertToState(snap);
         vm.prank(m1.a);
         matching.cancelOrder(dead.order);

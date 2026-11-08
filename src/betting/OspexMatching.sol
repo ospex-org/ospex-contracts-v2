@@ -21,11 +21,12 @@ interface IOspexGamesTimelock {
  * @notice The matching module of the betting set: the signed order and its hash, the Cross that fills orders,
  *         the per-order cancel, the per-market nonce floor and each account's couriers.
  *
- *         The signed order. An account signs OspexOrder, nine fields, under the EIP-712 domain "Ospex",
+ *         The signed order. An account signs OspexOrder, ten fields, under the EIP-712 domain "Ospex",
  *         version "3", this chain and this contract. Nothing in an order says which role it plays: the same
- *         signed order rests or takes. Its first field, account, is the account whose money backs it. In this
- *         build the account's own key signs, with a 65-byte ECDSA signature. Spec: "How a bet happens", and
- *         items 3, 8, 9, 10 and 13 of its first milestone.
+ *         signed order rests or takes. Its first field, account, is the account whose money backs it; its last,
+ *         minFill, is the least it fills for in one Cross. In this build the account's own key signs, with a
+ *         65-byte ECDSA signature. Spec: "How a bet happens", and items 3, 8, 9, 10, 13 and 20 of its first
+ *         milestone.
  *
  *         Couriers. A courier is an address an account names to send the fills of its orders. An account
  *         registers one, and drops one, with a call from its own address: the account is the caller, and
@@ -41,8 +42,9 @@ interface IOspexGamesTimelock {
  *         its account has not registered: the taking account must have registered the sender, or the call
  *         reverts; a resting order whose account has not is skipped. Each leg fills at the resting order's
  *         price, in lots of 100 units of resting stake, and a resting order that cannot fill is skipped, for
- *         one of six reasons, while the rest fill. A Cross that fills nothing reverts. Spec: "How a bet
- *         happens", and items 4, 11, 12, 14 and 15 of its first milestone.
+ *         one of seven reasons, while the rest fill. A Cross that fills nothing reverts, and so does one that
+ *         leaves its taking order short of its minimum fill. Spec: "How a bet happens", and items 4, 11, 12,
+ *         14, 15 and 20 of its first milestone.
  *
  *         One Cross at a time. While a Cross is in progress this contract refuses another Cross, a cancel, a
  *         raised floor, a registration, a drop and the cap's lift, each by the same name. So from the first
@@ -68,6 +70,16 @@ interface IOspexGamesTimelock {
  *         which nothing reverses. The timelock's address is read once, from the games set the core names, when
  *         this contract is deployed, and kept as i_timelock. Spec: the alpha's one-cent cap, the Polygon
  *         timelock's calls, and item 16 of its first milestone.
+ *
+ *         The minimum fill. An order's tenth field, minFill, is the least it fills for in one Cross, in the
+ *         coin's smallest unit and in the order's own stake, unless the fill completes it: an order is complete
+ *         when less than one lot of its stake is left, which nothing can ever fill. Zero, the default, asks for
+ *         nothing. A minimum above the signed stake is refused by name wherever the signature is checked, in
+ *         either role, before anything moves. A taking order that this Cross fills for less than its minimum,
+ *         with a lot or more left, reverts the whole Cross by name, the refusal carrying the fate of every
+ *         listed order; a resting order a leg would fill for less than its minimum, leaving a lot or more, is
+ *         skipped, the seventh reason, tested after nothing-fits and before the pull. Spec: item 20 of its
+ *         first milestone.
  */
 contract OspexMatching is IOspexModule, EIP712 {
     using TransientSlot for bytes32;
@@ -92,10 +104,11 @@ contract OspexMatching is IOspexModule, EIP712 {
     bytes32 public constant EVENT_CROSSED = keccak256("CROSSED");
     bytes32 public constant EVENT_TAKING_STAKE_CAP_LIFTED = keccak256("TAKING_STAKE_CAP_LIFTED");
 
-    /// @notice EIP-712 typehash for the OspexOrder struct: the nine fields, the first named `account`
+    /// @notice EIP-712 typehash for the OspexOrder struct: the ten fields, the first named `account`, the last
+    ///         `minFill`
     bytes32 public constant ORDER_TYPEHASH = keccak256(
         "OspexOrder(" "address account," "uint256 gameId," "address scorer," "int32 lineTicks," "uint8 positionType,"
-        "uint16 oddsTick," "uint256 riskAmount," "uint256 nonce," "uint256 expiry" ")"
+        "uint16 oddsTick," "uint256 riskAmount," "uint256 nonce," "uint256 expiry," "uint256 minFill" ")"
     );
 
     /// @notice Odds scale factor (1.91 odds = 191 ticks). The scale is stated in OspexBettingTypes.sol.
@@ -158,6 +171,9 @@ contract OspexMatching is IOspexModule, EIP712 {
     error OspexMatching__PriceOutOfRange(bytes32 orderHash);
     /// @notice Thrown by cross when an order's signed stake is zero or not a whole number of lots, in either role
     error OspexMatching__StakeNotInLots(bytes32 orderHash);
+    /// @notice Thrown by cross when an order's minimum fill is above its signed stake, in either role: no fill
+    ///         could ever meet it. Carries the two numbers.
+    error OspexMatching__MinFillAboveStake(bytes32 orderHash, uint256 minFill, uint256 riskAmount);
     /// @notice Thrown by cross when the taking order's signed stake is above TAKING_STAKE_CAP and the cap has
     ///         not been lifted
     error OspexMatching__TakingStakeAboveCap(bytes32 orderHash);
@@ -184,10 +200,19 @@ contract OspexMatching is IOspexModule, EIP712 {
     /// @notice Thrown by cross when no leg filled: an empty list, or every listed order skipped. It carries
     ///         each listed order's reason, in list order, since the skip records of a reverted call do not exist.
     error OspexMatching__NothingFilled(SkipReason[] reasons);
+    /// @notice Thrown by cross when at least one leg filled and the taking order is left short: this Cross filled
+    ///         it for less than its minimum fill and a lot or more of its room is left. Nothing of the Cross
+    ///         remains. It carries the taking order's hash, what this Cross filled of it, its minimum, the room it
+    ///         has left, and one record per listed order: filled with both stakes, or skipped with its reason and
+    ///         zero stakes.
+    error OspexMatching__TakingOrderUnderMinFill(
+        bytes32 takingHash, uint256 filledThisCross, uint256 minFill, uint256 roomLeft, LegReport[] legs
+    );
 
     // ──────────────────────────── Events ───────────────────────────────
 
-    /// @notice Emitted when an order is cancelled by its account
+    /// @notice Emitted when an order is cancelled by its account. Its fields are the order's, in the order's
+    ///         order, the minimum fill last.
     event OrderCancelled(
         bytes32 indexed orderHash,
         address indexed account,
@@ -198,7 +223,8 @@ contract OspexMatching is IOspexModule, EIP712 {
         uint16 oddsTick,
         uint256 riskAmount,
         uint256 nonce,
-        uint256 expiry
+        uint256 expiry,
+        uint256 minFill
     );
 
     /// @notice Emitted when an account raises its minimum nonce for a market. marketKey is the key the floor is
@@ -237,6 +263,7 @@ contract OspexMatching is IOspexModule, EIP712 {
     /// @param orderRiskAmount The resting order's signed stake
     /// @param nonce The resting order's nonce
     /// @param expiry The resting order's expiry
+    /// @param orderMinFill The resting order's minimum fill, never the taking order's
     event OrderMatched(
         bytes32 indexed orderHash,
         address indexed maker,
@@ -251,7 +278,8 @@ contract OspexMatching is IOspexModule, EIP712 {
         uint256 takerRisk,
         uint256 orderRiskAmount,
         uint256 nonce,
-        uint256 expiry
+        uint256 expiry,
+        uint256 orderMinFill
     );
 
     /// @notice Emitted once for each resting order a Cross skips, with the one reason it was skipped for. It
@@ -286,7 +314,7 @@ contract OspexMatching is IOspexModule, EIP712 {
     // ──────────────────────────── Types ────────────────────────────────
 
     /**
-     * @notice A signed order: the nine fields an account signs to take a position, in either role
+     * @notice A signed order: the ten fields an account signs to take a position, in either role
      * @param account The account whose money backs the order
      * @param gameId The game, in the games set
      * @param scorer The market contract: the moneyline, the spread or the total
@@ -299,6 +327,8 @@ contract OspexMatching is IOspexModule, EIP712 {
      * @param nonce Invalidation threshold, not a unique order id: orders on one market may share a nonce, and
      *              raiseMinNonce() invalidates every order on the market with a nonce below the new minimum
      * @param expiry Unix timestamp: the order is live while the block's time is before it
+     * @param minFill The least this order fills for in one Cross, in the coin's smallest unit and in the order's
+     *                own stake, unless the fill completes the order: zero asks for nothing; at most riskAmount
      */
     struct OspexOrder {
         address account;
@@ -310,6 +340,7 @@ contract OspexMatching is IOspexModule, EIP712 {
         uint256 riskAmount;
         uint256 nonce;
         uint256 expiry;
+        uint256 minFill;
     }
 
     /// @notice An order with its signature: 65 bytes, ECDSA, by the order's account, over getOrderHash(order)
@@ -332,8 +363,25 @@ contract OspexMatching is IOspexModule, EIP712 {
         /// @dev 4: no whole number of lots fits the order's room and the taking stake left with both stakes at
         ///      or above one lot's worth of units.
         NothingFits,
-        /// @dev 5: the coin refused the pull of the resting stake from the order's account.
+        /// @dev 5: the leg would take less than the order's minimum fill and leave a lot or more of its room.
+        UnderMinFill,
+        /// @dev 6: the coin refused the pull of the resting stake from the order's account.
         PullRefused
+    }
+
+    /// @notice One listed order's fate in a Cross that reverted short: filled, with the leg's two stakes, or
+    ///         skipped, with its reason and zero stakes. A hash listed twice is two records.
+    /// @param orderHash The resting order's hash
+    /// @param filled Whether the leg filled
+    /// @param reason Why it was skipped, when it was not filled; 0 and not a reason when it was
+    /// @param makerRisk The resting stake of the leg when it filled, else zero
+    /// @param takerRisk The taking stake of the leg when it filled, else zero
+    struct LegReport {
+        bytes32 orderHash;
+        bool filled;
+        SkipReason reason;
+        uint256 makerRisk;
+        uint256 takerRisk;
     }
 
     /// @dev What a Cross has filled so far.
@@ -408,29 +456,34 @@ contract OspexMatching is IOspexModule, EIP712 {
      *      - A Cross is already in progress.
      *      - The taking order's account has not registered the sender.
      *      - The taking order: its signature is not its account's; its price or its stake is not admissible;
-     *        its signed stake is above TAKING_STAKE_CAP and the cap has not been lifted; it is cancelled, by
-     *        its own cancel or under its account's floor; it has expired; it has more than MAX_TAKING_LIFE
-     *        seconds left; it has no room left.
+     *        its minimum fill is above its signed stake; its signed stake is above TAKING_STAKE_CAP and the cap
+     *        has not been lifted; it is cancelled, by its own cancel or under its account's floor; it has
+     *        expired; it has more than MAX_TAKING_LIFE seconds left; it has no room left.
      *      - A resting order, anywhere in the list: its signature is not its account's; its price or its stake
-     *        is not admissible; its game, market contract or line is not the taking order's; it is on the
-     *        taking order's side; its price does not meet the taking order's.
+     *        is not admissible; its minimum fill is above its signed stake; its game, market contract or line
+     *        is not the taking order's; it is on the taking order's side; its price does not meet the taking
+     *        order's.
      *
      *      Then the walk: one leg per resting order, in list order. Each is filled or skipped, and a skipped
-     *      order is recorded under the first of the six reasons that applies, in the order of SkipReason. A
+     *      order is recorded under the first of the seven reasons that applies, in the order of SkipReason. A
      *      leg takes k lots, k being the smaller of the resting order's room / LOT and the taking stake left
      *      / p, p being the resting price less ODDS_SCALE: the resting account stakes k x LOT and the taking
      *      account k x p, which is the resting price to the unit. A leg fills only if its taking stake is at
-     *      least LOT units, which makes its resting stake at least LOT units too. Both filled amounts are
-     *      raised before the positions module is called, and written back as they were if the leg is skipped
-     *      for a refused pull.
+     *      least LOT units, which makes its resting stake at least LOT units too; and only if its resting stake
+     *      is at least the resting order's minimum fill, or leaves less than a lot of that order's room, else
+     *      the order is skipped under its minimum. Both filled amounts are raised before the positions module
+     *      is called, and written back as they were if the leg is skipped for a refused pull.
      *
      *      A leg is skipped for a refused pull only when the positions call reverts with exactly its
      *      MakerPullRefused error for this leg's resting account and resting stake. Every other revert of that
      *      call reverts the Cross, with its data unchanged: the taking account's refused pull, a short receipt,
      *      the close gate, a market that cannot be drawn, and running out of gas among them.
      *
-     *      If no leg filled the call reverts, carrying each listed order's reason. Otherwise Crossed is
-     *      emitted.
+     *      If no leg filled the call reverts, carrying each listed order's reason. If legs filled but this
+     *      Cross filled the taking order for less than its minimum fill, with a lot or more of its room left,
+     *      the call reverts under its own name, carrying what it filled, the minimum, the room and one record
+     *      per listed order, and nothing of the Cross remains: the pulls, the positions, a market it drew, the
+     *      filled amounts and the logs are all undone. Otherwise Crossed is emitted.
      *
      *      What the coin can do. The positions module pulls the two stakes of a leg, and the coin is fixed at
      *      the set's deploy. A coin that calls the debited account during a transfer hands that account a call
@@ -453,19 +506,34 @@ contract OspexMatching is IOspexModule, EIP712 {
         bytes32[] memory hashes = _checkResting(t, resting);
 
         IOspexPositions positions = IOspexPositions(i_ospexCore.getModule(POSITION_MODULE));
-        SkipReason[] memory reasons = new SkipReason[](resting.length);
+        LegReport[] memory report = new LegReport[](resting.length);
         Tally memory tally;
         for (uint256 i; i < resting.length; ++i) {
-            (bool filled, SkipReason reason) =
+            (bool filled, SkipReason reason, uint256 makerRisk, uint256 takerRisk) =
                 _leg(positions, t, takingHash, marketKey, resting[i].order, hashes[i], tally);
+            // A filled leg's record carries its two stakes and no reason; a skipped order's its reason and zero
+            // stakes, whatever the leg had computed before it skipped.
+            report[i] = LegReport({
+                orderHash: hashes[i],
+                filled: filled,
+                reason: filled ? SkipReason.NoCourier : reason,
+                makerRisk: filled ? makerRisk : 0,
+                takerRisk: filled ? takerRisk : 0
+            });
             if (filled) continue;
-            reasons[i] = reason;
             emit OrderSkipped(hashes[i], resting[i].order.account, takingHash, reason);
             i_ospexCore.emitCoreEvent(
                 EVENT_ORDER_SKIPPED, abi.encode(hashes[i], resting[i].order.account, takingHash, reason)
             );
         }
-        if (tally.legs == 0) revert OspexMatching__NothingFilled(reasons);
+        if (tally.legs == 0) revert OspexMatching__NothingFilled(_reasonsOf(report));
+        // The taking order's minimum, on what this Cross filled of it: met, or the order is complete, with less
+        // than a lot left, which nothing could ever fill. The room never underflows: a leg takes at most what
+        // is left.
+        uint256 room = t.riskAmount - s_filledRisk[takingHash];
+        if (tally.takerRisk < t.minFill && room >= LOT) {
+            revert OspexMatching__TakingOrderUnderMinFill(takingHash, tally.takerRisk, t.minFill, room, report);
+        }
 
         emit Crossed(msg.sender, takingHash, t.account, tally.marketId, tally.makerRisk, tally.takerRisk);
         i_ospexCore.emitCoreEvent(
@@ -521,7 +589,7 @@ contract OspexMatching is IOspexModule, EIP712 {
     }
 
     /// @dev What every listed order must be, in either role: signed by its account, at an admissible price,
-    ///      for an admissible stake. Returns the order's hash.
+    ///      for an admissible stake, with a minimum fill it could meet. Returns the order's hash.
     function _checkSigned(SignedOrder calldata signed) private view returns (bytes32 orderHash) {
         OspexOrder calldata order = signed.order;
         orderHash = _hashOrder(order);
@@ -531,11 +599,16 @@ contract OspexMatching is IOspexModule, EIP712 {
         }
         if (order.oddsTick < MIN_ODDS || order.oddsTick > MAX_ODDS) revert OspexMatching__PriceOutOfRange(orderHash);
         if (order.riskAmount == 0 || order.riskAmount % LOT != 0) revert OspexMatching__StakeNotInLots(orderHash);
+        if (order.minFill > order.riskAmount) {
+            revert OspexMatching__MinFillAboveStake(orderHash, order.minFill, order.riskAmount);
+        }
     }
 
-    /// @dev One leg: the six skip tests in the order of SkipReason, then the fill. Both orders' filled amounts
+    /// @dev One leg: the seven skip tests in the order of SkipReason, then the fill. Both orders' filled amounts
     ///      are read from storage here, at this leg, so an order listed twice meets at its second entry what
-    ///      its first used.
+    ///      its first used. Returns the leg's verdict, the reason where it skipped, and the two stakes it had in
+    ///      hand: both zero where it skipped before they were computed, the computed pair where it skipped under
+    ///      the minimum or for a refused pull, and the leg's where it filled.
     function _leg(
         IOspexPositions positions,
         OspexOrder calldata t,
@@ -544,15 +617,15 @@ contract OspexMatching is IOspexModule, EIP712 {
         OspexOrder calldata r,
         bytes32 restingHash,
         Tally memory tally
-    ) private returns (bool filled, SkipReason reason) {
-        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier);
+    ) private returns (bool filled, SkipReason reason, uint256 makerRisk, uint256 takerRisk) {
+        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier, 0, 0);
         if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {
-            return (false, SkipReason.Cancelled);
+            return (false, SkipReason.Cancelled, 0, 0);
         }
-        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired);
+        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired, 0, 0);
 
         uint256 restingFilled = s_filledRisk[restingHash];
-        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom);
+        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom, 0, 0);
 
         uint256 takingFilled = s_filledRisk[takingHash];
         uint256 left = takingFilled >= t.riskAmount ? 0 : t.riskAmount - takingFilled;
@@ -561,10 +634,16 @@ contract OspexMatching is IOspexModule, EIP712 {
         if (left / p < lots) lots = left / p;
         // The minimum, on the taking stake. It holds the resting stake too: a taking stake of LOT units or more
         // is at least one lot of resting stake, and no lots are no taking stake.
-        if (lots * p < LOT) return (false, SkipReason.NothingFits);
+        if (lots * p < LOT) return (false, SkipReason.NothingFits, 0, 0);
 
-        uint256 makerRisk = lots * LOT;
-        uint256 takerRisk = lots * p;
+        makerRisk = lots * LOT;
+        takerRisk = lots * p;
+        // The resting order's minimum, on its own stake: the leg takes at least minFill of it, or every whole
+        // lot it has left, leaving less than a lot, which nothing could ever fill. Its room is at least the
+        // stake taken: the lots were counted from it.
+        if (makerRisk < r.minFill && (r.riskAmount - restingFilled) - makerRisk >= LOT) {
+            return (false, SkipReason.UnderMinFill, makerRisk, takerRisk);
+        }
         s_filledRisk[restingHash] = restingFilled + makerRisk;
         s_filledRisk[takingHash] = takingFilled + takerRisk;
 
@@ -579,7 +658,7 @@ contract OspexMatching is IOspexModule, EIP712 {
             tally.takerRisk += takerRisk;
             _emitMatched(restingHash, r, t.account, marketId, makerRisk, takerRisk);
             // The reason beside a filled leg is not read.
-            return (true, SkipReason.NoCourier);
+            return (true, SkipReason.NoCourier, makerRisk, takerRisk);
         } catch (bytes memory refusal) {
             if (!_isMakerPullRefused(refusal, r.account, makerRisk)) {
                 assembly ("memory-safe") {
@@ -588,7 +667,16 @@ contract OspexMatching is IOspexModule, EIP712 {
             }
             s_filledRisk[restingHash] = restingFilled;
             s_filledRisk[takingHash] = takingFilled;
-            return (false, SkipReason.PullRefused);
+            return (false, SkipReason.PullRefused, makerRisk, takerRisk);
+        }
+    }
+
+    /// @dev The reasons of a Cross in which no leg filled, one per listed order, drawn from its report: every
+    ///      record is a skip, so each reason is one.
+    function _reasonsOf(LegReport[] memory report) private pure returns (SkipReason[] memory reasons) {
+        reasons = new SkipReason[](report.length);
+        for (uint256 i; i < report.length; ++i) {
+            reasons[i] = report[i].reason;
         }
     }
 
@@ -632,7 +720,8 @@ contract OspexMatching is IOspexModule, EIP712 {
             takerRisk,
             r.riskAmount,
             r.nonce,
-            r.expiry
+            r.expiry,
+            r.minFill
         );
         i_ospexCore.emitCoreEvent(
             EVENT_ORDER_MATCHED,
@@ -650,7 +739,8 @@ contract OspexMatching is IOspexModule, EIP712 {
                 takerRisk,
                 r.riskAmount,
                 r.nonce,
-                r.expiry
+                r.expiry,
+                r.minFill
             )
         );
     }
@@ -707,7 +797,7 @@ contract OspexMatching is IOspexModule, EIP712 {
 
     /**
      * @notice Cancel one order by its hash. Only the order's account calls it.
-     * @dev The mark is on the hash of the nine values under this contract's domain. The call checks that the
+     * @dev The mark is on the hash of the ten values under this contract's domain. The call checks that the
      *      caller is the address in the order's account field, and nothing else about the order: not a
      *      signature, not its expiry. Cancelling an order again marks the same hash and emits again. A
      *      cancelled order fills no further, in either role: what it filled before the cancel stands.
@@ -731,7 +821,8 @@ contract OspexMatching is IOspexModule, EIP712 {
             order.oddsTick,
             order.riskAmount,
             order.nonce,
-            order.expiry
+            order.expiry,
+            order.minFill
         );
         i_ospexCore.emitCoreEvent(
             EVENT_ORDER_CANCELLED,
@@ -745,7 +836,8 @@ contract OspexMatching is IOspexModule, EIP712 {
                 order.oddsTick,
                 order.riskAmount,
                 order.nonce,
-                order.expiry
+                order.expiry,
+                order.minFill
             )
         );
     }
@@ -857,7 +949,8 @@ contract OspexMatching is IOspexModule, EIP712 {
                     order.oddsTick,
                     order.riskAmount,
                     order.nonce,
-                    order.expiry
+                    order.expiry,
+                    order.minFill
                 )
             )
         );
