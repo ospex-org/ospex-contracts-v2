@@ -219,7 +219,7 @@ contract OspexBettingNeverLinesTest is BettingBase {
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
-    // The Cross is the one fill path. The matching module's functions are exactly a written list, five of
+    // The Cross is the one fill path. The matching module's functions are exactly a written list, six of
     // them state-changing; the Cross is the only one that records a fill, and the positions module takes a
     // fill from the matching module alone. The claim is this set's: v2's matching module, in src/modules/,
     // keeps its own fill as deployed and is not in the set.
@@ -259,8 +259,9 @@ contract OspexBettingNeverLinesTest is BettingBase {
 
         uint256 game = _verifiedGame();
 
-        // The four that are not the Cross, each on its success path, made by an account that holds coin and has
-        // approved the positions module for it: no coin moves, no market is drawn and no position is written.
+        // Four of the five that are not the Cross, each on its success path, made by an account that holds coin
+        // and has approved the positions module for it: no coin moves, no market is drawn and no position is
+        // written. The fifth, the cap's lift, follows on a set of its own.
         OspexMatching.OspexOrder memory order =
             _order(maker, game, address(moneyline), 0, Side.A, 200, STAKE, 1, vm.getBlockTimestamp() + 1 days);
         uint256 makerCoin = token.balanceOf(maker);

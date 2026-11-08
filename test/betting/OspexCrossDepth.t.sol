@@ -411,7 +411,8 @@ contract OspexCrossDepthTest is CrossBase {
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
-    // 4, 6. A stake of many lots fills in full: the contracts put no cap on a stake.
+    // 4, 6. A stake of many lots fills in full: once the switch is lifted, as it is here, the contracts put no cap
+    // on a stake.
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// Three legs at 3.00, each a whole resting stake against twice as much: twenty million lots, ten thousand

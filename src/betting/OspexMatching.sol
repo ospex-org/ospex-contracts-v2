@@ -45,11 +45,11 @@ interface IOspexGamesTimelock {
  *         happens", and items 4, 11, 12, 14 and 15 of its first milestone.
  *
  *         One Cross at a time. While a Cross is in progress this contract refuses another Cross, a cancel, a
- *         raised floor, a registration and a drop, each by the same name. So from the first check of a Cross
- *         to its end nothing but that Cross changes a cancel mark, a floor, a courier or a filled amount. The
- *         reads are not held: one made from inside a Cross, by a contract the coin calls during a pull, shows
- *         the legs done so far and the leg in progress, which is taken back if that leg is skipped. Such a
- *         read is not a finished Cross.
+ *         raised floor, a registration, a drop and the cap's lift, each by the same name. So from the first
+ *         check of a Cross to its end nothing but that Cross changes a cancel mark, a floor, a courier, a
+ *         filled amount or the cap's flag. The reads are not held: one made from inside a Cross, by a
+ *         contract the coin calls during a pull, shows the legs done so far and the leg in progress, which is
+ *         taken back if that leg is skipped. Such a read is not a finished Cross.
  *
  *         Who calls it, and what it calls. Anyone calls anything here; what a call may do is decided by who the
  *         caller is to the accounts it names. It calls the positions module's recordFill, once per attempted
