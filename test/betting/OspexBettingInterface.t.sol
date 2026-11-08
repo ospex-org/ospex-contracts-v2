@@ -340,6 +340,9 @@ contract OspexBettingInterfaceTest is BettingBase {
         assertEq(OspexMatching.OspexMatching__TakingStakeAboveCap.selector, bytes4(0x17d791ff), "TakingStakeAboveCap");
         assertEq(OspexMatching.OspexMatching__NotTheTimelock.selector, bytes4(0x3b374a89), "NotTheTimelock");
         assertEq(OspexMatching.OspexMatching__CapAlreadyLifted.selector, bytes4(0xd648d5dd), "CapAlreadyLifted");
+        assertEq(matching.EVENT_TAKING_STAKE_CAP_LIFTED.selector, bytes4(0xdb051412), "EVENT_TAKING_STAKE_CAP_LIFTED");
+        assertEq(OspexMatching.OspexMatching__GamesNotAContract.selector, bytes4(0xdfa33803), "GamesNotAContract");
+        assertEq(OspexMatching.OspexMatching__GamesHasNoTimelock.selector, bytes4(0x08d9f5ce), "GamesHasNoTimelock");
         assertEq(matching.TAKING_STAKE_CAP(), 10_000, "the cap: one cent of a six-decimal coin, 100 lots");
     }
 
