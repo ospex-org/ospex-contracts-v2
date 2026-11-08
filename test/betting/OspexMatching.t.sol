@@ -22,10 +22,10 @@ contract YesCourier {
 ///         the per-line floor; an account's couriers, registered and dropped by the account. The Cross has its
 ///         own files.
 contract OspexMatchingTest is BettingBase {
-    /// @dev The signed order's type string, written out: nine fields, the first named `account` and the game
-    ///      named `gameId`.
+    /// @dev The signed order's type string, written out: ten fields, the first named `account`, the game named
+    ///      `gameId` and the last `minFill`.
     bytes32 internal constant TYPEHASH = keccak256(
-        "OspexOrder(address account,uint256 gameId,address scorer,int32 lineTicks,uint8 positionType,uint16 oddsTick,uint256 riskAmount,uint256 nonce,uint256 expiry)"
+        "OspexOrder(address account,uint256 gameId,address scorer,int32 lineTicks,uint8 positionType,uint16 oddsTick,uint256 riskAmount,uint256 nonce,uint256 expiry,uint256 minFill)"
     );
     /// @dev v2's type string: its own name for the type, its first field `maker`, and the game named `contestId`.
     bytes32 internal constant V2_TYPEHASH = keccak256(
@@ -49,12 +49,13 @@ contract OspexMatchingTest is BettingBase {
             oddsTick: 193,
             riskAmount: 10_000_000,
             nonce: 3,
-            expiry: 1_800_000_037
+            expiry: 1_800_000_037,
+            minFill: 4_300
         });
     }
 
     /// @dev The EIP-712 hash of an order under a type string, built here from first principles: the domain is
-    ///      the module's name, version, chain and address; the struct hash is the typehash over the nine fields.
+    ///      the module's name, version, chain and address; the struct hash is the typehash over the ten fields.
     function _digest(OspexMatching.OspexOrder memory c, bytes32 typehash) internal view returns (bytes32) {
         bytes32 domain = keccak256(
             abi.encode(DOMAIN_TYPEHASH, keccak256("Ospex"), keccak256("3"), block.chainid, address(matching))
@@ -70,7 +71,8 @@ contract OspexMatchingTest is BettingBase {
                 c.oddsTick,
                 c.riskAmount,
                 c.nonce,
-                c.expiry
+                c.expiry,
+                c.minFill
             )
         );
         return keccak256(abi.encodePacked(hex"1901", domain, structHash));
@@ -82,7 +84,7 @@ contract OspexMatchingTest is BettingBase {
         assertEq(matching.ORDER_TYPEHASH(), TYPEHASH, "the typehash is the type string written out");
         // The same value as a literal, worked out outside the contracts.
         assertEq(
-            TYPEHASH, 0xbd2aeb8d9e67f1bb2fb454c316cbf7794f64c2d7f1877b310dbeb2dfa9f313f7, "the typehash, as a literal"
+            TYPEHASH, 0x9f84ebcb32dbe12642da2b9008bc0ec2e6332472ec69f27f13e8abebbb92934c, "the typehash, as a literal"
         );
         assertTrue(TYPEHASH != V2_TYPEHASH, "the renames changed the typehash");
     }
@@ -101,14 +103,14 @@ contract OspexMatchingTest is BettingBase {
         // A signature over that hash recovers the maker.
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, want);
         assertEq(ecrecover(want, v, r, s), signer, "the signer recovers");
-        // The same nine values under v2's type string hash to something else: no v2 signature is a v3 order.
+        // The same values under v2's type string hash to something else: no v2 signature is a v3 order.
         assertTrue(matching.getOrderHash(c) != _digest(c, V2_TYPEHASH), "a v2 hash is a v3 hash");
     }
 
     function test_hash_movesWithEveryField() public view {
         OspexMatching.OspexOrder memory base = _order();
         bytes32 h = matching.getOrderHash(base);
-        for (uint256 i; i < 9; ++i) {
+        for (uint256 i; i < 10; ++i) {
             OspexMatching.OspexOrder memory c = _order();
             if (i == 0) c.account = stranger;
             if (i == 1) c.gameId = 8;
@@ -119,6 +121,7 @@ contract OspexMatchingTest is BettingBase {
             if (i == 6) c.riskAmount = 10_000_001;
             if (i == 7) c.nonce = 4;
             if (i == 8) c.expiry = 1_800_000_038;
+            if (i == 9) c.minFill = 4_301;
             assertTrue(matching.getOrderHash(c) != h, string.concat("field ", vm.toString(i), " not hashed"));
         }
     }
@@ -166,14 +169,34 @@ contract OspexMatchingTest is BettingBase {
 
         vm.expectEmit(true, true, true, true, address(matching));
         emit OspexMatching.OrderCancelled(
-            h, signer, c.gameId, c.scorer, c.lineTicks, c.positionType, c.oddsTick, c.riskAmount, c.nonce, c.expiry
+            h,
+            signer,
+            c.gameId,
+            c.scorer,
+            c.lineTicks,
+            c.positionType,
+            c.oddsTick,
+            c.riskAmount,
+            c.nonce,
+            c.expiry,
+            c.minFill
         );
         vm.expectEmit(true, true, true, true, address(core));
         emit OspexBetting.CoreEventEmitted(
             matching.EVENT_ORDER_CANCELLED(),
             address(matching),
             abi.encode(
-                h, signer, c.gameId, c.scorer, c.lineTicks, c.positionType, c.oddsTick, c.riskAmount, c.nonce, c.expiry
+                h,
+                signer,
+                c.gameId,
+                c.scorer,
+                c.lineTicks,
+                c.positionType,
+                c.oddsTick,
+                c.riskAmount,
+                c.nonce,
+                c.expiry,
+                c.minFill
             )
         );
         vm.prank(signer, signer);

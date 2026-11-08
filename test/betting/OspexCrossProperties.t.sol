@@ -59,10 +59,10 @@ contract OspexCrossPropertiesTest is CrossBase {
 
         // The digests, from the type string and the domain's two strings, written out here.
         bytes32 typehash = keccak256(
-            "OspexOrder(address account,uint256 gameId,address scorer,int32 lineTicks,uint8 positionType,uint16 oddsTick,uint256 riskAmount,uint256 nonce,uint256 expiry)"
+            "OspexOrder(address account,uint256 gameId,address scorer,int32 lineTicks,uint8 positionType,uint16 oddsTick,uint256 riskAmount,uint256 nonce,uint256 expiry,uint256 minFill)"
         );
         assertEq(
-            typehash, 0xbd2aeb8d9e67f1bb2fb454c316cbf7794f64c2d7f1877b310dbeb2dfa9f313f7, "the typehash, as a literal"
+            typehash, 0x9f84ebcb32dbe12642da2b9008bc0ec2e6332472ec69f27f13e8abebbb92934c, "the typehash, as a literal"
         );
         assertEq(matching.ORDER_TYPEHASH(), typehash, "the contract's typehash");
         bytes32 domain = keccak256(
@@ -147,7 +147,8 @@ contract OspexCrossPropertiesTest is CrossBase {
                 o.oddsTick,
                 o.riskAmount,
                 o.nonce,
-                o.expiry
+                o.expiry,
+                o.minFill
             )
         );
         return keccak256(abi.encodePacked(hex"1901", domain, structHash));
@@ -156,12 +157,16 @@ contract OspexCrossPropertiesTest is CrossBase {
     // ──────────────────────────── The books, under random Crosses ──────
 
     /// Two Crosses drawn from a seed, on one market: up to four resting orders, each at a price from 1.01 to
-    /// 101.00, for up to 2,000 lots, plain, cancelled, expired, unpaid or with the sender dropped; and two
-    /// taking orders at a price that every resting price meets. After each: the positions module holds exactly
-    /// what the market's positions risk; no order has filled past its signed stake; in every filled leg the
-    /// resting stake times the price's ticks over 100 is the taking stake times 100, the resting stake is in
-    /// whole lots, and neither stake is under 100 units; and a Cross that is refused is refused for filling
-    /// nothing, and leaves the books as they were.
+    /// 101.00, for up to 2,000 lots, asking for a minimum fill of zero, of the whole stake or of any amount
+    /// between, plain, cancelled, expired, unpaid or with the sender dropped; and two taking orders at a price
+    /// that every resting price meets, each with a minimum drawn the same way. After each: the positions module
+    /// holds exactly what the market's positions risk; no order has filled past its signed stake; in every
+    /// filled leg the resting stake times the price's ticks over 100 is the taking stake times 100, the resting
+    /// stake is in whole lots, neither stake is under 100 units, and the resting stake is at least its order's
+    /// minimum or the leg left under a lot of that order's room; a Cross that succeeded filled its taking order
+    /// for at least its minimum, or left it under a lot of room; and a Cross that is refused is refused for
+    /// filling nothing, or as short, with a report that names every listed order, and leaves the books as they
+    /// were.
     function testFuzz_aCrossKeepsItsBooks(uint256 seed) public {
         uint256 game = _verifiedGame();
         Side takingSide = seed % 2 == 0 ? Side.B : Side.A;
@@ -179,7 +184,21 @@ contract OspexCrossPropertiesTest is CrossBase {
             standings[i] = standing;
             if (10_000 / p < shortest) shortest = 10_000 / p;
             uint256 expiry = standing == 3 ? vm.getBlockTimestamp() : vm.getBlockTimestamp() + 1 days;
-            resting[i] = _restUntil(makers[i], game, restingSide, 100 + p, lots * 100, expiry);
+            resting[i] = _signed(
+                _order(
+                    makers[i].a,
+                    game,
+                    address(moneyline),
+                    0,
+                    restingSide,
+                    _tick(100 + p),
+                    lots * 100,
+                    nextNonce++,
+                    expiry,
+                    _drawMinFill(r >> 40, lots * 100)
+                ),
+                makers[i].key
+            );
             if (standing == 2) {
                 vm.prank(makers[i].a);
                 matching.cancelOrder(resting[i].order);
@@ -196,10 +215,21 @@ contract OspexCrossPropertiesTest is CrossBase {
             // A taking price every resting price meets: its ticks over 100 are at most 10,000 over the longest
             // resting price's.
             uint256 tick = 100 + 1 + r % shortest;
-            OspexMatching.SignedOrder memory taking = _take(tk, game, takingSide, tick, (1 + (r >> 16) % 5_000) * 100);
+            uint256 stake = (1 + (r >> 16) % 5_000) * 100;
+            OspexMatching.SignedOrder memory taking =
+                _takeMin(tk, game, takingSide, tick, stake, _drawMinFill(r >> 40, stake));
             _oneRandomCross(taking, resting, restingSide, takingSide);
             _assertStandings(resting, standings);
         }
+    }
+
+    /// @dev A minimum fill drawn from `r` for an order of `stake`: zero in a third of the draws, the whole stake
+    ///      in a third, and any amount from one unit to the stake in the rest.
+    function _drawMinFill(uint256 r, uint256 stake) internal pure returns (uint256) {
+        uint256 kind = r % 3;
+        if (kind == 0) return 0;
+        if (kind == 1) return stake;
+        return 1 + (r >> 2) % stake;
     }
 
     function _oneRandomCross(
@@ -220,8 +250,15 @@ contract OspexCrossPropertiesTest is CrossBase {
         lastSkips = abi.encode(ok ? _skips(logs) : new Skip[](0));
         lastOk = ok;
         if (!ok) {
-            // Every order is well formed, so the one refusal left is that nothing filled.
-            assertEq(_selector(err), OspexMatching.OspexMatching__NothingFilled.selector, "refused for another reason");
+            // Every order is well formed, so the refusals left are that nothing filled, or that the taking order
+            // was left short of its minimum, with the report.
+            if (_selector(err) == OspexMatching.OspexMatching__TakingOrderUnderMinFill.selector) {
+                _assertShort(taking, resting, err);
+            } else {
+                assertEq(
+                    _selector(err), OspexMatching.OspexMatching__NothingFilled.selector, "refused for another reason"
+                );
+            }
             assertEq(coin.balanceOf(address(positions)), heldBefore, "a refused Cross moved coin");
             assertEq(_filled(taking), 0, "a refused Cross filled its taking order");
             for (uint256 i; i < resting.length; ++i) {
@@ -235,15 +272,22 @@ contract OspexCrossPropertiesTest is CrossBase {
         uint256 legs;
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(matching) || logs[i].topics[0] != ORDER_MATCHED_TOPIC) continue;
-            (,,,,, uint16 tick, uint256 makerRisk, uint256 takerRisk,,,) = abi.decode(
+            (,,,,, uint16 tick, uint256 makerRisk, uint256 takerRisk,,,, uint256 orderMinFill) = abi.decode(
                 logs[i].data,
-                (uint256, uint256, address, int32, uint8, uint16, uint256, uint256, uint256, uint256, uint256)
+                (uint256, uint256, address, int32, uint8, uint16, uint256, uint256, uint256, uint256, uint256, uint256)
             );
-            assertEq(tick, _tickOf(resting, logs[i].topics[1]), "a leg's record carries another price than its order");
+            OspexMatching.SignedOrder memory o = _orderOf(resting, logs[i].topics[1]);
+            assertEq(tick, o.order.oddsTick, "a leg's record carries another price than its order");
+            assertEq(orderMinFill, o.order.minFill, "a leg's record carries another minimum than its order");
             assertEq(makerRisk * (uint256(tick) - 100), takerRisk * 100, "a leg off the resting price");
             assertEq(makerRisk % 100, 0, "a resting stake off the lot");
             assertGe(makerRisk, 100, "a resting stake under the minimum");
             assertGe(takerRisk, 100, "a taking stake under the minimum");
+            // The resting order's minimum, met or moot: the leg took at least it, or left under a lot of room.
+            assertTrue(
+                makerRisk >= o.order.minFill || o.order.riskAmount - _filled(o) < 100,
+                "a leg under the resting order's minimum, with a lot or more left"
+            );
             makerTotal += makerRisk;
             takerTotal += takerRisk;
             ++legs;
@@ -253,6 +297,11 @@ contract OspexCrossPropertiesTest is CrossBase {
         // No order filled past its signed stake, and the taking order filled by exactly its legs.
         assertEq(_filled(taking), takerTotal, "the taking order's filled amount");
         assertLe(_filled(taking), taking.order.riskAmount, "the taking order filled past its stake");
+        // The taking order's minimum, met or moot: this Cross filled at least it, or left under a lot of room.
+        assertTrue(
+            takerTotal >= taking.order.minFill || taking.order.riskAmount - _filled(taking) < 100,
+            "a Cross short of its taking order's minimum succeeded"
+        );
         uint256 restingFilled;
         for (uint256 i; i < resting.length; ++i) {
             assertLe(_filled(resting[i]), resting[i].order.riskAmount, "a resting order filled past its stake");
@@ -274,18 +323,67 @@ contract OspexCrossPropertiesTest is CrossBase {
     bytes internal lastSkips;
     bool internal lastOk;
 
-    /// @dev The price of the order among `resting` whose hash is `orderHash`.
-    function _tickOf(OspexMatching.SignedOrder[] memory resting, bytes32 orderHash) internal view returns (uint16) {
+    /// @dev The order among `resting` whose hash is `orderHash`.
+    function _orderOf(OspexMatching.SignedOrder[] memory resting, bytes32 orderHash)
+        internal
+        view
+        returns (OspexMatching.SignedOrder memory)
+    {
         for (uint256 i; i < resting.length; ++i) {
-            if (_hash(resting[i]) == orderHash) return resting[i].order.oddsTick;
+            if (_hash(resting[i]) == orderHash) return resting[i];
         }
         revert("a leg's record names an order that was not listed");
     }
 
+    /// @dev A short refusal, read against the list it refused: the taking order's hash and minimum; a fill under
+    ///      the minimum with a lot or more left, the room being the stake less what the order had filled before
+    ///      and in this Cross; one record per listed order, in list order, at least one of them filled; a filled
+    ///      record's stakes at the resting price, a lot or more, adding up to the fill; a skipped record's zero.
+    function _assertShort(
+        OspexMatching.SignedOrder memory taking,
+        OspexMatching.SignedOrder[] memory resting,
+        bytes memory err
+    ) internal view {
+        (
+            bytes32 takingHash,
+            uint256 filledThisCross,
+            uint256 minFill,
+            uint256 roomLeft,
+            OspexMatching.LegReport[] memory legs
+        ) = _decodeShort(err);
+        assertEq(takingHash, _hash(taking), "the short refusal names another order");
+        assertEq(minFill, taking.order.minFill, "the short refusal's minimum");
+        assertLt(filledThisCross, minFill, "a short refusal of a fill at the minimum");
+        assertGe(roomLeft, 100, "a short refusal of a complete order");
+        assertEq(roomLeft, taking.order.riskAmount - _filled(taking) - filledThisCross, "the room left after the walk");
+        assertEq(legs.length, resting.length, "a record per listed order");
+        uint256 filledLegs;
+        uint256 takerTotal;
+        for (uint256 i; i < legs.length; ++i) {
+            assertEq(legs[i].orderHash, _hash(resting[i]), "a record out of list order");
+            if (legs[i].filled) {
+                ++filledLegs;
+                takerTotal += legs[i].takerRisk;
+                assertEq(uint8(legs[i].reason), 0, "a filled record carries a reason");
+                assertEq(
+                    legs[i].makerRisk * (uint256(resting[i].order.oddsTick) - 100),
+                    legs[i].takerRisk * 100,
+                    "a filled record off the resting price"
+                );
+                assertGe(legs[i].makerRisk, 100, "a filled record under a lot");
+            } else {
+                assertEq(legs[i].makerRisk, 0, "a skipped record carries a resting stake");
+                assertEq(legs[i].takerRisk, 0, "a skipped record carries a taking stake");
+            }
+        }
+        assertGt(filledLegs, 0, "a short refusal with nothing filled");
+        assertEq(takerTotal, filledThisCross, "the filled records do not add up to the fill");
+    }
+
     /// @dev After a Cross that filled: an order drawn cancelled, expired or with the sender dropped is among
     ///      the skip records under that reason, an unpaid order has filled nothing, and a skip record of any
-    ///      other order is for its room or for the minimum. The standings are the ones the seed drew, not
-    ///      a second copy of the walk.
+    ///      other order is for its room, for the lot's minimum or for its own minimum. The standings are the
+    ///      ones the seed drew, not a second copy of the walk.
     function _assertStandings(OspexMatching.SignedOrder[] memory resting, uint256[] memory standings) internal view {
         if (!lastOk) return;
         Skip[] memory skips = abi.decode(lastSkips, (Skip[]));
@@ -301,7 +399,10 @@ contract OspexCrossPropertiesTest is CrossBase {
                 assertEq(_filled(resting[i]), 0, "an order whose account pays nothing filled");
                 assertTrue(skipped && reason >= NOTHING_FITS, "an unpaid order, skipped under a reason of another row");
             } else if (skipped) {
-                assertTrue(reason == NO_ROOM || reason == NOTHING_FITS, "a live order, skipped under another reason");
+                assertTrue(
+                    reason == NO_ROOM || reason == NOTHING_FITS || reason == UNDER_MIN_FILL,
+                    "a live order, skipped under another reason"
+                );
             }
         }
     }

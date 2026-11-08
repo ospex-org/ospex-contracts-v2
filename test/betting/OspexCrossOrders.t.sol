@@ -132,7 +132,7 @@ contract OspexCrossOrdersTest is CrossBase {
 
     /// Break: in OspexMatching._checkSigned, skip the signature for a resting order. Others turn it red: the
     /// signature skipped for the taking order; the signer compared with the sender in place of the account; the
-    /// domain's version "3" made "1"; and each of the nine fields left out of the hash, one at a time.
+    /// domain's version "3" made "1"; and each of the ten fields left out of the hash, one at a time.
     function test_neverLine_anOrderBindsOnlyTheAccountThatSignedIt() public {
         _signatureCases(Side.B);
         _signatureCases(Side.A);
@@ -181,7 +181,7 @@ contract OspexCrossOrdersTest is CrossBase {
                     key,
                     _digestUnder(
                         o,
-                        "OspexCommitment(address account,uint256 gameId,address scorer,int32 lineTicks,uint8 positionType,uint16 oddsTick,uint256 riskAmount,uint256 nonce,uint256 expiry)",
+                        "OspexCommitment(address account,uint256 gameId,address scorer,int32 lineTicks,uint8 positionType,uint16 oddsTick,uint256 riskAmount,uint256 nonce,uint256 expiry,uint256 minFill)",
                         DOMAIN_VERSION,
                         block.chainid,
                         address(matching)
@@ -197,7 +197,7 @@ contract OspexCrossOrdersTest is CrossBase {
                     key,
                     _digestUnder(
                         o,
-                        "OspexOrder(address maker,uint256 gameId,address scorer,int32 lineTicks,uint8 positionType,uint16 oddsTick,uint256 riskAmount,uint256 nonce,uint256 expiry)",
+                        "OspexOrder(address maker,uint256 gameId,address scorer,int32 lineTicks,uint8 positionType,uint16 oddsTick,uint256 riskAmount,uint256 nonce,uint256 expiry,uint256 minFill)",
                         DOMAIN_VERSION,
                         block.chainid,
                         address(matching)
@@ -220,9 +220,9 @@ contract OspexCrossOrdersTest is CrossBase {
                 "signed for another contract"
             );
 
-            // Each of the nine values changed after signing, one at a time. The signature is the account's own,
+            // Each of the ten values changed after signing, one at a time. The signature is the account's own,
             // over the order as it stood before the change; the order as sent is otherwise one that fills.
-            for (uint256 field; field < 9; ++field) {
+            for (uint256 field; field < 10; ++field) {
                 OspexMatching.OspexOrder memory signedAs = _copy(o);
                 if (field == 0) signedAs.account = m2.a;
                 if (field == 1) signedAs.gameId = otherGame;
@@ -233,6 +233,7 @@ contract OspexCrossOrdersTest is CrossBase {
                 if (field == 6) signedAs.riskAmount = 20_000;
                 if (field == 7) signedAs.nonce = o.nonce + 1;
                 if (field == 8) signedAs.expiry = o.expiry + 1;
+                if (field == 9) signedAs.minFill = 5_000;
                 _badlySigned(
                     taking,
                     resting,
@@ -251,7 +252,16 @@ contract OspexCrossOrdersTest is CrossBase {
 
     function _copy(OspexMatching.OspexOrder memory o) internal pure returns (OspexMatching.OspexOrder memory c) {
         c = _order(
-            o.account, o.gameId, o.scorer, o.lineTicks, o.positionType, o.oddsTick, o.riskAmount, o.nonce, o.expiry
+            o.account,
+            o.gameId,
+            o.scorer,
+            o.lineTicks,
+            o.positionType,
+            o.oddsTick,
+            o.riskAmount,
+            o.nonce,
+            o.expiry,
+            o.minFill
         );
     }
 
@@ -368,13 +378,15 @@ contract OspexCrossOrdersTest is CrossBase {
     /// @dev Sends `call` with the side of the order that starts at `structAt` written as 2, and with that
     ///      order's signature replaced by its account's signature over the order as it then reads. The call
     ///      reverts with no data: the side is refused where the order is read, before any check of the
-    ///      Cross's own, and so not for its signature.
+    ///      Cross's own, and so not for its signature. The signature's offset is the word after the order's
+    ///      ten, the eleventh.
     function _neither(bytes memory call, uint256 structAt, OspexMatching.SignedOrder memory signed, uint256 key)
         internal
     {
         OspexMatching.OspexOrder memory o = signed.order;
         assertEq(_digestWithSide(o, uint8(o.positionType)), _hash(signed), "the digest, built word by word");
-        uint256 sigAt = structAt + _wordAt(call, structAt + 9 * 32);
+        assertEq(_wordAt(call, structAt + 9 * 32), o.minFill, "the minimum fill, the tenth word");
+        uint256 sigAt = structAt + _wordAt(call, structAt + 10 * 32);
         assertEq(_wordAt(call, sigAt), 65, "the signature's length, where it is expected");
         bytes memory neither = bytes.concat(call);
         neither[structAt + 4 * 32 + 31] = 0x02;
@@ -392,7 +404,7 @@ contract OspexCrossOrdersTest is CrossBase {
     ///      Side type cannot hold may be given.
     function _digestWithSide(OspexMatching.OspexOrder memory o, uint8 side) internal view returns (bytes32) {
         bytes memory head = abi.encode(keccak256(bytes(ORDER_TYPE)), o.account, o.gameId, o.scorer, o.lineTicks);
-        bytes memory tail = abi.encode(side, o.oddsTick, o.riskAmount, o.nonce, o.expiry);
+        bytes memory tail = abi.encode(side, o.oddsTick, o.riskAmount, o.nonce, o.expiry, o.minFill);
         return keccak256(
             abi.encodePacked(hex"1901", _domainSeparator(address(matching)), keccak256(bytes.concat(head, tail)))
         );
@@ -483,21 +495,39 @@ contract OspexCrossOrdersTest is CrossBase {
 /// @notice One signature made outside the contracts, frozen. The typed data below was signed by two EIP-712
 ///         implementations that share no code with these tests or with the contracts, a command-line signer
 ///         and a Python library, and both gave the signature written out here. The matching module, placed at
-///         the address the typed data names, on the chain it names, accepts it: the order fills.
+///         the address the typed data names, on the chain it names, accepts it: the order fills. Beside it, the
+///         fixture the same two tools gave for the nine-field type this build replaced is kept, and is refused.
 ///
 ///         The typed data: domain name "Ospex", version "3", chainId 137, verifyingContract
-///         0x00000000000000000000000000000000C0550001; primary type OspexOrder, its nine fields in order, as
-///         address, uint256, address, int32, uint8, uint16, uint256, uint256, uint256; message account
+///         0x00000000000000000000000000000000C0550001; primary type OspexOrder, its ten fields in order, as
+///         address, uint256, address, int32, uint8, uint16, uint256, uint256, uint256, uint256; message account
 ///         0xe05fcC23807536bEe418f142D19fa0d21BB0cfF7, gameId 1, scorer
 ///         0x00000000000000000000000000000000C0550002, lineTicks 0, positionType 0, oddsTick 200, riskAmount
-///         10000, nonce 7, expiry 1900000000. The key is the test key 0xa11ce.
+///         10000, nonce 7, expiry 1900000000, minFill 9900. The key is the test key 0xa11ce.
+///
+///         How the signature was made, from that typed data written as one JSON file of the EIP-712 shape, with
+///         `types` holding EIP712Domain and OspexOrder, `primaryType`, `domain` and `message`:
+///         - the command-line signer, cast 1.6.0-nightly (commit 80ae599):
+///           `cast wallet sign --private-key <the key 0xa11ce as 32 bytes> --data --from-file <the file>`,
+///           which prints the 65-byte signature;
+///         - the Python library, eth-account 0.13.7 on Python 3.12.1:
+///           `encode_typed_data(full_message=<the JSON>)`, then `Account.sign_message(<that>, <the key>)`,
+///           whose `message_hash` is the digest and whose `signature` is the signature.
+///         Both gave the signature below; the library's digest is the digest below. The old fixture's typed data
+///         is the same without the minFill field and value, and the same two tools gave its digest and
+///         signature, which this file held before the field was added.
 contract OspexCrossFrozenSignatureTest is CrossBase {
     address internal constant FROZEN_MATCHING = 0x00000000000000000000000000000000C0550001;
     address internal constant FROZEN_SCORER = 0x00000000000000000000000000000000c0550002;
     uint256 internal constant FROZEN_KEY = 0xa11ce;
     address internal constant FROZEN_ACCOUNT = 0xe05fcC23807536bEe418f142D19fa0d21BB0cfF7;
-    bytes32 internal constant FROZEN_DIGEST = 0x428d170f2fc43ee0a5b21f7433a1a99bba76a4203d2985a47cbc3b5f83549219;
+    uint256 internal constant FROZEN_MIN_FILL = 9_900;
+    bytes32 internal constant FROZEN_DIGEST = 0x9af8958f00563f5d9c4bd30f85953c0d0a67df62efffbccdfa9b4a7cbc3aaae0;
     bytes internal constant FROZEN_SIGNATURE =
+        hex"834021ff982e27711ee8f07cf27b2901be8b8c1c359688742df735c10973ed593fcae360612d264bd2a84d5ce07fe9a2a4f2cd25a52e8ab6c6ed79624d4a877d1b";
+    /// @dev The fixture over the nine-field type this build replaced: the same typed data without minFill.
+    bytes32 internal constant OLD_DIGEST = 0x428d170f2fc43ee0a5b21f7433a1a99bba76a4203d2985a47cbc3b5f83549219;
+    bytes internal constant OLD_SIGNATURE =
         hex"c088e0b30cebeb6ee484464468e0bca2311e2116ae979d6e6eb87b0ec732d4fc189b1131fb551598ea59adb2970ed025a1be002ee2b29ef20a9df2b23b6a29d71c";
 
     function setUp() public override {
@@ -523,12 +553,15 @@ contract OspexCrossFrozenSignatureTest is CrossBase {
     }
 
     /// Break: in OspexMatching.sol, make the domain's version "1"; or name the type's first field `maker`; or
-    /// leave any field out of the hash. The frozen signature is then over another hash, and the order is
-    /// refused.
+    /// name the tenth `minimumFill`; or move the tenth before `expiry` in the type string and the hash together;
+    /// or leave any field out of the hash. The frozen signature is then over another hash, and the order is
+    /// refused. The old fixture catches the one edit the new fixture alone would not: the nine-field type string
+    /// restored and minFill dropped from the hash together, under which the old signature fills again.
     function test_theFrozenOutsideSignatureIsAccepted() public {
         assertEq(vm.addr(FROZEN_KEY), FROZEN_ACCOUNT, "the frozen account is the frozen key's");
         assertEq(block.chainid, 137, "the chain");
         assertEq(address(matching), FROZEN_MATCHING, "the matching module's address");
+        assertFalse(matching.s_takingStakeCapLifted(), "this set's cap was lifted: its taking order is one cent");
         uint256 game = _verifiedGame();
         assertEq(game, 1, "the game's id");
         _fundCoin(FROZEN_ACCOUNT);
@@ -537,19 +570,51 @@ contract OspexCrossFrozenSignatureTest is CrossBase {
         _register(tk.a, sender);
 
         OspexMatching.OspexOrder memory frozen =
-            _order(FROZEN_ACCOUNT, 1, FROZEN_SCORER, 0, Side.A, 200, 10_000, 7, 1_900_000_000);
+            _order(FROZEN_ACCOUNT, 1, FROZEN_SCORER, 0, Side.A, 200, 10_000, 7, 1_900_000_000, FROZEN_MIN_FILL);
         // The contract's hash of the order is the digest the two outside signers signed, and so is the hash
-        // these tests build.
+        // these tests build; the typehash is the ten-field string's, and the literal worked out outside.
         assertEq(matching.getOrderHash(frozen), FROZEN_DIGEST, "the contract's hash of the frozen order");
         assertEq(_digest(frozen), FROZEN_DIGEST, "the hash these tests build");
         assertEq(matching.ORDER_TYPEHASH(), keccak256(bytes(ORDER_TYPE)), "the typehash is the type string's");
+        assertEq(
+            matching.ORDER_TYPEHASH(),
+            0x9f84ebcb32dbe12642da2b9008bc0ec2e6332472ec69f27f13e8abebbb92934c,
+            "the typehash, as a literal"
+        );
 
-        // The frozen signature fills.
+        // The old fixture: the same order asking for no minimum, signed under the nine-field type. Its digest
+        // is no longer the hash of that order, here or in the contract, and its signature is refused in either
+        // role: as a resting order, and as the taking order, where the signature is checked before the time.
+        OspexMatching.OspexOrder memory old =
+            _order(FROZEN_ACCOUNT, 1, FROZEN_SCORER, 0, Side.A, 200, 10_000, 7, 1_900_000_000);
+        assertTrue(matching.getOrderHash(old) != OLD_DIGEST, "the nine-field digest is the contract's hash");
+        assertTrue(_digest(old) != OLD_DIGEST, "the nine-field digest is the hash these tests build");
+        OspexMatching.SignedOrder memory oldSigned = OspexMatching.SignedOrder({order: old, signature: OLD_SIGNATURE});
+        OspexMatching.SignedOrder memory taking = _take(tk, game, Side.B, 200, 10_000);
+        _refused(
+            sender,
+            taking,
+            _list(oldSigned),
+            _refusal(OspexMatching.OspexMatching__BadSignature.selector, oldSigned),
+            "the nine-field signature, on a resting order"
+        );
+        _refused(
+            sender,
+            oldSigned,
+            _list(_rest(tk, game, Side.B, 200, 10_000)),
+            _refusal(OspexMatching.OspexMatching__BadSignature.selector, oldSigned),
+            "the nine-field signature, on the taking order"
+        );
+        assertEq(matching.s_filledRisk(OLD_DIGEST), 0, "the old digest has a filled amount");
+        assertEq(_filled(oldSigned), 0, "the order under the old signature filled");
+
+        // The frozen signature fills: a one-cent taking order, in cap on this set, which is never lifted, against
+        // the frozen order, whose minimum of 9,900 the leg's 10,000 meets.
         OspexMatching.SignedOrder memory resting =
             OspexMatching.SignedOrder({order: frozen, signature: FROZEN_SIGNATURE});
-        OspexMatching.SignedOrder memory taking = _take(tk, game, Side.B, 200, 10_000);
         _cross(sender, taking, _list(resting));
         assertEq(matching.s_filledRisk(FROZEN_DIGEST), 10_000, "the frozen order filled");
+        assertEq(matching.s_filledRisk(OLD_DIGEST), 0, "the old digest has a filled amount after the fill");
         _assertPosition(1, FROZEN_ACCOUNT, Side.A, 10_000, 10_000, "the frozen account's position");
         _assertPosition(1, tk.a, Side.B, 10_000, 10_000, "the taking account's position");
     }

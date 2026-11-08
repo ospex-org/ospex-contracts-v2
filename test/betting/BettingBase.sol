@@ -169,10 +169,11 @@ abstract contract BettingBase is GamesBase {
     /// @dev A stake in a test that is not about the amount: 10 USDC in six decimals.
     uint256 internal constant STAKE = 10_000_000;
 
-    /// @dev The signed order's type, written out: nine fields, the first named `account`. The digests the tests
-    ///      sign are built from this string and the two domain strings below, never from the contract's reads.
+    /// @dev The signed order's type, written out: ten fields, the first named `account`, the last `minFill`. The
+    ///      digests the tests sign are built from this string and the two domain strings below, never from the
+    ///      contract's reads.
     string internal constant ORDER_TYPE =
-        "OspexOrder(address account,uint256 gameId,address scorer,int32 lineTicks,uint8 positionType,uint16 oddsTick,uint256 riskAmount,uint256 nonce,uint256 expiry)";
+        "OspexOrder(address account,uint256 gameId,address scorer,int32 lineTicks,uint8 positionType,uint16 oddsTick,uint256 riskAmount,uint256 nonce,uint256 expiry,uint256 minFill)";
     string internal constant DOMAIN_NAME = "Ospex";
     string internal constant DOMAIN_VERSION = "3";
     bytes32 internal constant DOMAIN_TYPEHASH =
@@ -381,7 +382,7 @@ abstract contract BettingBase is GamesBase {
 
     // ──────────────────────────── Orders ───────────────────────────────
 
-    /// @dev An order, field by field.
+    /// @dev An order, field by field, asking for no minimum fill.
     function _order(
         address account,
         uint256 game,
@@ -393,6 +394,22 @@ abstract contract BettingBase is GamesBase {
         uint256 nonce,
         uint256 expiry
     ) internal pure returns (OspexMatching.OspexOrder memory o) {
+        o = _order(account, game, scorer, line, side, tick, risk, nonce, expiry, 0);
+    }
+
+    /// @dev An order, field by field, its minimum fill included.
+    function _order(
+        address account,
+        uint256 game,
+        address scorer,
+        int32 line,
+        Side side,
+        uint16 tick,
+        uint256 risk,
+        uint256 nonce,
+        uint256 expiry,
+        uint256 minFill
+    ) internal pure returns (OspexMatching.OspexOrder memory o) {
         o = OspexMatching.OspexOrder({
             account: account,
             gameId: game,
@@ -402,7 +419,8 @@ abstract contract BettingBase is GamesBase {
             oddsTick: tick,
             riskAmount: risk,
             nonce: nonce,
-            expiry: expiry
+            expiry: expiry,
+            minFill: minFill
         });
     }
 
@@ -440,7 +458,8 @@ abstract contract BettingBase is GamesBase {
                 o.oddsTick,
                 o.riskAmount,
                 o.nonce,
-                o.expiry
+                o.expiry,
+                o.minFill
             )
         );
     }
@@ -664,7 +683,8 @@ abstract contract BettingBase is GamesBase {
     }
 
     /// @dev Every entry of one ABI type in an artifact, as "Name(type name,type name)"; for an event, each
-    ///      indexed parameter is marked "indexed type name".
+    ///      indexed parameter is marked "indexed type name". A parameter that is a struct is written out as its
+    ///      components, "(type name,type name) name", with its array suffix kept.
     function _abiSignatures(string memory json, string memory abiType) internal view returns (string[] memory out) {
         string[] memory found = new string[](128);
         uint256 n;
@@ -676,7 +696,7 @@ abstract contract BettingBase is GamesBase {
             string memory sig = string.concat(vm.parseJsonString(json, string.concat(entry, ".name")), "(");
             for (uint256 j; vm.keyExistsJson(json, string.concat(entry, ".inputs[", vm.toString(j), "]")); ++j) {
                 string memory input = string.concat(entry, ".inputs[", vm.toString(j), "]");
-                string memory t = vm.parseJsonString(json, string.concat(input, ".type"));
+                string memory t = _abiParamType(json, input);
                 if (vm.keyExistsJson(json, string.concat(input, ".indexed")) && vm.parseJsonBool(json, string.concat(input, ".indexed"))) {
                     t = string.concat("indexed ", t);
                 }
@@ -689,5 +709,31 @@ abstract contract BettingBase is GamesBase {
         for (uint256 i; i < n; ++i) {
             out[i] = found[i];
         }
+    }
+
+    /// @dev One ABI parameter's type, a struct written out as "(type name,type name)" with the array suffix of
+    ///      its own type kept, so "tuple[]" reads "(bytes32 orderHash,...)[]".
+    function _abiParamType(string memory json, string memory param) internal view returns (string memory t) {
+        t = vm.parseJsonString(json, string.concat(param, ".type"));
+        bytes memory raw = bytes(t);
+        if (raw.length < 5 || raw[0] != "t" || raw[1] != "u" || raw[2] != "p" || raw[3] != "l" || raw[4] != "e") {
+            return t;
+        }
+        string memory suffix = "";
+        for (uint256 i = 5; i < raw.length; ++i) {
+            suffix = string.concat(suffix, string(abi.encodePacked(raw[i])));
+        }
+        string memory inner = "(";
+        for (uint256 j; vm.keyExistsJson(json, string.concat(param, ".components[", vm.toString(j), "]")); ++j) {
+            string memory c = string.concat(param, ".components[", vm.toString(j), "]");
+            inner = string.concat(
+                inner,
+                j == 0 ? "" : ",",
+                _abiParamType(json, c),
+                " ",
+                vm.parseJsonString(json, string.concat(c, ".name"))
+            );
+        }
+        t = string.concat(inner, ")", suffix);
     }
 }

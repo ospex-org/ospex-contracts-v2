@@ -179,3 +179,23 @@ contract TwoCrosses {
         }
     }
 }
+
+/// @dev A sender that is a contract: it sends one Cross, swallows its refusal and keeps it, and sends a second
+///      Cross in the same transaction, whose refusal, if any, comes back unchanged. For a Cross that reverts short
+///      and a deeper one after it: the second must find no Cross in progress.
+contract RetryingSender {
+    bool public firstFilled;
+    bytes public firstRefusal;
+
+    function send(OspexMatching matching, bytes calldata crossOne, bytes calldata crossTwo) external {
+        (bool ok, bytes memory err) = address(matching).call(crossOne);
+        firstFilled = ok;
+        firstRefusal = err;
+        (ok, err) = address(matching).call(crossTwo);
+        if (!ok) {
+            assembly ("memory-safe") {
+                revert(add(err, 0x20), mload(err))
+            }
+        }
+    }
+}
