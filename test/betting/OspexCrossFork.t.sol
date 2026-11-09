@@ -445,16 +445,15 @@ contract OspexRelayForkTest is CrossBase {
         (ok, out) = address(relay).call(toNew);
         assertFalse(ok, "K set the sender without the timelock");
         assertEq(
-            out,
-            abi.encodeWithSelector(OspexCourierRelay.OspexCourierRelay__NotTheTimelock.selector, K),
-            "K's own call"
+            out, abi.encodeWithSelector(OspexCourierRelay.OspexCourierRelay__NotTheTimelock.selector, K), "K's own call"
         );
         vm.prank(K);
         live.schedule(address(relay), 0, toNew, bytes32(0), s, delay);
         bytes32 id = live.hashOperation(address(relay), 0, toNew, bytes32(0), s);
         assertTrue(live.isOperationPending(id), "the rotation is not pending");
         vm.prank(stranger);
-        (ok,) = address(live).call(abi.encodeCall(TimelockController.execute, (address(relay), 0, toNew, bytes32(0), s)));
+        (ok,) =
+            address(live).call(abi.encodeCall(TimelockController.execute, (address(relay), 0, toNew, bytes32(0), s)));
         assertFalse(ok, "the rotation ran before the delay");
         assertEq(relay.s_sender(), courierKey, "the sender moved before the delay");
 
