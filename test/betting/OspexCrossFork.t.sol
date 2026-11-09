@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.26;
 
+import {Vm} from "forge-std/Vm.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {GameStatus, Hint, IOspexGames} from "../../src/games/IOspexGames.sol";
 import {OspexSignpost} from "../../src/signpost/OspexSignpost.sol";
+import {OspexCourierRelay} from "../../src/betting/OspexCourierRelay.sol";
 import {OspexMatching} from "../../src/betting/OspexMatching.sol";
 import {OspexPositions} from "../../src/betting/OspexPositions.sol";
 import {Outcome, Side} from "../../src/betting/OspexBettingTypes.sol";
@@ -290,6 +292,221 @@ contract OspexCapForkTest is CrossBase {
         assertEq(usdc.balanceOf(takingAccount.a), FUNDED - 9_900 - 10_100, "the taking account, at the end");
         assertEq(usdc.balanceOf(address(positions)), 18_900 + 20_200, "the positions module, at the end");
         assertEq(usdc.balanceOf(sender), 0, "the sender, at the end");
+        assertEq(usdc.balanceOf(address(matching)), 0, "the matching module, at the end");
+        assertEq(usdc.balanceOf(HOLDER), holderLeft, "the holder, at the end");
+    }
+}
+
+/// @notice The courier relay's sender, set through the live Polygon timelock, on the games set the signpost names.
+///         A second betting set is deployed on Polygon's USDC against the live games contract, with the cap left
+///         in force, and a relay on its matching module, so that the relay's timelock is the live one. Two funded
+///         accounts register the relay; a one-cent Cross from the key fills in USDC; K, the key that holds the
+///         live timelock's proposer role, schedules the new sender at the delay read from the timelock; before
+///         the delay it does not run; a stranger runs it after; the old key, K and a stranger are refused at the
+///         relay; and the new key's Cross fills in USDC for the same two accounts, who made no call in between.
+///         This reads one block of Polygon: it does not show today's roles or delay. Skipped without
+///         POLYGON_RPC_URL, and a skip is not a pass.
+contract OspexRelayForkTest is CrossBase {
+    uint256 internal constant FORK_BLOCK = 96_885_149;
+    address internal constant USDC = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
+    address internal constant HOLDER = 0x16Dc5D67D080a5521ef2c79680dBfC2aBf724D30;
+    /// @dev The signpost; the Polygon timelock, a contract, which the signpost, the games set, the matching module
+    ///      and the relay answer to; and K, the key that holds that timelock's proposer role. Three addresses with
+    ///      the relay's key: K schedules, the timelock calls, the key sends.
+    address internal constant SIGNPOST = 0x6A487d62aA9D803cF465F3d8fcF363d6cEb1602A;
+    address internal constant TIMELOCK = 0x8CED8e82cf1488B7365C0726aEeD795b6C07582C;
+    address internal constant K = 0x3BD1e22Dc38376b776072a20c581DDb716e21d8E;
+    uint256 internal constant FUNDED = 50_000_000;
+    bytes32 internal constant SENDER_SET_TOPIC = keccak256("SenderSet(address,address)");
+
+    IERC20 internal usdc = IERC20(USDC);
+    IOspexGames internal liveGames;
+    OspexCourierRelay internal relay;
+    address internal courierKey = makeAddr("the courier's key on the fork");
+    address internal newKey = makeAddr("the courier's next key on the fork");
+    Signer internal restingAccount;
+    Signer internal takingAccount;
+    uint256 internal holderLeft;
+
+    function setUp() public override {
+        string memory rpc = vm.envOr("POLYGON_RPC_URL", string(""));
+        if (bytes(rpc).length == 0) {
+            vm.skip(true);
+            return;
+        }
+        vm.createSelectFork(rpc, FORK_BLOCK);
+        liftAtDeploy = false;
+        super.setUp();
+
+        // The games set the signpost names, at its games entry, and the timelock both answer to.
+        OspexSignpost signpost = OspexSignpost(SIGNPOST);
+        assertEq(signpost.i_timelock(), TIMELOCK, "the signpost's timelock");
+        OspexSignpost.Entry memory entry = signpost.getEntry(1);
+        assertEq(uint8(entry.kind), uint8(OspexSignpost.Kind.Games), "the entry's kind");
+        assertGt(entry.contracts.length, 0, "the entry names no contract");
+        liveGames = IOspexGames(entry.contracts[0]);
+        assertGt(entry.contracts[0].code.length, 0, "the games contract the entry names has no code");
+
+        // The betting set on Polygon's USDC against that games set, the cap in force, and the relay on its
+        // matching module: each read the live timelock at its deploy.
+        _deploySetWith(address(liveGames), USDC);
+        assertEq(matching.i_timelock(), TIMELOCK, "the matching module's timelock is not the live one");
+        assertFalse(matching.s_takingStakeCapLifted(), "the cap was lifted at deploy");
+        vm.prank(deployer, deployer);
+        relay = new OspexCourierRelay(address(matching), courierKey);
+        assertEq(relay.i_timelock(), TIMELOCK, "the relay's timelock is not the live one");
+        assertEq(relay.i_matching(), address(matching), "the relay's target");
+        assertEq(relay.s_sender(), courierKey, "the relay's first sender");
+
+        (restingAccount.a, restingAccount.key) = makeAddrAndKey("resting account behind the relay");
+        (takingAccount.a, takingAccount.key) = makeAddrAndKey("taking account behind the relay");
+        uint256 held = usdc.balanceOf(HOLDER);
+        _fundWithUsdc(restingAccount.a);
+        _fundWithUsdc(takingAccount.a);
+        holderLeft = usdc.balanceOf(HOLDER);
+        assertEq(held - holderLeft, 2 * FUNDED, "the holder paid exactly the two fundings");
+        _register(restingAccount.a, address(relay));
+        _register(takingAccount.a, address(relay));
+    }
+
+    function _fundWithUsdc(address who) internal {
+        assertEq(usdc.balanceOf(who), 0, "the account held the coin before it was funded");
+        vm.prank(HOLDER);
+        assertTrue(usdc.transfer(who, FUNDED), "the funding transfer");
+        vm.prank(who);
+        assertTrue(usdc.approve(address(positions), type(uint256).max), "the approval");
+        assertEq(usdc.balanceOf(who), FUNDED, "the funded balance");
+    }
+
+    /// @dev `from` sends a Cross to the relay, as caller and origin, with the result.
+    function _tryThroughRelay(
+        address from,
+        OspexMatching.SignedOrder memory taking,
+        OspexMatching.SignedOrder[] memory resting
+    ) internal returns (bool ok, bytes memory out) {
+        vm.prank(from, from);
+        (ok, out) = address(relay).call(abi.encodeCall(OspexMatching.cross, (taking, resting)));
+    }
+
+    /// @dev What the two accounts registered: the relay, and neither key.
+    function _assertRegistrations(string memory when) internal view {
+        assertTrue(matching.isCourier(restingAccount.a, address(relay)), string.concat(when, ": the resting account"));
+        assertTrue(matching.isCourier(takingAccount.a, address(relay)), string.concat(when, ": the taking account"));
+        assertFalse(matching.isCourier(restingAccount.a, courierKey), string.concat(when, ": the old key, resting"));
+        assertFalse(matching.isCourier(takingAccount.a, courierKey), string.concat(when, ": the old key, taking"));
+        assertFalse(matching.isCourier(restingAccount.a, newKey), string.concat(when, ": the new key, resting"));
+        assertFalse(matching.isCourier(takingAccount.a, newKey), string.concat(when, ": the new key, taking"));
+    }
+
+    function test_fork_theLiveTimelockSetsTheRelaysSender() public {
+        assertEq(block.chainid, 137, "the chain");
+        assertEq(address(core.i_games()), address(liveGames), "the core's games set");
+        assertEq(address(core.i_token()), USDC, "the core's coin");
+        TimelockController live = TimelockController(payable(TIMELOCK));
+        assertTrue(live.hasRole(live.PROPOSER_ROLE(), K), "K does not hold the live timelock's proposer role");
+        assertFalse(live.hasRole(live.PROPOSER_ROLE(), stranger), "the stranger holds the proposer role");
+        assertFalse(live.hasRole(live.PROPOSER_ROLE(), courierKey), "the key holds the proposer role");
+        assertTrue(K != TIMELOCK && K != courierKey && courierKey != TIMELOCK, "the three addresses are not apart");
+        _assertRegistrations("before the rotation");
+
+        // A game on the live games set, created for its fee by the resting account: unverified, so it fills.
+        uint256 fee = liveGames.getTerms("nba").fee;
+        vm.startPrank(restingAccount.a);
+        assertTrue(usdc.approve(address(liveGames), fee), "the fee's approval");
+        uint256 game = liveGames.createGame(
+            "nba", "Home Team", "Away Team", uint64(vm.getBlockTimestamp() + 1 days), new Hint[](0), fee
+        );
+        vm.stopPrank();
+        assertEq(uint8(liveGames.getGameStatus(game)), uint8(GameStatus.Unverified), "the game's status");
+        uint256 restingHas = FUNDED - fee;
+        assertEq(usdc.balanceOf(restingAccount.a), restingHas, "the resting account, after the fee");
+
+        // One cent at 1.90 against 10,000 resting at 2.10, through the relay from the key: 9,000 against 9,900.
+        OspexMatching.SignedOrder memory resting = _rest(restingAccount, game, Side.A, 210, 10_000);
+        OspexMatching.SignedOrder memory taking = _take(takingAccount, game, Side.B, 190, 10_000);
+        (bool ok, bytes memory out) = _tryThroughRelay(courierKey, taking, _list(resting));
+        assertTrue(ok, string.concat("the key's Cross was refused: ", vm.toString(out)));
+        uint256 market = markets.getMarketId(game, address(moneyline), 0);
+        assertEq(_filled(resting), 9_000, "the resting order, filled");
+        assertEq(_filled(taking), 9_900, "the cent, filled");
+        assertEq(usdc.balanceOf(restingAccount.a), restingHas - 9_000, "the resting account, after the cent");
+        assertEq(usdc.balanceOf(takingAccount.a), FUNDED - 9_900, "the taking account, after the cent");
+        assertEq(usdc.balanceOf(address(positions)), 18_900, "the positions module, after the cent");
+        _assertPosition(market, restingAccount.a, Side.A, 9_000, 9_900, "the resting position");
+        _assertPosition(market, takingAccount.a, Side.B, 9_900, 9_000, "the taking position");
+
+        // The rotation, through the live timelock. K's own call is refused; K schedules it at the delay the
+        // timelock answers; before the delay it does not run.
+        uint256 delay = live.getMinDelay();
+        assertGt(delay, 0, "the live timelock's delay");
+        bytes memory toNew = abi.encodeCall(OspexCourierRelay.setSender, (newKey));
+        bytes32 s = keccak256("the relay's sender, rehearsed on a fork");
+        vm.prank(K, K);
+        (ok, out) = address(relay).call(toNew);
+        assertFalse(ok, "K set the sender without the timelock");
+        assertEq(
+            out,
+            abi.encodeWithSelector(OspexCourierRelay.OspexCourierRelay__NotTheTimelock.selector, K),
+            "K's own call"
+        );
+        vm.prank(K);
+        live.schedule(address(relay), 0, toNew, bytes32(0), s, delay);
+        bytes32 id = live.hashOperation(address(relay), 0, toNew, bytes32(0), s);
+        assertTrue(live.isOperationPending(id), "the rotation is not pending");
+        vm.prank(stranger);
+        (ok,) = address(live).call(abi.encodeCall(TimelockController.execute, (address(relay), 0, toNew, bytes32(0), s)));
+        assertFalse(ok, "the rotation ran before the delay");
+        assertEq(relay.s_sender(), courierKey, "the sender moved before the delay");
+
+        // The delay passes; a stranger runs it; the relay's one log names the two keys, and no account's
+        // registration moved.
+        vm.warp(vm.getBlockTimestamp() + delay);
+        vm.recordLogs();
+        vm.prank(stranger);
+        live.execute(address(relay), 0, toNew, bytes32(0), s);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        uint256 ofRelay;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(relay)) {
+                assertEq(logs[i].emitter, TIMELOCK, "the rotation made another contract emit");
+                continue;
+            }
+            ++ofRelay;
+            assertEq(logs[i].topics[0], SENDER_SET_TOPIC, "the relay's log of the rotation");
+            assertEq(logs[i].topics[1], bytes32(uint256(uint160(courierKey))), "the rotation's previous sender");
+            assertEq(logs[i].topics[2], bytes32(uint256(uint160(newKey))), "the rotation's current sender");
+        }
+        assertEq(ofRelay, 1, "the relay's logs of the rotation");
+        assertEq(relay.s_sender(), newKey, "the live timelock did not set the sender");
+        assertTrue(live.isOperationDone(id), "the rotation is not done");
+        _assertRegistrations("after the rotation");
+
+        // After it: the old key, K and a stranger are refused at the relay, and the new key's Cross fills in USDC
+        // for the same two accounts, to the unit.
+        resting = _rest(restingAccount, game, Side.A, 210, 10_000);
+        taking = _take(takingAccount, game, Side.B, 190, 10_000);
+        address[3] memory refusedNow = [courierKey, K, stranger];
+        for (uint256 i; i < refusedNow.length; ++i) {
+            (ok, out) = _tryThroughRelay(refusedNow[i], taking, _list(resting));
+            assertFalse(ok, string.concat("after the rotation the relay passed ", vm.toString(refusedNow[i])));
+            assertEq(
+                out,
+                abi.encodeWithSelector(OspexCourierRelay.OspexCourierRelay__NotTheSender.selector, refusedNow[i]),
+                "the refusal after the rotation"
+            );
+        }
+        (ok, out) = _tryThroughRelay(newKey, taking, _list(resting));
+        assertTrue(ok, string.concat("the new key's Cross was refused: ", vm.toString(out)));
+        assertEq(_filled(resting), 9_000, "the resting order, filled through the new key");
+        assertEq(_filled(taking), 9_900, "the cent, filled through the new key");
+        assertEq(usdc.balanceOf(restingAccount.a), restingHas - 18_000, "the resting account, at the end");
+        assertEq(usdc.balanceOf(takingAccount.a), FUNDED - 19_800, "the taking account, at the end");
+        assertEq(usdc.balanceOf(address(positions)), 37_800, "the positions module, at the end");
+        _assertPosition(market, restingAccount.a, Side.A, 18_000, 19_800, "the resting position, at the end");
+        _assertPosition(market, takingAccount.a, Side.B, 19_800, 18_000, "the taking position, at the end");
+        assertEq(usdc.balanceOf(address(relay)), 0, "the relay, at the end");
+        assertEq(usdc.balanceOf(courierKey), 0, "the old key, at the end");
+        assertEq(usdc.balanceOf(newKey), 0, "the new key, at the end");
         assertEq(usdc.balanceOf(address(matching)), 0, "the matching module, at the end");
         assertEq(usdc.balanceOf(HOLDER), holderLeft, "the holder, at the end");
     }
