@@ -113,10 +113,15 @@ abstract contract RelayBase is CrossBase {
     /// @dev The resting account and the taking account of most tests.
     Signer internal mk;
     Signer internal tk;
+    /// @dev The chain id the tests run under, kept in storage for the tests that change it and put it back. A
+    ///      local that holds block.chainid does not do: this build reads the chain id again where the local is
+    ///      used, so a test that saved it in a local would put back the id it had just set.
+    uint256 internal homeChain;
 
     function setUp() public virtual override {
         liftAtDeploy = false;
         super.setUp();
+        homeChain = block.chainid;
         relay = _deployRelay(address(matching), courierKey);
         mk = _account("resting account");
         tk = _account("taking account");
@@ -226,7 +231,7 @@ abstract contract RelayBase is CrossBase {
         return _fingerprint(who, orders);
     }
 
-    /// @dev What the two accounts registered: the relay, and neither key; and the relay itself registered no one.
+    /// @dev What the two accounts registered: the relay, and neither key; and the relay registered neither key.
     function _assertRegistrations(string memory when) internal view {
         assertTrue(matching.isCourier(mk.a, address(relay)), string.concat(when, ": the resting account's relay"));
         assertTrue(matching.isCourier(tk.a, address(relay)), string.concat(when, ": the taking account's relay"));
@@ -561,6 +566,9 @@ contract OspexCourierRelayTest is RelayBase {
     /// be run by anyone, so an account whose code the coin calls during a pull can run it from inside a leg of the
     /// old key's Cross. That Cross fills whole; the sender is the new key from then; and the old key's next Cross
     /// is refused.
+    /// Breaks: in OspexCourierRelay.cross, check the caller after the forward, against the sender as it is then;
+    /// write the caller back as the sender after the forward; share an exclusion with setSender, so that a
+    /// rotation run during a Cross is refused.
     function test_aRotationRunFromInsideAPullLeavesTheCrossInProgressWhole() public {
         // A set on a coin that calls the debited account back during a pull, and a relay on its matching contract.
         TrickCoin trick = new TrickCoin();
@@ -650,6 +658,14 @@ contract OspexCourierRelayTest is RelayBase {
             "a taking order signed by another key"
         );
 
+        // A taking order that has expired.
+        OspexMatching.SignedOrder memory expired = _takeUntil(tk, game, Side.B, 190, 10_000, vm.getBlockTimestamp());
+        _sameRefusal(
+            _crossData(expired, _list(resting)),
+            _refusal(OspexMatching.OspexMatching__TakingOrderExpired.selector, expired),
+            "a taking order that has expired"
+        );
+
         // Nothing filled, with two reasons in list order: no courier, then cancelled.
         OspexMatching.SignedOrder memory unregistered = _rest(lone, game, Side.A, 210, 10_000);
         OspexMatching.SignedOrder memory cancelled = _rest(mk, game, Side.A, 210, 10_000);
@@ -722,12 +738,16 @@ contract OspexCourierRelayTest is RelayBase {
 
     // ──────────────────────────── 31 ────────────────────
 
-    /// The relay is a party to no transfer. It takes no native money by any door; across a fill the coin moves
-    /// from the two accounts to the positions contract and nowhere else, and nobody has approved the relay. A
-    /// token sent to its address unasked, and native coin forced on it, are not prevented: a fill leaves each
-    /// exactly as it was, and no function sends either out. Its functions, errors and events are pinned whole in
-    /// OspexBettingInterface.t.sol, where a function added here turns the pin red.
-    /// Breaks: in OspexCourierRelay, add `receive() external payable {}`; make `cross` payable.
+    /// The relay is a party to no transfer. It takes no native money by any door. Across a fill the coin moves
+    /// from the two accounts to the positions contract and nowhere else, also when both accounts have approved the
+    /// relay for everything they hold, when the transaction pays a gas price, and when the relay holds a token
+    /// sent to it unasked and native coin forced on it: each of those balances is exactly as it was after the
+    /// fill, and after a rotation of the sender too, and what the accounts approved is unspent. Its functions,
+    /// errors and events are pinned whole in OspexBettingInterface.t.sol, where a function added here turns the
+    /// pin red.
+    /// Breaks: in OspexCourierRelay, add `receive() external payable {}`; make `cross` payable; after a Cross pay
+    /// the caller its gas from the relay's native coin; in setSender send the relay's native coin, or its balance
+    /// of the set's coin, to the new sender; in `cross` pull a fee from a taking account that approved the relay.
     function test_neverLine_theRelayIsAPartyToNoTransfer() public {
         IERC20 coin = _coin();
         uint256 game = _verifiedGame();
@@ -755,9 +775,25 @@ contract OspexCourierRelayTest is RelayBase {
         assertFalse(ok, "the relay answered a call with no calldata");
         assertEq(address(relay).balance, 0, "the relay holds native money");
 
-        // A token sent unasked, and native coin forced on the address, as a destroyed contract's balance is.
+        // Nobody has approved the relay, and the relay has approved no one. Then both accounts approve it for
+        // everything, as an account that took the relay for the spender might: the relay must spend none of it.
+        address[4] memory spenders = [address(relay), courierKey, address(matching), address(timelock)];
+        for (uint256 i; i < spenders.length; ++i) {
+            assertEq(coin.allowance(mk.a, spenders[i]), 0, "the resting account approved something but the positions");
+            assertEq(coin.allowance(tk.a, spenders[i]), 0, "the taking account approved something but the positions");
+            assertEq(coin.allowance(address(relay), spenders[i]), 0, "the relay approved something");
+        }
+        assertEq(coin.allowance(address(relay), address(positions)), 0, "the relay approved the positions contract");
+        vm.prank(mk.a);
+        coin.approve(address(relay), type(uint256).max);
+        vm.prank(tk.a);
+        coin.approve(address(relay), type(uint256).max);
+
+        // A token sent unasked, and native coin forced on the address, as a destroyed contract's balance is; and
+        // a gas price, so that anything the relay paid for in gas would cost it.
         TestCoin(address(coin)).mint(address(relay), 777);
-        vm.deal(address(relay), 5);
+        vm.deal(address(relay), 3 ether);
+        vm.txGasPrice(50 gwei);
 
         // Across a fill: the coin moves from the two accounts to the positions contract, the resting account's
         // stake first, and nowhere else.
@@ -775,19 +811,36 @@ contract OspexCourierRelayTest is RelayBase {
             ++moves;
         }
         assertEq(moves, 2, "the coin's transfers during the fill");
+        _assertNothingOfTheRelaysMoved(coin, "after the fill");
         assertEq(coin.balanceOf(address(positions)), 18_900, "the positions contract holds the two stakes");
         assertEq(coin.balanceOf(mk.a), PURSE - 9_000, "the resting account paid its own stake");
         assertEq(coin.balanceOf(tk.a), PURSE - 9_900, "the taking account paid its own stake");
-        assertEq(coin.balanceOf(address(relay)), 777, "the fill moved the token sent to the relay");
-        assertEq(address(relay).balance, 5, "the fill moved the native coin forced on the relay");
-        assertEq(coin.balanceOf(courierKey), 0, "the key holds coin");
-        address[4] memory spenders = [address(relay), courierKey, address(matching), address(timelock)];
-        for (uint256 i; i < spenders.length; ++i) {
-            assertEq(coin.allowance(mk.a, spenders[i]), 0, "the resting account approved something but the positions");
-            assertEq(coin.allowance(tk.a, spenders[i]), 0, "the taking account approved something but the positions");
-            assertEq(coin.allowance(address(relay), spenders[i]), 0, "the relay approved something");
-        }
-        assertEq(coin.allowance(address(relay), address(positions)), 0, "the relay approved the positions contract");
+        assertEq(
+            coin.allowance(mk.a, address(relay)), type(uint256).max, "the relay spent the resting account's approval"
+        );
+        assertEq(
+            coin.allowance(tk.a, address(relay)), type(uint256).max, "the relay spent the taking account's approval"
+        );
+
+        // Across a rotation, the real way: what the relay holds stays where it is, and the new sender is sent
+        // nothing.
+        _rotate(newKey);
+        _assertNothingOfTheRelaysMoved(coin, "after the rotation");
+        _fillsOneCent(newKey, game, Side.B);
+        _assertNothingOfTheRelaysMoved(coin, "after the new sender's fill");
+        assertEq(coin.balanceOf(address(positions)), 37_800, "the positions contract holds the four stakes");
+        vm.txGasPrice(0);
+    }
+
+    /// @dev The token sent to the relay unasked and the native coin forced on it are where they were, the two keys
+    ///      hold no coin, and the first key's native coin is what it was dealt.
+    function _assertNothingOfTheRelaysMoved(IERC20 coin, string memory when) internal view {
+        assertEq(coin.balanceOf(address(relay)), 777, string.concat(when, ": the token sent to the relay"));
+        assertEq(address(relay).balance, 3 ether, string.concat(when, ": the native coin forced on the relay"));
+        assertEq(coin.balanceOf(courierKey), 0, string.concat(when, ": the first key holds coin"));
+        assertEq(coin.balanceOf(newKey), 0, string.concat(when, ": the next key holds coin"));
+        assertEq(courierKey.balance, 1 ether, string.concat(when, ": the first key's native coin"));
+        assertEq(newKey.balance, 0, string.concat(when, ": the next key's native coin"));
     }
 
     // ──────────────────────────── End to end ────────────────────
@@ -1137,25 +1190,39 @@ contract OspexCourierRelayConstructorTest is RelayBase {
         target.script(false, abi.encode(read));
     }
 
-    /// The timelock is the matching contract's answer when the relay is deployed, and nothing the matching address
-    /// answers later changes it: the later answer is refused as a caller, and the first sets the sender. The first
-    /// sender is the constructor's, and its one log names zero as the sender before it.
-    /// Breaks: in OspexCourierRelay's constructor, `i_timelock = msg.sender;`; `emit SenderSet(msg.sender, sender);`.
-    /// In setSender, compare the caller with the matching contract's answer read then,
-    /// `OspexMatching(i_matching).i_timelock()`, instead of i_timelock.
+    /// The timelock is the matching contract's answer when the relay is deployed, read once, and nothing the
+    /// matching address answers later changes it: the later answer is refused as a caller and the first sets the
+    /// sender, before a first rotation and after it. The first sender is the constructor's, a key or a contract,
+    /// and the deploy's one log names zero as the sender before it.
+    /// Breaks: in OspexCourierRelay's constructor, `i_timelock = msg.sender;`; `emit SenderSet(msg.sender, sender);`;
+    /// keep a second read of the timelock in place of the answer that was checked; refuse a first sender that has
+    /// code. In setSender, compare the caller with the matching contract's answer read then,
+    /// `OspexMatching(i_matching).i_timelock()`, instead of i_timelock; or read the timelock again at each set.
     function test_neverLine_theRelayKeepsTheTimelockItReadAtItsDeploy() public {
+        bytes memory read = abi.encodeWithSelector(matching.i_timelock.selector);
         // On the real set the relay's timelock is the matching contract's, which is the games set's.
         assertEq(matching.i_timelock(), address(timelock), "the matching contract's timelock");
         assertEq(relay.i_timelock(), address(timelock), "the timelock the relay read at its deploy");
         assertEq(relay.i_matching(), address(matching), "the relay's target");
-        assertTrue(relay.i_timelock() != deployer, "the relay kept its deployer as the timelock");
 
-        // The first sender, and the deploy's one log.
+        // The first sender, and the deploy's one log: for a key, and for a contract.
         vm.recordLogs();
         OspexCourierRelay made = _deployRelay(address(matching), courierKey);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         _assertOneSenderSet(logs, address(made), address(0), courierKey);
         assertEq(made.s_sender(), courierKey, "the first sender");
+        address withCode = address(new HandingCaller());
+        vm.recordLogs();
+        made = _deployRelay(address(matching), withCode);
+        logs = vm.getRecordedLogs();
+        _assertOneSenderSet(logs, address(made), address(0), withCode);
+        assertEq(made.s_sender(), withCode, "a first sender that is a contract");
+
+        // The read is made once: a target that this test asks nothing else of is asked for its timelock one time.
+        AnsweringTarget counted = _answering(address(timelock));
+        vm.expectCall(address(counted), read, 1);
+        made = _deployRelay(address(counted), courierKey);
+        assertEq(made.i_matching(), address(counted), "the counted target");
 
         // A target whose answer changes after the deploy.
         TimelockController twin = new TimelockController(DELAY, _one(timelockKey), _one(address(0)), address(0));
@@ -1167,27 +1234,45 @@ contract OspexCourierRelayConstructorTest is RelayBase {
         assertEq(OspexMatching(address(answering)).i_timelock(), address(twin), "the target's later answer");
         assertEq(onAnswering.i_timelock(), address(timelock), "the relay followed the target's later answer");
         assertEq(onAnswering.i_matching(), address(answering), "the relay's target moved");
-        vm.prank(address(twin), address(twin));
-        (bool ok, bytes memory err) = address(onAnswering).call(_setSender(newKey));
-        assertFalse(ok, "the later answer set the sender");
-        assertEq(
-            err,
-            abi.encodeWithSelector(OspexCourierRelay.OspexCourierRelay__NotTheTimelock.selector, address(twin)),
-            "the later answer's refusal"
-        );
-        assertEq(onAnswering.s_sender(), courierKey, "the sender after the later answer's refusal");
+        _assertTwinRefused(onAnswering, address(twin), courierKey);
         vm.prank(address(timelock), address(timelock));
         onAnswering.setSender(newKey);
         assertEq(onAnswering.s_sender(), newKey, "the first answer did not set the sender");
+
+        // After that first rotation the timelock is still the first answer: the later one is still refused, and
+        // the first sets the sender again.
+        assertEq(onAnswering.i_timelock(), address(timelock), "the timelock moved at the first rotation");
+        _assertTwinRefused(onAnswering, address(twin), newKey);
+        vm.prank(address(timelock), address(timelock));
+        onAnswering.setSender(courierKey);
+        assertEq(onAnswering.s_sender(), courierKey, "the first answer did not set the sender a second time");
+        assertEq(onAnswering.i_timelock(), address(timelock), "the timelock moved at the second rotation");
+    }
+
+    /// @dev The later answer's call to the setter is refused by name, and the sender is as it was.
+    function _assertTwinRefused(OspexCourierRelay on, address twin, address senderNow) internal {
+        vm.prank(twin, twin);
+        (bool ok, bytes memory err) = address(on).call(_setSender(stranger));
+        assertFalse(ok, "the later answer set the sender");
+        assertEq(
+            err,
+            abi.encodeWithSelector(OspexCourierRelay.OspexCourierRelay__NotTheTimelock.selector, twin),
+            "the later answer's refusal"
+        );
+        assertEq(on.s_sender(), senderNow, "the sender after the later answer's refusal");
     }
 
     /// The constructor refuses, by name, a matching address and a timelock that are not contracts: no code, or a
     /// wallet's delegation; then a zero sender; in that order, shown by fixtures that are wrong twice. The
     /// delegation at the matching address has its read answered by a mock, so that the delegation check is the one
-    /// thing that refuses it. What it takes: code of 23 bytes that is not a delegation.
+    /// thing that refuses it, and it is refused before it is asked anything: with a read that answers no contract,
+    /// and with a read that reverts. The same under Polygon's chain id, and whoever the deploy's origin is. What it
+    /// takes: code of 23 bytes that is not a delegation.
     /// Breaks: in OspexCourierRelay's constructor, drop `timelock.code.length == 0 ||`; drop
     /// `|| _isDelegated(timelock)`; drop `matching.code.length == 0 ||`; drop `|| _isDelegated(matching)`; drop the
-    /// zero-sender check; move the zero-sender check to the constructor's first line.
+    /// zero-sender check; move the zero-sender check to the constructor's first line; test the matching address's
+    /// delegation after the read; take no delegation for one on Polygon's chain id; take a timelock with no code
+    /// when it is the transaction's origin.
     function test_neverLine_theConstructorRefusesWhatItCannotAnswerTo() public {
         bytes memory read = abi.encodeWithSelector(matching.i_timelock.selector);
 
@@ -1215,6 +1300,31 @@ contract OspexCourierRelayConstructorTest is RelayBase {
         _refusedDeploy(delegated, address(0), _matchingNotAContract(delegated));
         _refusedDeploy(address(_answering(bare)), address(0), _timelockNotAContract(bare));
         _refusedDeploy(address(_answering(delegatedLock)), address(0), _timelockNotAContract(delegatedLock));
+        // A delegation at the matching address is refused before it is asked: its read answering no contract, and
+        // its read reverting, change nothing.
+        address delegatedBad = _delegation("a delegation whose read answers no contract", address(matching));
+        vm.mockCall(delegatedBad, read, abi.encode(bare));
+        assertEq(OspexMatching(delegatedBad).i_timelock(), bare, "the second mock does not answer the read");
+        _refusedDeploy(delegatedBad, courierKey, _matchingNotAContract(delegatedBad));
+        address delegatedMute = _delegation("a delegation whose read reverts", address(matching));
+        vm.mockCallRevert(delegatedMute, read, abi.encodeWithSignature("TheReadsOwnRefusal()"));
+        _refusedDeploy(delegatedMute, courierKey, _matchingNotAContract(delegatedMute));
+
+        // Under Polygon's chain id the two delegations are refused as here.
+        vm.chainId(137);
+        _refusedDeploy(delegated, courierKey, _matchingNotAContract(delegated));
+        _refusedDeploy(address(_answering(delegatedLock)), courierKey, _timelockNotAContract(delegatedLock));
+        _refusedDeploy(address(_answering(bare)), courierKey, _timelockNotAContract(bare));
+        vm.chainId(homeChain);
+
+        // A timelock with no code is refused when it is the deploy's origin too, and when it is the deployer.
+        AnsweringTarget toBare = _answering(bare);
+        vm.expectRevert(_timelockNotAContract(bare));
+        vm.prank(deployer, bare);
+        new OspexCourierRelay(address(toBare), courierKey);
+        vm.expectRevert(_timelockNotAContract(bare));
+        vm.prank(bare, bare);
+        new OspexCourierRelay(address(toBare), courierKey);
 
         // What is taken: 23 bytes of code that is not a delegation, as the timelock and as the matching address.
         // Code that begins 0xef0100 at another length is not a case here: no such code can be deployed (EIP-3541),
@@ -1228,24 +1338,26 @@ contract OspexCourierRelayConstructorTest is RelayBase {
     }
 
     /// A read of the timelock that fails, fails the deploy, and nothing is taken as the timelock in its place: a
-    /// getter that reverts, with its own bytes; one that reverts with none; one that answers nothing, or 31 bytes;
-    /// one that answers a word that is not an address; and a contract of the set that has no such read. Each is
-    /// deployed from this contract, which has code and is no delegation, so a relay that fell back on its deployer
-    /// would deploy.
-    /// Break: in OspexCourierRelay's constructor, read the timelock with a low-level call and take msg.sender when
-    /// the call fails or answers anything but 32 bytes.
+    /// getter that reverts, with its own bytes; one that reverts with none; one that answers nothing, one byte or
+    /// 31 bytes; one that answers a word that is not an address; and a contract of the set that has no such read.
+    /// Each is deployed from this contract with this contract as the first sender: both have code and neither is a
+    /// delegation, so a relay that fell back on its deployer, or on its sender, would deploy. None fails as a
+    /// timelock that is no contract: the read is what fails.
+    /// Breaks: in OspexCourierRelay's constructor, read the timelock with a low-level call and take msg.sender when
+    /// the call fails or answers anything but 32 bytes; the same, taking the first sender.
     function test_neverLine_aReadOfTheTimelockThatFailsFailsTheDeploy() public {
-        assertGt(address(this).code.length, 0, "the deployer of these relays has no code");
+        address self = address(this);
+        assertGt(self.code.length, 0, "the deployer and first sender of these relays has no code");
         AnsweringTarget target = new AnsweringTarget();
 
         // The getter's own refusal comes back as the deploy's, also when the sender is zero too: the read is
         // before the sender's check.
         bytes memory own = abi.encodeWithSignature("TheGettersOwnRefusal(bytes32)", keccak256("its own"));
         target.script(true, own);
-        _refusedDeploy(address(target), courierKey, own);
+        _refusedDeploy(address(target), self, own);
         _refusedDeploy(address(target), address(0), own);
 
-        // The rest fail the deploy.
+        // The rest fail the deploy, and not at the check of the timelock's code.
         bytes[5] memory answers = [
             bytes(""),
             _noise(31, 1),
@@ -1254,24 +1366,38 @@ contract OspexCourierRelayConstructorTest is RelayBase {
             _noise(1, 2)
         ];
         bool failed;
+        bytes memory err;
         for (uint256 i; i < answers.length; ++i) {
             target.script(false, answers[i]);
-            (failed,) = _tryDeploy(address(target), courierKey);
+            (failed, err) = _tryDeploy(address(target), self);
             assertTrue(failed, string.concat("a relay was deployed on a read that answered ", vm.toString(answers[i])));
+            _assertNotTheTimelocksCheck(err);
         }
         target.script(true, "");
-        (failed,) = _tryDeploy(address(target), courierKey);
+        (failed, err) = _tryDeploy(address(target), self);
         assertTrue(failed, "a relay was deployed on a read that reverted with no data");
+        _assertNotTheTimelocksCheck(err);
         // Contracts that have no such read.
-        (failed,) = _tryDeploy(address(core), courierKey);
+        (failed, err) = _tryDeploy(address(core), self);
         assertTrue(failed, "a relay was deployed on the core");
-        (failed,) = _tryDeploy(address(positions), courierKey);
+        _assertNotTheTimelocksCheck(err);
+        (failed, err) = _tryDeploy(address(positions), self);
         assertTrue(failed, "a relay was deployed on the positions contract");
+        _assertNotTheTimelocksCheck(err);
 
         // The control: the same target answering a contract deploys, so what failed above was the read.
         target.script(false, abi.encode(address(timelock)));
-        (failed,) = _tryDeploy(address(target), courierKey);
+        (failed,) = _tryDeploy(address(target), self);
         assertFalse(failed, "a relay was refused on a read that answered a contract");
+    }
+
+    /// @dev A failed deploy's data is not the refusal of a timelock that is no contract.
+    function _assertNotTheTimelocksCheck(bytes memory err) internal pure {
+        if (err.length < 4) return;
+        assertTrue(
+            bytes4(err) != OspexCourierRelay.OspexCourierRelay__TimelockNotAContract.selector,
+            "the deploy failed at the timelock's check, not at the read"
+        );
     }
 }
 
@@ -1290,18 +1416,20 @@ contract OspexCourierRelayBytesTest is RelayBase {
         assertEq(onTarget.i_timelock(), address(timelock), "the timelock the scripted target answered");
     }
 
-    /// Whatever the target reverts with comes back whole: twelve lengths, from none to 1,024 bytes, each of hash
-    /// output so that no two are alike and equal bytes show the target was reached. The refusal of no bytes is
-    /// compared at length zero, once more by itself. A call that succeeds returns nothing, also when the target
-    /// returns bytes.
+    /// Whatever the target reverts with comes back whole: fifteen lengths, from none to 10,000 bytes, each of hash
+    /// output so that no two are alike and equal bytes show the target was reached; and three refusals with a
+    /// shape, a string error, a panic and the relay's own error's bytes. The refusal of no bytes is compared at
+    /// length zero, once more by itself. A stranger gets the relay's refusal of its caller, not the target's. A
+    /// call that succeeds returns nothing, also when the target returns bytes.
     /// Breaks: in OspexCourierRelay.cross, delete the revert, so a failure is swallowed; revert with a fixed error
     /// in place of the data; cut the data to four bytes, `revert(add(refusal, 0x20), 4)`; swallow a refusal of no
-    /// bytes, `if (!ok && refusal.length != 0)`.
+    /// bytes, `if (!ok && refusal.length != 0)`; cut a refusal longer than 2,048 bytes; replace a string error
+    /// with words of the relay's own; check the caller after the forward.
     function test_neverLine_anyRevertDataComesBackWhole() public {
         uint256 game = _verifiedGame();
         (OspexMatching.SignedOrder memory resting, OspexMatching.SignedOrder memory taking) = _oneCent(game, Side.B);
         bytes memory data = _crossData(taking, _list(resting));
-        uint16[12] memory lengths = [uint16(0), 1, 3, 4, 5, 31, 32, 33, 36, 68, 100, 1024];
+        uint16[15] memory lengths = [uint16(0), 1, 3, 4, 5, 31, 32, 33, 36, 68, 100, 1024, 2049, 4096, 10000];
         bool ok;
         bytes memory got;
         for (uint256 i; i < lengths.length; ++i) {
@@ -1312,12 +1440,32 @@ contract OspexCourierRelayBytesTest is RelayBase {
             assertEq(got.length, lengths[i], "the refusal's length through the relay");
             assertEq(got, scripted, "the refusal's bytes through the relay");
         }
+        // Refusals with a shape a relay might know: a string error, a panic, and the relay's own error.
+        bytes[3] memory shaped = [
+            abi.encodeWithSignature("Error(string)", "the target's own words"),
+            abi.encodeWithSignature("Panic(uint256)", uint256(0x11)),
+            abi.encodeWithSelector(OspexCourierRelay.OspexCourierRelay__NotTheSender.selector, courierKey)
+        ];
+        for (uint256 i; i < shaped.length; ++i) {
+            target.script(true, shaped[i]);
+            (ok, got) = _tryRelayOn(onTarget, courierKey, courierKey, data);
+            assertFalse(ok, "a refusal with a shape was swallowed");
+            assertEq(got, shaped[i], "a refusal with a shape, through the relay");
+        }
+        // A caller that is not the sender gets the relay's refusal of it, and not the target's: the caller is
+        // refused before anything is forwarded.
+        (ok, got) = _tryRelayOn(onTarget, stranger, stranger, data);
+        assertFalse(ok, "a stranger's call reached a target that refuses");
+        assertEq(
+            got,
+            abi.encodeWithSelector(OspexCourierRelay.OspexCourierRelay__NotTheSender.selector, stranger),
+            "a stranger's call to a relay whose target refuses"
+        );
         // No bytes at all.
         target.script(true, "");
         (ok, got) = _tryRelayOn(onTarget, courierKey, courierKey, data);
         assertFalse(ok, "a refusal of no bytes was swallowed");
         assertEq(got.length, 0, "a refusal of no bytes came back with bytes");
-        assertEq(target.calls(), 0, "a reverted call left a record");
 
         // Success: nothing returned, whatever the target returns.
         uint16[4] memory returned = [uint16(0), 4, 32, 100];
@@ -1331,11 +1479,15 @@ contract OspexCourierRelayBytesTest is RelayBase {
     }
 
     /// The call's bytes arrive unchanged: what the target records is what the sender sent, selector included,
-    /// from the relay, once. For the compiler's own encoding of the ten-field call, with no, one and three resting
-    /// orders; and for encodings of the same values the compiler would not produce and a decoder still takes:
-    /// bytes after the last tail, a gap between the head and the tails, and the two tails in the other order.
+    /// from the relay, once. For the compiler's own encoding of the ten-field call, with no, one, three and forty
+    /// resting orders; for encodings of the same values the compiler would not produce and a decoder still takes:
+    /// bytes after the last tail, a gap between the head and the tails, and the two tails in the other order; and
+    /// for bytes whose values the matching contract would refuse, which the relay does not read: an address word
+    /// with a bit above the address, a side that is no side, a taking order that expired, and a stake of zero.
     /// Breaks: in OspexCourierRelay.cross, forward msg.data short of its first four bytes; forward the two
-    /// arguments encoded again, `abi.encodeCall(OspexMatching.cross, (taking, resting))`.
+    /// arguments encoded again, `abi.encodeCall(OspexMatching.cross, (taking, resting))`; decode the two arguments
+    /// into memory; refuse a list of more than sixteen; read the taking order's expiry and refuse an expired one;
+    /// return without forwarding when the taking order's stake is zero.
     function test_neverLine_theCallsBytesArriveUnchanged() public {
         uint256 game = _verifiedGame();
         OspexMatching.SignedOrder memory taking = _take(tk, game, Side.B, 190, 10_000);
@@ -1345,9 +1497,16 @@ contract OspexCourierRelayBytesTest is RelayBase {
         bytes memory none = _crossData(taking, _list());
         bytes memory one = _crossData(taking, _list(a));
         bytes memory three = _crossData(taking, _list(a, b, c));
+        OspexMatching.SignedOrder[] memory many = new OspexMatching.SignedOrder[](40);
+        for (uint256 i; i < many.length; ++i) {
+            many[i] = _rest(mk, game, Side.A, 210, 10_000);
+        }
+        bytes memory forty = _crossData(taking, many);
+        assertGt(forty.length, 16_000, "the forty-order call is shorter than expected");
         _recorded(none, "no resting order");
         _recorded(one, "one resting order");
         _recorded(three, "three resting orders");
+        _recorded(forty, "forty resting orders");
 
         bytes memory appended = bytes.concat(one, _noise(33, 7));
         bytes memory gapped = _gapped(one, _noise(32, 8));
@@ -1363,7 +1522,25 @@ contract OspexCourierRelayBytesTest is RelayBase {
         _recorded(oddGap, "a gap of 33 bytes");
         _recorded(swapped, "the two tails in the other order");
         _recorded(both, "a gap, and bytes after the last tail");
-        assertEq(target.calls(), 8, "the calls recorded");
+
+        // Values the matching contract would refuse, in the compiler's layout. The taking order's ten words begin
+        // at byte 68: its account, then, each 32 bytes on, its game, market contract, line, side, price, stake,
+        // nonce and expiry.
+        uint256 account = uint256(bytes32(_slice(one, 68, 100)));
+        assertEq(account, uint256(uint160(tk.a)), "the taking account is not where the layout says");
+        assertEq(uint256(bytes32(_slice(one, 260, 292))), 10_000, "the taking stake is not where the layout says");
+        _recorded(_withWord(one, 68, account | (uint256(1) << 255)), "an address word with a bit above the address");
+        _recorded(_withWord(one, 196, 2), "a side that is no side");
+        _recorded(_withWord(one, 324, 1), "a taking order that expired long ago");
+        _recorded(_withWord(one, 260, 0), "a taking stake of zero");
+        _recorded(_withWord(three, 196, type(uint256).max), "a side word of all ones");
+        assertEq(target.calls(), 14, "the calls recorded");
+    }
+
+    /// @dev `b` with the 32 bytes at `at` replaced by `word`.
+    function _withWord(bytes memory b, uint256 at, uint256 word) internal pure returns (bytes memory out) {
+        out = bytes.concat(_slice(b, 0, at), bytes32(word), _slice(b, at + 32, b.length));
+        assertEq(out.length, b.length, "a word was not replaced in place");
     }
 
     /// @dev The key sends `sent` through the relay on the scripted target, and the target's record is those bytes.
@@ -1378,6 +1555,46 @@ contract OspexCourierRelayBytesTest is RelayBase {
         assertEq(got, sent, string.concat(what, ": the bytes that arrived"));
         assertEq(bytes32(bytes4(got)), bytes32(bytes4(0x84075346)), string.concat(what, ": the selector that arrived"));
         assertEq(target.lastCaller(), address(onTarget), string.concat(what, ": the target's caller"));
+    }
+
+    /// What the relay does refuse of a call's bytes, and it is not the relay's own rule: the check the compiler
+    /// makes at the entry of any function of this shape, that the two arguments' offsets and the list's length lie
+    /// within the call. It runs before the sender's check. Bytes that fail it never reach a target that would take
+    /// anything; and on the real set the same bytes fail the matching contract's own entry in the same way, so the
+    /// relay refuses nothing here that the matching contract would have taken.
+    function test_theEntryCheckOfTheCallsShapeIsTheMatchingContractsOwn() public {
+        uint256 game = _verifiedGame();
+        (OspexMatching.SignedOrder memory resting, OspexMatching.SignedOrder memory taking) = _oneCent(game, Side.B);
+        bytes memory one = _crossData(taking, _list(resting));
+        (, uint256 toResting) = abi.decode(_slice(one, 4, 68), (uint256, uint256));
+        bytes4 selector = OspexMatching.cross.selector;
+        bytes[5] memory malformed = [
+            abi.encodePacked(selector),
+            abi.encodePacked(selector, uint256(0x40)),
+            abi.encodePacked(selector, uint256(0x1000), uint256(0x2000)),
+            _withWord(one, 4 + toResting, 1_000_000),
+            _slice(one, 0, 4 + 0x40 + 0x100)
+        ];
+        for (uint256 i; i < malformed.length; ++i) {
+            // To a target that takes any bytes: the relay refuses them itself, from the key and from a stranger.
+            uint256 before = target.calls();
+            (bool ok,) = _tryRelayOn(onTarget, courierKey, courierKey, malformed[i]);
+            assertFalse(ok, string.concat("bytes of no shape reached the target: ", vm.toString(malformed[i])));
+            (ok,) = _tryRelayOn(onTarget, stranger, stranger, malformed[i]);
+            assertFalse(ok, "a stranger's bytes of no shape were taken");
+            assertEq(target.calls(), before, "bytes of no shape left a record");
+            // On the real set: the matching contract refuses the same bytes from the relay's own address, and
+            // through the relay the refusal is the same.
+            (bool okRef, bytes memory fromMatching) = _tryAsRelay(courierKey, malformed[i]);
+            assertFalse(okRef, "the matching contract took bytes of no shape");
+            (bool okRelay, bytes memory throughRelay) = _tryRelay(courierKey, courierKey, malformed[i]);
+            assertFalse(okRelay, "the relay took bytes of no shape on the real set");
+            assertEq(throughRelay, fromMatching, "the refusal of bytes of no shape differs through the relay");
+        }
+        // The control: the bytes they were made from fill.
+        (bool filled,) = _tryRelay(courierKey, courierKey, one);
+        assertTrue(filled, "the well-formed bytes did not fill");
+        assertEq(_filled(taking), 9_900, "the well-formed Cross");
     }
 
     /// An encoding the compiler would not produce, sent to the real set through the relay, fills as the same
@@ -1408,5 +1625,271 @@ contract OspexCourierRelayBytesTest is RelayBase {
         assertEq(_coin().balanceOf(mk.a), PURSE - 9_000, "the resting account paid its own stake");
         assertEq(_coin().balanceOf(tk.a), PURSE - 9_900, "the taking account paid its own stake");
         assertEq(_coin().balanceOf(address(positions)), 18_900, "the positions contract holds the two stakes");
+    }
+}
+
+/// @notice Never-lines 27, 28 and 30 in the shapes an independent pass found the first tests held constant: who
+///         calls, what a refused caller asks for, what the sender is, the chain's id, the clock, the gas, and a
+///         Cross from inside a Cross.
+contract OspexCourierRelayShapesTest is RelayBase {
+    function _notTheSender(address caller) internal pure returns (bytes memory) {
+        return abi.encodeWithSelector(OspexCourierRelay.OspexCourierRelay__NotTheSender.selector, caller);
+    }
+
+    function _notTheTimelock(address caller) internal pure returns (bytes memory) {
+        return abi.encodeWithSelector(OspexCourierRelay.OspexCourierRelay__NotTheTimelock.selector, caller);
+    }
+
+    /// The sender's check, in the shapes the first test held constant. A stranger whose Cross the matching
+    /// contract itself would refuse is refused for its caller, by the relay's name: nothing is forwarded first. An
+    /// address the key and both accounts have registered as a courier on the matching contract is no sender of
+    /// the relay's, though its own direct Cross fills. Addresses one bit from the sender's are refused. A stranger
+    /// is refused under Polygon's chain id. A sender that is a contract passes a Cross through. And more than a
+    /// year on, the sender still passes and a stranger is still refused.
+    /// Breaks: in OspexCourierRelay.cross, check the caller after the forward; refuse a sender that has code; skip
+    /// the check on chain 137; let the sender lapse 90 days after it was set; compare the low twelve bytes of the
+    /// two addresses alone; let the sender's own couriers on the matching contract pass.
+    function test_neverLine_theSendersCheckHoldsInEveryShape() public {
+        uint256 game = _verifiedGame();
+        (OspexMatching.SignedOrder memory resting, OspexMatching.SignedOrder memory taking) = _oneCent(game, Side.B);
+        bytes memory data = _crossData(taking, _list(resting));
+
+        // A Cross the matching contract refuses, from a stranger: the relay's refusal of the caller, not the
+        // matching contract's of the Cross.
+        OspexMatching.SignedOrder memory forged =
+            OspexMatching.SignedOrder({order: taking.order, signature: _signature(mk.key, _digest(taking.order))});
+        bytes memory refusedData = _crossData(forged, _list(resting));
+        (bool ok, bytes memory out) = _tryAsRelay(courierKey, refusedData);
+        assertFalse(ok, "the matching contract took a forged order");
+        assertEq(
+            out, _refusal(OspexMatching.OspexMatching__BadSignature.selector, forged), "the forged order's refusal"
+        );
+        (ok, out) = _tryRelay(stranger, stranger, refusedData);
+        assertFalse(ok, "a stranger's forged Cross was passed");
+        assertEq(out, _notTheSender(stranger), "a stranger's Cross of bytes the matching contract refuses");
+
+        // A courier the key and both accounts registered on the matching contract: its direct Cross fills, in a
+        // snapshot, and at the relay it is refused.
+        address named = makeAddr("a courier the key and both accounts registered");
+        _register(courierKey, named);
+        _register(mk.a, named);
+        _register(tk.a, named);
+        uint256 snap = vm.snapshotState();
+        (ok, out) = _tryCrossAs(named, named, taking, _list(resting));
+        assertTrue(ok, string.concat("the registered courier's own Cross was refused: ", vm.toString(out)));
+        assertTrue(vm.revertToState(snap), "the snapshot was not taken back");
+        (ok, out) = _tryRelay(named, named, data);
+        assertFalse(ok, "a courier of the key's was passed by the relay");
+        assertEq(out, _notTheSender(named), "a courier of the key's and of both accounts', at the relay");
+
+        // One bit from the sender's address: the lowest, the highest, and one in the middle.
+        address[3] memory near = [
+            address(uint160(courierKey) ^ uint160(1)),
+            address(uint160(courierKey) ^ (uint160(1) << 159)),
+            address(uint160(courierKey) ^ (uint160(1) << 96))
+        ];
+        for (uint256 i; i < near.length; ++i) {
+            (ok, out) = _tryRelay(near[i], near[i], data);
+            assertFalse(ok, "an address one bit from the sender's was passed");
+            assertEq(out, _notTheSender(near[i]), "an address one bit from the sender's");
+        }
+
+        // Under Polygon's chain id.
+        vm.chainId(137);
+        (ok, out) = _tryRelay(stranger, stranger, data);
+        assertFalse(ok, "a stranger was passed under Polygon's chain id");
+        assertEq(out, _notTheSender(stranger), "a stranger under Polygon's chain id");
+        vm.chainId(homeChain);
+        assertEq(_filled(taking), 0, "a refused Cross filled");
+
+        // A sender that is a contract: the timelock sets it, the key calls it, and the Cross fills. The key
+        // itself is refused meanwhile. Then the timelock sets the key back.
+        HandingCaller handing = new HandingCaller();
+        vm.prank(address(timelock), address(timelock));
+        relay.setSender(address(handing));
+        (ok, out) = _tryRelay(courierKey, courierKey, data);
+        assertFalse(ok, "the key was passed while a contract was the sender");
+        assertEq(out, _notTheSender(courierKey), "the key while a contract is the sender");
+        vm.prank(courierKey, courierKey);
+        (ok, out) = address(handing).call(abi.encodeCall(HandingCaller.send, (address(relay), data)));
+        assertTrue(ok, string.concat("a sender that is a contract was refused: ", vm.toString(out)));
+        assertEq(_filled(taking), 9_900, "the Cross a contract sent");
+        vm.prank(address(timelock), address(timelock));
+        relay.setSender(courierKey);
+        assertEq(relay.s_sender(), courierKey, "the key was not set back");
+
+        // More than a year on, on a game made then: the sender still passes, and a stranger is still refused.
+        vm.warp(vm.getBlockTimestamp() + 400 days);
+        uint256 lateGame = _createAt(uint64(vm.getBlockTimestamp() + 1 days));
+        (resting, taking) = _oneCent(lateGame, Side.A);
+        data = _crossData(taking, _list(resting));
+        (ok, out) = _tryRelay(stranger, stranger, data);
+        assertFalse(ok, "a stranger was passed a year on");
+        assertEq(out, _notTheSender(stranger), "a stranger a year on");
+        (ok, out) = _tryRelay(courierKey, courierKey, data);
+        assertTrue(ok, string.concat("the sender was refused a year on: ", vm.toString(out)));
+        assertEq(_filled(taking), 9_900, "the sender's Cross a year on");
+    }
+
+    /// The setter's check, in the shapes the first test held constant. A refused caller is refused whatever
+    /// address it asks for: the next key, itself, the timelock, the relay, zero. Addresses one bit from the
+    /// timelock's are refused. A holder of a timelock's admin role is refused, on a relay whose timelock has one.
+    /// A stranger is refused under Polygon's chain id and decades on. And nothing but zero is asked of the next
+    /// sender: a key, an address whose code is a wallet's delegation, a sender it was before, and K's own address
+    /// are each taken, with the event.
+    /// Breaks: in OspexCourierRelay.setSender, let an admin of the timelock set the sender; let the current sender
+    /// set the timelock's own address; refuse a next sender whose code is a delegation; refuse a sender it was
+    /// before.
+    function test_neverLine_theSettersCheckHoldsInEveryShape() public {
+        bool ok;
+        bytes memory out;
+        // Six refused callers, each asking for seven addresses.
+        address[6] memory callers = [courierKey, timelockKey, stranger, deployer, address(matching), newKey];
+        address[7] memory asked =
+            [newKey, courierKey, address(timelock), address(relay), address(matching), stranger, address(0)];
+        for (uint256 c; c < callers.length; ++c) {
+            for (uint256 a; a < asked.length; ++a) {
+                vm.prank(callers[c], callers[c]);
+                (ok, out) = address(relay).call(_setSender(asked[a]));
+                assertFalse(ok, string.concat("the sender was set by ", vm.toString(callers[c])));
+                assertEq(out, _notTheTimelock(callers[c]), "a refused caller, whatever it asks for");
+            }
+        }
+        // One bit from the timelock's address.
+        address[2] memory near = [
+            address(uint160(address(timelock)) ^ uint160(1)), address(uint160(address(timelock)) ^ (uint160(1) << 159))
+        ];
+        for (uint256 i; i < near.length; ++i) {
+            vm.prank(near[i], near[i]);
+            (ok, out) = address(relay).call(_setSender(newKey));
+            assertFalse(ok, "an address one bit from the timelock's set the sender");
+            assertEq(out, _notTheTimelock(near[i]), "an address one bit from the timelock's");
+        }
+        // Under Polygon's chain id, and decades on.
+        vm.chainId(137);
+        vm.prank(stranger, stranger);
+        (ok, out) = address(relay).call(_setSender(newKey));
+        assertFalse(ok, "a stranger set the sender under Polygon's chain id");
+        assertEq(out, _notTheTimelock(stranger), "a stranger under Polygon's chain id");
+        vm.chainId(homeChain);
+        uint256 snap = vm.snapshotState();
+        vm.warp(2_100_000_000);
+        vm.prank(stranger, stranger);
+        (ok, out) = address(relay).call(_setSender(newKey));
+        assertFalse(ok, "a stranger set the sender decades on");
+        assertEq(out, _notTheTimelock(stranger), "a stranger decades on");
+        assertTrue(vm.revertToState(snap), "the snapshot was not taken back");
+        assertEq(relay.s_sender(), courierKey, "the sender moved under a refused call");
+
+        // A timelock with an admin: the admin is refused, and so is K, on a relay that answers to that timelock.
+        address admin = makeAddr("the admin of a timelock");
+        TimelockController administered = new TimelockController(DELAY, _one(timelockKey), _one(address(0)), admin);
+        assertTrue(administered.hasRole(administered.DEFAULT_ADMIN_ROLE(), admin), "the admin holds no admin role");
+        AnsweringTarget answering = new AnsweringTarget();
+        answering.script(false, abi.encode(address(administered)));
+        OspexCourierRelay onAdministered = _deployRelay(address(answering), courierKey);
+        assertEq(onAdministered.i_timelock(), address(administered), "the administered timelock");
+        address[2] memory holders = [admin, timelockKey];
+        for (uint256 i; i < holders.length; ++i) {
+            vm.prank(holders[i], holders[i]);
+            (ok, out) = address(onAdministered).call(_setSender(newKey));
+            assertFalse(ok, "a holder of a role on the timelock set the sender");
+            assertEq(out, _notTheTimelock(holders[i]), "a holder of a role on the timelock");
+        }
+        assertEq(onAdministered.s_sender(), courierKey, "the sender on the administered relay");
+
+        // Nothing but zero is asked of the next sender.
+        address delegated = makeAddr("a next sender whose code is a wallet's delegation");
+        vm.etch(delegated, abi.encodePacked(hex"ef0100", address(matching)));
+        assertEq(delegated.code.length, 23, "the delegation's length");
+        address[5] memory next = [newKey, delegated, courierKey, timelockKey, newKey];
+        address previous = courierKey;
+        for (uint256 i; i < next.length; ++i) {
+            vm.recordLogs();
+            vm.prank(address(timelock), address(timelock));
+            (ok, out) = address(relay).call(_setSender(next[i]));
+            Vm.Log[] memory logs = vm.getRecordedLogs();
+            assertTrue(ok, string.concat("the timelock's sender was refused: ", vm.toString(next[i])));
+            _assertOneSenderSet(logs, address(relay), previous, next[i]);
+            assertEq(relay.s_sender(), next[i], "the sender the timelock set");
+            previous = next[i];
+        }
+    }
+
+    /// The forward carries the gas the call has. A resting account whose code burns 40,000,000 gas when the coin
+    /// calls it during its pull: the Cross fills when its bytes are sent from the relay's own address, and it fills
+    /// through the relay.
+    /// Break: in OspexCourierRelay.cross, cap the gas of the forward, `i_matching.call{gas: 10_000_000}(msg.data)`.
+    function test_neverLine_theForwardCarriesTheCallsGas() public {
+        TrickCoin trick = new TrickCoin();
+        _deploySetOn(address(trick));
+        OspexCourierRelay onTrick = _deployRelay(address(matching), courierKey);
+        Signer memory y = _account("resting account whose code burns gas");
+        Signer memory t = _account("taking account on the trick coin");
+        vm.etch(y.a, address(new CallbackAccount()).code);
+        _register(y.a, address(onTrick));
+        _register(t.a, address(onTrick));
+        uint256 game = _verifiedGame();
+        trick.setHooked(y.a, true);
+        CallbackAccount(y.a).setBurn(40_000_000);
+        OspexMatching.SignedOrder memory taking = _take(t, game, Side.B, 200, 10_000);
+        OspexMatching.SignedOrder memory resting = _rest(y, game, Side.A, 200, 10_000);
+        bytes memory data = _crossData(taking, _list(resting));
+
+        // From the relay's own address, in a snapshot: it fills, and costs more than the burn.
+        uint256 snap = vm.snapshotState();
+        vm.prank(address(onTrick), courierKey);
+        (bool okRef,) = address(matching).call(data);
+        uint256 direct = vm.lastCallGas().gasTotalUsed;
+        assertTrue(okRef, "the Cross was refused when sent from the relay's own address");
+        assertGt(direct, 40_000_000, "the pull burned less gas than it was set to");
+        assertTrue(vm.revertToState(snap), "the snapshot was not taken back");
+
+        (bool ok, bytes memory out) = _tryRelayOn(onTrick, courierKey, courierKey, data);
+        assertTrue(ok, string.concat("the relay did not carry the gas the Cross needs: ", vm.toString(out)));
+        assertEq(_filled(taking), 10_000, "the Cross that burns gas, its taking order");
+        assertEq(_filled(resting), 10_000, "the Cross that burns gas, its resting order");
+        assertEq(CallbackAccount(y.a).calls(), 1, "the coin's calls to the resting account");
+    }
+
+    /// The relay keeps no exclusion of its own, and the matching contract's comes back through it. A sender with
+    /// code, called back by the coin during a pull of its own Cross, sends a second Cross through the relay from
+    /// inside the first: the relay passes it, the matching contract refuses it by its exclusion's name, that name
+    /// is what the sender gets, and the first Cross fills. Outside, the second Cross's bytes fill.
+    /// Break: in OspexCourierRelay.cross, keep an exclusion over the call and revert on a second entry.
+    function test_neverLine_aCrossFromInsideACrossIsRefusedByTheMatchingContract() public {
+        TrickCoin trick = new TrickCoin();
+        _deploySetOn(address(trick));
+        Signer memory y = _account("a sender that is a resting account with code");
+        Signer memory t = _account("taking account on the trick coin");
+        vm.etch(y.a, address(new CallbackAccount()).code);
+        OspexCourierRelay onTrick = _deployRelay(address(matching), y.a);
+        _register(y.a, address(onTrick));
+        _register(t.a, address(onTrick));
+        uint256 game = _verifiedGame();
+        trick.setHooked(y.a, true);
+
+        OspexMatching.SignedOrder memory innerTaking = _take(t, game, Side.B, 200, 10_000);
+        bytes memory inner = _crossData(innerTaking, _list(_rest(y, game, Side.A, 200, 10_000)));
+        CallbackAccount(y.a).arm(address(onTrick), inner);
+        OspexMatching.SignedOrder memory taking = _take(t, game, Side.B, 200, 10_000);
+        bytes memory outer = _crossData(taking, _list(_rest(y, game, Side.A, 200, 10_000)));
+        (bool ok, bytes memory out) = _tryRelayOn(onTrick, y.a, y.a, outer);
+        assertTrue(ok, string.concat("the first Cross was refused: ", vm.toString(out)));
+        (bool[] memory oks, bytes[] memory answers) = CallbackAccount(y.a).results();
+        assertEq(oks.length, 1, "the call-back made one call");
+        assertFalse(oks[0], "a Cross from inside a Cross was taken");
+        assertEq(
+            answers[0],
+            abi.encodeWithSelector(OspexMatching.OspexMatching__CrossInProgress.selector),
+            "refused, but not by the matching contract's exclusion"
+        );
+        assertEq(_filled(taking), 10_000, "the first Cross");
+        assertEq(_filled(innerTaking), 0, "the Cross from inside");
+
+        // Outside a Cross the same bytes fill.
+        (ok, out) = _tryRelayOn(onTrick, y.a, y.a, inner);
+        assertTrue(ok, string.concat("the second Cross was refused outside the first: ", vm.toString(out)));
+        assertEq(_filled(innerTaking), 10_000, "the second Cross, outside the first");
     }
 }
