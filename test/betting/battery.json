@@ -1,5 +1,5 @@
 {
- "about": "Breaks of the betting set, most of one line, each with a test it turns red; a break may turn others red too. For each: apply its edits to the file (each find occurs exactly once in the file as committed; a find of several lines is one anchor), run the named test alone and see it fail, restore the file byte for byte and see it pass. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis. Check that exactly one test ran. Ids: B, the cut's: the (home, away) order, the settlement's status read, the fill path, the registry and the interface pins. C, the couriers': who writes an account's couriers, no courier by default, the refusals, the repeated registration, the events and the two calls' signatures. From C17 on, the same lines read through the transaction's origin, or told apart by it, and a write beside the one the caller named. C31 and C32, a second write no list of addresses would reach. C33 to C35, one courier at a time and an event emitted twice. C36 to C45, the two calls that change nothing: a repeated registration succeeds and neither writes nor emits, and a drop of a courier the account does not have is refused. C46 to C62, behaviour that differs for one kind of caller, courier, time or count: a contract as the caller or as the courier, the account naming itself, the set's deployer as the caller, a write hidden by the order couriers are named in, a courier event from the cancel, a courier that appears or lapses with time or is written at deploy, a courier dropped several times, a courier asked about its own drop, a courier cancelling its account's order, a registration that returns a value, and a call made to the courier. W, the wiring's: the reads the core makes of a module at bootstrap, which types are asked which and in what order, that an address is read before it is written and never at finalize, that a read cannot write and that one that fails fails the call, every place of a call, the zero address as a market contract, and the pins of the core's three refusals and of the modules' deploy values. X, the Cross's: the courier each order's account registered (X1 to X9); the one fill path (X10); the close gate (X11 to X17); the filled amount and the signed stake (X18 to X24); the cancel and the floor (X25 to X35); the price and the lot (X36 to X39); the minimum (X40, X41); what is pulled and who holds it (X42 to X45); the skips, their order and what they leave (X46 to X58); the receipt (X59, X60); the refused pull's recognition and the two pulls (X61 to X69); a Cross that fills nothing (X70, X71); the taking order's thirty seconds (X72 to X75); the exclusion while a Cross is in progress and the positions module's guard (X76 to X85); the signature, the type and the domain (X86 to X100); the market, the side and the price (X101 to X105); an admissible price and stake (X106 to X110); the events (X111 to X126); and the gate's read (X127). Then what an independent pass found the first fixtures could not tell apart: a fault or a dead order late in a list (X128 to X139); a floor on a line that is not 0 (X140); an order that rests before it takes (X141); a refused pull at a price that is not even (X142, X143); stakes of many lots (X144, X145); the exclusion past the first leg (X146, X147); the filled amounts written before the pull (X148, X149); the receipt on either side (X150); a read made before a pull (X151, X152); a cancel through the transaction's origin (X153); the skip record's hub copy and the floor's place among the reasons (X154, X155); the market and the line in the records (X156 to X158); what the Cross returns (X159); the side a position records (X160); the exclusion past a refused pull and past an order nothing fits (X161, X162); and a full order whose account cannot pay (X163, X164). T, the cap and its switch (T1 to T22): the cap deleted, at or above, on the remainder, on the lot count, ten cents, a tenth of a cent, a refusal naming no order, the cap ahead of the signature (T1 to T8); a resting order or a leg capped (T9, T10); the lift for anyone, by the origin, twice, writing nothing, without its event or its hub copy, returning a value, lifted at deploy (T11 to T18); a registration that lifts (T19); the lift inside a Cross, and clearing the mark (T20, T21); a function that puts the cap back (T22). T23 to T38, from an independent pass against the cap's tests: the cap tested after the walk (T23); the lift reading the timelock live (T24); the cap only at 2.00 or longer, only on the moneyline, in 32 bits, waived for an account sending its own Cross or one with code (T25 to T27, T34, T35); the flag written on a skip, a repeated registration and a refused pull (T28, T36, T37); the lift by any contract with the timelock's code (T29); lifted at deploy on Polygon's chain id (T30); the constructor taking a delegation, a zero timelock, or an address with no code (T31, T32, T38); a ceiling left after the lift (T33). T39 and T40, from an attack on the built cap: the cap waived at the shortest price (T39) and on a positive line (T40). T23 names the test whose Break line it is, the count of the coin's pulls during refused Crosses. M, the minimum fill's (M1 to M37), each naming the one test it turns red: the tail and the resting check deleted, inverted, or reading the wrong stake, the wrong minimum, the whole filled amount or the room before the walk (M1 to M8); a short Cross returning, or reverting bare (M9, M10); the minimum out of the hash, in lots or as a flag (M11 to M13); the report wrong six ways (M14 to M19); the seventh reason appended last, tested after the pull or before the lot, the bound made a skip, and the test base's old number for the refused pull, an entry that edits test/betting/CrossBase.sol (M20 to M24); the boundaries (M25 to M30); the type string's tenth field renamed, moved, or removed with the hash's (M31 to M33), beside X99 and X100, kept against the new frozen fixture; the room read from the signed stake (M34); the fill event's and the cancel event's minimum (M35 to M37). X165, the minimum out of the hash, against the signature test. Q, the independent pass's: the mutants a reviewer briefed to defeat the minimum fill's tests wrote without running them, each a waiver keyed on the sender, the origin, code, the line, the cap or the clock, a comparison in the wrong unit or width, a wrong stake at a price under 2.00, or the Cross's event tallying the wrong legs; each is a break of the shapes test or the in-cap test, added with them. F, the fix round's, from the reviews of the built change: the hub copy of a skip under the minimum carrying a zero hash (F1), against the precedence test, whose base now compares each skip's hub copy whole with its record; and the tail waived with the cap in force where the taking stake of the Cross is the smaller (F2), against the in-cap test, which now holds a short taking fill priced under 2.00 with the cap in force.",
+ "about": "Breaks of the betting set, most of one line, each with a test it turns red; a break may turn others red too. For each: apply its edits to the file (each find occurs exactly once in the file as committed; a find of several lines is one anchor), run the named test alone and see it fail, restore the file byte for byte and see it pass. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis. Check that exactly one test ran. Ids: B, the cut's: the (home, away) order, the settlement's status read, the fill path, the registry and the interface pins. C, the couriers': who writes an account's couriers, no courier by default, the refusals, the repeated registration, the events and the two calls' signatures. From C17 on, the same lines read through the transaction's origin, or told apart by it, and a write beside the one the caller named. C31 and C32, a second write no list of addresses would reach. C33 to C35, one courier at a time and an event emitted twice. C36 to C45, the two calls that change nothing: a repeated registration succeeds and neither writes nor emits, and a drop of a courier the account does not have is refused. C46 to C62, behaviour that differs for one kind of caller, courier, time or count: a contract as the caller or as the courier, the account naming itself, the set's deployer as the caller, a write hidden by the order couriers are named in, a courier event from the cancel, a courier that appears or lapses with time or is written at deploy, a courier dropped several times, a courier asked about its own drop, a courier cancelling its account's order, a registration that returns a value, and a call made to the courier. W, the wiring's: the reads the core makes of a module at bootstrap, which types are asked which and in what order, that an address is read before it is written and never at finalize, that a read cannot write and that one that fails fails the call, every place of a call, the zero address as a market contract, and the pins of the core's three refusals and of the modules' deploy values. X, the Cross's: the courier each order's account registered (X1 to X9); the one fill path (X10); the close gate (X11 to X17); the filled amount and the signed stake (X18 to X24); the cancel and the floor (X25 to X35); the price and the lot (X36 to X39); the minimum (X40, X41); what is pulled and who holds it (X42 to X45); the skips, their order and what they leave (X46 to X58); the receipt (X59, X60); the refused pull's recognition and the two pulls (X61 to X69); a Cross that fills nothing (X70, X71); the taking order's thirty seconds (X72 to X75); the exclusion while a Cross is in progress and the positions module's guard (X76 to X85); the signature, the type and the domain (X86 to X100); the market, the side and the price (X101 to X105); an admissible price and stake (X106 to X110); the events (X111 to X126); and the gate's read (X127). Then what an independent pass found the first fixtures could not tell apart: a fault or a dead order late in a list (X128 to X139); a floor on a line that is not 0 (X140); an order that rests before it takes (X141); a refused pull at a price that is not even (X142, X143); stakes of many lots (X144, X145); the exclusion past the first leg (X146, X147); the filled amounts written before the pull (X148, X149); the receipt on either side (X150); a read made before a pull (X151, X152); a cancel through the transaction's origin (X153); the skip record's hub copy and the floor's place among the reasons (X154, X155); the market and the line in the records (X156 to X158); what the Cross returns (X159); the side a position records (X160); the exclusion past a refused pull and past an order nothing fits (X161, X162); and a full order whose account cannot pay (X163, X164). T, the cap and its switch (T1 to T22): the cap deleted, at or above, on the remainder, on the lot count, ten cents, a tenth of a cent, a refusal naming no order, the cap ahead of the signature (T1 to T8); a resting order or a leg capped (T9, T10); the lift for anyone, by the origin, twice, writing nothing, without its event or its hub copy, returning a value, lifted at deploy (T11 to T18); a registration that lifts (T19); the lift inside a Cross, and clearing the mark (T20, T21); a function that puts the cap back (T22). T23 to T38, from an independent pass against the cap's tests: the cap tested after the walk (T23); the lift reading the timelock live (T24); the cap only at 2.00 or longer, only on the moneyline, in 32 bits, waived for an account sending its own Cross or one with code (T25 to T27, T34, T35); the flag written on a skip, a repeated registration and a refused pull (T28, T36, T37); the lift by any contract with the timelock's code (T29); lifted at deploy on Polygon's chain id (T30); the constructor taking a delegation, a zero timelock, or an address with no code (T31, T32, T38); a ceiling left after the lift (T33). T39 and T40, from an attack on the built cap: the cap waived at the shortest price (T39) and on a positive line (T40). T23 names the test whose Break line it is, the count of the coin's pulls during refused Crosses. M, the minimum fill's (M1 to M37), each naming the one test it turns red: the tail and the resting check deleted, inverted, or reading the wrong stake, the wrong minimum, the whole filled amount or the room before the walk (M1 to M8); a short Cross returning, or reverting bare (M9, M10); the minimum out of the hash, in lots or as a flag (M11 to M13); the report wrong six ways (M14 to M19); the seventh reason appended last, tested after the pull or before the lot, the bound made a skip, and the test base's old number for the refused pull, an entry that edits test/betting/CrossBase.sol (M20 to M24); the boundaries (M25 to M30); the type string's tenth field renamed, moved, or removed with the hash's (M31 to M33), beside X99 and X100, kept against the new frozen fixture; the room read from the signed stake (M34); the fill event's and the cancel event's minimum (M35 to M37). X165, the minimum out of the hash, against the signature test. Q, the independent pass's: the mutants a reviewer briefed to defeat the minimum fill's tests wrote without running them, each a waiver keyed on the sender, the origin, code, the line, the cap or the clock, a comparison in the wrong unit or width, a wrong stake at a price under 2.00, or the Cross's event tallying the wrong legs; each is a break of the shapes test or the in-cap test, added with them. F, the fix round's, from the reviews of the built change: the hub copy of a skip under the minimum carrying a zero hash (F1), against the precedence test, whose base now compares each skip's hub copy whole with its record; and the tail waived with the cap in force where the taking stake of the Cross is the smaller (F2), against the in-cap test, which now holds a short taking fill priced under 2.00 with the cap in force. R, the courier relay's (R1 to R34), each an edit of src/betting/OspexCourierRelay.sol naming the one test it turns red: the Cross passed through for anyone, by the transaction's origin, or for the timelock too (R1 to R3); the sender set by anyone, by the timelock's proposer, by the current sender or by the origin, a setter that writes nothing or takes zero, the zero check ahead of the caller's, and the event's two addresses swapped or read after the write (R4 to R12); the constructor keeping its deployer as the timelock, taking a timelock or a matching address with no code or with a wallet's delegation, taking no sender, checking the sender first, falling back on its deployer when the read of the timelock fails, and naming its deployer in its first event (R13 to R21); the setter reading the timelock from the matching contract at each call (R22); the forward made a delegatecall, and a rotation that writes a registration (R23, R24); a refusal swallowed, replaced by an error of the relay's, cut to four bytes, or swallowed when it has no bytes (R25 to R28); the call's bytes forwarded without their first four, or encoded again from the two arguments (R29, R30); and a receive, a function that sends a coin out, a function that does nothing, and a payable Cross (R31 to R34), of which R32 and R33 turn red the pin of the relay's functions in OspexBettingInterface.t.sol.",
  "command": "FOUNDRY_SRC=src FOUNDRY_TEST=test/betting FOUNDRY_SCRIPT=none forge test --via-ir --optimize --match-path <testPath> --match-test '^<test>\\\\('",
  "breaks": [
   {
@@ -5336,6 +5336,452 @@
    "testPath": "test/betting/OspexMinFill.t.sol",
    "test": "test_minFill_aOneCentBetUnderTheCap",
    "breaks": "the tail is waived with the cap in force where the taking stake of the Cross is the smaller"
+  },
+  {
+   "id": "R1-nosendercheck",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        if (msg.sender != s_sender) revert OspexCourierRelay__NotTheSender(msg.sender);",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_onlyTheSenderPassesACrossThrough",
+   "breaks": "anyone passes a Cross through the relay"
+  },
+  {
+   "id": "R2-senderbyorigin",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        if (msg.sender != s_sender) revert OspexCourierRelay__NotTheSender(msg.sender);",
+     "replace": "        if (tx.origin != s_sender) revert OspexCourierRelay__NotTheSender(msg.sender);"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_onlyTheSenderPassesACrossThrough",
+   "breaks": "the relay's sender is read from the transaction's origin"
+  },
+  {
+   "id": "R3-timelocksends",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        if (msg.sender != s_sender) revert OspexCourierRelay__NotTheSender(msg.sender);",
+     "replace": "        if (msg.sender != s_sender && msg.sender != i_timelock) revert OspexCourierRelay__NotTheSender(msg.sender);"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_onlyTheSenderPassesACrossThrough",
+   "breaks": "the timelock passes a Cross through too"
+  },
+  {
+   "id": "R4-nocallercheck",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        if (msg.sender != i_timelock) revert OspexCourierRelay__NotTheTimelock(msg.sender);",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_onlyTheTimelockSetsTheSender",
+   "breaks": "anyone sets the sender"
+  },
+  {
+   "id": "R5-proposersets",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        if (msg.sender != i_timelock) revert OspexCourierRelay__NotTheTimelock(msg.sender);",
+     "replace": "        (bool held, bytes memory role) = i_timelock.staticcall(\n            abi.encodeWithSignature(\"hasRole(bytes32,address)\", keccak256(\"PROPOSER_ROLE\"), msg.sender)\n        );\n        if (msg.sender != i_timelock && !(held && abi.decode(role, (bool)))) {\n            revert OspexCourierRelay__NotTheTimelock(msg.sender);\n        }"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_onlyTheTimelockSetsTheSender",
+   "breaks": "the key that holds the timelock's proposer role sets the sender without the delay"
+  },
+  {
+   "id": "R6-sendersets",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        if (msg.sender != i_timelock) revert OspexCourierRelay__NotTheTimelock(msg.sender);",
+     "replace": "        if (msg.sender != i_timelock && msg.sender != s_sender) revert OspexCourierRelay__NotTheTimelock(msg.sender);"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_onlyTheTimelockSetsTheSender",
+   "breaks": "the current sender sets the next"
+  },
+  {
+   "id": "R7-setterbyorigin",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        if (msg.sender != i_timelock) revert OspexCourierRelay__NotTheTimelock(msg.sender);",
+     "replace": "        if (tx.origin != i_timelock) revert OspexCourierRelay__NotTheTimelock(msg.sender);"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_onlyTheTimelockSetsTheSender",
+   "breaks": "the setter's caller is read from the transaction's origin"
+  },
+  {
+   "id": "R8-setterwritesnothing",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        s_sender = next;",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_onlyTheTimelockSetsTheSender",
+   "breaks": "the setter emits and writes nothing"
+  },
+  {
+   "id": "R9-setterzero",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        if (next == address(0)) revert OspexCourierRelay__ZeroSender();",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_onlyTheTimelockSetsTheSender",
+   "breaks": "the timelock sets the sender to zero"
+  },
+  {
+   "id": "R10-zerobeforecaller",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        if (msg.sender != i_timelock) revert OspexCourierRelay__NotTheTimelock(msg.sender);\n        if (next == address(0)) revert OspexCourierRelay__ZeroSender();",
+     "replace": "        if (next == address(0)) revert OspexCourierRelay__ZeroSender();\n        if (msg.sender != i_timelock) revert OspexCourierRelay__NotTheTimelock(msg.sender);"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_onlyTheTimelockSetsTheSender",
+   "breaks": "the zero check runs before the caller's, so a stranger's zero is refused as a zero"
+  },
+  {
+   "id": "R11-eventswapped",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        emit SenderSet(s_sender, next);",
+     "replace": "        emit SenderSet(next, s_sender);"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_onlyTheTimelockSetsTheSender",
+   "breaks": "the event names the new sender as the previous one"
+  },
+  {
+   "id": "R12-emitafterwrite",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        emit SenderSet(s_sender, next);\n        s_sender = next;",
+     "replace": "        s_sender = next;\n        emit SenderSet(s_sender, next);"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_onlyTheTimelockSetsTheSender",
+   "breaks": "the event is emitted after the write, so its previous sender is the new one"
+  },
+  {
+   "id": "R13-deployerastimelock",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        i_timelock = timelock;",
+     "replace": "        i_timelock = msg.sender;"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_theRelayKeepsTheTimelockItReadAtItsDeploy",
+   "breaks": "the relay keeps its deployer as the timelock"
+  },
+  {
+   "id": "R14-timelocknocode",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        if (timelock.code.length == 0 || _isDelegated(timelock)) {",
+     "replace": "        if (_isDelegated(timelock)) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_theConstructorRefusesWhatItCannotAnswerTo",
+   "breaks": "a timelock with no code, zero among them, is taken"
+  },
+  {
+   "id": "R15-timelockdelegated",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        if (timelock.code.length == 0 || _isDelegated(timelock)) {",
+     "replace": "        if (timelock.code.length == 0) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_theConstructorRefusesWhatItCannotAnswerTo",
+   "breaks": "a timelock that is a wallet's delegation is taken"
+  },
+  {
+   "id": "R16-matchingnocode",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        if (matching.code.length == 0 || _isDelegated(matching)) {",
+     "replace": "        if (_isDelegated(matching)) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_theConstructorRefusesWhatItCannotAnswerTo",
+   "breaks": "a matching address with no code is not refused by name"
+  },
+  {
+   "id": "R17-matchingdelegated",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        if (matching.code.length == 0 || _isDelegated(matching)) {",
+     "replace": "        if (matching.code.length == 0) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_theConstructorRefusesWhatItCannotAnswerTo",
+   "breaks": "a matching address that is a wallet's delegation is taken"
+  },
+  {
+   "id": "R18-firstsenderzero",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        if (sender == address(0)) revert OspexCourierRelay__ZeroSender();",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_theConstructorRefusesWhatItCannotAnswerTo",
+   "breaks": "a relay is deployed with no sender"
+  },
+  {
+   "id": "R19-zerosenderfirst",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        if (matching.code.length == 0 || _isDelegated(matching)) {\n            revert OspexCourierRelay__MatchingNotAContract(matching);\n        }\n        address timelock = OspexMatching(matching).i_timelock();\n        if (timelock.code.length == 0 || _isDelegated(timelock)) {\n            revert OspexCourierRelay__TimelockNotAContract(timelock);\n        }\n        if (sender == address(0)) revert OspexCourierRelay__ZeroSender();",
+     "replace": "        if (sender == address(0)) revert OspexCourierRelay__ZeroSender();\n        if (matching.code.length == 0 || _isDelegated(matching)) {\n            revert OspexCourierRelay__MatchingNotAContract(matching);\n        }\n        address timelock = OspexMatching(matching).i_timelock();\n        if (timelock.code.length == 0 || _isDelegated(timelock)) {\n            revert OspexCourierRelay__TimelockNotAContract(timelock);\n        }"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_theConstructorRefusesWhatItCannotAnswerTo",
+   "breaks": "the constructor checks the sender before the matching address and the timelock"
+  },
+  {
+   "id": "R20-readdefaultsdeployer",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        address timelock = OspexMatching(matching).i_timelock();",
+     "replace": "        (bool read, bytes memory answer) = matching.staticcall(abi.encodeWithSignature(\"i_timelock()\"));\n        address timelock = read && answer.length == 32 ? abi.decode(answer, (address)) : msg.sender;"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_aReadOfTheTimelockThatFailsFailsTheDeploy",
+   "breaks": "a read of the timelock that fails is replaced by the deployer"
+  },
+  {
+   "id": "R21-firsteventdeployer",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        emit SenderSet(address(0), sender);",
+     "replace": "        emit SenderSet(msg.sender, sender);"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_theRelayKeepsTheTimelockItReadAtItsDeploy",
+   "breaks": "the deploy's event names the deployer as the sender before the first"
+  },
+  {
+   "id": "R22-timelockreadlive",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        if (msg.sender != i_timelock) revert OspexCourierRelay__NotTheTimelock(msg.sender);",
+     "replace": "        if (msg.sender != OspexMatching(i_matching).i_timelock()) revert OspexCourierRelay__NotTheTimelock(msg.sender);"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_theRelayKeepsTheTimelockItReadAtItsDeploy",
+   "breaks": "the setter compares its caller with the matching contract's answer read then"
+  },
+  {
+   "id": "R23-delegatecall",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        (bool ok, bytes memory refusal) = i_matching.call(msg.data);",
+     "replace": "        (bool ok, bytes memory refusal) = i_matching.delegatecall(msg.data);"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_aRotationChangesNoRegistration",
+   "breaks": "the forward is a delegatecall, so no registration of the relay covers a Cross"
+  },
+  {
+   "id": "R24-setterregisters",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        s_sender = next;",
+     "replace": "        s_sender = next;\n        OspexMatching(i_matching).registerCourier(next);"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_aRotationChangesNoRegistration",
+   "breaks": "a rotation writes a registration on the matching contract"
+  },
+  {
+   "id": "R25-failureswallowed",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "                revert(add(refusal, 0x20), mload(refusal))",
+     "replace": "                return(0, 0)"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_anyRevertDataComesBackWhole",
+   "breaks": "a refused Cross returns as if it filled"
+  },
+  {
+   "id": "R26-fixederror",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        if (!ok) {\n            assembly (\"memory-safe\") {\n                revert(add(refusal, 0x20), mload(refusal))\n            }\n        }",
+     "replace": "        if (!ok) revert OspexCourierRelay__NotTheSender(msg.sender);"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_anyRevertDataComesBackWhole",
+   "breaks": "a refusal comes back as an error of the relay's, not the matching contract's data"
+  },
+  {
+   "id": "R27-fourbytes",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "                revert(add(refusal, 0x20), mload(refusal))",
+     "replace": "                revert(add(refusal, 0x20), 4)"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_anyRevertDataComesBackWhole",
+   "breaks": "a refusal is cut to four bytes"
+  },
+  {
+   "id": "R28-emptyrefusalswallowed",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        if (!ok) {",
+     "replace": "        if (!ok && refusal.length != 0) {"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_anyRevertDataComesBackWhole",
+   "breaks": "a refusal of no bytes returns as if the Cross filled"
+  },
+  {
+   "id": "R29-dataskipsselector",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "        (bool ok, bytes memory refusal) = i_matching.call(msg.data);",
+     "replace": "        (bool ok, bytes memory refusal) = i_matching.call(msg.data[4:]);"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_theCallsBytesArriveUnchanged",
+   "breaks": "the forward leaves out the call's first four bytes"
+  },
+  {
+   "id": "R30-reencoded",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "    function cross(OspexMatching.SignedOrder calldata, OspexMatching.SignedOrder[] calldata) external {",
+     "replace": "    function cross(OspexMatching.SignedOrder calldata taking, OspexMatching.SignedOrder[] calldata resting)\n        external\n    {"
+    },
+    {
+     "find": "        (bool ok, bytes memory refusal) = i_matching.call(msg.data);",
+     "replace": "        (bool ok, bytes memory refusal) = i_matching.call(abi.encodeCall(OspexMatching.cross, (taking, resting)));"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_theCallsBytesArriveUnchanged",
+   "breaks": "the forward sends the two arguments encoded again, not the bytes the sender sent"
+  },
+  {
+   "id": "R31-receive",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "    /// @dev True when the account's code is a wallet's delegation (EIP-7702): 23 bytes, 0xef0100 and an address.",
+     "replace": "    receive() external payable {}\n\n    /// @dev True when the account's code is a wallet's delegation (EIP-7702): 23 bytes, 0xef0100 and an address."
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_theRelayIsAPartyToNoTransfer",
+   "breaks": "the relay takes native money"
+  },
+  {
+   "id": "R32-sendscoinout",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "    /// @dev True when the account's code is a wallet's delegation (EIP-7702): 23 bytes, 0xef0100 and an address.",
+     "replace": "    function rescue(address token, address to, uint256 amount) external {\n        if (msg.sender != i_timelock) revert OspexCourierRelay__NotTheTimelock(msg.sender);\n        (bool sent,) = token.call(abi.encodeWithSignature(\"transfer(address,uint256)\", to, amount));\n        if (!sent) revert OspexCourierRelay__ZeroSender();\n    }\n\n    /// @dev True when the account's code is a wallet's delegation (EIP-7702): 23 bytes, 0xef0100 and an address."
+    }
+   ],
+   "testPath": "test/betting/OspexBettingInterface.t.sol",
+   "test": "test_theFunctionsAreExactlyThese",
+   "breaks": "the relay has a function that sends a coin out"
+  },
+  {
+   "id": "R33-extrafunction",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "    /// @dev True when the account's code is a wallet's delegation (EIP-7702): 23 bytes, 0xef0100 and an address.",
+     "replace": "    function ping() external {}\n\n    /// @dev True when the account's code is a wallet's delegation (EIP-7702): 23 bytes, 0xef0100 and an address."
+    }
+   ],
+   "testPath": "test/betting/OspexBettingInterface.t.sol",
+   "test": "test_theFunctionsAreExactlyThese",
+   "breaks": "the relay has a function outside its pinned list, one that does nothing"
+  },
+  {
+   "id": "R34-crosspayable",
+   "file": "src/betting/OspexCourierRelay.sol",
+   "edits": [
+    {
+     "find": "    function cross(OspexMatching.SignedOrder calldata, OspexMatching.SignedOrder[] calldata) external {",
+     "replace": "    function cross(OspexMatching.SignedOrder calldata, OspexMatching.SignedOrder[] calldata) external payable {"
+    }
+   ],
+   "testPath": "test/betting/OspexCourierRelay.t.sol",
+   "test": "test_neverLine_theRelayIsAPartyToNoTransfer",
+   "breaks": "the relay's Cross takes native money"
   }
  ]
 }
