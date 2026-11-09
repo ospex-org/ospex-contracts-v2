@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {OspexBetting} from "../../src/betting/OspexBetting.sol";
+import {OspexCourierRelay} from "../../src/betting/OspexCourierRelay.sol";
 import {OspexMatching} from "../../src/betting/OspexMatching.sol";
 import {IOspexPositions} from "../../src/betting/IOspexPositions.sol";
 import {MarketStatus, Outcome, Side} from "../../src/betting/OspexBettingTypes.sol";
@@ -65,15 +66,24 @@ contract OspexBettingInterfaceTest is BettingBase {
             "OspexTotalScorer",
             "TOTAL_SCORER_MODULE();getModuleType();i_games();outcome(uint32,uint32,int32);outcomeOf(uint256,int32)"
         );
-        // No contract of the set takes native money.
-        string[7] memory names = [
+        // The courier relay, beside the set: its one path, its setter and its three reads. A function added to
+        // it, whatever it does, is not in this list.
+        _assertFunctions(
+            "OspexCourierRelay",
+            "cross(((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256,uint256),bytes),"
+            "((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256,uint256),bytes)[]);"
+            "i_matching();i_timelock();s_sender();setSender(address)"
+        );
+        // No contract of the set takes native money, and neither does the relay.
+        string[8] memory names = [
             "OspexBetting",
             "OspexMarkets",
             "OspexPositions",
             "OspexMatching",
             "OspexMoneylineScorer",
             "OspexSpreadScorer",
-            "OspexTotalScorer"
+            "OspexTotalScorer",
+            "OspexCourierRelay"
         ];
         for (uint256 i; i < names.length; ++i) {
             string memory json = _artifact(names[i]);
@@ -146,6 +156,12 @@ contract OspexBettingInterfaceTest is BettingBase {
         _assertErrors("OspexMoneylineScorer", "OspexScorer__InvalidCore()");
         _assertErrors("OspexSpreadScorer", "OspexScorer__InvalidCore()");
         _assertErrors("OspexTotalScorer", "OspexScorer__InvalidCore()");
+        _assertErrors(
+            "OspexCourierRelay",
+            "OspexCourierRelay__MatchingNotAContract(address matching);"
+            "OspexCourierRelay__NotTheSender(address caller);OspexCourierRelay__NotTheTimelock(address caller);"
+            "OspexCourierRelay__TimelockNotAContract(address timelock);OspexCourierRelay__ZeroSender()"
+        );
     }
 
     /// Every deploy value a module holds behind a getter is one the core reads when it registers the module, or
@@ -258,6 +274,7 @@ contract OspexBettingInterfaceTest is BettingBase {
         _assertEvents("OspexMoneylineScorer", "");
         _assertEvents("OspexSpreadScorer", "");
         _assertEvents("OspexTotalScorer", "");
+        _assertEvents("OspexCourierRelay", "SenderSet(indexed address previous,indexed address current)");
     }
 
     /// What the renames and the Cross put on the wire, each as a literal worked out outside the contracts: the
@@ -361,6 +378,38 @@ contract OspexBettingInterfaceTest is BettingBase {
             matching.ORDER_TYPEHASH(),
             0x9f84ebcb32dbe12642da2b9008bc0ec2e6332472ec69f27f13e8abebbb92934c,
             "the typehash of the ten-field type"
+        );
+
+        // The courier relay: its Cross under the matching module's own selector, its setter, its three reads, its
+        // event's first topic and its five errors.
+        OspexCourierRelay relay = OspexCourierRelay(payable(address(0)));
+        assertEq(OspexCourierRelay.cross.selector, bytes4(0x84075346), "the relay's cross");
+        assertEq(OspexCourierRelay.cross.selector, OspexMatching.cross.selector, "the relay's cross, the Cross's");
+        assertEq(OspexCourierRelay.setSender.selector, bytes4(0xced32b0c), "setSender");
+        assertEq(relay.i_matching.selector, bytes4(0xa15622a6), "the relay's i_matching");
+        assertEq(relay.i_timelock.selector, bytes4(0x4d9939ee), "the relay's i_timelock");
+        assertEq(relay.s_sender.selector, bytes4(0xf3a53fb0), "s_sender");
+        assertEq(
+            OspexCourierRelay.SenderSet.selector,
+            0x2528c2c57a6310ea9ba962d28443563e7e32dd03dbf7cf8900230f5f845383f8,
+            "SenderSet's first topic"
+        );
+        assertEq(
+            OspexCourierRelay.OspexCourierRelay__MatchingNotAContract.selector,
+            bytes4(0x5ba72116),
+            "the relay's MatchingNotAContract"
+        );
+        assertEq(
+            OspexCourierRelay.OspexCourierRelay__TimelockNotAContract.selector,
+            bytes4(0x50871005),
+            "the relay's TimelockNotAContract"
+        );
+        assertEq(OspexCourierRelay.OspexCourierRelay__ZeroSender.selector, bytes4(0xea571194), "ZeroSender");
+        assertEq(OspexCourierRelay.OspexCourierRelay__NotTheSender.selector, bytes4(0xc77442be), "NotTheSender");
+        assertEq(
+            OspexCourierRelay.OspexCourierRelay__NotTheTimelock.selector,
+            bytes4(0x94b41091),
+            "the relay's NotTheTimelock"
         );
     }
 
