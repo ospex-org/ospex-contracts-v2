@@ -397,14 +397,15 @@ contract OspexCrossDepthTest is CrossBase {
         assertEq(_filled(taking), 11_000, "the taking order: one leg");
         vm.revertToState(snap);
 
-        // The taking pull is refused: the Cross reverts, naming the taking account and the taking stake.
+        // The taking pull is refused: the Cross reverts, naming the taking account and its one netted pull after
+        // the walk, both legs' 11,000, not a leg's stake.
         vm.prank(tk.a);
         coin.approve(address(positions), 0);
         _refused(
             sender,
             taking,
             _list(unpaid, paid),
-            abi.encodeWithSelector(IOspexPositions.OspexPositions__TakerPullRefused.selector, tk.a, 11_000),
+            abi.encodeWithSelector(IOspexPositions.OspexPositions__TakerPullRefused.selector, tk.a, 22_000),
             "a refused taking pull at 2.10"
         );
         vm.revertToState(start);

@@ -269,7 +269,8 @@ contract OspexCrossSkipsTest is CrossBase {
         OspexMatching.SignedOrder memory taking = _take(tk, game, takingSide, 200, 20_000);
         uint256 snap = vm.snapshotState();
 
-        // The taking account cannot pay for the second leg: it holds 15,000, and the first leg takes 10,000.
+        // The taking account cannot pay at the end: it holds 15,000, and its one pull, after the walk, is its
+        // worst loss over both legs, 20,000. The refusal carries that netted pull, not a leg's stake.
         uint256 spare = coin.balanceOf(tk.a) - 15_000;
         vm.prank(tk.a);
         assertTrue(coin.transfer(stranger, spare), "the transfer out");
@@ -278,8 +279,8 @@ contract OspexCrossSkipsTest is CrossBase {
             sender,
             taking,
             _list(one, three),
-            abi.encodeWithSelector(IOspexPositions.OspexPositions__TakerPullRefused.selector, tk.a, 10_000),
-            "the taking account cannot pay for the second leg"
+            abi.encodeWithSelector(IOspexPositions.OspexPositions__TakerPullRefused.selector, tk.a, 20_000),
+            "the taking account cannot pay for the two legs"
         );
         assertEq(_print(taking, one, two, three), before, "a reverted Cross left something");
         // Paid back, the same Cross fills both legs: every order's room is as it was.
@@ -290,11 +291,20 @@ contract OspexCrossSkipsTest is CrossBase {
         assertEq(_filled(one), 10_000, "the first order's room, as it was");
         vm.revertToState(snap);
 
-        // One account on both sides at 2.00, with coin for one stake: its resting pull succeeds and its taking
-        // pull is refused, for the same account and the same amount. That is the taking account's error, and it
-        // reverts the Cross: it is not read as a refused resting pull.
+        // One account on both sides at 2.00: its own resting leg pulls nothing, and its one pull at the end is
+        // its worst loss, 10,000, the 20,000 it takes less the 10,000 its own resting order wins it back. Holding
+        // 25,000 it fills, and its coin falls by 10,000, not by its two stakes.
         OspexMatching.SignedOrder memory own = _rest(tk, game, restingSide, 200, 10_000);
         spare = coin.balanceOf(tk.a) - 25_000;
+        vm.prank(tk.a);
+        assertTrue(coin.transfer(stranger, spare), "the transfer out");
+        _cross(sender, taking, _list(one, own));
+        assertEq(_filled(own), 10_000, "the taking account's own resting order");
+        assertEq(coin.balanceOf(tk.a), 15_000, "the account on both sides paid its worst loss, once");
+        vm.revertToState(snap);
+        // Holding 9,999 the end's pull of 10,000 is refused. That is the taking account's error, carrying the
+        // netted pull, and it reverts the Cross: it is not read as a refused resting pull.
+        spare = coin.balanceOf(tk.a) - 9_999;
         vm.prank(tk.a);
         assertTrue(coin.transfer(stranger, spare), "the transfer out");
         _refused(
@@ -302,7 +312,7 @@ contract OspexCrossSkipsTest is CrossBase {
             taking,
             _list(one, own),
             abi.encodeWithSelector(IOspexPositions.OspexPositions__TakerPullRefused.selector, tk.a, 10_000),
-            "one account on both sides, short for its taking stake"
+            "one account on both sides, short for its worst loss"
         );
         assertEq(_filled(own), 0, "a reverted Cross left a filled amount");
         vm.revertToState(snap);
@@ -520,6 +530,7 @@ contract OspexCrossSkipsTest is CrossBase {
     bytes32 internal constant POSITION_FILLED_TOPIC =
         keccak256("PositionFilled(uint256,address,address,uint8,uint8,uint256,uint256)");
     bytes32 internal constant CORE_EVENT_TOPIC = keccak256("CoreEventEmitted(bytes32,address,bytes)");
+    bytes32 internal constant HELD_CHANGED_TOPIC = keccak256("HeldChanged(uint256,address,uint256,uint256,uint256)");
 
     /// @dev The logs of a call that the set's contracts emitted, in order: the coin's are left out.
     function _setLogs(Vm.Log[] memory logs) internal view returns (Vm.Log[] memory out) {
@@ -534,6 +545,30 @@ contract OspexCrossSkipsTest is CrossBase {
         assembly ("memory-safe") {
             mstore(out, n)
         }
+    }
+
+    /// @dev The log at `at` is HeldChanged for a pull of `pulled` that left `held` held for `who`, and the next
+    ///      its hub copy.
+    function _assertHeld(
+        Vm.Log[] memory logs,
+        uint256 at,
+        uint256 market,
+        address who,
+        uint256 pulled,
+        uint256 held,
+        string memory what
+    ) internal view {
+        _assertPair(
+            logs,
+            at,
+            address(positions),
+            [HELD_CHANGED_TOPIC, bytes32(market), _word(who), bytes32(0)],
+            3,
+            abi.encode(pulled, uint256(0), held),
+            positions.EVENT_HELD_CHANGED(),
+            abi.encode(market, who, pulled, uint256(0), held),
+            what
+        );
     }
 
     /// @dev One log is a typed event of `emitter` with these topics and this data, and the log after it is its
@@ -607,7 +642,7 @@ contract OspexCrossSkipsTest is CrossBase {
         vm.recordLogs();
         _cross(sender, taking, _list(one, skipped, three));
         Vm.Log[] memory logs = _setLogs(vm.getRecordedLogs());
-        assertEq(logs.length, 14, "the number of logs: seven events, each with its hub copy");
+        assertEq(logs.length, 20, "the number of logs: ten events, each with its hub copy");
         uint256 market = 1;
         assertEq(markets.getMarketId(game, s, -35), market, "the market's id");
         assertTrue(game != market, "the game's id is the market's");
@@ -624,10 +659,12 @@ contract OspexCrossSkipsTest is CrossBase {
             abi.encode(market, game, s, int32(-35), m1.a, tk.a),
             "MarketCreated"
         );
+        // The resting account's pull, before the fill it belongs to: its held amount rises by its stake.
+        _assertHeld(logs, 2, market, m1.a, 9_000, 9_000, "HeldChanged, the first resting pull");
         // The fill: its taker is the taking account, never the sender.
         _assertPair(
             logs,
-            2,
+            4,
             address(positions),
             [POSITION_FILLED_TOPIC, bytes32(market), _word(m1.a), _word(tk.a)],
             4,
@@ -636,11 +673,11 @@ contract OspexCrossSkipsTest is CrossBase {
             abi.encode(market, m1.a, tk.a, restingSide, takingSide, uint256(9_000), uint256(9_900)),
             "PositionFilled, first leg"
         );
-        _assertMatched(logs, 4, one, market, 9_000, 9_900, "OrderMatched, first leg");
+        _assertMatched(logs, 6, one, market, 9_000, 9_900, "OrderMatched, first leg");
         // The skip, between the two fills, with its four fields.
         _assertPair(
             logs,
-            6,
+            8,
             address(matching),
             [ORDER_SKIPPED_TOPIC, _hash(skipped), _word(m2.a), _hash(taking)],
             4,
@@ -649,9 +686,10 @@ contract OspexCrossSkipsTest is CrossBase {
             abi.encode(_hash(skipped), m2.a, _hash(taking), CANCELLED),
             "OrderSkipped"
         );
+        _assertHeld(logs, 10, market, m3.a, 200, 200, "HeldChanged, the second resting pull");
         _assertPair(
             logs,
-            8,
+            12,
             address(positions),
             [POSITION_FILLED_TOPIC, bytes32(market), _word(m3.a), _word(tk.a)],
             4,
@@ -660,11 +698,13 @@ contract OspexCrossSkipsTest is CrossBase {
             abi.encode(market, m3.a, tk.a, restingSide, takingSide, uint256(200), uint256(100)),
             "PositionFilled, second leg"
         );
-        _assertMatched(logs, 10, three, market, 200, 100, "OrderMatched, second leg");
+        _assertMatched(logs, 14, three, market, 200, 100, "OrderMatched, second leg");
+        // After the walk, the taking account's one pull: both legs' stakes, 9,900 and 100.
+        _assertHeld(logs, 16, market, tk.a, 10_000, 10_000, "HeldChanged, the taking account's pull at the end");
         // Once, and last: the Cross's own event names the sender, the immediate caller.
         _assertPair(
             logs,
-            12,
+            18,
             address(matching),
             [CROSSED_TOPIC, _word(sender), _hash(taking), _word(tk.a)],
             4,
@@ -674,12 +714,12 @@ contract OspexCrossSkipsTest is CrossBase {
             "Crossed"
         );
 
-        // A clean Cross, every leg filled, has no skip record: six events, each with its hub copy.
+        // A clean Cross, every leg filled, has no skip record: nine events, each with its hub copy.
         vm.revertToState(clean);
         vm.recordLogs();
         _cross(sender, taking, _list(one, three));
         Vm.Log[] memory raw = vm.getRecordedLogs();
-        assertEq(_setLogs(raw).length, 12, "the number of logs of a clean Cross");
+        assertEq(_setLogs(raw).length, 18, "the number of logs of a clean Cross");
         assertEq(_count(raw, ORDER_SKIPPED_TOPIC), 0, "a skip record on a clean Cross");
         assertEq(_count(raw, ORDER_MATCHED_TOPIC), 2, "OrderMatched, once per filled leg");
         assertEq(_count(raw, CROSSED_TOPIC), 1, "Crossed, once");

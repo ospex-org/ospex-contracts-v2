@@ -510,3 +510,179 @@ contract OspexRelayForkTest is CrossBase {
         assertEq(usdc.balanceOf(HOLDER), holderLeft, "the holder, at the end");
     }
 }
+
+/// @dev Polygon's USDC, the two controls the fork tests exercise: its blacklister blocks an address, and its
+///      pauser pauses every transfer. The functions of Circle's FiatToken that the tests call.
+interface IFiatToken {
+    function blacklister() external view returns (address);
+    function blacklist(address account) external;
+    function unBlacklist(address account) external;
+    function isBlacklisted(address account) external view returns (bool);
+    function pauser() external view returns (address);
+    function pause() external;
+    function unpause() external;
+    function paused() external view returns (bool);
+}
+
+/// @notice Shared collateral with the coin the set is to be deployed with: the betting set on Polygon's USDC, on a
+///         fork of Polygon mainnet at FORK_BLOCK, the games set the test base's own. USDC's real behaviour on a
+///         pay-back: its blacklister blocks an account between two fills, and the second fill, which lowers that
+///         account's worst loss, completes with the pay-back refused and recorded; unblocked, a third fill pays
+///         it. And its pauser pauses at the claim, which reverts and pays after the unpause. Every balance is
+///         asserted to the unit. These tests need POLYGON_RPC_URL; without it (CI has no RPC) they are skipped,
+///         which is how a run reports that no fork was used.
+contract OspexSharedCollateralForkTest is CrossBase {
+    uint256 internal constant FORK_BLOCK = 96_885_149;
+    address internal constant USDC = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
+    address internal constant HOLDER = 0x16Dc5D67D080a5521ef2c79680dBfC2aBf724D30;
+    uint256 internal constant FUNDED = 50_000_000;
+    bytes32 internal constant PAY_BACK_REFUSED_TOPIC = keccak256("PayBackRefused(uint256,address,uint256,uint256)");
+
+    IERC20 internal usdc = IERC20(USDC);
+    IFiatToken internal fiat = IFiatToken(USDC);
+    Signer internal R;
+    Signer internal K;
+    uint256 internal holderLeft;
+
+    function setUp() public override {
+        string memory rpc = vm.envOr("POLYGON_RPC_URL", string(""));
+        if (bytes(rpc).length == 0) {
+            vm.skip(true);
+            return;
+        }
+        vm.createSelectFork(rpc, FORK_BLOCK);
+        super.setUp();
+        _deploySetOn(USDC);
+        assertTrue(matching.s_takingStakeCapLifted(), "the cap was not lifted for the USDC Crosses");
+        (R.a, R.key) = makeAddrAndKey("the resting account on the fork");
+        (K.a, K.key) = makeAddrAndKey("the taking account on the fork");
+        uint256 held = usdc.balanceOf(HOLDER);
+        _fundWithUsdc(R.a);
+        _fundWithUsdc(K.a);
+        holderLeft = usdc.balanceOf(HOLDER);
+        assertEq(held - holderLeft, 2 * FUNDED, "the holder paid exactly the two fundings");
+        _register(R.a, sender);
+        _register(K.a, sender);
+        assertTrue(fiat.blacklister() != address(0), "USDC names no blacklister at the fork block");
+        assertTrue(fiat.pauser() != address(0), "USDC names no pauser at the fork block");
+        assertFalse(fiat.paused(), "USDC is paused at the fork block");
+    }
+
+    function _fundWithUsdc(address who) internal {
+        assertEq(usdc.balanceOf(who), 0, "the account held the coin before it was funded");
+        vm.prank(HOLDER);
+        assertTrue(usdc.transfer(who, FUNDED), "the funding transfer");
+        vm.prank(who);
+        assertTrue(usdc.approve(address(positions), type(uint256).max), "the approval");
+        assertEq(usdc.balanceOf(who), FUNDED, "the funded balance");
+    }
+
+    /// @dev The first fill of both tests: the resting account's 10 USDC on side A at 2.10 against the taking
+    ///      account's 11 USDC on side B; held 10 and 11.
+    function _firstFill(uint256 game) internal returns (uint256 market) {
+        _cross(sender, _take(K, game, Side.B, 190, 11_000_000), _list(_rest(R, game, Side.A, 210, 10_000_000)));
+        market = markets.getMarketId(game, address(moneyline), 0);
+        assertEq(positions.s_held(market, R.a), 10_000_000, "the resting account's held amount after fill 1");
+        assertEq(positions.s_held(market, K.a), 11_000_000, "the taking account's held amount after fill 1");
+        assertEq(usdc.balanceOf(address(positions)), 21_000_000, "the positions module after fill 1");
+    }
+
+    /// How many PayBackRefused the positions module emitted among the logs, and the amount of the last.
+    function _refusalsOf(Vm.Log[] memory logs) internal view returns (uint256 n, uint256 amount, uint256 held) {
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter == address(positions) && logs[i].topics[0] == PAY_BACK_REFUSED_TOPIC) {
+                ++n;
+                (amount, held) = abi.decode(logs[i].data, (uint256, uint256));
+            }
+        }
+    }
+
+    /// USDC's blacklister blocks the resting account between two fills. The second fill, 5 USDC on the other
+    /// side at 2.10, lowers that account's worst loss from 10 to 4.5: its pay-back of 5.5 is refused by the real
+    /// coin and recorded, the Cross completes, and the taking account's 5 is paid. Unblocked, a third fill of 1
+    /// USDC pays the resting account 6.6, its excess then; settled home, it is paid the 8.4 it holds plus its net.
+    function test_fork_usdcBlocksAnAccountBetweenTwoFillsAndThePayBackWaitsForTheUnblock() public {
+        uint256 game = _verifiedGame();
+        uint256 market = _firstFill(game);
+
+        vm.prank(fiat.blacklister());
+        fiat.blacklist(R.a);
+        assertTrue(fiat.isBlacklisted(R.a), "the resting account was not blocked");
+
+        vm.recordLogs();
+        _cross(sender, _take(K, game, Side.A, 190, 5_500_000), _list(_rest(R, game, Side.B, 210, 5_000_000)));
+        (uint256 n, uint256 amount, uint256 held) = _refusalsOf(vm.getRecordedLogs());
+        assertEq(n, 1, "one refusal");
+        assertEq(amount, 5_500_000, "the refused pay-back: 10 held against a worst loss of 4.5");
+        assertEq(held, 10_000_000, "what stays held");
+        assertEq(usdc.balanceOf(R.a), FUNDED - 10_000_000, "the blocked account's coin did not move");
+        assertEq(usdc.balanceOf(K.a), FUNDED - 11_000_000 + 5_000_000, "the taking account was paid 5 back");
+        assertEq(positions.s_held(market, R.a), 10_000_000, "the refused amount stays held");
+        assertEq(positions.s_held(market, K.a), 6_000_000, "the taking account's held amount");
+        assertEq(positions.s_heldTotal(market), 16_000_000, "the total");
+        assertEq(usdc.balanceOf(address(positions)), 16_000_000, "the positions module holds the total");
+
+        vm.prank(fiat.blacklister());
+        fiat.unBlacklist(R.a);
+        assertFalse(fiat.isBlacklisted(R.a), "the resting account is still blocked");
+        vm.recordLogs();
+        _cross(sender, _take(K, game, Side.A, 190, 1_100_000), _list(_rest(R, game, Side.B, 210, 1_000_000)));
+        (n,,) = _refusalsOf(vm.getRecordedLogs());
+        assertEq(n, 0, "a refusal after the unblock");
+        assertEq(usdc.balanceOf(R.a), FUNDED - 10_000_000 + 6_600_000, "the resting account, paid its excess, 6.6");
+        assertEq(usdc.balanceOf(K.a), FUNDED - 11_000_000 + 5_000_000 + 1_000_000, "the taking account, paid 1");
+        assertEq(positions.s_held(market, R.a), 3_400_000, "the resting account holds its worst loss, 10 less 6.6");
+        assertEq(positions.s_held(market, K.a), 5_000_000, "the taking account holds its worst loss");
+        assertEq(positions.s_heldTotal(market), 8_400_000, "the total");
+        assertEq(usdc.balanceOf(address(positions)), 8_400_000, "the positions module holds the total");
+
+        // Home: the resting account wins 11 on side A and loses 6 on side B, 5 up, paid 8.4 on its side A record;
+        // the taking account's net is the 5 it holds, lost.
+        _score(game, HOME, AWAY);
+        _settle(market);
+        assertEq(uint8(_outcome(market)), uint8(Outcome.Home), "the outcome");
+        vm.prank(stranger, stranger);
+        assertEq(positions.claimPositionFor(market, R.a, Side.A), 8_400_000, "the resting account's whole amount");
+        (bool ok, bytes memory err) = _tryClaim(K.a, market, Side.B);
+        assertFalse(ok, "the taking account was paid");
+        assertEq(err, abi.encodeWithSelector(OspexPositions.OspexPositions__NoPayout.selector));
+        (ok, err) = _tryClaim(K.a, market, Side.A);
+        assertFalse(ok, "the taking account's side A record was paid");
+        assertEq(err, abi.encodeWithSelector(OspexPositions.OspexPositions__NoPayout.selector));
+        assertEq(usdc.balanceOf(R.a), FUNDED + 5_000_000, "the resting account: 5 up");
+        assertEq(usdc.balanceOf(K.a), FUNDED - 5_000_000, "the taking account: 5 down");
+        assertEq(usdc.balanceOf(address(positions)), 0, "the positions module, at the end");
+        assertEq(usdc.balanceOf(sender), 0, "the sender, at the end");
+        assertEq(usdc.balanceOf(HOLDER), holderLeft, "the holder, at the end");
+    }
+
+    /// USDC's pauser pauses at the claim: the claim reverts, the record stays unclaimed and the total unmoved;
+    /// after the unpause the same claim pays 21 USDC.
+    function test_fork_usdcPausedAtTheClaimRevertsAndTheClaimPaysAfterTheUnpause() public {
+        uint256 game = _verifiedGame();
+        uint256 market = _firstFill(game);
+        _score(game, HOME, AWAY);
+        _settle(market);
+
+        vm.prank(fiat.pauser());
+        fiat.pause();
+        assertTrue(fiat.paused(), "USDC was not paused");
+        vm.prank(stranger, stranger);
+        (bool ok,) = address(positions).call(abi.encodeCall(OspexPositions.claimPositionFor, (market, R.a, Side.A)));
+        assertFalse(ok, "paid while the coin was paused");
+        assertFalse(_position(market, R.a, Side.A).claimed, "marked while unpaid");
+        assertEq(positions.s_heldTotal(market), 21_000_000, "the total moved for a refused claim");
+        assertEq(usdc.balanceOf(R.a), FUNDED - 10_000_000, "the resting account's coin moved");
+
+        vm.prank(fiat.pauser());
+        fiat.unpause();
+        assertFalse(fiat.paused(), "USDC is still paused");
+        vm.prank(stranger, stranger);
+        assertEq(positions.claimPositionFor(market, R.a, Side.A), 21_000_000, "the same claim, after the unpause");
+        assertEq(usdc.balanceOf(R.a), FUNDED + 11_000_000, "the winner: what it had, and the other stake");
+        assertEq(usdc.balanceOf(K.a), FUNDED - 11_000_000, "the loser: what it had, less its stake");
+        assertEq(positions.s_heldTotal(market), 0, "the total after the claim");
+        assertEq(usdc.balanceOf(address(positions)), 0, "the positions module, at the end");
+        assertEq(usdc.balanceOf(HOLDER), holderLeft, "the holder, at the end");
+    }
+}

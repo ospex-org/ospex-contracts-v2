@@ -607,7 +607,10 @@ abstract contract BettingBase is GamesBase {
 
     /// @dev A fill sent to the positions module as the matching module sends one, with its result: for the
     ///      fills no order can express, a zero stake and two stakes at no price in ticks, which the Cross
-    ///      never sends. It is the production entry point, called from the one address it takes a fill from.
+    ///      never sends. It is the production entry point, called from the one address it takes a fill from,
+    ///      and, as the Cross does after its walk, it is followed by the end call from the same address, which
+    ///      pulls the taker and pays back whatever the leg left held above either account's worst loss. A
+    ///      refusal of either call is the result; a refused fill makes no end call.
     function _tryRawFill(uint256 game, address scorer, int32 line, Side makerSide, uint256 makerRisk, uint256 takerRisk)
         internal
         returns (bool ok, bytes memory err)
@@ -619,6 +622,12 @@ abstract contract BettingBase is GamesBase {
                     OspexPositions.recordFill, (game, scorer, line, makerSide, maker, makerRisk, taker, takerRisk)
                 )
             );
+        if (!ok) return (ok, err);
+        address[] memory makers = new address[](1);
+        makers[0] = maker;
+        vm.prank(address(matching));
+        (ok, err) = address(positions)
+            .call(abi.encodeCall(OspexPositions.finishFills, (abi.decode(err, (uint256)), taker, makers)));
     }
 
     /// @dev The same, for a fill that must be taken.
@@ -690,14 +699,18 @@ abstract contract BettingBase is GamesBase {
         uint256 n;
         for (uint256 i; vm.keyExistsJson(json, string.concat("$.abi[", vm.toString(i), "]")); ++i) {
             string memory entry = string.concat("$.abi[", vm.toString(i), "]");
-            if (keccak256(bytes(vm.parseJsonString(json, string.concat(entry, ".type")))) != keccak256(bytes(abiType))) {
+            if (keccak256(bytes(vm.parseJsonString(json, string.concat(entry, ".type")))) != keccak256(bytes(abiType)))
+            {
                 continue;
             }
             string memory sig = string.concat(vm.parseJsonString(json, string.concat(entry, ".name")), "(");
             for (uint256 j; vm.keyExistsJson(json, string.concat(entry, ".inputs[", vm.toString(j), "]")); ++j) {
                 string memory input = string.concat(entry, ".inputs[", vm.toString(j), "]");
                 string memory t = _abiParamType(json, input);
-                if (vm.keyExistsJson(json, string.concat(input, ".indexed")) && vm.parseJsonBool(json, string.concat(input, ".indexed"))) {
+                if (
+                    vm.keyExistsJson(json, string.concat(input, ".indexed"))
+                        && vm.parseJsonBool(json, string.concat(input, ".indexed"))
+                ) {
                     t = string.concat("indexed ", t);
                 }
                 t = string.concat(t, " ", vm.parseJsonString(json, string.concat(input, ".name")));

@@ -114,8 +114,8 @@ contract OspexPositionsTest is BettingBase {
         assertEq(_claim(maker, market, Side.A), 8_000_000, "risk and profit");
         Position memory p = _position(market, maker, Side.A);
         assertTrue(p.claimed);
-        assertEq(p.risk, 0);
-        assertEq(p.profit, 0);
+        assertEq(p.risk, 3_000_000, "a claimed record keeps its risk");
+        assertEq(p.profit, 5_000_000, "a claimed record keeps its profit");
         (bool ok, bytes memory err) = _tryClaim(maker, market, Side.A);
         assertFalse(ok, "claimed twice");
         assertEq(_selector(err), OspexPositions.OspexPositions__AlreadyClaimed.selector);
@@ -179,7 +179,18 @@ contract OspexPositionsTest is BettingBase {
         (ok, err) = _tryClaim(taker, market, Side.A);
         assertFalse(ok);
         assertEq(_selector(err), OspexPositions.OspexPositions__NoPayout.selector);
-        assertEq(_claim(maker, market, Side.A), 2 * STAKE);
+        // The claim for anyone: the stranger sends it naming the maker, the maker is paid and the stranger's
+        // coin does not move; the call answers the payout; the maker's own claim then finds the record claimed.
+        uint256 makerBefore = token.balanceOf(maker);
+        uint256 strangerBefore = token.balanceOf(stranger);
+        vm.prank(stranger, stranger);
+        uint256 payout = positions.claimPositionFor(market, maker, Side.A);
+        assertEq(payout, 2 * STAKE, "the claim for anyone answers the payout");
+        assertEq(token.balanceOf(maker) - makerBefore, 2 * STAKE, "the owner is paid");
+        assertEq(token.balanceOf(stranger), strangerBefore, "the caller's coin moved");
+        (ok, err) = _tryClaim(maker, market, Side.A);
+        assertFalse(ok, "claimed twice");
+        assertEq(_selector(err), OspexPositions.OspexPositions__AlreadyClaimed.selector);
     }
 
     function test_claim_aRefusedTransferLeavesThePositionClaimable() public {
