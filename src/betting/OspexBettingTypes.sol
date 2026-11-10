@@ -83,9 +83,9 @@ enum Side {
 }
 
 /// @notice One account's stake on one side of a market, matched against stakes on the other side. A claim
-///         zeroes risk and profit and sets claimed. A losing position is never claimed: its claim is refused,
-///         and it keeps its numbers. An empty position reads risk 0, profit 0 and side A, whichever side was
-///         asked for.
+///         sets claimed and keeps risk and profit: the other side's record, if any, is paid from both. A losing
+///         position is never claimed: its claim is refused, and it keeps its numbers. An empty position reads
+///         risk 0, profit 0 and side A, whichever side was asked for.
 /// @param risk What the account loses if its side loses
 /// @param profit What it wins if its side wins
 /// @param side The side it holds
