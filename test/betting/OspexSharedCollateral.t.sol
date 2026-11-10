@@ -485,14 +485,23 @@ contract OspexSharedCollateralHeldTest is SharedCollateralBase {
         assertEq(hs.length, 2, "fill 1: two pulls");
         _assertHeld(hs[0], M.a, 100 * U, 0, 100 * U, "fill 1: the maker's pull, at its leg");
         _assertHeld(hs[1], T.a, 110 * U, 0, 110 * U, "fill 1: the bettor's pull, at the end");
+        assertEq(hs[0].marketId, market, "fill 1: the maker's pull names the market");
+        assertEq(hs[1].marketId, market, "fill 1: the bettor's pull names the market");
         assertEq(positions.s_heldTotal(market), 210 * U, "fill 1: the market");
 
+        // Fill 2 is sent with a cancelled order of the maker's listed first: the maker's filled leg is the second
+        // listed and the first filled, and its pay-back is made all the same.
+        OspexMatching.SignedOrder memory dead = _restFor(M, game, Side.A, 50 * U, 55 * U);
+        vm.prank(M.a);
+        matching.cancelOrder(dead.order);
         vm.recordLogs();
-        _leg(M, T, game, Side.B, 50 * U, 55 * U);
+        _cross(sender, _take(T, game, Side.B, 101, 55 * U), _list(dead, _restFor(M, game, Side.A, 50 * U, 55 * U)));
         hs = _heldChanges(vm.getRecordedLogs());
         assertEq(hs.length, 2, "fill 2: two pay-backs and no pull");
         _assertHeld(hs[0], T.a, 0, 50 * U, 60 * U, "fill 2: the bettor's pay-back, the taking account first");
-        _assertHeld(hs[1], M.a, 0, 55 * U, 45 * U, "fill 2: the maker's pay-back");
+        _assertHeld(hs[1], M.a, 0, 55 * U, 45 * U, "fill 2: the maker's pay-back, after a skipped order");
+        assertEq(hs[0].marketId, market, "fill 2: the bettor's pay-back names the market");
+        assertEq(hs[1].marketId, market, "fill 2: the maker's pay-back names the market");
         assertEq(positions.s_held(market, M.a), 45 * U, "fill 2: the maker's held amount");
         assertEq(positions.s_held(market, T.a), 60 * U, "fill 2: the bettor's held amount");
         assertEq(positions.s_heldTotal(market), 105 * U, "fill 2: the market");
@@ -671,6 +680,79 @@ contract OspexSharedCollateralHeldTest is SharedCollateralBase {
         require(seen == 15, "not a permutation");
     }
 
+    /// previewFill answers one account's pull or pay-back for one growth of one record against what is held,
+    /// each here a literal worked by hand: the maker's and the bettor's forecasts of part 1's second fill and of a
+    /// growth on their held side, and a fresh account's on either side.
+    /// Break: in OspexPositions.previewFill, grow the other side's record. Others turn it red: the two answers
+    /// swapped; the forecast measured against the market's total; the growth's profit added to the risk.
+    function test_preview_answersOneAccountsPullOrPayBackForOneGrowth() public {
+        uint256 game = _verifiedGame();
+        uint256 market = _leg(M, T, game, Side.A, 100 * U, 110 * U);
+        // The maker, held 100 on side B 100/110: resting 50 on side A against 55 lowers its worst loss to 45.
+        (uint256 pull, uint256 payBack) = positions.previewFill(market, M.a, Side.A, 50 * U, 55 * U);
+        assertEq(pull, 0, "the maker's pull for fill 2");
+        assertEq(payBack, 55 * U, "the maker's pay-back for fill 2");
+        // Resting 100 more on side B against 110 lifts it to 200.
+        (pull, payBack) = positions.previewFill(market, M.a, Side.B, 100 * U, 110 * U);
+        assertEq(pull, 100 * U, "the maker's pull for a growth on its held side");
+        assertEq(payBack, 0);
+        // The bettor, held 110 on side A 110/100: taking 55 on side B against 50 lowers its worst loss to 60.
+        (pull, payBack) = positions.previewFill(market, T.a, Side.B, 55 * U, 50 * U);
+        assertEq(pull, 0, "the bettor's pull for fill 2");
+        assertEq(payBack, 50 * U, "the bettor's pay-back for fill 2");
+        (pull, payBack) = positions.previewFill(market, T.a, Side.A, 110 * U, 100 * U);
+        assertEq(pull, 110 * U, "the bettor's pull for a growth on its held side");
+        assertEq(payBack, 0);
+        // A fresh account: its first growth is pulled whole, on either side, and nothing is paid back.
+        (pull, payBack) = positions.previewFill(market, stranger, Side.A, 300 * U, 330 * U);
+        assertEq(pull, 300 * U, "a fresh account's first growth on side A");
+        assertEq(payBack, 0);
+        (pull, payBack) = positions.previewFill(market, stranger, Side.B, 300 * U, 330 * U);
+        assertEq(pull, 300 * U, "a fresh account's first growth on side B");
+        assertEq(payBack, 0);
+        // The forecast is the fill: fill 2 moves what the two previews said.
+        vm.recordLogs();
+        _leg(M, T, game, Side.B, 50 * U, 55 * U);
+        Held[] memory hs = _heldChanges(vm.getRecordedLogs());
+        _assertHeld(hs[0], T.a, 0, 50 * U, 60 * U, "the bettor's pay-back, as previewed");
+        _assertHeld(hs[1], M.a, 0, 55 * U, 45 * U, "the maker's pay-back, as previewed");
+    }
+
+    /// A pull and a pay-back under a lot of 100 units: the maker, resting 300 at 1.50 on side A and 400 at 1.50
+    /// on side B, is paid 50 back at its second fill, and its third, 200 at 1.50 on side A, pulls 50. Every
+    /// order's stake is in whole lots; the first leg's taking order declares 200 and fills 150 of it, three lots.
+    /// Break: in OspexPositions._pull, skip a pull under 100 units, `if (pull < 100) return (0, true);`. Another
+    /// turns it red: a pay-back under 100 units skipped in _payBack.
+    function test_netting_aPullAndAPayBackUnderALot() public {
+        uint256 game = _verifiedGame();
+        vm.recordLogs();
+        (bool ok, bytes memory err) =
+            _tryCross(sender, _take(T, game, Side.B, 101, 200), _list(_restFor(M, game, Side.A, 300, 150)));
+        assertTrue(ok, string.concat("the first leg was refused: ", vm.toString(err)));
+        uint256 market = markets.getMarketId(game, address(moneyline), 0);
+        Held[] memory hs = _heldChanges(vm.getRecordedLogs());
+        _assertHeld(hs[0], M.a, 300, 0, 300, "the maker's first pull");
+        _assertHeld(hs[1], T.a, 150, 0, 150, "the bettor's first pull");
+        // The maker's side B 400 against 200: its worst loss is max(400 - 150, 300 - 200) = 250, paid 50 back;
+        // the bettor's book is balanced, max(150 - 400, 200 - 300) = 0, and its 150 comes back.
+        vm.recordLogs();
+        _leg(M, T, game, Side.A, 400, 200);
+        hs = _heldChanges(vm.getRecordedLogs());
+        assertEq(hs.length, 2, "the second fill: two pay-backs");
+        _assertHeld(hs[0], T.a, 0, 150, 0, "the bettor's pay-back");
+        _assertHeld(hs[1], M.a, 0, 50, 250, "the maker's pay-back of 50, under a lot");
+        // The maker's side A 200 more against 100: max(400 - 250, 500 - 200) = 300, pulled 50.
+        vm.recordLogs();
+        _leg(M, T, game, Side.B, 200, 100);
+        hs = _heldChanges(vm.getRecordedLogs());
+        assertEq(hs.length, 1, "the third fill: the maker's pull alone");
+        _assertHeld(hs[0], M.a, 50, 0, 300, "the maker's pull of 50, under a lot");
+        assertEq(positions.s_held(market, M.a), 300);
+        assertEq(positions.s_held(market, T.a), 0);
+        assertEq(positions.s_heldTotal(market), 300);
+        assertEq(_coin().balanceOf(address(positions)), 300, "the contract holds the total");
+    }
+
     /// The rows' third fill, 330 on the bettor's side B against 300 at 2.10, filled whole and in three pieces of
     /// 110 against 100: whole, the maker is paid 15 back, 145 to 130, and the bettor pulled 15; in pieces the
     /// maker is paid 110, then 5, then pulled 100, the bettor paid 100, then pulled 5, then 110, and both end at
@@ -759,10 +841,28 @@ contract OspexSharedCollateralRolesTest is SharedCollateralBase {
         _againstItselfAlone();
         _restingTwice();
         _listedTwiceAndRefused();
+        _twoMakersPaidBackInListOrder();
     }
 
-    /// @dev (a) A Cross of three legs at 2.00, a maker's 10,000, the taking account's own 100 and a second
-    ///      maker's 5,000, the taking account holding 10,000 of coin: the end asks it 15,000, its worst loss,
+    /// @dev (e) Two distinct makers both held above their worst loss after a Cross are each paid back, in list
+    ///      order, after the taking account: three movements, the bettor's, the first maker's, the second's.
+    function _twoMakersPaidBackInListOrder() internal {
+        uint256 game = _verifiedGame();
+        uint256 market = _legs(T, game, Side.A, _two(M1, M2), _pair(100 * U, 100 * U), _pair(100 * U, 100 * U));
+        assertEq(positions.s_heldTotal(market), 400 * U);
+        vm.recordLogs();
+        _legs(T, game, Side.B, _two(M1, M2), _pair(100 * U, 100 * U), _pair(100 * U, 100 * U));
+        Held[] memory hs = _heldChanges(vm.getRecordedLogs());
+        assertEq(hs.length, 3, "three pay-backs");
+        _assertHeld(hs[0], T.a, 0, 200 * U, 0, "the taking account's pay-back, first");
+        _assertHeld(hs[1], M1.a, 0, 100 * U, 0, "the first listed maker's pay-back, second");
+        _assertHeld(hs[2], M2.a, 0, 100 * U, 0, "the second listed maker's pay-back, last");
+        assertEq(positions.s_heldTotal(market), 0, "every book is balanced: nothing is held");
+    }
+
+    /// @dev (a) A Cross of three legs, a maker's 10,000 at 2.00, the taking account's own 200 at 1.50, which
+    ///      takes 100 of it, and a second maker's 5,000 at 2.00, the taking account holding 10,000 of coin: the
+    ///      end asks it 15,000, its worst loss,
     ///      and is refused, so nothing of the Cross remains. Funded, the same Cross emits no held change for the
     ///      taking account before the last PositionFilled and one at the end, for 15,000. Then the attack's two
     ///      orders of a 5,000 leg and a 100 self leg, on an account already holding 10,000, end held 15,000
@@ -774,8 +874,9 @@ contract OspexSharedCollateralRolesTest is SharedCollateralBase {
         vm.prank(T.a);
         assertTrue(coin.transfer(stranger, spare), "the transfer out");
         Signer[] memory ms = _three(M1, T, M2);
-        uint256[] memory stakes = _triple(10_000, 100, 5_000);
-        (bool ok, bytes memory err) = _tryLegs(T, game, Side.A, ms, stakes, stakes);
+        uint256[] memory makerStakes = _triple(10_000, 200, 5_000);
+        uint256[] memory takerStakes = _triple(10_000, 100, 5_000);
+        (bool ok, bytes memory err) = _tryLegs(T, game, Side.A, ms, makerStakes, takerStakes);
         assertFalse(ok, "the Cross filled with the taking account holding 10,000 against a worst loss of 15,000");
         assertEq(
             err,
@@ -789,7 +890,7 @@ contract OspexSharedCollateralRolesTest is SharedCollateralBase {
         vm.prank(stranger);
         assertTrue(coin.transfer(T.a, spare), "the transfer back");
         vm.recordLogs();
-        uint256 market = _legs(T, game, Side.A, ms, stakes, stakes);
+        uint256 market = _legs(T, game, Side.A, ms, makerStakes, takerStakes);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         uint256 lastFilled = _lastFilled(logs);
         assertLt(lastFilled, logs.length, "no PositionFilled");
@@ -808,8 +909,8 @@ contract OspexSharedCollateralRolesTest is SharedCollateralBase {
         Position memory ta = _position(market, T.a, Side.A);
         Position memory tb = _position(market, T.a, Side.B);
         assertEq(ta.risk, 15_100, "the taking account's side A risk, its own leg included");
-        assertEq(ta.profit, 15_100);
-        assertEq(tb.risk, 100, "the taking account's side B record, from its own leg");
+        assertEq(ta.profit, 15_200, "its side A profit: the makers' stakes, its own 200 at 1.50 among them");
+        assertEq(tb.risk, 200, "the taking account's side B record, from its own leg");
         assertEq(tb.profit, 100);
 
         // The attack's two orders.
@@ -857,6 +958,7 @@ contract OspexSharedCollateralRolesTest is SharedCollateralBase {
         assertEq(rs[0].account, M.a);
         assertEq(rs[0].amount, 2_000);
         assertEq(rs[0].held, 5_000);
+        assertEq(rs[0].marketId, m2, "the refusal names its market");
         token.setBlocked(M.a, false);
         assertEq(positions.s_held(m2, M.a), 5_000, "the maker holds 5,000 against a worst loss of 3,000");
         assertEq(positions.s_held(m2, T.a), 3_000);
@@ -913,7 +1015,20 @@ contract OspexSharedCollateralRolesTest is SharedCollateralBase {
         _assertHeld(hs[0], T.a, 0, 60 * U, 40 * U, "the bettor's pay-back");
         assertEq(positions.s_held(market, M.a), 100 * U, "the refused amount stays held");
         assertEq(positions.s_heldTotal(market), 140 * U);
+        assertEq(rs[0].marketId, market, "a refusal names its market");
         token.setBlocked(M.a, false);
+        // A later Cross that lists an order of the maker's and skips it pays the maker nothing: the end call
+        // visits the filled legs' accounts alone, and the maker's excess waits for its own next fill or its claim.
+        OspexMatching.SignedOrder memory dead = _restFor(M, game, Side.A, 100 * U, 100 * U);
+        vm.prank(M.a);
+        matching.cancelOrder(dead.order);
+        uint256 mCoin = _coin().balanceOf(M.a);
+        vm.recordLogs();
+        _cross(sender, _take(T, game, Side.B, 101, 100 * U), _list(dead, _restFor(X, game, Side.A, 100 * U, 100 * U)));
+        hs = _heldChanges(vm.getRecordedLogs());
+        assertEq(_heldOf(hs, M.a), 0, "the skipped order's account was visited at the end");
+        assertEq(_coin().balanceOf(M.a), mCoin, "the skipped order's account was paid");
+        assertEq(positions.s_held(market, M.a), 100 * U, "the skipped order's account's held amount moved");
     }
 
     /// L83, item 11. A resting order is skipped for its pull only when its netted pull fails. An account with
@@ -973,6 +1088,15 @@ contract OspexSharedCollateralRolesTest is SharedCollateralBase {
             err,
             abi.encodeWithSelector(IOspexPositions.OspexPositions__TakerPullRefused.selector, E.a, 20_000),
             "the taking refusal carries the netted sum of the legs"
+        );
+        // On the market it already holds on, 6,000 against side A 4,000 and side B 10,000: taking 20,000 more on
+        // side B lifts its worst loss to 26,000, and the refusal carries the 20,000 asked, not the worst loss.
+        (ok, err) = _tryLeg(M1, E, game, Side.B, 20_000, 20_000);
+        assertFalse(ok, "the empty account took a leg on the market it holds on");
+        assertEq(
+            err,
+            abi.encodeWithSelector(IOspexPositions.OspexPositions__TakerPullRefused.selector, E.a, 20_000),
+            "the taking refusal carries the netted pull, not the worst loss"
         );
 
         // A short receipt reverts by name and is not a skip: the coin keeps one unit of every transfer.
@@ -1068,9 +1192,22 @@ contract OspexSharedCollateralCapTest is SharedCollateralBase {
         uint256 game3 = _verifiedGame();
         _leg(M, T, game3, Side.A, 10_000, 10_000);
         asking = _takeMin(T, game3, Side.B, 101, 10_000, 10_000);
-        (bool ok, bytes memory err) = _tryCross(sender, asking, _list(_restFor(M2, game3, Side.A, 5_000, 5_000)));
-        assertFalse(ok, "a short fill under the minimum was taken");
-        assertEq(_selector(err), OspexMatching.OspexMatching__TakingOrderUnderMinFill.selector, "the minimum's refusal");
+        OspexMatching.SignedOrder memory half = _restFor(M2, game3, Side.A, 5_000, 5_000);
+        OspexMatching.LegReport[] memory legs = new OspexMatching.LegReport[](1);
+        legs[0] = _filledLeg(half, 5_000, 5_000);
+        _refused(sender, asking, _list(half), _short(asking, 5_000, 5_000, legs), "a short fill under the minimum");
+        // The minimum is checked before the end call: with the taking account unfunded and the short leg its
+        // first on the market, the Cross is refused for the minimum, and the pull it would have asked is never
+        // asked.
+        uint256 game4 = _verifiedGame();
+        vm.startPrank(T.a);
+        assertTrue(_coin().transfer(stranger, _coin().balanceOf(T.a)), "the transfer out");
+        _coin().approve(address(positions), 0);
+        vm.stopPrank();
+        asking = _takeMin(T, game4, Side.B, 101, 10_000, 10_000);
+        half = _restFor(M2, game4, Side.A, 5_000, 5_000);
+        legs[0] = _filledLeg(half, 5_000, 5_000);
+        _refused(sender, asking, _list(half), _short(asking, 5_000, 5_000, legs), "a short fill by an unfunded account");
     }
 }
 
@@ -1215,47 +1352,80 @@ contract OspexSharedCollateralPayBackTest is SharedCollateralBase {
         assertEq(_claimFor(stranger, m2, M.a, Side.A), 105 * U, "the second market's claim");
         assertEq(positions.s_heldTotal(m2), 0);
         vm.revertToState(snap);
+
+        // The boundary: a pay-back equal to what the market still holds is not short. A second fill that mirrors
+        // the first balances both books: the bettor is paid its 100 back first, leaving 100, and the maker's
+        // pay-back of 100 is the whole of it.
+        uint256 game3 = _verifiedGame();
+        uint256 m3 = _leg(M, T, game3, Side.A, 100 * U, 100 * U);
+        assertEq(positions.s_heldTotal(m3), 200 * U);
+        vm.recordLogs();
+        _leg(M, T, game3, Side.B, 100 * U, 100 * U);
+        Held[] memory hs = _heldChanges(vm.getRecordedLogs());
+        assertEq(hs.length, 2, "the mirror fill: two pay-backs");
+        _assertHeld(hs[0], T.a, 0, 100 * U, 0, "the bettor's pay-back, leaving 100");
+        _assertHeld(hs[1], M.a, 0, 100 * U, 0, "the maker's pay-back, the whole of what the market held");
+        assertEq(positions.s_heldTotal(m3), 0, "the market holds nothing");
     }
 
     /// L233, L85. A claim by anyone pays only the owner.
     /// Break: in OspexPositions._claim, pay `msg.sender`.
     function test_neverLine_aClaimByAnyonePaysOnlyTheOwner() public {
+        // Part 1's book, settled home: the maker's whole amount is 105 on a record whose risk and profit are 150
+        // and 165, so the payout the event and its hub copy carry is the net figure and not the gross.
         uint256 game = _verifiedGame();
-        uint256 market = _leg(M, T, game, Side.A, 100 * U, 100 * U);
+        uint256 market = _leg(M, T, game, Side.A, 100 * U, 110 * U);
+        _leg(M, T, game, Side.B, 50 * U, 55 * U);
+        _leg(M, T, game, Side.B, 100 * U, 110 * U);
         _settleHome(game, market);
         ClaimCaller contractCaller = new ClaimCaller();
         address[4] memory callers = [stranger, sender, relayKey, address(contractCaller)];
         uint256 snap = vm.snapshotState();
         for (uint256 i; i < 4; ++i) {
-            uint256 ownerBefore = _coin().balanceOf(T.a);
+            uint256 ownerBefore = _coin().balanceOf(M.a);
             uint256 callerBefore = _coin().balanceOf(callers[i]);
+            // The event names the owner and the net payout, and so does its copy through the hub.
+            vm.expectEmit(true, true, true, true, address(positions));
+            emit IOspexPositions.PositionClaimed(market, M.a, Side.A, 105 * U);
+            vm.expectEmit(true, true, true, true, address(core));
+            emit OspexBetting.CoreEventEmitted(
+                keccak256("POSITION_CLAIMED"), address(positions), abi.encode(market, M.a, Side.A, 105 * U)
+            );
             uint256 answered;
             if (callers[i] == address(contractCaller)) {
-                answered = contractCaller.claim(positions, market, T.a, Side.A);
+                answered = contractCaller.claim(positions, market, M.a, Side.A);
             } else {
                 vm.prank(callers[i], callers[i]);
-                answered = positions.claimPositionFor(market, T.a, Side.A);
+                answered = positions.claimPositionFor(market, M.a, Side.A);
             }
-            assertEq(answered, 200 * U, "the answer");
-            assertEq(_change(ownerBefore, T.a), 200 * int256(U), "the owner is paid");
+            assertEq(answered, 105 * U, "the answer");
+            assertEq(_change(ownerBefore, M.a), 105 * int256(U), "the owner is paid");
             assertEq(_coin().balanceOf(callers[i]), callerBefore, "the caller's coin moved");
             // Repeated, by the owner and by the caller: refused by name.
-            _refusedClaim(callers[i], market, T.a, Side.A, ALREADY_CLAIMED, "a repeated claim by the caller");
-            (bool ok, bytes memory err) = _tryClaim(T.a, market, Side.A);
+            _refusedClaim(callers[i], market, M.a, Side.A, ALREADY_CLAIMED, "a repeated claim by the caller");
+            (bool ok, bytes memory err) = _tryClaim(M.a, market, Side.A);
             assertFalse(ok, "a repeated claim by the owner was paid");
             assertEq(err, abi.encodeWithSelector(ALREADY_CLAIMED), "the owner's repeated claim");
             vm.revertToState(snap);
         }
-        // The owner's own call still works, and answers the payout.
-        vm.prank(T.a, T.a);
-        assertEq(positions.claimPosition(market, Side.A), 200 * U, "the owner's own claim answers the payout");
+        // The owner's own call still works and answers the payout, with another address as the transaction's
+        // origin: the owner is the caller, never the origin.
+        uint256 before = _coin().balanceOf(M.a);
+        vm.prank(M.a, crossOrigin);
+        assertEq(positions.claimPosition(market, Side.A), 105 * U, "the owner's own claim answers the payout");
+        assertEq(_change(before, M.a), 105 * int256(U), "the owner is paid by its own call");
+        assertEq(_coin().balanceOf(crossOrigin), 0, "the origin was paid");
         assertEq(_coin().balanceOf(address(positions)), 0);
         vm.revertToState(snap);
-        // The zero account is refused by name.
+        // The zero account is refused by name, from a stranger and from an owner whose own record would pay:
+        // the zero account is nobody's, the caller's included.
         _refusedClaim(stranger, market, address(0), Side.A, NO_PAYOUT, "the zero account");
+        _refusedClaim(M.a, market, address(0), Side.A, NO_PAYOUT, "the zero account, from an owner");
         _refusedClaim(stranger, market, address(0), Side.B, NO_PAYOUT, "the zero account, side B");
-        // The loser's record, by anyone: refused by name.
-        _refusedClaim(stranger, market, M.a, Side.B, NO_PAYOUT, "the loser's record");
+        // The records with nothing to pay, by anyone: refused by name.
+        _refusedClaim(stranger, market, M.a, Side.B, NO_PAYOUT, "the maker's losing record");
+        _refusedClaim(stranger, market, T.a, Side.A, NO_PAYOUT, "the bettor's side A record");
+        _refusedClaim(stranger, market, T.a, Side.B, NO_PAYOUT, "the bettor's side B record");
     }
 
     /// The card: a refused claim changes nothing and pays later.
@@ -1733,6 +1903,41 @@ contract OspexSharedCollateralCallbackTest is SharedCollateralBase {
         trick.setHooked(Y.a, false);
     }
 
+    /// The writes come before the coin moves, at a pull and at a claim: an account the coin calls back during
+    /// its own pull reads its held amount and the market's total already raised; a recipient the coin calls back
+    /// during its claim reads its record marked and the total already lowered, and its own claim from inside
+    /// refused by the guard.
+    /// Break: in OspexPositions._pull, move the two writes below the transfer. Another turns it red: in _claim,
+    /// the mark and the total written after the transfer.
+    function test_neverLine_theWritesComeBeforeTheCoinMoves() public {
+        uint256 game = _verifiedGame();
+        uint256 market = markets.marketCount() + 1;
+        trick.setHooked(Y.a, true);
+        CallbackAccount r = CallbackAccount(Y.a);
+        r.arm(address(positions), abi.encodeCall(IOspexPositions.s_held, (market, Y.a)));
+        r.armAlso(address(positions), abi.encodeCall(IOspexPositions.s_heldTotal, (market)));
+        assertEq(_leg(Y, TK, game, Side.B, 100 * U, 100 * U), market, "the market drawn");
+        (bool[] memory ok, bytes[] memory answer) = _answers();
+        assertEq(ok.length, 2, "two reads from inside the pull");
+        assertTrue(ok[0] && ok[1], "a read from inside the pull failed");
+        assertEq(abi.decode(answer[0], (uint256)), 100 * U, "the receiver's held amount, raised before the pull");
+        assertEq(abi.decode(answer[1], (uint256)), 100 * U, "the total, raised before the pull");
+
+        _settleHome(game, market);
+        r.arm(address(positions), abi.encodeCall(OspexPositions.getPosition, (market, Y.a, Side.A)));
+        r.armAlso(address(positions), abi.encodeCall(IOspexPositions.s_heldTotal, (market)));
+        r.armAlso(address(positions), abi.encodeCall(OspexPositions.claimPosition, (market, Side.A)));
+        assertEq(_claimFor(stranger, market, Y.a, Side.A), 200 * U, "the receiver's claim");
+        (ok, answer) = _answers();
+        assertEq(ok.length, 3, "three calls from inside the claim");
+        assertTrue(ok[0] && ok[1], "a read from inside the claim failed");
+        assertTrue(abi.decode(answer[0], (Position)).claimed, "the record is not yet marked inside the transfer");
+        assertEq(abi.decode(answer[1], (uint256)), 0, "the total, lowered before the transfer");
+        assertFalse(ok[2], "a claim from inside a claim's transfer was taken");
+        assertEq(answer[2], abi.encodeWithSelector(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector));
+        trick.setHooked(Y.a, false);
+    }
+
     /// The pay-back entry: only the contract calls it, and it carries no guard of its own.
     /// Break: in OspexPositions.sendPayBack, delete the self-only check: a stranger calls it and is paid. Another
     /// turns it red: a guard added to the entry, so every pay-back from inside finishFills is refused and
@@ -1929,15 +2134,16 @@ contract OspexSharedCollateralReferenceTest is SharedCollateralBase {
         Signer[3] memory all = [M, T, X];
         for (uint256 i; i < 3; ++i) {
             for (uint256 s; s < 2; ++s) {
+                bool ok;
+                bytes memory err;
                 if (onGross) {
                     vm.prank(all[i].a, all[i].a);
-                    (bool ok,) =
+                    (ok, err) =
                         address(gross).call(abi.encodeCall(GrossPositionsReference.claimPosition, (market, Side(s))));
-                    ok;
                 } else {
-                    (bool ok,) = _tryClaimFor(stranger, market, all[i].a, Side(s));
-                    ok;
+                    (ok, err) = _tryClaimFor(stranger, market, all[i].a, Side(s));
                 }
+                if (!ok) assertEq(err, abi.encodeWithSelector(NO_PAYOUT), "a claim refused for another reason");
             }
         }
     }
@@ -2004,6 +2210,9 @@ contract OspexSharedCollateralFuzzTest is SharedCollateralBase {
     /// @dev The ledger: market → account → [riskA, profitA, riskB, profitB], summed here from the fills that
     ///      landed, read from the fill events.
     mapping(uint256 => mapping(address => uint256[4])) internal ledger;
+    /// @dev Whether a pay-back to the account on the market was ever refused: from then on its held amount may
+    ///      sit above its worst loss.
+    mapping(uint256 => mapping(address => bool)) internal refusedOnce;
 
     function setUp() public override {
         super.setUp();
@@ -2038,6 +2247,10 @@ contract OspexSharedCollateralFuzzTest is SharedCollateralBase {
             ledger[market][taker][t] += takerRisk;
             ledger[market][taker][t + 1] += makerRisk;
         }
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(positions) || logs[i].topics[0] != PAY_BACK_REFUSED_TOPIC) continue;
+            refusedOnce[uint256(logs[i].topics[1])][address(uint160(uint256(logs[i].topics[2])))] = true;
+        }
     }
 
     /// @dev What the ledger says `who` wins or loses on `market` at `settle` (0 home, 1 away, 2 push).
@@ -2058,9 +2271,12 @@ contract OspexSharedCollateralFuzzTest is SharedCollateralBase {
             for (uint256 i; i < 3; ++i) {
                 address who = _who(i).a;
                 uint256[4] memory r = ledger[mkts[k]][who];
-                assertGe(
-                    positions.s_held(mkts[k], who), _worstByHand(r[0], r[1], r[2], r[3]), "held under the worst loss"
-                );
+                uint256 worst = _worstByHand(r[0], r[1], r[2], r[3]);
+                assertGe(positions.s_held(mkts[k], who), worst, "held under the worst loss");
+                // With no pay-back ever refused, the held amount is the worst loss and not a unit more.
+                if (!refusedOnce[mkts[k]][who]) {
+                    assertEq(positions.s_held(mkts[k], who), worst, "held above the worst loss");
+                }
                 sum += positions.s_held(mkts[k], who);
             }
             assertEq(positions.s_heldTotal(mkts[k]), sum, "an open market's total is not the sum of its held amounts");
@@ -2099,10 +2315,19 @@ contract OspexSharedCollateralFuzzTest is SharedCollateralBase {
                 token.setBlocked(blocked, true);
             }
             vm.recordLogs();
-            (bool ok,) = _tryLegs(t, game[k], side, ms, mr, tr);
+            (bool ok, bytes memory err) = _tryLegs(t, game[k], side, ms, mr, tr);
             if (ok) {
                 _ledgerFrom(vm.getRecordedLogs());
                 mkts[k] = markets.getMarketId(game[k], address(moneyline), 0);
+            } else {
+                // A Cross is refused here for a refused pull and for nothing else: the taking account's, or
+                // every leg skipped for its account's.
+                bytes4 why = _selector(err);
+                assertTrue(
+                    why == IOspexPositions.OspexPositions__TakerPullRefused.selector
+                        || why == OspexMatching.OspexMatching__NothingFilled.selector,
+                    "a Cross refused for another reason than a refused pull"
+                );
             }
             if (blocked != address(0)) token.setBlocked(blocked, false);
             _invariants(mkts, senderCoin);
@@ -2132,9 +2357,14 @@ contract OspexSharedCollateralFuzzTest is SharedCollateralBase {
             address caller = _next(2) == 0 ? _who(i).a : stranger;
             (bool ok, bytes memory err) = _tryClaimFor(caller, mkts[k], _who(i).a, s);
             if (!ok) assertEq(err, abi.encodeWithSelector(NO_PAYOUT), "a claim refused for another reason");
-            // A second claim of the same record is refused by name.
+            // A second claim of the same record is refused by name: paid already, or nothing to pay.
             (ok, err) = _tryClaimFor(stranger, mkts[k], _who(i).a, s);
             assertFalse(ok, "a record paid twice");
+            assertTrue(
+                keccak256(err) == keccak256(abi.encodeWithSelector(ALREADY_CLAIMED))
+                    || keccak256(err) == keccak256(abi.encodeWithSelector(NO_PAYOUT)),
+                "a second claim refused for another reason"
+            );
         }
         for (uint256 i; i < 3; ++i) {
             int256 net;
