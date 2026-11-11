@@ -1,5 +1,5 @@
 {
- "about": "Breaks of the betting set, most of one line, each with a test it turns red; a break may turn others red too. For each: apply its edits to the file (each find occurs exactly once in the file as committed; a find of several lines is one anchor), run the named test alone and see it fail, restore the file byte for byte and see it pass. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis. Check that exactly one test ran. Ids: B, the cut's: the (home, away) order, the settlement's status read, the fill path, the registry and the interface pins. C, the couriers': who writes an account's couriers, no courier by default, the refusals, the repeated registration, the events and the two calls' signatures. From C17 on, the same lines read through the transaction's origin, or told apart by it, and a write beside the one the caller named. C31 and C32, a second write no list of addresses would reach. C33 to C35, one courier at a time and an event emitted twice. C36 to C45, the two calls that change nothing: a repeated registration succeeds and neither writes nor emits, and a drop of a courier the account does not have is refused. C46 to C62, behaviour that differs for one kind of caller, courier, time or count: a contract as the caller or as the courier, the account naming itself, the set's deployer as the caller, a write hidden by the order couriers are named in, a courier event from the cancel, a courier that appears or lapses with time or is written at deploy, a courier dropped several times, a courier asked about its own drop, a courier cancelling its account's order, a registration that returns a value, and a call made to the courier. W, the wiring's: the reads the core makes of a module at bootstrap, which types are asked which and in what order, that an address is read before it is written and never at finalize, that a read cannot write and that one that fails fails the call, every place of a call, the zero address as a market contract, and the pins of the core's three refusals and of the modules' deploy values. X, the Cross's: the courier each order's account registered (X1 to X9); the one fill path (X10); the close gate (X11 to X17); the filled amount and the signed stake (X18 to X24); the cancel and the floor (X25 to X35); the price and the lot (X36 to X39); the minimum (X40, X41); what is pulled and who holds it (X42 to X45); the skips, their order and what they leave (X46 to X58); the receipt (X59, X60); the refused pull's recognition and the two pulls (X61 to X69); a Cross that fills nothing (X70, X71); the taking order's thirty seconds (X72 to X75); the exclusion while a Cross is in progress and the positions module's guard (X76 to X85); the signature, the type and the domain (X86 to X100); the market, the side and the price (X101 to X105); an admissible price and stake (X106 to X110); the events (X111 to X126); and the gate's read (X127). Then what an independent pass found the first fixtures could not tell apart: a fault or a dead order late in a list (X128 to X139); a floor on a line that is not 0 (X140); an order that rests before it takes (X141); a refused pull at a price that is not even (X142, X143); stakes of many lots (X144, X145); the exclusion past the first leg (X146, X147); the filled amounts written before the pull (X148, X149); the receipt on either side (X150); a read made before a pull (X151, X152); a cancel through the transaction's origin (X153); the skip record's hub copy and the floor's place among the reasons (X154, X155); the market and the line in the records (X156 to X158); what the Cross returns (X159); the side a position records (X160); the exclusion past a refused pull and past an order nothing fits (X161, X162); and a full order whose account cannot pay (X163, X164). T, the cap and its switch (T1 to T22): the cap deleted, at or above, on the remainder, on the lot count, ten cents, a tenth of a cent, a refusal naming no order, the cap ahead of the signature (T1 to T8); a resting order or a leg capped (T9, T10); the lift for anyone, by the origin, twice, writing nothing, without its event or its hub copy, returning a value, lifted at deploy (T11 to T18); a registration that lifts (T19); the lift inside a Cross, and clearing the mark (T20, T21); a function that puts the cap back (T22). T23 to T38, from an independent pass against the cap's tests: the cap tested after the walk (T23); the lift reading the timelock live (T24); the cap only at 2.00 or longer, only on the moneyline, in 32 bits, waived for an account sending its own Cross or one with code (T25 to T27, T34, T35); the flag written on a skip, a repeated registration and a refused pull (T28, T36, T37); the lift by any contract with the timelock's code (T29); lifted at deploy on Polygon's chain id (T30); the constructor taking a delegation, a zero timelock, or an address with no code (T31, T32, T38); a ceiling left after the lift (T33). T39 and T40, from an attack on the built cap: the cap waived at the shortest price (T39) and on a positive line (T40). T23 names the test whose Break line it is, the count of the coin's pulls during refused Crosses. M, the minimum fill's (M1 to M37), each naming the one test it turns red: the tail and the resting check deleted, inverted, or reading the wrong stake, the wrong minimum, the whole filled amount or the room before the walk (M1 to M8); a short Cross returning, or reverting bare (M9, M10); the minimum out of the hash, in lots or as a flag (M11 to M13); the report wrong six ways (M14 to M19); the seventh reason appended last, tested after the pull or before the lot, the bound made a skip, and the test base's old number for the refused pull, an entry that edits test/betting/CrossBase.sol (M20 to M24); the boundaries (M25 to M30); the type string's tenth field renamed, moved, or removed with the hash's (M31 to M33), beside X99 and X100, kept against the new frozen fixture; the room read from the signed stake (M34); the fill event's and the cancel event's minimum (M35 to M37). X165, the minimum out of the hash, against the signature test. Q, the independent pass's: the mutants a reviewer briefed to defeat the minimum fill's tests wrote without running them, each a waiver keyed on the sender, the origin, code, the line, the cap or the clock, a comparison in the wrong unit or width, a wrong stake at a price under 2.00, or the Cross's event tallying the wrong legs; each is a break of the shapes test or the in-cap test, added with them. F, the fix round's, from the reviews of the built change: the hub copy of a skip under the minimum carrying a zero hash (F1), against the precedence test, whose base now compares each skip's hub copy whole with its record; and the tail waived with the cap in force where the taking stake of the Cross is the smaller (F2), against the in-cap test, which now holds a short taking fill priced under 2.00 with the cap in force. R, the courier relay's (R1 to R34), each an edit of src/betting/OspexCourierRelay.sol naming the one test it turns red: the Cross passed through for anyone, by the transaction's origin, or for the timelock too (R1 to R3); the sender set by anyone, by the timelock's proposer, by the current sender or by the origin, a setter that writes nothing or takes zero, the zero check ahead of the caller's, and the event's two addresses swapped or read after the write (R4 to R12); the constructor keeping its deployer as the timelock, taking a timelock or a matching address with no code or with a wallet's delegation, taking no sender, checking the sender first, falling back on its deployer when the read of the timelock fails, and naming its deployer in its first event (R13 to R21); the setter reading the timelock from the matching contract at each call (R22); the forward made a delegatecall, and a rotation that writes a registration (R23, R24); a refusal swallowed, replaced by an error of the relay's, cut to four bytes, or swallowed when it has no bytes (R25 to R28); the call's bytes forwarded without their first four, or encoded again from the two arguments (R29, R30); and a receive, a function that sends a coin out, a function that does nothing, and a payable Cross (R31 to R34), of which R32 and R33 turn red the pin of the relay's functions in OspexBettingInterface.t.sol. R35 to R63, the changes an independent pass wrote to defeat the relay's first tests, all of which they let through, each now naming the one test it turns red: the caller checked after the forward, a sender with code refused, the check skipped under Polygon's chain id, a sender that lapses with time, a compare of part of the address, and the sender's own couriers passed (R35 to R40); the sender set by the timelock's admin or handed to the timelock by the current sender, and a next sender refused for a delegation's code or for having been the sender before (R41 to R44); a failed read replaced by the first sender, a delegation asked before it is refused, a first sender with code refused, the timelock read twice or read again at each change, the delegation check off under Polygon's chain id, and a timelock taken for being the deploy's origin (R45 to R51); the forward's gas capped, a long refusal cut, and a string error replaced (R52 to R54); the arguments decoded into memory, a bound on the list, an expiry read and a zero stake returned, each a read of bytes the relay does not read (R55 to R58); an exclusion of the relay's own (R59); and the caller's gas repaid, the relay's native coin or its coin sent at a rotation, and a fee pulled from an account that approved the relay (R60 to R63). R64 to R66, against the test of a rotation run from inside a pull: the caller checked after the forward against the sender as it is then, the caller written back as the sender, and an exclusion shared with the setter.",
+ "about": "Breaks of the betting set, most of one line, each with a test it turns red; a break may turn others red too. For each: apply its edits to the file (each find occurs exactly once in the file as committed; a find of several lines is one anchor), run the named test alone and see it fail, restore the file byte for byte and see it pass. Forge matches --match-test against the test's name with its parentheses, so the pattern below ends in an escaped parenthesis. Check that exactly one test ran. Ids: B, the cut's: the (home, away) order, the settlement's status read, the fill path, the registry and the interface pins. C, the couriers': who writes an account's couriers, no courier by default, the refusals, the repeated registration, the events and the two calls' signatures. From C17 on, the same lines read through the transaction's origin, or told apart by it, and a write beside the one the caller named. C31 and C32, a second write no list of addresses would reach. C33 to C35, one courier at a time and an event emitted twice. C36 to C45, the two calls that change nothing: a repeated registration succeeds and neither writes nor emits, and a drop of a courier the account does not have is refused. C46 to C62, behaviour that differs for one kind of caller, courier, time or count: a contract as the caller or as the courier, the account naming itself, the set's deployer as the caller, a write hidden by the order couriers are named in, a courier event from the cancel, a courier that appears or lapses with time or is written at deploy, a courier dropped several times, a courier asked about its own drop, a courier cancelling its account's order, a registration that returns a value, and a call made to the courier. W, the wiring's: the reads the core makes of a module at bootstrap, which types are asked which and in what order, that an address is read before it is written and never at finalize, that a read cannot write and that one that fails fails the call, every place of a call, the zero address as a market contract, and the pins of the core's three refusals and of the modules' deploy values. X, the Cross's: the courier each order's account registered (X1 to X9); the one fill path (X10); the close gate (X11 to X17); the filled amount and the signed stake (X18 to X24); the cancel and the floor (X25 to X35); the price and the lot (X36 to X39); the minimum (X40, X41); what is pulled and who holds it (X42 to X45); the skips, their order and what they leave (X46 to X58); the receipt (X59, X60); the refused pull's recognition and the two pulls (X61 to X69); a Cross that fills nothing (X70, X71); the taking order's thirty seconds (X72 to X75); the exclusion while a Cross is in progress and the positions module's guard (X76 to X85); the signature, the type and the domain (X86 to X100); the market, the side and the price (X101 to X105); an admissible price and stake (X106 to X110); the events (X111 to X126); and the gate's read (X127). Then what an independent pass found the first fixtures could not tell apart: a fault or a dead order late in a list (X128 to X139); a floor on a line that is not 0 (X140); an order that rests before it takes (X141); a refused pull at a price that is not even (X142, X143); stakes of many lots (X144, X145); the exclusion past the first leg (X146, X147); the filled amounts written before the pull (X148, X149); the receipt on either side (X150); a read made before a pull (X151, X152); a cancel through the transaction's origin (X153); the skip record's hub copy and the floor's place among the reasons (X154, X155); the market and the line in the records (X156 to X158); what the Cross returns (X159); the side a position records (X160); the exclusion past a refused pull and past an order nothing fits (X161, X162); and a full order whose account cannot pay (X163, X164). T, the cap and its switch (T1 to T22): the cap deleted, at or above, on the remainder, on the lot count, ten cents, a tenth of a cent, a refusal naming no order, the cap ahead of the signature (T1 to T8); a resting order or a leg capped (T9, T10); the lift for anyone, by the origin, twice, writing nothing, without its event or its hub copy, returning a value, lifted at deploy (T11 to T18); a registration that lifts (T19); the lift inside a Cross, and clearing the mark (T20, T21); a function that puts the cap back (T22). T23 to T38, from an independent pass against the cap's tests: the cap tested after the walk (T23); the lift reading the timelock live (T24); the cap only at 2.00 or longer, only on the moneyline, in 32 bits, waived for an account sending its own Cross or one with code (T25 to T27, T34, T35); the flag written on a skip, a repeated registration and a refused pull (T28, T36, T37); the lift by any contract with the timelock's code (T29); lifted at deploy on Polygon's chain id (T30); the constructor taking a delegation, a zero timelock, or an address with no code (T31, T32, T38); a ceiling left after the lift (T33). T39 and T40, from an attack on the built cap: the cap waived at the shortest price (T39) and on a positive line (T40). T23 names the test whose Break line it is, the count of the coin's pulls during refused Crosses. M, the minimum fill's (M1 to M37), each naming the one test it turns red: the tail and the resting check deleted, inverted, or reading the wrong stake, the wrong minimum, the whole filled amount or the room before the walk (M1 to M8); a short Cross returning, or reverting bare (M9, M10); the minimum out of the hash, in lots or as a flag (M11 to M13); the report wrong six ways (M14 to M19); the seventh reason appended last, tested after the pull or before the lot, the bound made a skip, and the test base's old number for the refused pull, an entry that edits test/betting/CrossBase.sol (M20 to M24); the boundaries (M25 to M30); the type string's tenth field renamed, moved, or removed with the hash's (M31 to M33), beside X99 and X100, kept against the new frozen fixture; the room read from the signed stake (M34); the fill event's and the cancel event's minimum (M35 to M37). X165, the minimum out of the hash, against the signature test. Q, the independent pass's: the mutants a reviewer briefed to defeat the minimum fill's tests wrote without running them, each a waiver keyed on the sender, the origin, code, the line, the cap or the clock, a comparison in the wrong unit or width, a wrong stake at a price under 2.00, or the Cross's event tallying the wrong legs; each is a break of the shapes test or the in-cap test, added with them. F, the fix round's, from the reviews of the built change: the hub copy of a skip under the minimum carrying a zero hash (F1), against the precedence test, whose base now compares each skip's hub copy whole with its record; and the tail waived with the cap in force where the taking stake of the Cross is the smaller (F2), against the in-cap test, which now holds a short taking fill priced under 2.00 with the cap in force. R, the courier relay's (R1 to R34), each an edit of src/betting/OspexCourierRelay.sol naming the one test it turns red: the Cross passed through for anyone, by the transaction's origin, or for the timelock too (R1 to R3); the sender set by anyone, by the timelock's proposer, by the current sender or by the origin, a setter that writes nothing or takes zero, the zero check ahead of the caller's, and the event's two addresses swapped or read after the write (R4 to R12); the constructor keeping its deployer as the timelock, taking a timelock or a matching address with no code or with a wallet's delegation, taking no sender, checking the sender first, falling back on its deployer when the read of the timelock fails, and naming its deployer in its first event (R13 to R21); the setter reading the timelock from the matching contract at each call (R22); the forward made a delegatecall, and a rotation that writes a registration (R23, R24); a refusal swallowed, replaced by an error of the relay's, cut to four bytes, or swallowed when it has no bytes (R25 to R28); the call's bytes forwarded without their first four, or encoded again from the two arguments (R29, R30); and a receive, a function that sends a coin out, a function that does nothing, and a payable Cross (R31 to R34), of which R32 and R33 turn red the pin of the relay's functions in OspexBettingInterface.t.sol. R35 to R63, the changes an independent pass wrote to defeat the relay's first tests, all of which they let through, each now naming the one test it turns red: the caller checked after the forward, a sender with code refused, the check skipped under Polygon's chain id, a sender that lapses with time, a compare of part of the address, and the sender's own couriers passed (R35 to R40); the sender set by the timelock's admin or handed to the timelock by the current sender, and a next sender refused for a delegation's code or for having been the sender before (R41 to R44); a failed read replaced by the first sender, a delegation asked before it is refused, a first sender with code refused, the timelock read twice or read again at each change, the delegation check off under Polygon's chain id, and a timelock taken for being the deploy's origin (R45 to R51); the forward's gas capped, a long refusal cut, and a string error replaced (R52 to R54); the arguments decoded into memory, a bound on the list, an expiry read and a zero stake returned, each a read of bytes the relay does not read (R55 to R58); an exclusion of the relay's own (R59); and the caller's gas repaid, the relay's native coin or its coin sent at a rotation, and a fee pulled from an account that approved the relay (R60 to R63). R64 to R66, against the test of a rotation run from inside a pull: the caller checked after the forward against the sender as it is then, the caller written back as the sender, and an exclusion shared with the setter. S, shared collateral's: the worst loss's terms, the netted pulls and the one taking pull at the end, the pay-backs through the module's own entry and their refusals, the claim as held plus the net on the winning record and the fixed split on a push or a void, the market's total, the claim for anyone, the pay-back entry's access and missing guard, the self leg and an account resting twice, and the cap and the minimum beside netting; S25 and S26 are one break, the lying coin's, against both of its tests. Of the entries anchored in OspexPositions.sol before it, two are retired: X150, the receipt tested only on side A, since there is one receipt check for every pull, in _pull, which has no side, and X59 and X60 keep its exactness and presence; and X68, the taker's stake pulled first, since the order of the pulls is now the design's, the resting account at its leg and the taking account at the end, which S35 and S40 pin. The rest are re-anchored on the new lines, re-aimed where the line's meaning moved (B27, X42, X67, X143), and keep their tests. S45 to S66 are the changes an independent pass wrote against the first cut of these tests, each of which survived that cut, kept here against the test that was widened to catch it.",
  "command": "FOUNDRY_SRC=src FOUNDRY_TEST=test/betting FOUNDRY_SCRIPT=none forge test --via-ir --optimize --match-path <testPath> --match-test '^<test>\\\\('",
  "breaks": [
   {
@@ -115,13 +115,13 @@
    "file": "src/betting/OspexPositions.sol",
    "edits": [
     {
-     "find": "            ? (outcome == Outcome.Home || outcome == Outcome.Over)",
-     "replace": "            ? (outcome == Outcome.Away || outcome == Outcome.Over)"
+     "find": "        bool aWins = outcome == Outcome.Home || outcome == Outcome.Over;\n",
+     "replace": "        bool aWins = outcome == Outcome.Away || outcome == Outcome.Over;\n"
     }
    ],
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
    "test": "test_neverLine_theScoreIsReadHomeThenAway_moneyline",
-   "breaks": "side A is paid when the away team wins"
+   "breaks": "side A's record is the winning one when the away team wins"
   },
   {
    "id": "B10-claimtwice",
@@ -249,8 +249,8 @@
    "file": "src/betting/OspexPositions.sol",
    "edits": [
     {
-     "find": "        if (msg.sender != i_ospexCore.getModule(MATCHING_MODULE)) revert OspexPositions__NotMatchingModule(msg.sender);\n",
-     "replace": ""
+     "find": "    ) external override nonReentrant returns (uint256) {\n        if (msg.sender != i_ospexCore.getModule(MATCHING_MODULE)) {\n            revert OspexPositions__NotMatchingModule(msg.sender);\n        }\n",
+     "replace": "    ) external override nonReentrant returns (uint256) {\n"
     }
    ],
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
@@ -340,26 +340,26 @@
    "file": "src/betting/OspexPositions.sol",
    "edits": [
     {
-     "find": "        if (!i_token.trySafeTransferFrom(maker, address(this), makerRisk)) {\n            revert OspexPositions__MakerPullRefused(maker, makerRisk);\n        }\n",
+     "find": "        if (maker != taker) {\n            (uint256 pull, bool pulled) = _pull(marketId, maker);\n            if (!pulled) revert OspexPositions__MakerPullRefused(maker, makerRisk, pull);\n        }\n",
      "replace": ""
     }
    ],
    "testPath": "test/betting/OspexPositions.t.sol",
    "test": "test_fill_writesBothPositionsAndPullsBothStakes",
-   "breaks": "the maker's stake is not pulled"
+   "breaks": "the resting account's netted amount is not pulled"
   },
   {
    "id": "B27-voidpayout",
    "file": "src/betting/OspexPositions.sol",
    "edits": [
     {
-     "find": "        if (outcome == Outcome.Push || outcome == Outcome.Void) return position.risk;",
-     "replace": "        if (outcome == Outcome.Push) return position.risk;"
+     "find": "        if (outcome == Outcome.Push || outcome == Outcome.Void) {\n            uint256 riskA",
+     "replace": "        if (outcome == Outcome.Push) {\n            uint256 riskA"
     }
    ],
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
    "test": "test_neverLine_aVoidAndAReleaseAreVoids",
-   "breaks": "a void pays nothing back"
+   "breaks": "a void is not a push: side A's record is refused and side B's is paid what is held"
   },
   {
    "id": "B28-gamesaddr",
@@ -2244,13 +2244,13 @@
    "file": "src/betting/OspexPositions.sol",
    "edits": [
     {
-     "find": "        if (!i_token.trySafeTransferFrom(maker, address(this), makerRisk)) {",
-     "replace": "        if (!i_token.trySafeTransferFrom(maker, address(this), makerRisk + 1)) {"
+     "find": "        if (!i_token.trySafeTransferFrom(account, address(this), pull)) return (pull, false);\n",
+     "replace": "        if (!i_token.trySafeTransferFrom(account, address(this), pull + 1)) return (pull, false);\n"
     }
    ],
    "testPath": "test/betting/OspexCrossNeverLines.t.sol",
    "test": "test_neverLine_nothingStaysAndNothingBelongsToTheSender",
-   "breaks": "one unit more is pulled from the maker than is recorded"
+   "breaks": "one unit more is pulled from the resting account than its held amount rises by"
   },
   {
    "id": "X43-profitless",
@@ -2469,20 +2469,20 @@
    "file": "src/betting/OspexPositions.sol",
    "edits": [
     {
-     "find": "        if (held < owed) revert OspexPositions__ShortReceipt(owed, held);",
-     "replace": "        if (held != owed) revert OspexPositions__ShortReceipt(owed, held);"
+     "find": "        if (balance < owed) revert OspexPositions__ShortReceipt(owed, balance);\n",
+     "replace": "        if (balance != owed) revert OspexPositions__ShortReceipt(owed, balance);\n"
     }
    ],
    "testPath": "test/betting/OspexCrossCallbacks.t.sol",
    "test": "test_neverLine_theReceiptCheckIsAtLeastTheTwoStakes",
-   "breaks": "the receipt must be exact: coin the contract did not ask for fails the fill"
+   "breaks": "the receipt must be exact: coin the contract did not ask for fails the pull"
   },
   {
    "id": "X60-noreceipt",
    "file": "src/betting/OspexPositions.sol",
    "edits": [
     {
-     "find": "        if (held < owed) revert OspexPositions__ShortReceipt(owed, held);\n",
+     "find": "        if (balance < owed) revert OspexPositions__ShortReceipt(owed, balance);\n",
      "replace": ""
     }
    ],
@@ -2495,7 +2495,7 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (refusal.length != 68) return false;\n",
+     "find": "        if (refusal.length != 100) return false;\n",
      "replace": ""
     }
    ],
@@ -2560,52 +2560,39 @@
    "file": "src/betting/OspexPositions.sol",
    "edits": [
     {
-     "find": "        if (!i_token.trySafeTransferFrom(maker, address(this), makerRisk)) {\n            revert OspexPositions__MakerPullRefused(maker, makerRisk);\n        }\n",
-     "replace": "        i_token.safeTransferFrom(maker, address(this), makerRisk);\n"
+     "find": "        if (!i_token.trySafeTransferFrom(account, address(this), pull)) return (pull, false);\n",
+     "replace": "        i_token.safeTransferFrom(account, address(this), pull);\n"
     }
    ],
    "testPath": "test/betting/OspexCrossCallbacks.t.sol",
    "test": "test_neverLine_aRefusedPullIsRecognisedBySelectorLengthAndBothArguments",
-   "breaks": "the coin's own revert data is passed up from the maker's pull"
+   "breaks": "the coin's own revert data is passed up from a pull"
   },
   {
    "id": "X67-takernamedmaker",
    "file": "src/betting/OspexPositions.sol",
    "edits": [
     {
-     "find": "            revert OspexPositions__TakerPullRefused(taker, takerRisk);",
-     "replace": "            revert OspexPositions__MakerPullRefused(taker, takerRisk);"
+     "find": "        if (!pulled) revert OspexPositions__TakerPullRefused(taker, pull);\n",
+     "replace": "        if (!pulled) revert OspexPositions__MakerPullRefused(taker, pull, pull);\n"
     }
    ],
    "testPath": "test/betting/OspexCrossCallbacks.t.sol",
    "test": "test_neverLine_aRefusedPullIsRecognisedBySelectorLengthAndBothArguments",
-   "breaks": "the taker's refused pull is raised under the maker's error"
-  },
-  {
-   "id": "X68-takerfirst",
-   "file": "src/betting/OspexPositions.sol",
-   "edits": [
-    {
-     "find": "        if (!i_token.trySafeTransferFrom(maker, address(this), makerRisk)) {\n            revert OspexPositions__MakerPullRefused(maker, makerRisk);\n        }\n        if (!i_token.trySafeTransferFrom(taker, address(this), takerRisk)) {\n            revert OspexPositions__TakerPullRefused(taker, takerRisk);\n        }\n",
-     "replace": "        if (!i_token.trySafeTransferFrom(taker, address(this), takerRisk)) {\n            revert OspexPositions__TakerPullRefused(taker, takerRisk);\n        }\n        if (!i_token.trySafeTransferFrom(maker, address(this), makerRisk)) {\n            revert OspexPositions__MakerPullRefused(maker, makerRisk);\n        }\n"
-    }
-   ],
-   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
-   "test": "test_neverLine_aRefusedPullIsRecognisedBySelectorLengthAndBothArguments",
-   "breaks": "the taker's stake is pulled first"
+   "breaks": "the taking account's refused pull is raised under the maker's error"
   },
   {
    "id": "X69-notakerpull",
    "file": "src/betting/OspexPositions.sol",
    "edits": [
     {
-     "find": "        if (!i_token.trySafeTransferFrom(taker, address(this), takerRisk)) {\n            revert OspexPositions__TakerPullRefused(taker, takerRisk);\n        }\n",
+     "find": "        (uint256 pull, bool pulled) = _pull(marketId, taker);\n        if (!pulled) revert OspexPositions__TakerPullRefused(taker, pull);\n",
      "replace": ""
     }
    ],
    "testPath": "test/betting/OspexPositions.t.sol",
    "test": "test_fill_writesBothPositionsAndPullsBothStakes",
-   "breaks": "the taker's stake is not pulled"
+   "breaks": "the taking account is never pulled"
   },
   {
    "id": "X70-nothingfilled",
@@ -2811,8 +2798,8 @@
    "file": "src/betting/OspexPositions.sol",
    "edits": [
     {
-     "find": "    function claimPosition(uint256 marketId, Side side) external override nonReentrant {",
-     "replace": "    function claimPosition(uint256 marketId, Side side) external override {"
+     "find": "    function claimPosition(uint256 marketId, Side side) external override nonReentrant returns (uint256 payout) {\n",
+     "replace": "    function claimPosition(uint256 marketId, Side side) external override returns (uint256 payout) {\n"
     }
    ],
    "testPath": "test/betting/OspexCrossCallbacks.t.sol",
@@ -3270,8 +3257,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "            if (filled) continue;\n",
-     "replace": ""
+     "find": "                makers[tally.legs - 1] = resting[i].order.account;\n                continue;\n            }\n",
+     "replace": "                makers[tally.legs - 1] = resting[i].order.account;\n            }\n"
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
@@ -3585,13 +3572,13 @@
    "file": "src/betting/OspexPositions.sol",
    "edits": [
     {
-     "find": "revert OspexPositions__TakerPullRefused(taker, takerRisk);",
-     "replace": "revert OspexPositions__TakerPullRefused(taker, makerRisk);"
+     "find": "        if (!pulled) revert OspexPositions__TakerPullRefused(taker, pull);\n",
+     "replace": "        if (!pulled) revert OspexPositions__TakerPullRefused(taker, 0);\n"
     }
    ],
    "testPath": "test/betting/OspexCrossDepth.t.sol",
    "test": "test_neverLine_aRefusedPullAtAPriceThatIsNotEven",
-   "breaks": "the taking account's refusal carries the resting stake"
+   "breaks": "the taking account's refusal carries zero, not the netted pull"
   },
   {
    "id": "X144-lots24",
@@ -3637,8 +3624,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "            if (filled) continue;\n            emit OrderSkipped(hashes[i], resting[i].order.account, takingHash, reason);",
-     "replace": "            if (filled) continue;\n            CROSS_IN_PROGRESS_SLOT.asBoolean().tstore(false);\n            emit OrderSkipped(hashes[i], resting[i].order.account, takingHash, reason);"
+     "find": "            }\n            emit OrderSkipped(hashes[i], resting[i].order.account, takingHash, reason);",
+     "replace": "            }\n            CROSS_IN_PROGRESS_SLOT.asBoolean().tstore(false);\n            emit OrderSkipped(hashes[i], resting[i].order.account, takingHash, reason);"
     }
    ],
    "testPath": "test/betting/OspexCrossCallbacks.t.sol",
@@ -3680,43 +3667,30 @@
    "breaks": "the taking order's filled amount is written after the positions call"
   },
   {
-   "id": "X150-receiptsidea",
-   "file": "src/betting/OspexPositions.sol",
-   "edits": [
-    {
-     "find": "        if (held < owed) revert OspexPositions__ShortReceipt(owed, held);",
-     "replace": "        if (makerSide == Side.A && held < owed) revert OspexPositions__ShortReceipt(owed, held);"
-    }
-   ],
-   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
-   "test": "test_neverLine_theReceiptCheckIsAtLeastTheTwoStakes",
-   "breaks": "the receipt is tested only when the resting order is on side A"
-  },
-  {
    "id": "X151-allowancefirst",
    "file": "src/betting/OspexPositions.sol",
    "edits": [
     {
-     "find": "        uint256 owed = i_token.balanceOf(address(this)) + makerRisk + takerRisk;",
-     "replace": "        if (i_token.allowance(maker, address(this)) < makerRisk) revert OspexPositions__MakerPullRefused(maker, makerRisk);\n        uint256 owed = i_token.balanceOf(address(this)) + makerRisk + takerRisk;"
+     "find": "        uint256 owed = i_token.balanceOf(address(this)) + pull;\n",
+     "replace": "        if (i_token.allowance(account, address(this)) < pull) return (pull, false);\n        uint256 owed = i_token.balanceOf(address(this)) + pull;\n"
     }
    ],
    "testPath": "test/betting/OspexCrossCallbacks.t.sol",
    "test": "test_neverLine_aPullIsTheCoinsTransferAndNoReadBeforeIt",
-   "breaks": "the maker's allowance is read before the pull, and a short read refuses it"
+   "breaks": "the account's allowance is read before the pull, and a short read refuses it"
   },
   {
    "id": "X152-balancefirst",
    "file": "src/betting/OspexPositions.sol",
    "edits": [
     {
-     "find": "        uint256 owed = i_token.balanceOf(address(this)) + makerRisk + takerRisk;",
-     "replace": "        if (i_token.balanceOf(maker) < makerRisk) revert OspexPositions__MakerPullRefused(maker, makerRisk);\n        uint256 owed = i_token.balanceOf(address(this)) + makerRisk + takerRisk;"
+     "find": "        uint256 owed = i_token.balanceOf(address(this)) + pull;\n",
+     "replace": "        if (i_token.balanceOf(account) < pull) return (pull, false);\n        uint256 owed = i_token.balanceOf(address(this)) + pull;\n"
     }
    ],
    "testPath": "test/betting/OspexCrossCallbacks.t.sol",
    "test": "test_neverLine_aPullIsTheCoinsTransferAndNoReadBeforeIt",
-   "breaks": "the maker's balance is read before the pull, and a short read refuses it"
+   "breaks": "the account's balance is read before the pull, and a short read refuses it"
   },
   {
    "id": "X153-cancelorigin",
@@ -4254,8 +4228,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "            if (filled) continue;\n            emit OrderSkipped(hashes[i], resting[i].order.account, takingHash, reason);",
-     "replace": "            if (filled) continue;\n            s_takingStakeCapLifted = true;\n            emit OrderSkipped(hashes[i], resting[i].order.account, takingHash, reason);"
+     "find": "            }\n            emit OrderSkipped(hashes[i], resting[i].order.account, takingHash, reason);",
+     "replace": "            }\n            s_takingStakeCapLifted = true;\n            emit OrderSkipped(hashes[i], resting[i].order.account, takingHash, reason);"
     }
    ],
    "testPath": "test/betting/OspexCrossCap.t.sol",
@@ -6270,6 +6244,888 @@
    "testPath": "test/betting/OspexCourierRelay.t.sol",
    "test": "test_aRotationRunFromInsideAPullLeavesTheCrossInProgressWhole",
    "breaks": "the setter is refused while a Cross is in progress, by an exclusion the relay shares between the two"
+  },
+  {
+   "id": "S1-firsttermdropped",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        uint256 ifAWins = riskB > profitA ? riskB - profitA : 0;\n",
+     "replace": "        uint256 ifAWins = 0;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_heldCoversTheWorstLoss_everyOrderOfFills",
+   "breaks": "the first term of the worst loss is dropped: part 1's bettor is paid 65 back after fill 3"
+  },
+  {
+   "id": "S2-secondtermdropped",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        uint256 ifBWins = riskA > profitB ? riskA - profitB : 0;\n",
+     "replace": "        uint256 ifBWins = 0;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_heldCoversTheWorstLoss_everyOrderOfFills",
+   "breaks": "the second term of the worst loss is dropped: part 1's maker holds 0 after fill 3, not 40"
+  },
+  {
+   "id": "S3-termspairedwrongly",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        uint256 ifAWins = riskB > profitA ? riskB - profitA : 0;\n",
+     "replace": "        uint256 ifAWins = riskB > profitB ? riskB - profitB : 0;\n"
+    },
+    {
+     "find": "        uint256 ifBWins = riskA > profitB ? riskA - profitB : 0;\n",
+     "replace": "        uint256 ifBWins = riskA > profitA ? riskA - profitA : 0;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_heldCoversTheWorstLoss_everyOrderOfFills",
+   "breaks": "the terms are paired wrongly, riskB - profitB and riskA - profitA"
+  },
+  {
+   "id": "S4-zeroreversed",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        uint256 ifAWins = riskB > profitA ? riskB - profitA : 0;\n",
+     "replace": "        uint256 ifAWins = riskB > profitA ? riskB - profitA : profitA - riskB;\n"
+    },
+    {
+     "find": "        uint256 ifBWins = riskA > profitB ? riskA - profitB : 0;\n",
+     "replace": "        uint256 ifBWins = riskA > profitB ? riskA - profitB : profitB - riskA;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_heldCoversTheWorstLoss_everyOrderOfFills",
+   "breaks": "the zero branch is replaced by the reversed difference: the fifth row holds 50, not 0"
+  },
+  {
+   "id": "S5-notakerpull",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        (uint256 pull, bool pulled) = _pull(marketId, taker);\n        if (!pulled) revert OspexPositions__TakerPullRefused(taker, pull);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_heldCoversTheWorstLoss_everyOrderOfFills",
+   "breaks": "the taking account's pull is removed from finishFills: fill 1 never pulls the bettor"
+  },
+  {
+   "id": "S6-norestingpull",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (maker != taker) {\n            (uint256 pull, bool pulled) = _pull(marketId, maker);\n            if (!pulled) revert OspexPositions__MakerPullRefused(maker, makerRisk, pull);\n        }\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_heldCoversTheWorstLoss_everyOrderOfFills",
+   "breaks": "the resting pull is removed from _record"
+  },
+  {
+   "id": "S7-pullwholeworst",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        pull = worst - held;\n",
+     "replace": "        pull = worst;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_heldCoversTheWorstLoss_everyOrderOfFills",
+   "breaks": "a pull asks the whole worst loss, not the difference: the rows' totals and coin movements are wrong"
+  },
+  {
+   "id": "S8-finishnotcalled",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        positions.finishFills(tally.marketId, t.account, makers);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_heldCoversTheWorstLoss_everyOrderOfFills",
+   "breaks": "the matching module never makes the end call: the taking account is never pulled and nobody is paid back"
+  },
+  {
+   "id": "S9-makerslistwrong",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                makers[tally.legs - 1] = resting[i].order.account;\n",
+     "replace": "                makers[tally.legs - 1] = t.account;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_heldCoversTheWorstLoss_everyOrderOfFills",
+   "breaks": "the end call lists the taking account in place of each maker: the maker's pay-back is never made"
+  },
+  {
+   "id": "S10-paybacktosender",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        try this.sendPayBack(account, amount) {\n            emit HeldChanged(marketId, account, 0, amount, worst);\n            i_ospexCore.emitCoreEvent(EVENT_HELD_CHANGED, abi.encode(marketId, account, uint256(0), amount, worst));\n        } catch {\n            s_held[marketId][account] = held;\n            s_heldTotal[marketId] = total;\n            emit PayBackRefused(marketId, account, amount, held);\n            i_ospexCore.emitCoreEvent(EVENT_PAY_BACK_REFUSED, abi.encode(marketId, account, amount, held));\n        }\n",
+     "replace": "        try this.sendPayBack(msg.sender, amount) {\n            emit HeldChanged(marketId, account, 0, amount, worst);\n            i_ospexCore.emitCoreEvent(EVENT_HELD_CHANGED, abi.encode(marketId, account, uint256(0), amount, worst));\n        } catch {\n            s_held[marketId][account] = held;\n            s_heldTotal[marketId] = total;\n            emit PayBackRefused(marketId, account, amount, held);\n            i_ospexCore.emitCoreEvent(EVENT_PAY_BACK_REFUSED, abi.encode(marketId, account, amount, held));\n        }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_aPayBackGoesOnlyToItsAccount",
+   "breaks": "the pay-back is sent to msg.sender, the matching module"
+  },
+  {
+   "id": "S11-paybacktoorigin",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        try this.sendPayBack(account, amount) {\n            emit HeldChanged(marketId, account, 0, amount, worst);\n            i_ospexCore.emitCoreEvent(EVENT_HELD_CHANGED, abi.encode(marketId, account, uint256(0), amount, worst));\n        } catch {\n            s_held[marketId][account] = held;\n            s_heldTotal[marketId] = total;\n            emit PayBackRefused(marketId, account, amount, held);\n            i_ospexCore.emitCoreEvent(EVENT_PAY_BACK_REFUSED, abi.encode(marketId, account, amount, held));\n        }\n",
+     "replace": "        try this.sendPayBack(tx.origin, amount) {\n            emit HeldChanged(marketId, account, 0, amount, worst);\n            i_ospexCore.emitCoreEvent(EVENT_HELD_CHANGED, abi.encode(marketId, account, uint256(0), amount, worst));\n        } catch {\n            s_held[marketId][account] = held;\n            s_heldTotal[marketId] = total;\n            emit PayBackRefused(marketId, account, amount, held);\n            i_ospexCore.emitCoreEvent(EVENT_PAY_BACK_REFUSED, abi.encode(marketId, account, amount, held));\n        }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_aPayBackGoesOnlyToItsAccount",
+   "breaks": "the pay-back is sent to tx.origin"
+  },
+  {
+   "id": "S12-writesafterthecall",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        s_held[marketId][account] = worst;\n        s_heldTotal[marketId] = total - amount;\n\n        try this.sendPayBack(account, amount) {\n",
+     "replace": "        try this.sendPayBack(account, amount) {\n            s_held[marketId][account] = worst;\n            s_heldTotal[marketId] = total - amount;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_aPayBackComesAfterEveryWrite_withACoinThatCallsBack",
+   "breaks": "the two held numbers are written after the transfer: the receiver reads 100, not 40"
+  },
+  {
+   "id": "S13-paybackateachleg",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (maker != taker) {\n            (uint256 pull, bool pulled) = _pull(marketId, maker);\n            if (!pulled) revert OspexPositions__MakerPullRefused(maker, makerRisk, pull);\n        }\n",
+     "replace": "        if (maker != taker) {\n            (uint256 pull, bool pulled) = _pull(marketId, maker);\n            if (!pulled) revert OspexPositions__MakerPullRefused(maker, makerRisk, pull);\n        }\n        _payBack(marketId, maker);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_aPayBackComesAfterEveryWrite_withACoinThatCallsBack",
+   "breaks": "a pay-back is made at each leg, not at the end"
+  },
+  {
+   "id": "S14-finishunguarded",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "    function finishFills(uint256 marketId, address taker, address[] calldata makers) external override nonReentrant {\n",
+     "replace": "    function finishFills(uint256 marketId, address taker, address[] calldata makers) external override {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_aPayBackComesAfterEveryWrite_withACoinThatCallsBack",
+   "breaks": "finishFills does not hold the guard: the refusal from inside changes its name"
+  },
+  {
+   "id": "S15-claimforunguarded",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "    function claimPositionFor(uint256 marketId, address account, Side side)\n        external\n        override\n        nonReentrant\n        returns (uint256 payout)\n",
+     "replace": "    function claimPositionFor(uint256 marketId, address account, Side side)\n        external\n        override\n        returns (uint256 payout)\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_aPayBackComesAfterEveryWrite_withACoinThatCallsBack",
+   "breaks": "claimPositionFor does not hold the guard: the refusal from inside changes its name"
+  },
+  {
+   "id": "S16-wholeisrisktplusprofit",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        return (side == Side.A) == aWins ? whole : 0;\n",
+     "replace": "        return (side == Side.A) == aWins\n            ? s_positions[marketId][account][side].risk + s_positions[marketId][account][side].profit\n            : 0;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_theClaimIsNetOfEarlyMoneyOnce",
+   "breaks": "the winning record is paid risk + profit as today: part 1's maker is paid 315, not 105"
+  },
+  {
+   "id": "S17-heldleftout",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "            return a.profit >= b.risk ? held + (a.profit - b.risk) : held - (b.risk - a.profit);\n",
+     "replace": "            return a.profit >= b.risk ? a.profit - b.risk : 0;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_theClaimIsNetOfEarlyMoneyOnce",
+   "breaks": "the held amount is left out of the whole on a home win: part 1's maker is paid 65"
+  },
+  {
+   "id": "S18-sidebpaidheld",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "            return side == Side.A ? shareA : whole - shareA;\n",
+     "replace": "            return side == Side.A ? shareA : whole;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_theClaimIsNetOfEarlyMoneyOnce",
+   "breaks": "side B's record is paid what is held instead of the rest: the proof's account gets 120 on B, not 20"
+  },
+  {
+   "id": "S19-sideauncapped",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "            uint256 shareA = whole < riskA ? whole : riskA;\n",
+     "replace": "            uint256 shareA = whole;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_theClaimIsNetOfEarlyMoneyOnce",
+   "breaks": "side A's record is paid the whole on a push without the cap at its risk: 120 on A, not 100"
+  },
+  {
+   "id": "S20-marknotwritten",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        pos.claimed = true;\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_theClaimIsNetOfEarlyMoneyOnce",
+   "breaks": "the claimed mark is not written: a second claim pays"
+  },
+  {
+   "id": "S21-netwithoutcomparison",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "            return a.profit >= b.risk ? held + (a.profit - b.risk) : held - (b.risk - a.profit);\n",
+     "replace": "            return held + (a.profit - b.risk);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_theClaimIsNetOfEarlyMoneyOnce",
+   "breaks": "the net is subtracted without the comparison: the bettor's claim on part 1's home win, where its side A profit is under its side B risk, panics instead of NoPayout"
+  },
+  {
+   "id": "S22-noshortatclaim",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (payout > total) revert OspexPositions__MarketShort(marketId, payout, total);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_oneMarketsShortfallStaysOnThatMarket",
+   "breaks": "the comparison with the market's total is removed at the claim: the planted claim panics, not MarketShort"
+  },
+  {
+   "id": "S23-noshortatpayback",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (amount > total) revert OspexPositions__MarketShort(marketId, amount, total);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_oneMarketsShortfallStaysOnThatMarket",
+   "breaks": "the comparison with the market's total is removed at the pay-back: the planted Cross panics, not MarketShort"
+  },
+  {
+   "id": "S24-totalnotraised",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        s_heldTotal[marketId] += pull;\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_oneMarketsShortfallStaysOnThatMarket",
+   "breaks": "the total is not raised at a pull"
+  },
+  {
+   "id": "S25-inlinepayback",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        try this.sendPayBack(account, amount) {\n            emit HeldChanged(marketId, account, 0, amount, worst);\n            i_ospexCore.emitCoreEvent(EVENT_HELD_CHANGED, abi.encode(marketId, account, uint256(0), amount, worst));\n        } catch {\n            s_held[marketId][account] = held;\n            s_heldTotal[marketId] = total;\n            emit PayBackRefused(marketId, account, amount, held);\n            i_ospexCore.emitCoreEvent(EVENT_PAY_BACK_REFUSED, abi.encode(marketId, account, amount, held));\n        }\n",
+     "replace": "        if (i_token.trySafeTransfer(account, amount)) {\n            emit HeldChanged(marketId, account, 0, amount, worst);\n            i_ospexCore.emitCoreEvent(EVENT_HELD_CHANGED, abi.encode(marketId, account, uint256(0), amount, worst));\n        } else {\n            s_held[marketId][account] = held;\n            s_heldTotal[marketId] = total;\n            emit PayBackRefused(marketId, account, amount, held);\n            i_ospexCore.emitCoreEvent(EVENT_PAY_BACK_REFUSED, abi.encode(marketId, account, amount, held));\n        }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_aLossOnOneMarketIsSeenOnTheOther",
+   "breaks": "the self-call is removed and the transfer made inline with the non-reverting form: the lying coin's 55 leaves and the numbers still count it"
+  },
+  {
+   "id": "S26-inlinepayback-card",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        try this.sendPayBack(account, amount) {\n            emit HeldChanged(marketId, account, 0, amount, worst);\n            i_ospexCore.emitCoreEvent(EVENT_HELD_CHANGED, abi.encode(marketId, account, uint256(0), amount, worst));\n        } catch {\n            s_held[marketId][account] = held;\n            s_heldTotal[marketId] = total;\n            emit PayBackRefused(marketId, account, amount, held);\n            i_ospexCore.emitCoreEvent(EVENT_PAY_BACK_REFUSED, abi.encode(marketId, account, amount, held));\n        }\n",
+     "replace": "        if (i_token.trySafeTransfer(account, amount)) {\n            emit HeldChanged(marketId, account, 0, amount, worst);\n            i_ospexCore.emitCoreEvent(EVENT_HELD_CHANGED, abi.encode(marketId, account, uint256(0), amount, worst));\n        } else {\n            s_held[marketId][account] = held;\n            s_heldTotal[marketId] = total;\n            emit PayBackRefused(marketId, account, amount, held);\n            i_ospexCore.emitCoreEvent(EVENT_PAY_BACK_REFUSED, abi.encode(marketId, account, amount, held));\n        }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_aRefusedPayBackBlocksNoFillAndLosesNothing",
+   "breaks": "the same inline, non-reverting pay-back, against the card's refused pay-back test"
+  },
+  {
+   "id": "S27-claimpaidtosender",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        i_token.safeTransfer(account, payout);\n",
+     "replace": "        i_token.safeTransfer(msg.sender, payout);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_aClaimByAnyonePaysOnlyTheOwner",
+   "breaks": "the claim pays msg.sender"
+  },
+  {
+   "id": "S28-nocatch",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        try this.sendPayBack(account, amount) {\n            emit HeldChanged(marketId, account, 0, amount, worst);\n            i_ospexCore.emitCoreEvent(EVENT_HELD_CHANGED, abi.encode(marketId, account, uint256(0), amount, worst));\n        } catch {\n            s_held[marketId][account] = held;\n            s_heldTotal[marketId] = total;\n            emit PayBackRefused(marketId, account, amount, held);\n            i_ospexCore.emitCoreEvent(EVENT_PAY_BACK_REFUSED, abi.encode(marketId, account, amount, held));\n        }\n",
+     "replace": "        this.sendPayBack(account, amount);\n        emit HeldChanged(marketId, account, 0, amount, worst);\n        i_ospexCore.emitCoreEvent(EVENT_HELD_CHANGED, abi.encode(marketId, account, uint256(0), amount, worst));\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_aRefusedPayBackBlocksNoFillAndLosesNothing",
+   "breaks": "the catch is removed: a refused pay-back reverts the Cross"
+  },
+  {
+   "id": "S29-heldnotputback",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "            s_held[marketId][account] = held;\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_aRefusedPayBackBlocksNoFillAndLosesNothing",
+   "breaks": "the held amount is not put back after a refusal: the claim is short"
+  },
+  {
+   "id": "S30-totalnotputback",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "            s_heldTotal[marketId] = total;\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_aRefusedPayBackBlocksNoFillAndLosesNothing",
+   "breaks": "the total is not put back after a refusal: the last claim is MarketShort"
+  },
+  {
+   "id": "S31-claimnonreverting",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        i_token.safeTransfer(account, payout);\n",
+     "replace": "        i_token.trySafeTransfer(account, payout);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_aRefusedClaimChangesNothingAndPaysLater",
+   "breaks": "the claim's transfer is made non-reverting with its answer unread: the record is marked and nothing is paid"
+  },
+  {
+   "id": "S32-entryopen",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (msg.sender != address(this)) revert OspexPositions__NotSelf(msg.sender);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_payBackEntry_isTheContractsAloneAndUnguarded",
+   "breaks": "the self-only check is removed: a stranger calls the entry and is paid"
+  },
+  {
+   "id": "S33-entryguarded",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "    function sendPayBack(address account, uint256 amount) external override {\n",
+     "replace": "    function sendPayBack(address account, uint256 amount) external override nonReentrant {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_payBackEntry_isTheContractsAloneAndUnguarded",
+   "breaks": "a guard is added to the entry: every pay-back from inside finishFills is refused and recorded"
+  },
+  {
+   "id": "S34-restingpullinfull",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (maker != taker) {\n            (uint256 pull, bool pulled) = _pull(marketId, maker);\n            if (!pulled) revert OspexPositions__MakerPullRefused(maker, makerRisk, pull);\n        }\n",
+     "replace": "        if (maker != taker) {\n            s_held[marketId][maker] += makerRisk;\n            s_heldTotal[marketId] += makerRisk;\n            if (!i_token.trySafeTransferFrom(maker, address(this), makerRisk)) {\n                revert OspexPositions__MakerPullRefused(maker, makerRisk, makerRisk);\n            }\n        }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_netting_anEmptyWalletFillsWhatLowersItsWorstLoss",
+   "breaks": "the resting pull asks the stake in full: the leg that lowers the empty account's worst loss is refused"
+  },
+  {
+   "id": "S35-takerpulledateachleg",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (maker != taker) {\n            (uint256 pull, bool pulled) = _pull(marketId, maker);\n            if (!pulled) revert OspexPositions__MakerPullRefused(maker, makerRisk, pull);\n        }\n",
+     "replace": "        if (maker != taker) {\n            (uint256 pull, bool pulled) = _pull(marketId, maker);\n            if (!pulled) revert OspexPositions__MakerPullRefused(maker, makerRisk, pull);\n        }\n        (uint256 tPull, bool tPulled) = _pull(marketId, taker);\n        if (!tPulled) revert OspexPositions__TakerPullRefused(taker, tPull);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_netting_anEmptyWalletFillsWhatLowersItsWorstLoss",
+   "breaks": "the taking account is pulled at each leg for that leg: its refusal carries a leg's stake, not the netted sum"
+  },
+  {
+   "id": "S36-thirdwordisthestake",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "            if (!pulled) revert OspexPositions__MakerPullRefused(maker, makerRisk, pull);\n",
+     "replace": "            if (!pulled) revert OspexPositions__MakerPullRefused(maker, makerRisk, makerRisk);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_netting_anEmptyWalletFillsWhatLowersItsWorstLoss",
+   "breaks": "the refusal's third word is written as the stake: the direct call's bytes differ, a Cross alone would not see it"
+  },
+  {
+   "id": "S37-thirdwordiszero",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "            if (!pulled) revert OspexPositions__MakerPullRefused(maker, makerRisk, pull);\n",
+     "replace": "            if (!pulled) revert OspexPositions__MakerPullRefused(maker, makerRisk, 0);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_netting_anEmptyWalletFillsWhatLowersItsWorstLoss",
+   "breaks": "the refusal's third word is written as zero"
+  },
+  {
+   "id": "S38-selfexceptionremoved",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (maker != taker) {\n            (uint256 pull, bool pulled) = _pull(marketId, maker);\n            if (!pulled) revert OspexPositions__MakerPullRefused(maker, makerRisk, pull);\n        }\n",
+     "replace": "        if (maker != address(0)) {\n            (uint256 pull, bool pulled) = _pull(marketId, maker);\n            if (!pulled) revert OspexPositions__MakerPullRefused(maker, makerRisk, pull);\n        }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_netting_bothRolesAndTheSameAccountRestingTwice",
+   "breaks": "the self-leg exception is removed: the self leg pulls the taking account as a maker and the end asks 5,000"
+  },
+  {
+   "id": "S39-paybackateachleg-roles",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (maker != taker) {\n            (uint256 pull, bool pulled) = _pull(marketId, maker);\n            if (!pulled) revert OspexPositions__MakerPullRefused(maker, makerRisk, pull);\n        }\n",
+     "replace": "        if (maker != taker) {\n            (uint256 pull, bool pulled) = _pull(marketId, maker);\n            if (!pulled) revert OspexPositions__MakerPullRefused(maker, makerRisk, pull);\n        }\n        _payBack(marketId, maker);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_netting_bothRolesAndTheSameAccountRestingTwice",
+   "breaks": "a pay-back is made at each leg: the maker resting twice is paid 60 at its first leg and its second leg is skipped"
+  },
+  {
+   "id": "S40-takerateachleg-roles",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (maker != taker) {\n            (uint256 pull, bool pulled) = _pull(marketId, maker);\n            if (!pulled) revert OspexPositions__MakerPullRefused(maker, makerRisk, pull);\n        }\n",
+     "replace": "        if (maker != taker) {\n            (uint256 pull, bool pulled) = _pull(marketId, maker);\n            if (!pulled) revert OspexPositions__MakerPullRefused(maker, makerRisk, pull);\n        }\n        (uint256 tPull, bool tPulled) = _pull(marketId, taker);\n        if (!tPulled) revert OspexPositions__TakerPullRefused(taker, tPull);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_netting_bothRolesAndTheSameAccountRestingTwice",
+   "breaks": "the taking account is pulled at each leg: a held change of its before the last PositionFilled"
+  },
+  {
+   "id": "S41-capatthecent",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (t.riskAmount > TAKING_STAKE_CAP && !s_takingStakeCapLifted) {\n",
+     "replace": "        if (t.riskAmount >= TAKING_STAKE_CAP && !s_takingStakeCapLifted) {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_netting_underTheCapAndWithAMinimum",
+   "breaks": "the cap refuses a one-cent taking order: the pull is no operand of the cap, so its comparison is moved instead"
+  },
+  {
+   "id": "S42-minimumatthestake",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (tally.takerRisk < t.minFill && room >= LOT) {\n",
+     "replace": "        if (tally.takerRisk <= t.minFill && room >= LOT) {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_netting_underTheCapAndWithAMinimum",
+   "breaks": "a minimum met exactly by the stake filled refuses the Cross: the pull is no operand of the minimum, so its comparison is moved instead"
+  },
+  {
+   "id": "S43-pullwholeworst-pieces",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        pull = worst - held;\n",
+     "replace": "        pull = worst;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_netting_anOrderFilledWholeAndInPiecesEndsInTheSamePlace",
+   "breaks": "a pull asks the whole worst loss, not the difference: the third piece pulls 130 from the maker, not 100"
+  },
+  {
+   "id": "S44-finishfromanyone",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "    function finishFills(uint256 marketId, address taker, address[] calldata makers) external override nonReentrant {\n        if (msg.sender != i_ospexCore.getModule(MATCHING_MODULE)) revert OspexPositions__NotMatchingModule(msg.sender);\n",
+     "replace": "    function finishFills(uint256 marketId, address taker, address[] calldata makers) external override nonReentrant {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexBettingNeverLines.t.sol",
+   "test": "test_neverLine_theCrossIsTheOneFillPath",
+   "breaks": "anyone ends a Cross: the end call's caller is not checked"
+  },
+  {
+   "id": "S45-paybackshortge",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (amount > total) revert OspexPositions__MarketShort(marketId, amount, total);\n",
+     "replace": "        if (amount >= total) revert OspexPositions__MarketShort(marketId, amount, total);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_oneMarketsShortfallStaysOnThatMarket",
+   "breaks": "a pay-back equal to what the market holds is refused as short (A pay-back equal to what the market holds is refused as MarketShort: a Cross in which both accounts' worst losses fall to zero (the second fill mirrors the firs)"
+  },
+  {
+   "id": "S46-takerrefusalworst",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (!pulled) revert OspexPositions__TakerPullRefused(taker, pull);\n",
+     "replace": "        if (!pulled) revert OspexPositions__TakerPullRefused(taker, s_held[marketId][taker]);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_netting_anEmptyWalletFillsWhatLowersItsWorstLoss",
+   "breaks": "the taking account's refusal carries its worst loss, not the netted pull (TakerPullRefused carries the taker's worst loss (s_held as _pull left it) instead of the netted pull)"
+  },
+  {
+   "id": "S47-claimeventsender",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        emit PositionClaimed(marketId, account, side, payout);\n",
+     "replace": "        emit PositionClaimed(marketId, msg.sender, side, payout);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_aClaimByAnyonePaysOnlyTheOwner",
+   "breaks": "PositionClaimed names the caller, not the owner paid (PositionClaimed names the caller, not the owner paid)"
+  },
+  {
+   "id": "S48-claimhubgross",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        i_ospexCore.emitCoreEvent(EVENT_POSITION_CLAIMED, abi.encode(marketId, account, side, payout));\n",
+     "replace": "        i_ospexCore.emitCoreEvent(EVENT_POSITION_CLAIMED, abi.encode(marketId, account, side, pos.risk + pos.profit));\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_aClaimByAnyonePaysOnlyTheOwner",
+   "breaks": "the hub copy of PositionClaimed carries the record's risk + profit as the payout (The hub copy of PositionClaimed carries the record's risk + profit, the gross figure, as the payout)"
+  },
+  {
+   "id": "S49-claimorigin",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        return _claim(marketId, msg.sender, side);\n",
+     "replace": "        return _claim(marketId, tx.origin, side);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_aClaimByAnyonePaysOnlyTheOwner",
+   "breaks": "claimPosition claims for tx.origin, not msg.sender (claimPosition claims for tx)"
+  },
+  {
+   "id": "S50-previewside",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (side == Side.A) {\n            riskA += risk;\n            profitA += profit;\n",
+     "replace": "        if (side == Side.B) {\n            riskA += risk;\n            profitA += profit;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_preview_answersOneAccountsPullOrPayBackForOneGrowth",
+   "breaks": "previewFill grows the other side's record (previewFill grows the side B record when asked about side A and vice versa)"
+  },
+  {
+   "id": "S51-previewswap",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        pull = worst > held ? worst - held : 0;\n        payBack = held > worst ? held - worst : 0;\n",
+     "replace": "        payBack = worst > held ? worst - held : 0;\n        pull = held > worst ? held - worst : 0;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_preview_answersOneAccountsPullOrPayBackForOneGrowth",
+   "breaks": "previewFill answers the pull and the pay-back in each other's slot (previewFill answers the pull in the payBack slot and the pay-back in the pull slot)"
+  },
+  {
+   "id": "S52-previewtotal",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        uint256 held = s_held[marketId][account];\n        pull = worst > held ? worst - held : 0;\n",
+     "replace": "        uint256 held = s_heldTotal[marketId];\n        pull = worst > held ? worst - held : 0;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_preview_answersOneAccountsPullOrPayBackForOneGrowth",
+   "breaks": "previewFill measures the forecast against the market's total (previewFill measures the forecast against the market's total instead of the account's held amount, so it answers a pay-back for every account on a market with t)"
+  },
+  {
+   "id": "S53-previewgrow",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "            riskA += risk;\n            profitA += profit;\n        } else {\n            riskB += risk;\n            profitB += profit;\n        }\n",
+     "replace": "            riskA += profit;\n            profitA += risk;\n        } else {\n            riskB += profit;\n            profitB += risk;\n        }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_preview_answersOneAccountsPullOrPayBackForOneGrowth",
+   "breaks": "previewFill adds the growth's profit to the risk and its risk to the profit (previewFill adds the leg's profit to the record's risk and its risk to the profit: wrong at every price but 2)"
+  },
+  {
+   "id": "S54-selfleguneven",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (maker != taker) {\n",
+     "replace": "        if (maker != taker || makerRisk != takerRisk) {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_netting_bothRolesAndTheSameAccountRestingTwice",
+   "breaks": "the self-leg exception holds only at even stakes (The self-leg exception holds only at even stakes: a self leg at any other price pulls the account at the leg, and a refused pull there is read by the matching m)"
+  },
+  {
+   "id": "S55-makersreverse",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "            _payBack(marketId, makers[i]);\n",
+     "replace": "            _payBack(marketId, makers[makers.length - 1 - i]);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_netting_bothRolesAndTheSameAccountRestingTwice",
+   "breaks": "the end call visits the resting accounts in reverse list order (The end call visits the resting accounts in reverse list order)"
+  },
+  {
+   "id": "S56-dustpull",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (worst <= held) return (0, true);\n",
+     "replace": "        if (worst <= held || worst - held < 100) return (0, true);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_netting_aPullAndAPayBackUnderALot",
+   "breaks": "a pull under 100 units is skipped (A pull under 100 units is skipped, leaving the account held under its worst loss by up to 99 units (the market is then short at the last claim))"
+  },
+  {
+   "id": "S57-dustpayback",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        if (held <= worst) return;\n",
+     "replace": "        if (held <= worst || held - worst < 100) return;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_netting_aPullAndAPayBackUnderALot",
+   "breaks": "a pay-back under 100 units is never made (A pay-back under 100 units is never made: the excess stays held until the claim)"
+  },
+  {
+   "id": "S58-claimwritesafter",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        pos.claimed = true;\n        s_heldTotal[marketId] = total - payout;\n\n        i_token.safeTransfer(account, payout);\n",
+     "replace": "        i_token.safeTransfer(account, payout);\n\n        pos.claimed = true;\n        s_heldTotal[marketId] = total - payout;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_theWritesComeBeforeTheCoinMoves",
+   "breaks": "the claim sends the coin before marking the record and lowering the total (The claim sends the coin before marking the record and lowering the total: a recipient with a transfer hook sees an unclaimed record and the old total from insi)"
+  },
+  {
+   "id": "S59-pullwritesafter",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        s_held[marketId][account] = worst;\n        s_heldTotal[marketId] += pull;\n\n        uint256 owed = i_token.balanceOf(address(this)) + pull;\n        if (!i_token.trySafeTransferFrom(account, address(this), pull)) return (pull, false);\n",
+     "replace": "        uint256 owed = i_token.balanceOf(address(this)) + pull;\n        if (!i_token.trySafeTransferFrom(account, address(this), pull)) return (pull, false);\n        s_held[marketId][account] = worst;\n        s_heldTotal[marketId] += pull;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_theWritesComeBeforeTheCoinMoves",
+   "breaks": "the pull moves the coin before raising the held amount and the total (The pull moves the coin before raising s_held and s_heldTotal: an account called back by the coin during its own pull reads its held amount and the total as the)"
+  },
+  {
+   "id": "S60-paybackmarketzero",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        emit HeldChanged(marketId, account, 0, amount, worst);\n",
+     "replace": "        emit HeldChanged(0, account, 0, amount, worst);\n"
+    },
+    {
+     "find": "abi.encode(marketId, account, uint256(0), amount, worst)",
+     "replace": "abi.encode(uint256(0), account, uint256(0), amount, worst)"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_heldCoversTheWorstLoss_everyOrderOfFills",
+   "breaks": "HeldChanged for a pay-back names market 0 (HeldChanged for a pay-back, typed event and hub copy alike, names market 0)"
+  },
+  {
+   "id": "S61-refusedmarketzero",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        emit PayBackRefused(marketId, account, amount, held);\n",
+     "replace": "        emit PayBackRefused(0, account, amount, held);\n"
+    },
+    {
+     "find": "abi.encode(marketId, account, amount, held)",
+     "replace": "abi.encode(uint256(0), account, amount, held)"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_netting_bothRolesAndTheSameAccountRestingTwice",
+   "breaks": "PayBackRefused names market 0 (PayBackRefused, typed event and hub copy alike, names market 0)"
+  },
+  {
+   "id": "S62-zeroaccountcaller",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        return _claim(marketId, account, side);\n",
+     "replace": "        return _claim(marketId, account == address(0) ? msg.sender : account, side);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_aClaimByAnyonePaysOnlyTheOwner",
+   "breaks": "claimPositionFor with the zero account claims the caller's own position (claimPositionFor with the zero account claims the caller's own position instead of being refused)"
+  },
+  {
+   "id": "S63-makersbyindex",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                makers[tally.legs - 1] = resting[i].order.account;\n",
+     "replace": "                makers[i] = resting[i].order.account;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_neverLine_heldCoversTheWorstLoss_everyOrderOfFills",
+   "breaks": "the makers list is indexed by list position: after a skip the filled maker lands past the cut (The makers list is indexed by list position, not by filled count: after a skipped order the later filled maker lands past the cut and the end call pays back the)"
+  },
+  {
+   "id": "S64-makersfirstlisted",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                makers[tally.legs - 1] = resting[i].order.account;\n",
+     "replace": "                makers[tally.legs - 1] = resting[0].order.account;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_netting_bothRolesAndTheSameAccountRestingTwice",
+   "breaks": "every slot of the makers list is the first listed order's account (Every slot of the makers list is the first listed order's account, so a second distinct maker is never paid back at the end)"
+  },
+  {
+   "id": "S65-finishbeforeminfill",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        uint256 room = t.riskAmount - s_filledRisk[takingHash];\n",
+     "replace": "        uint256 early = tally.legs;\n        assembly (\"memory-safe\") {\n            mstore(makers, early)\n        }\n        positions.finishFills(tally.marketId, t.account, makers); // before the minimum is checked\n        uint256 room = t.riskAmount - s_filledRisk[takingHash];\n"
+    },
+    {
+     "find": "        positions.finishFills(tally.marketId, t.account, makers);\n\n        emit Crossed(",
+     "replace": "\n        emit Crossed("
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_netting_underTheCapAndWithAMinimum",
+   "breaks": "the end call is made before the taking order's minimum is checked (The end call, the taker's pull and the pay-backs, is made before the taking order's minimum is checked: a Cross that is both short of its minimum and unfunded r)"
+  },
+  {
+   "id": "S66-skippedpaidback",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (filled) {\n                // The leg just counted is the last filled one.\n                makers[tally.legs - 1] = resting[i].order.account;\n                continue;\n            }\n",
+     "replace": "            makers[i] = resting[i].order.account;\n            if (filled) continue;\n"
+    },
+    {
+     "find": "            mstore(makers, legs)\n",
+     "replace": "            mstore(makers, add(legs, sub(mload(makers), legs)))\n"
+    }
+   ],
+   "testPath": "test/betting/OspexSharedCollateral.t.sol",
+   "test": "test_netting_bothRolesAndTheSameAccountRestingTwice",
+   "breaks": "the makers list keeps every listed order's account, skipped ones included (The makers list keeps every listed order's account, skipped ones included, and is not cut: the end call pays back accounts that filled nothing in this Cross and)"
   }
  ]
 }

@@ -502,12 +502,15 @@ contract OspexCrossNeverLinesTest is CrossBase {
         assertEq(_filled(narrow), 5_500, "the taking order, spent at the first entry");
 
         // After a skipped leg, a later Cross finds the room the order had. Its filled amount is put back to the
-        // figure it stood at, 3,000, not to zero and not to the leg's.
-        OspexMatching.SignedOrder memory held = _rest(m3, game, restingSide, 200, 10_000);
+        // figure it stood at, 3,000, not to zero and not to the leg's. The order is the second resting account's,
+        // which is on one side only: its pull is asked, and refused. (The third account now has a record on the
+        // other side, so a resting order of its on this side would lower its worst loss and fill with no pull,
+        // which is the netting's rule and not this line's subject.)
+        OspexMatching.SignedOrder memory held = _rest(m2, game, restingSide, 200, 10_000);
         _cross(sender, _take(tk, game, takingSide, 200, 3_000), _list(held));
         assertEq(_filled(held), 3_000, "before the refused pull");
         IERC20 coin = _coin();
-        vm.prank(m3.a);
+        vm.prank(m2.a);
         coin.approve(address(positions), 0);
         OspexMatching.SignedOrder memory later = _take(tk, game, takingSide, 200, 9_000);
         vm.recordLogs();
@@ -517,7 +520,7 @@ contract OspexCrossNeverLinesTest is CrossBase {
         _assertSkip(skips[0], held, later, PULL_REFUSED, "the order whose pull was refused");
         assertEq(_filled(held), 3_000, "the filled amount after a refused pull");
         assertEq(_filled(later), 2_000, "the taking order, filled by the other leg alone");
-        vm.prank(m3.a);
+        vm.prank(m2.a);
         coin.approve(address(positions), type(uint256).max);
         _cross(sender, later, _list(held));
         assertEq(_filled(held), 10_000, "the room it had, taken in a later Cross: 7,000");
@@ -884,6 +887,8 @@ contract OspexCrossNeverLinesTest is CrossBase {
                 }
                 if (seen) continue;
                 bool wins = takingSide == Side.A ? who[i] == l.taking.a : (who[i] == l.first.a || who[i] == l.third.a);
+                // The account on both sides that took side B holds exactly its loss on side B: nothing to pay.
+                if (who[i] == l.taking.a && l.first.a == l.taking.a && takingSide == Side.B) wins = false;
                 if (pass == 1) {
                     if (wins) paid += _claim(who[i], market, Side.A);
                     continue;
@@ -921,10 +926,13 @@ contract OspexCrossNeverLinesTest is CrossBase {
         _cross(l.from, taking, _list(first, cancelled, third));
         uint256 market = markets.getMarketId(game, address(moneyline), 0);
 
-        // Every address's coin change is exactly the stakes of its own orders in the filled legs, added over
-        // the parts it plays: 10,000 as the taking account, 5,000 as the first resting account, nothing as the
-        // skipped one, 4,500 as the third, and nothing for sending.
-        uint256[5] memory part = [uint256(10_000), 5_000, 0, 4_500, 0];
+        // Every address's coin change is exactly what the legs ask of its own orders, added over the parts it
+        // plays: 10,000 as the taking account, 5,000 as the first resting account, nothing as the skipped one,
+        // 4,500 as the third, and nothing for sending. An account on both sides, the taking account resting
+        // first, is pulled its worst loss once, at the end: 4,500, the 10,000 it takes less the 5,500 its own
+        // resting order wins it, and nothing at its own leg.
+        bool twoSided = l.first.a == l.taking.a;
+        uint256[5] memory part = [uint256(twoSided ? 4_500 : 10_000), twoSided ? 0 : 5_000, 0, 4_500, 0];
         for (uint256 i; i < 5; ++i) {
             uint256 owed;
             for (uint256 j; j < 5; ++j) {
@@ -932,8 +940,11 @@ contract OspexCrossNeverLinesTest is CrossBase {
             }
             assertEq(coin[i] - _coin().balanceOf(who[i]), owed, string.concat(l.name, ": an address's coin change"));
         }
-        // The positions module's coin rose by both stakes of the two filled legs, and this market holds it all.
-        assertEq(_coin().balanceOf(address(positions)), 19_500, string.concat(l.name, ": the stakes held"));
+        // The positions module's coin rose by what was pulled, and this market holds it all: both stakes of the
+        // two filled legs, or, with one account on both sides, that account's worst loss and the third's stake.
+        assertEq(
+            _coin().balanceOf(address(positions)), twoSided ? 9_000 : 19_500, string.concat(l.name, ": the stakes held")
+        );
 
         // Every position is what the legs give: the taking account risks 10,000 to win 9,500; the first resting
         // account 5,000 to win 5,500; the third 4,500 to win 4,500. Where one account plays two parts on a side,
@@ -963,12 +974,15 @@ contract OspexCrossNeverLinesTest is CrossBase {
         assertEq(_filled(cancelled), 0, string.concat(l.name, ": the skipped order"));
 
         // After settlement every claim is paid and the market's coin is gone. Home wins 104 to 97: side A is
-        // paid its risk and its profit, side B nothing.
+        // paid what it holds plus its net, which for a one-sided account is its risk and its profit, side B
+        // nothing. The account on both sides is paid 9,000 on its side A record when it took side A, 4,500 held
+        // plus 9,500 won less 5,000 lost; when it took side B its net is the 4,500 it holds, lost, and both of
+        // its records are refused.
         _score(game, HOME, AWAY);
         _settle(market);
         assertEq(uint8(_outcome(market)), uint8(Outcome.Home));
         uint256 paid = _claimAll(l, who, market, takingSide);
-        assertEq(paid, 19_500, string.concat(l.name, ": what the winning side was paid"));
+        assertEq(paid, twoSided ? 9_000 : 19_500, string.concat(l.name, ": what the winning side was paid"));
         assertEq(_coin().balanceOf(address(positions)), 0, string.concat(l.name, ": coin left in the contract"));
         vm.revertToState(snap);
     }

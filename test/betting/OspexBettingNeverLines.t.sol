@@ -138,7 +138,10 @@ contract OspexBettingNeverLinesTest is BettingBase {
 
         // The declared order, from the artifacts: the home team's score, then the away team's, then the line.
         _assertParams(
-            _artifact("OspexTotalScorer"), "$.abi[?(@.name == 'outcome')].inputs", "homeScore;awayScore;lineTicks", "uint32;uint32;int32"
+            _artifact("OspexTotalScorer"),
+            "$.abi[?(@.name == 'outcome')].inputs",
+            "homeScore;awayScore;lineTicks",
+            "uint32;uint32;int32"
         );
         _assertParams(
             _artifact("OspexMoneylineScorer"),
@@ -147,10 +150,16 @@ contract OspexBettingNeverLinesTest is BettingBase {
             "uint32;uint32;int32"
         );
         _assertParams(
-            _artifact("OspexSpreadScorer"), "$.abi[?(@.name == 'outcome')].inputs", "homeScore;awayScore;homeLine", "uint32;uint32;int32"
+            _artifact("OspexSpreadScorer"),
+            "$.abi[?(@.name == 'outcome')].inputs",
+            "homeScore;awayScore;homeLine",
+            "uint32;uint32;int32"
         );
         _assertParams(
-            _artifact("IOspexGames"), "$.abi[?(@.name == 'getGameScores')].outputs", "homeScore;awayScore", "uint32;uint32"
+            _artifact("IOspexGames"),
+            "$.abi[?(@.name == 'getGameScores')].outputs",
+            "homeScore;awayScore",
+            "uint32;uint32"
         );
     }
 
@@ -266,9 +275,7 @@ contract OspexBettingNeverLinesTest is BettingBase {
             _order(maker, game, address(moneyline), 0, Side.A, 200, STAKE, 1, vm.getBlockTimestamp() + 1 days);
         uint256 makerCoin = token.balanceOf(maker);
         assertGe(makerCoin, STAKE, "the account holds no coin a fill could move");
-        assertGe(
-            token.allowance(maker, address(positions)), STAKE, "the account has not approved the positions module"
-        );
+        assertGe(token.allowance(maker, address(positions)), STAKE, "the account has not approved the positions module");
         vm.startPrank(maker, maker);
         matching.registerCourier(taker);
         matching.cancelOrder(order);
@@ -297,11 +304,14 @@ contract OspexBettingNeverLinesTest is BettingBase {
         assertEq(OspexMarkets(addrs[0]).marketCount(), 0, "the lift drew a market");
         assertEq(OspexPositions(addrs[1]).getPosition(1, maker, Side.A).risk, 0, "the lift wrote a position");
 
-        // The positions module takes a fill from the matching module alone: from every other address a fill is
-        // refused by name, and nothing moves. A courier both accounts registered is one of them.
+        // The positions module takes a fill, and the end of a Cross, from the matching module alone: from every
+        // other address each is refused by name, and nothing moves. A courier both accounts registered is one of
+        // them.
         address registered = makeAddr("a courier both accounts registered");
         _register(maker, registered);
         _register(taker, registered);
+        address[] memory makers = new address[](1);
+        makers[0] = maker;
         address[12] memory callers = [
             stranger,
             deployer,
@@ -318,15 +328,18 @@ contract OspexBettingNeverLinesTest is BettingBase {
         ];
         for (uint256 i; i < callers.length; ++i) {
             vm.prank(callers[i], callers[i]);
-            (bool ok, bytes memory err) = address(positions).call(
-                abi.encodeCall(
-                    OspexPositions.recordFill, (game, address(moneyline), 0, Side.A, maker, STAKE, taker, STAKE)
-                )
-            );
+            (bool ok, bytes memory err) = address(positions)
+                .call(
+                    abi.encodeCall(
+                        OspexPositions.recordFill, (game, address(moneyline), 0, Side.A, maker, STAKE, taker, STAKE)
+                    )
+                );
             assertFalse(ok, "a fill from an outsider was taken");
-            assertEq(
-                err, abi.encodeWithSelector(OspexPositions.OspexPositions__NotMatchingModule.selector, callers[i])
-            );
+            assertEq(err, abi.encodeWithSelector(OspexPositions.OspexPositions__NotMatchingModule.selector, callers[i]));
+            vm.prank(callers[i], callers[i]);
+            (ok, err) = address(positions).call(abi.encodeCall(OspexPositions.finishFills, (1, taker, makers)));
+            assertFalse(ok, "an end call from an outsider was taken");
+            assertEq(err, abi.encodeWithSelector(OspexPositions.OspexPositions__NotMatchingModule.selector, callers[i]));
         }
         assertEq(token.balanceOf(address(positions)), 0, "coin moved");
         assertEq(markets.marketCount(), 0, "a market was drawn");
@@ -770,9 +783,7 @@ contract OspexBettingNeverLinesTest is BettingBase {
         (types, addrs) = _freshSet(swapped);
         (addrs[0], addrs[1]) = (addrs[1], addrs[0]);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                OspexBetting.OspexBetting__ModuleTypeMismatch.selector, addrs[0], types[0], types[1]
-            )
+            abi.encodeWithSelector(OspexBetting.OspexBetting__ModuleTypeMismatch.selector, addrs[0], types[0], types[1])
         );
         swapped.bootstrapModules(types, addrs);
 
@@ -783,7 +794,9 @@ contract OspexBettingNeverLinesTest is BettingBase {
         addrs[5] = address(new ExtraModule());
         missing.bootstrapModules(types, addrs);
         vm.expectRevert(
-            abi.encodeWithSelector(OspexBetting.OspexBetting__ModuleNotRegistered.selector, missing.TOTAL_SCORER_MODULE())
+            abi.encodeWithSelector(
+                OspexBetting.OspexBetting__ModuleNotRegistered.selector, missing.TOTAL_SCORER_MODULE()
+            )
         );
         missing.finalize();
 
@@ -977,6 +990,11 @@ contract OspexBettingNeverLinesTest is BettingBase {
     function _wFill(uint256 game, address scorer, int32 line) internal returns (uint256 market) {
         vm.prank(wOwn[2]);
         market = wPositions.recordFill(game, scorer, line, Side.A, maker, STAKE, taker, STAKE);
+        // The end call, as the Cross makes it after its walk: the taker's one pull.
+        address[] memory makers = new address[](1);
+        makers[0] = maker;
+        vm.prank(wOwn[2]);
+        wPositions.finishFills(market, taker, makers);
     }
 
     /// @dev The six modules of `other`, each offered to the core under test: by `told`, one letter a kind,

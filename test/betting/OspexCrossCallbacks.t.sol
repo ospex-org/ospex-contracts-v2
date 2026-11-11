@@ -507,8 +507,9 @@ contract OspexCrossCallbacksTest is CrossBase {
         vm.revertToState(snap);
 
         // A short receipt on the resting pull, after a leg that filled: the coin keeps one unit of each transfer
-        // from the second resting account and of nobody else's. The Cross reverts by name, with what was owed
-        // and what was held, and nothing of it remains.
+        // from the second resting account and of nobody else's. Each pull has its own receipt: the first leg's
+        // 10,000 is in, the second leg's pull of 10,000 is owed on top of it, and one unit short arrives. The
+        // Cross reverts by name, with what was owed and what was held, and nothing of it remains.
         trick.setCut(1);
         trick.setExempt(m1.a, true);
         trick.setExempt(tk.a, true);
@@ -516,14 +517,15 @@ contract OspexCrossCallbacksTest is CrossBase {
             sender,
             taking,
             _list(first, second),
-            abi.encodeWithSelector(OspexPositions.OspexPositions__ShortReceipt.selector, 40_000, 39_999),
+            abi.encodeWithSelector(OspexPositions.OspexPositions__ShortReceipt.selector, 20_000, 19_999),
             "a short receipt on the resting pull"
         );
         assertEq(trick.balanceOf(address(positions)), 0, "a reverted Cross left coin");
         assertEq(_filled(first), 0, "a reverted Cross left a filled amount");
         vm.revertToState(snap);
 
-        // A short receipt on the taking pull: the coin keeps one unit of each transfer from the taking account.
+        // A short receipt on the taking pull: the coin keeps one unit of each transfer from the taking account,
+        // whose one pull of 20,000 comes after the walk, with both resting stakes already in.
         trick.setCut(1);
         trick.setExempt(m1.a, true);
         trick.setExempt(y.a, true);
@@ -531,7 +533,7 @@ contract OspexCrossCallbacksTest is CrossBase {
             sender,
             taking,
             _list(first, second),
-            abi.encodeWithSelector(OspexPositions.OspexPositions__ShortReceipt.selector, 20_000, 19_999),
+            abi.encodeWithSelector(OspexPositions.OspexPositions__ShortReceipt.selector, 40_000, 39_999),
             "a short receipt on the taking pull"
         );
         assertEq(trick.balanceOf(address(positions)), 0, "a reverted Cross left coin");
@@ -688,8 +690,11 @@ contract OspexCrossRefusalBytesTest is CrossBase {
         resting = _list(_rest(m1, game, _other(legTakingSide), 200, 10_000));
     }
 
+    /// @dev The maker's refusal in its three words, the amount asked being the stake: for an account with
+    ///      nothing on the market, the netted pull is the stake.
     function _makerRefused(address account, uint256 amount) internal pure returns (bytes memory) {
-        return abi.encodeWithSelector(IOspexPositions.OspexPositions__MakerPullRefused.selector, account, amount);
+        return
+            abi.encodeWithSelector(IOspexPositions.OspexPositions__MakerPullRefused.selector, account, amount, amount);
     }
 
     /// Break: in OspexMatching._isMakerPullRefused, delete the length's test. Others turn it red: the selector
@@ -745,7 +750,7 @@ contract OspexCrossRefusalBytesTest is CrossBase {
         // Any other revert of the positions call is passed up unchanged, byte for byte. The coin's balance
         // read, which the positions module makes before the pulls, is made to revert with each of these.
         bytes memory exact = _makerRefused(m1.a, 10_000);
-        bytes[] memory passed = new bytes[](10);
+        bytes[] memory passed = new bytes[](11);
         passed[0] = _makerRefused(m1.a, 9_999);
         passed[1] = _makerRefused(m1.a, 10_001);
         passed[2] = _makerRefused(m2.a, 10_000);
@@ -753,16 +758,19 @@ contract OspexCrossRefusalBytesTest is CrossBase {
         passed[3] = abi.encodePacked(
             IOspexPositions.OspexPositions__MakerPullRefused.selector,
             bytes32(uint256(uint160(m1.a)) | (uint256(1) << 255)),
+            uint256(10_000),
             uint256(10_000)
         );
         // The selector alone; the exact bytes less their last byte; the exact bytes and a word more.
         passed[4] = abi.encodePacked(IOspexPositions.OspexPositions__MakerPullRefused.selector);
-        passed[5] = _first(exact, 67);
+        passed[5] = _first(exact, 99);
         passed[6] = bytes.concat(exact, bytes32(0));
-        // The other pull's error with the same two values; a string; nothing at all.
+        // The other pull's error with the same two values; the maker's error in two words, the account and the
+        // stake with no third; a string; nothing at all.
         passed[7] = abi.encodeWithSelector(IOspexPositions.OspexPositions__TakerPullRefused.selector, m1.a, 10_000);
-        passed[8] = abi.encodeWithSignature("Error(string)", "no");
-        passed[9] = "";
+        passed[8] = abi.encodeWithSelector(IOspexPositions.OspexPositions__MakerPullRefused.selector, m1.a, 10_000);
+        passed[9] = abi.encodeWithSignature("Error(string)", "no");
+        passed[10] = "";
         for (uint256 i; i < passed.length; ++i) {
             scripted.setBalanceRevert(address(positions), passed[i]);
             (bool ok, bytes memory err) = _tryCross(sender, taking, resting);
@@ -776,6 +784,14 @@ contract OspexCrossRefusalBytesTest is CrossBase {
         _refused(sender, taking, resting, skipped, "the exact bytes of a refused resting pull");
         scripted.setBalanceRevert(address(0), "");
         assertEq(_filled(resting[0]), 0, "a refused Cross left a filled amount");
+        // The third word, the amount the positions module asked, is not compared: the same bytes with zero or
+        // half the stake there read as the refusal too.
+        bytes4 makerSelector = IOspexPositions.OspexPositions__MakerPullRefused.selector;
+        scripted.setBalanceRevert(address(positions), abi.encodeWithSelector(makerSelector, m1.a, 10_000, 0));
+        _refused(sender, taking, resting, skipped, "the refusal with a zero third word");
+        scripted.setBalanceRevert(address(positions), abi.encodeWithSelector(makerSelector, m1.a, 10_000, 5_000));
+        _refused(sender, taking, resting, skipped, "the refusal with another amount asked");
+        scripted.setBalanceRevert(address(0), "");
 
         // With nothing scripted the same Cross fills.
         _cross(sender, taking, resting);

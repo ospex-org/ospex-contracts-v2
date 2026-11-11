@@ -55,13 +55,13 @@ interface IOspexGamesTimelock {
  *
  *         Who calls it, and what it calls. Anyone calls anything here; what a call may do is decided by who the
  *         caller is to the accounts it names. It calls the positions module's recordFill, once per attempted
- *         leg, and the core, for the positions module's address and its event hub. It holds no coin and is
- *         approved for none: the positions module pulls the stakes.
+ *         leg, and its finishFills, once after the walk of a Cross that filled, with the taking account and the
+ *         resting accounts of the filled legs; and the core, for the positions module's address and its event
+ *         hub. It holds no coin and is approved for none: the positions module pulls the stakes, netted per
+ *         account per market, and pays back what a fill leaves held above an account's worst loss.
  *
- *         What this build is not. Each stake is pulled in full at each leg: netting, one rebalance for the
- *         taking account and pay-backs come with shared collateral. The account's own key signs: the approved
- *         agent and contract wallets come with the agent. An order's nonce is compared whole with its
- *         account's floor.
+ *         What this build is not. The account's own key signs: the approved agent and contract wallets come
+ *         with the agent. An order's nonce is compared whole with its account's floor.
  *
  *         The cap and its switch. Until the switch, a taking order's signed stake is at most TAKING_STAKE_CAP,
  *         one cent: a taking order signed for more is refused by name before anything moves, whatever it has
@@ -475,22 +475,30 @@ contract OspexMatching is IOspexModule, EIP712 {
      *      is called, and written back as they were if the leg is skipped for a refused pull.
      *
      *      A leg is skipped for a refused pull only when the positions call reverts with exactly its
-     *      MakerPullRefused error for this leg's resting account and resting stake. Every other revert of that
-     *      call reverts the Cross, with its data unchanged: the taking account's refused pull, a short receipt,
-     *      the close gate, a market that cannot be drawn, and running out of gas among them.
+     *      MakerPullRefused error, three words, for this leg's resting account and resting stake: the third
+     *      word, the amount the positions module asked, which is the resting account's netted pull and at most
+     *      its stake, is not compared. Every other revert of that call reverts the Cross, with its data
+     *      unchanged: a short receipt, the close gate, a market that cannot be drawn, and running out of gas
+     *      among them.
      *
      *      If no leg filled the call reverts, carrying each listed order's reason. If legs filled but this
      *      Cross filled the taking order for less than its minimum fill, with a lot or more of its room left,
      *      the call reverts under its own name, carrying what it filled, the minimum, the room and one record
      *      per listed order, and nothing of the Cross remains: the pulls, the positions, a market it drew, the
-     *      filled amounts and the logs are all undone. Otherwise Crossed is emitted.
+     *      filled amounts and the logs are all undone. Otherwise the positions module's finishFills is called
+     *      once, with the taking account and the resting accounts of the filled legs in list order: it pulls
+     *      the taking account once, over every leg of the Cross, and a pull the coin refuses reverts the whole
+     *      Cross with the positions module's TakerPullRefused, its second word that netted pull; then it pays
+     *      back every account of the Cross held above its worst loss. Then Crossed is emitted.
      *
-     *      What the coin can do. The positions module pulls the two stakes of a leg, and the coin is fixed at
-     *      the set's deploy. A coin that calls the debited account during a transfer hands that account a call
-     *      in the middle of a Cross: it cannot cancel, raise a floor, change a courier or start a Cross from
-     *      there, which this contract refuses, but it can make the Cross fail, by spending the gas passed to
-     *      it or by ending the game, where its release is open, so that the next leg meets the close gate. No
-     *      gas limit is put on a pull and no leg is skipped at the close gate. USDC makes no such call.
+     *      What the coin can do. The positions module pulls each resting account what lifts its held amount to
+     *      its worst loss, at the leg, and the taking account once at the end, and the coin is fixed at the
+     *      set's deploy. A coin that calls the debited account during a transfer hands that account a call in
+     *      the middle of a Cross, and so does a pay-back to an account with code: it cannot cancel, raise a
+     *      floor, change a courier or start a Cross from there, which this contract refuses, but it can make
+     *      the Cross fail, by spending the gas passed to it or by ending the game, where its release is open, so
+     *      that the next leg meets the close gate. No gas limit is put on a pull or a pay-back and no leg is
+     *      skipped at the close gate. USDC makes no such call.
      * @param taking The taking order and its signature
      * @param resting The resting orders, each with its signature, in the order they are to fill
      */
@@ -507,6 +515,9 @@ contract OspexMatching is IOspexModule, EIP712 {
 
         IOspexPositions positions = IOspexPositions(i_ospexCore.getModule(POSITION_MODULE));
         LegReport[] memory report = new LegReport[](resting.length);
+        // The resting accounts of the filled legs, in list order, for the end call: one entry per filled leg,
+        // so an account resting twice is listed twice. Sized for every leg and cut to the filled ones below.
+        address[] memory makers = new address[](resting.length);
         Tally memory tally;
         for (uint256 i; i < resting.length; ++i) {
             (bool filled, SkipReason reason, uint256 makerRisk, uint256 takerRisk) =
@@ -520,7 +531,11 @@ contract OspexMatching is IOspexModule, EIP712 {
                 makerRisk: filled ? makerRisk : 0,
                 takerRisk: filled ? takerRisk : 0
             });
-            if (filled) continue;
+            if (filled) {
+                // The leg just counted is the last filled one.
+                makers[tally.legs - 1] = resting[i].order.account;
+                continue;
+            }
             emit OrderSkipped(hashes[i], resting[i].order.account, takingHash, reason);
             i_ospexCore.emitCoreEvent(
                 EVENT_ORDER_SKIPPED, abi.encode(hashes[i], resting[i].order.account, takingHash, reason)
@@ -534,6 +549,15 @@ contract OspexMatching is IOspexModule, EIP712 {
         if (tally.takerRisk < t.minFill && room >= LOT) {
             revert OspexMatching__TakingOrderUnderMinFill(takingHash, tally.takerRisk, t.minFill, room, report);
         }
+
+        // The end call: the taking account's one pull and the pay-backs, on the market every leg filled into. The
+        // list is cut to the filled legs, which are its first entries; its length only shrinks here, within the
+        // memory it was given. A refusal of the taking pull reverts here with the positions module's own data.
+        uint256 legs = tally.legs;
+        assembly ("memory-safe") {
+            mstore(makers, legs)
+        }
+        positions.finishFills(tally.marketId, t.account, makers);
 
         emit Crossed(msg.sender, takingHash, t.account, tally.marketId, tally.makerRisk, tally.takerRisk);
         i_ospexCore.emitCoreEvent(
@@ -681,10 +705,11 @@ contract OspexMatching is IOspexModule, EIP712 {
     }
 
     /// @dev True only for the positions module's MakerPullRefused carrying this leg's resting account and
-    ///      resting stake: 68 bytes, the error's selector, then the two arguments, each compared as a whole
-    ///      word. Revert data of any other length, selector, account or amount is not this error.
+    ///      resting stake: 100 bytes, the error's selector, then the three arguments, the first two compared as
+    ///      whole words and the third, the amount the positions module asked of the account, not compared.
+    ///      Revert data of any other length, selector, account or stake is not this error.
     function _isMakerPullRefused(bytes memory refusal, address maker, uint256 makerRisk) private pure returns (bool) {
-        if (refusal.length != 68) return false;
+        if (refusal.length != 100) return false;
         bytes32 head;
         bytes32 account;
         bytes32 amount;

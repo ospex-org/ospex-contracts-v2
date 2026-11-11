@@ -120,21 +120,44 @@ contract TrickCoin is TestCoin {
 }
 
 /// @dev A coin that, once set to refuse, answers false and moves nothing instead of reverting, as some coins
-///      do. A caller that reads no answer would take the call as paid.
+///      do. A caller that reads no answer would take the call as paid. It also refuses, the same way, every
+///      transfer to an address it was told to refuse, and nothing else: a pay-back to that address alone.
 contract FalseCoin is TestCoin {
     bool public refusing;
+    mapping(address => bool) public refuseTo;
 
     function setRefusing(bool refusing_) external {
         refusing = refusing_;
     }
 
+    function setRefuseTo(address to, bool on) external {
+        refuseTo[to] = on;
+    }
+
     function transfer(address to, uint256 value) public override returns (bool) {
-        if (refusing) return false;
+        if (refusing || refuseTo[to]) return false;
         return super.transfer(to, value);
     }
 
     function transferFrom(address from, address to, uint256 value) public override returns (bool) {
         if (refusing) return false;
         return super.transferFrom(from, to, value);
+    }
+}
+
+/// @dev A coin that lies: a transfer to an address it was told to lie to moves the balance and then answers
+///      false, so a caller that trusts the answer and keeps its own count has the coin moved and the count not.
+///      Every other transfer is a plain one. USDC does not do this; a pay-back must not rest on the answer.
+contract LyingCoin is TestCoin {
+    mapping(address => bool) public lyingTo;
+
+    function setLyingTo(address to, bool on) external {
+        lyingTo[to] = on;
+    }
+
+    function transfer(address to, uint256 value) public override returns (bool) {
+        bool moved = super.transfer(to, value);
+        if (lyingTo[to]) return false;
+        return moved;
     }
 }

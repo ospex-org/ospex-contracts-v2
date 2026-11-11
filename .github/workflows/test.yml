@@ -56,6 +56,24 @@ jobs:
         run: |
           forge --version
 
+      # The whole project is one via-IR compile in one solc process, and that process keeps memory for every
+      # contract it has compiled. Measured on a 64 GB machine, its peak working set was 17.8 GB at 181 files
+      # and 21.2 GB at 183, with the shared collateral tests; this runner has 16 GB. Twice the build step ended
+      # with exit code 143 and no other line once the compile crossed what the runner had. The swap below lets
+      # that process finish: the pages it keeps and no longer touches are the ones that go there. The two
+      # `free` lines record what the runner had before and after.
+      - name: Add swap for the compile
+        run: |
+          free -h
+          df -h / /mnt || df -h /
+          target=/mnt/swapfile.ci
+          [ -d /mnt ] || target=/swapfile.ci
+          sudo fallocate -l 16G "$target"
+          sudo chmod 600 "$target"
+          sudo mkswap "$target"
+          sudo swapon "$target"
+          free -h
+
       - name: Run Forge build
         run: |
           forge build --via-ir --optimize --sizes

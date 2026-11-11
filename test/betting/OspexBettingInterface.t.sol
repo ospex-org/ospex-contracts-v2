@@ -34,10 +34,13 @@ contract OspexBettingInterfaceTest is BettingBase {
         );
         _assertFunctions(
             "OspexPositions",
-            "EVENT_POSITION_CLAIMED();EVENT_POSITION_MATCHED_PAIR();MARKET_MODULE();MATCHING_MODULE();"
-            "POSITION_MODULE();claimPosition(uint256,uint8);getModuleType();getPosition(uint256,address,uint8);"
-            "i_ospexCore();i_token();recordFill(uint256,address,int32,uint8,address,uint256,address,uint256);"
-            "s_positions(uint256,address,uint8)"
+            "EVENT_HELD_CHANGED();EVENT_PAY_BACK_REFUSED();EVENT_POSITION_CLAIMED();EVENT_POSITION_MATCHED_PAIR();"
+            "MARKET_MODULE();MATCHING_MODULE();POSITION_MODULE();claimPosition(uint256,uint8);"
+            "claimPositionFor(uint256,address,uint8);finishFills(uint256,address,address[]);getModuleType();"
+            "getPosition(uint256,address,uint8);i_ospexCore();i_token();"
+            "previewFill(uint256,address,uint8,uint256,uint256);"
+            "recordFill(uint256,address,int32,uint8,address,uint256,address,uint256);s_held(uint256,address);"
+            "s_heldTotal(uint256);s_positions(uint256,address,uint8);sendPayBack(address,uint256)"
         );
         _assertFunctions(
             "OspexMatching",
@@ -124,11 +127,13 @@ contract OspexBettingInterfaceTest is BettingBase {
         _assertErrors(
             "OspexPositions",
             "OspexPositions__AlreadyClaimed();OspexPositions__InvalidAddress();OspexPositions__InvalidAmount();"
-            "OspexPositions__MakerPullRefused(address maker,uint256 makerRisk);"
+            "OspexPositions__MakerPullRefused(address maker,uint256 makerRisk,uint256 pull);"
+            "OspexPositions__MarketShort(uint256 marketId,uint256 asked,uint256 total);"
             "OspexPositions__ModuleNotSet(bytes32 moduleType);"
             "OspexPositions__NoPayout();OspexPositions__NotMatchingModule(address caller);"
+            "OspexPositions__NotSelf(address caller);"
             "OspexPositions__NotSettled(uint256 marketId);OspexPositions__ShortReceipt(uint256 owed,uint256 held);"
-            "OspexPositions__TakerPullRefused(address taker,uint256 takerRisk);ReentrancyGuardReentrantCall();"
+            "OspexPositions__TakerPullRefused(address taker,uint256 pull);ReentrancyGuardReentrantCall();"
             "SafeERC20FailedOperation(address token)"
         );
         _assertErrors(
@@ -249,7 +254,9 @@ contract OspexBettingInterfaceTest is BettingBase {
         );
         _assertEvents(
             "OspexPositions",
-            "PositionClaimed(indexed uint256 marketId,indexed address user,uint8 side,uint256 payout);"
+            "HeldChanged(indexed uint256 marketId,indexed address account,uint256 pulled,uint256 paidBack,"
+            "uint256 held);PayBackRefused(indexed uint256 marketId,indexed address account,uint256 amount,"
+            "uint256 held);PositionClaimed(indexed uint256 marketId,indexed address user,uint8 side,uint256 payout);"
             "PositionFilled(indexed uint256 marketId,indexed address maker,indexed address taker,uint8 makerSide,"
             "uint8 takerSide,uint256 makerRisk,uint256 takerRisk)"
         );
@@ -341,8 +348,43 @@ contract OspexBettingInterfaceTest is BettingBase {
             "the hub tag CROSSED"
         );
 
-        assertEq(IOspexPositions.OspexPositions__MakerPullRefused.selector, bytes4(0x71feab86), "MakerPullRefused");
+        // Shared collateral: the maker's refusal carries a third word, so its selector moved; the taker's kept
+        // its two types under a renamed parameter, so its selector did not; the two new errors; the end call, the
+        // claim for anyone, the pay-back entry, the two reads and the preview; the two events and their hub tags.
+        assertEq(IOspexPositions.OspexPositions__MakerPullRefused.selector, bytes4(0x035fa92d), "MakerPullRefused");
         assertEq(IOspexPositions.OspexPositions__TakerPullRefused.selector, bytes4(0x56f4806f), "TakerPullRefused");
+        assertEq(IOspexPositions.OspexPositions__MarketShort.selector, bytes4(0x8d232a84), "MarketShort");
+        assertEq(IOspexPositions.OspexPositions__NotSelf.selector, bytes4(0x361e7a7e), "NotSelf");
+        assertEq(IOspexPositions.recordFill.selector, bytes4(0xb714db69), "recordFill, as before");
+        assertEq(IOspexPositions.finishFills.selector, bytes4(0x57c9a77a), "finishFills");
+        assertEq(IOspexPositions.claimPosition.selector, bytes4(0x390bfff4), "claimPosition, as before");
+        assertEq(IOspexPositions.claimPositionFor.selector, bytes4(0x78e49e98), "claimPositionFor");
+        assertEq(IOspexPositions.sendPayBack.selector, bytes4(0xdf8a63c3), "sendPayBack");
+        assertEq(positions.s_held.selector, bytes4(0x186d7cb1), "s_held");
+        assertEq(positions.s_heldTotal.selector, bytes4(0xcb83160e), "s_heldTotal");
+        assertEq(IOspexPositions.previewFill.selector, bytes4(0x74ae1876), "previewFill");
+        assertEq(positions.EVENT_HELD_CHANGED.selector, bytes4(0xa387c6f8), "EVENT_HELD_CHANGED");
+        assertEq(positions.EVENT_PAY_BACK_REFUSED.selector, bytes4(0xeeb327e3), "EVENT_PAY_BACK_REFUSED");
+        assertEq(
+            IOspexPositions.HeldChanged.selector,
+            0xe0c3b81c7075d7192d889148bd51261c54cdb61c69c6ffaf222f11c024a4aeb2,
+            "HeldChanged's first topic"
+        );
+        assertEq(
+            IOspexPositions.PayBackRefused.selector,
+            0x4087e7241a499c3ad935a1f0dfebacfcfd1e8289d430836f38dc84958de5e78f,
+            "PayBackRefused's first topic"
+        );
+        assertEq(
+            positions.EVENT_HELD_CHANGED(),
+            0x4d9f77fa86fb1f893c471b724296e1015e520a6bc6a12677ace303b1eda049ef,
+            "the hub tag HELD_CHANGED"
+        );
+        assertEq(
+            positions.EVENT_PAY_BACK_REFUSED(),
+            0x2acc6e4752da0c188407c8f48742422035635efa932160a0618e1bc020e147e9,
+            "the hub tag PAY_BACK_REFUSED"
+        );
         assertEq(OspexMatching.OspexMatching__CrossInProgress.selector, bytes4(0x5eabe743), "CrossInProgress");
         assertEq(OspexMatching.OspexMatching__NothingFilled.selector, bytes4(0x8240428c), "NothingFilled");
 
@@ -429,6 +471,15 @@ contract OspexBettingInterfaceTest is BettingBase {
         string memory position = "$.abi[?(@.name == 'getPosition')].outputs[0].components";
         _assertParams(json, position, "risk;profit;side;claimed", "uint256;uint256;uint8;bool");
         assertEq(vm.parseJsonString(json, string.concat(position, "[2].internalType")), "enum Side");
+        // Shared collateral: both claims answer the payout, previewFill answers the pull and the pay-back, and
+        // the end call and the pay-back entry answer nothing.
+        _assertParams(json, "$.abi[?(@.name == 'claimPosition')].outputs", "payout", "uint256");
+        _assertParams(json, "$.abi[?(@.name == 'claimPositionFor')].outputs", "payout", "uint256");
+        _assertParams(json, "$.abi[?(@.name == 'previewFill')].outputs", "pull;payBack", "uint256;uint256");
+        assertTrue(vm.keyExistsJson(json, "$.abi[?(@.name == 'finishFills')].outputs"), "finishFills is in the ABI");
+        assertFalse(vm.keyExistsJson(json, "$.abi[?(@.name == 'finishFills')].outputs[0]"), "finishFills answers");
+        assertTrue(vm.keyExistsJson(json, "$.abi[?(@.name == 'sendPayBack')].outputs"), "sendPayBack is in the ABI");
+        assertFalse(vm.keyExistsJson(json, "$.abi[?(@.name == 'sendPayBack')].outputs[0]"), "sendPayBack answers");
 
         json = _artifact("OspexMatching");
         string memory skipped = "$.abi[?(@.name == 'OrderSkipped')].inputs";
