@@ -93,9 +93,10 @@ contract OspexCrossCallbacksTest is CrossBase {
     }
 
     /// Break: in OspexMatching.cancelOrder, delete the exclusion's check, `if (_crossInProgress()) revert
-    /// OspexMatching__CrossInProgress();`. Others turn it red: the same check deleted from raiseMinNonce, from
-    /// registerCourier, from unregisterCourier and from cross; the mark never set; and the two filled amounts
-    /// written after the positions call, which the read from inside the pull shows.
+    /// OspexMatching__CrossInProgress();`. Others turn it red: the same check deleted from raiseFloor, from
+    /// cancelAll, from registerCourier, from unregisterCourier, from cross, from _grant, which grantAgent and
+    /// grantAgentAndRegisterCourier share, and from revokeAgent; the mark never set; and the two filled
+    /// amounts written after the positions call, which the read from inside the pull shows.
     function test_neverLine_nothingInTheMatchingContractChangesWhileACrossIsInProgress() public {
         _inProgressCases(Side.B);
         _inProgressCases(Side.A);
@@ -109,7 +110,6 @@ contract OspexCrossCallbacksTest is CrossBase {
         OspexMatching.SignedOrder memory first = _rest(y, game, restingSide, 200, 10_000);
         OspexMatching.SignedOrder memory second = _rest(y, game, restingSide, 200, 10_000);
         OspexMatching.SignedOrder[] memory resting = _list(first, second);
-        bytes32 key = keccak256(abi.encode(game, address(moneyline), int32(0)));
         address other = makeAddr("another courier");
         uint256 snap = vm.snapshotState();
 
@@ -121,12 +121,12 @@ contract OspexCrossCallbacksTest is CrossBase {
         // 2. It raises its floor past its second order's nonce.
         _sibling(
             y,
-            abi.encodeCall(OspexMatching.raiseMinNonce, (game, address(moneyline), 0, second.order.nonce + 1)),
+            abi.encodeCall(OspexMatching.raiseFloor, (y.a, game, address(moneyline), 0, _no(second.order.nonce + 1))),
             taking,
             resting,
             "a raised floor"
         );
-        assertEq(matching.s_minNonces(y.a, key), 0, "the floor was raised from inside a pull");
+        assertEq(matching.getFloor(y.a, game, address(moneyline), 0), 0, "the floor was raised from inside a pull");
         vm.revertToState(snap);
 
         // 3. It drops the sender as its courier.
@@ -137,6 +137,40 @@ contract OspexCrossCallbacksTest is CrossBase {
         // 4. It registers another courier.
         _sibling(y, abi.encodeWithSignature("registerCourier(address)", other), taking, resting, "a registration");
         assertFalse(matching.isCourier(y.a, other), "a courier was registered from inside a pull");
+        vm.revertToState(snap);
+
+        // 4b. It cancels everything, and it grants an agent, with and without a courier beside the grant.
+        _sibling(y, abi.encodeCall(OspexMatching.cancelAll, (y.a)), taking, resting, "a cancel-all");
+        assertEq(matching.s_version(y.a), 0, "the version moved from inside a pull");
+        vm.revertToState(snap);
+        uint64 ends = _ends(vm.getBlockTimestamp() + 1 hours);
+        _sibling(y, abi.encodeCall(OspexMatching.grantAgent, (other, 1, ends, _noLines())), taking, resting, "a grant");
+        assertEq(matching.s_grantCount(y.a), 0, "a grant was made from inside a pull");
+        assertEq(matching.s_currentGrant(y.a), 0);
+        vm.revertToState(snap);
+        _sibling(
+            y,
+            abi.encodeCall(OspexMatching.grantAgentAndRegisterCourier, (other, 1, ends, _noLines(), other)),
+            taking,
+            resting,
+            "a grant with a courier"
+        );
+        assertEq(matching.s_grantCount(y.a), 0, "a grant with a courier was made from inside a pull");
+        assertFalse(matching.isCourier(y.a, other), "its courier was registered from inside a pull");
+        vm.revertToState(snap);
+        // 4c. With a grant standing, it revokes, and it replaces the grant: neither moves the current grant.
+        vm.prank(y.a);
+        matching.grantAgent(other, 1, ends, _noLines());
+        uint256 granted = vm.snapshotState();
+        _sibling(y, abi.encodeCall(OspexMatching.revokeAgent, ()), taking, resting, "a revoke");
+        assertEq(matching.s_currentGrant(y.a), 1, "the grant was revoked from inside a pull");
+        assertTrue(matching.isLiveAgent(y.a, other));
+        vm.revertToState(granted);
+        _sibling(
+            y, abi.encodeCall(OspexMatching.grantAgent, (sender, 1, ends, _noLines())), taking, resting, "a regrant"
+        );
+        assertEq(matching.s_grantCount(y.a), 1, "a regrant was made from inside a pull");
+        assertTrue(matching.isLiveAgent(y.a, other), "the standing grant was replaced from inside a pull");
         vm.revertToState(snap);
 
         // 5. It sends a second Cross, for which it is a registered courier, with orders that fill on their own.
@@ -168,12 +202,16 @@ contract OspexCrossCallbacksTest is CrossBase {
         vm.revertToState(snap);
         _sibling(
             tk,
-            abi.encodeCall(OspexMatching.raiseMinNonce, (game, address(moneyline), 0, taking.order.nonce + 1)),
+            abi.encodeCall(OspexMatching.raiseFloor, (tk.a, game, address(moneyline), 0, _no(taking.order.nonce + 1))),
             taking,
             resting,
             "the taking account's raised floor"
         );
-        assertEq(matching.s_minNonces(tk.a, key), 0, "the taking account's floor was raised from inside a pull");
+        assertEq(
+            matching.getFloor(tk.a, game, address(moneyline), 0),
+            0,
+            "the taking account's floor was raised from inside a pull"
+        );
         vm.revertToState(snap);
         _sibling(
             tk,
@@ -301,7 +339,8 @@ contract OspexCrossCallbacksTest is CrossBase {
         returns (bytes[4] memory calls)
     {
         calls[0] = abi.encodeCall(OspexMatching.cancelOrder, (spare.order));
-        calls[1] = abi.encodeCall(OspexMatching.raiseMinNonce, (game, address(moneyline), 0, spare.order.nonce + 1));
+        calls[1] =
+            abi.encodeCall(OspexMatching.raiseFloor, (y.a, game, address(moneyline), 0, _no(spare.order.nonce + 1)));
         calls[2] = abi.encodeWithSignature("unregisterCourier(address)", sender);
         calls[3] = abi.encodeWithSignature("registerCourier(address)", other);
     }
@@ -356,9 +395,8 @@ contract OspexCrossCallbacksTest is CrossBase {
 
     /// @dev Nothing the four calls would have changed is changed.
     function _untouched(uint256 game, OspexMatching.SignedOrder memory spare, address other) internal view {
-        bytes32 key = keccak256(abi.encode(game, address(moneyline), int32(0)));
         assertFalse(matching.s_cancelledOrders(_hash(spare)), "an order was cancelled from inside a later pull");
-        assertEq(matching.s_minNonces(y.a, key), 0, "a floor was raised from inside a later pull");
+        assertEq(matching.getFloor(y.a, game, address(moneyline), 0), 0, "a floor was raised from inside a later pull");
         assertTrue(matching.isCourier(y.a, sender), "the sender was dropped from inside a later pull");
         assertFalse(matching.isCourier(y.a, other), "a courier was registered from inside a later pull");
     }

@@ -661,6 +661,9 @@ contract OspexBettingTest is BettingBase {
         assertEq(positions.EVENT_POSITION_MATCHED_PAIR(), keccak256("POSITION_MATCHED_PAIR"));
         assertEq(positions.EVENT_POSITION_CLAIMED(), keccak256("POSITION_CLAIMED"));
         assertEq(matching.EVENT_ORDER_CANCELLED(), keccak256("ORDER_CANCELLED"));
-        assertEq(matching.EVENT_MIN_NONCE_UPDATED(), keccak256("MIN_NONCE_UPDATED"));
+        assertEq(matching.EVENT_FLOOR_RAISED(), keccak256("FLOOR_RAISED"));
+        assertEq(matching.EVENT_VERSION_CHANGED(), keccak256("VERSION_CHANGED"));
+        assertEq(matching.EVENT_AGENT_GRANTED(), keccak256("AGENT_GRANTED"));
+        assertEq(matching.EVENT_AGENT_REVOKED(), keccak256("AGENT_REVOKED"));
     }
 }
