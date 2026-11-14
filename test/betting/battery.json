@@ -8152,6 +8152,110 @@
    "testPath": "test/betting/OspexAgent.t.sol",
    "test": "test_neverLine_anAgentRegistersNoCourierForTheAccountAndNothingIsGrantedBySignature",
    "breaks": "a grant by signature: a door that grants for the address a signature recovers to"
+  },
+  {
+   "id": "V38-reverserelation",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (msg.sender != account && !_isLiveAgent(account, msg.sender)) {\n",
+     "replace": "        if (msg.sender != account && !_isLiveAgent(account, msg.sender) && !_isLiveAgent(msg.sender, account)) {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_onlyTheAccountOrItsLiveAgentChangesItsCancellingState",
+   "breaks": "the cancels' gate also accepts whoever has granted the account as its own agent: the relation read both ways"
+  },
+  {
+   "id": "V39-originiscaller",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (msg.sender != account && !_isLiveAgent(account, msg.sender)) {\n",
+     "replace": "        if (msg.sender != account && msg.sender != tx.origin && !_isLiveAgent(account, msg.sender)) {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_onlyTheAccountOrItsLiveAgentChangesItsCancellingState",
+   "breaks": "the cancels' gate also accepts a caller that is the transaction's origin"
+  },
+  {
+   "id": "G31-combinedregistersonce",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        number = _grant(msg.sender, agent, stakeCap, endsAt, lines);\n        _register(msg.sender, courier);\n",
+     "replace": "        uint32 old = s_currentGrant[msg.sender];\n        number = _grant(msg.sender, agent, stakeCap, endsAt, lines);\n        if (old == 0) _register(msg.sender, courier);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_grant_theCombinedCallGrantsThenRegistersForTheCaller",
+   "breaks": "the combined call registers the courier only when no grant stood"
+  },
+  {
+   "id": "G32-linesunderoldnumber",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        for (uint256 i; i < lines.length; ++i) {\n            s_grantLines[account][number][_lineKey(lines[i].gameId, lines[i].scorer, lines[i].lineTicks)] = true;\n        }\n",
+     "replace": "        for (uint256 i; i < lines.length; ++i) {\n            bytes32 lk = _lineKey(lines[i].gameId, lines[i].scorer, lines[i].lineTicks);\n            s_grantLines[account][number][lk] = true;\n            if (old != 0) s_grantLines[account][old][lk] = true;\n        }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_grant_isRecordedNumberedAndAnnounced",
+   "breaks": "a regrant writes the new grant's lines under the old number too: a record edited after it was written"
+  },
+  {
+   "id": "G33-splitnonceswapped",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "    function splitNonce(uint256 nonce) external pure returns (uint128 version, uint32 grantNumber, uint96 orderNumber) {\n        return _split(nonce);\n    }\n",
+     "replace": "    function splitNonce(uint256 nonce) external pure returns (uint128 version, uint32 grantNumber, uint96 orderNumber) {\n        (uint128 v, uint32 g, uint96 o) = _split(nonce);\n        // forge-lint: disable-next-line(unsafe-typecast)\n        return (v, uint32(o), uint96(g));\n    }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_splitNonce_answersTheThreeNumbers",
+   "breaks": "splitNonce answers the grant number and the order number swapped"
+  },
+  {
+   "id": "G34-countbeforecross",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (_crossInProgress()) revert OspexMatching__CrossInProgress();\n        uint32 count = s_grantCount[account];\n        if (count == MAX_GRANT_COUNT) revert OspexMatching__GrantCountExhausted(account);\n",
+     "replace": "        uint32 count = s_grantCount[account];\n        if (count == MAX_GRANT_COUNT) revert OspexMatching__GrantCountExhausted(account);\n        if (_crossInProgress()) revert OspexMatching__CrossInProgress();\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_nothingInTheMatchingContractChangesWhileACrossIsInProgress",
+   "breaks": "the count's refusal before the Cross-in-progress check in a grant: from inside a pull, at the top, the count's name and not the exclusion's"
+  },
+  {
+   "id": "G35-capofcurrent",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (order.riskAmount > g.stakeCap) {\n                revert OspexMatching__AgentStakeAboveCap(orderHash, order.riskAmount, g.stakeCap);\n            }\n",
+     "replace": "            uint256 currentCap = s_grants[order.account][s_currentGrant[order.account]].stakeCap;\n            if (order.riskAmount > currentCap) {\n                revert OspexMatching__AgentStakeAboveCap(orderHash, order.riskAmount, currentCap);\n            }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theCapAndTheListAreTheGrantsAndAreReadAtTheFill",
+   "breaks": "the cap read from the current grant's record instead of the order's"
+  },
+  {
+   "id": "X166-grantgoneovernocourier",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier, 0, 0);\n        {\n            (uint128 version, uint32 grantNumber, uint96 orderNumber) = _split(r.nonce);\n",
+     "replace": "        {\n            (uint128 version, uint32 grantNumber, uint96 orderNumber) = _split(r.nonce);\n            if (\n                !_isCourier(r.account, msg.sender) && grantNumber != 0\n                    && (grantNumber != s_currentGrant[r.account]\n                        || block.timestamp >= s_grants[r.account][grantNumber].endsAt)\n            ) {\n                return (false, SkipReason.GrantGone, 0, 0);\n            }\n            if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier, 0, 0);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheEightReasonsSkip",
+   "breaks": "a no-courier order whose grant is also gone records 7, not 0: the grant's standing tested before the courier"
   }
  ]
 }

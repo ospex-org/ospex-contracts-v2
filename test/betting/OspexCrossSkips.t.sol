@@ -215,6 +215,17 @@ contract OspexCrossSkipsTest is CrossBase {
         vm.stopPrank();
         _skippedInTheMiddle(game, takingSide, x, NO_COURIER, "no courier, and cancelled");
         vm.revertToState(snap);
+        // No courier over grant gone: an agent's order whose account dropped the sender and revoked the grant
+        // records 0, not 7.
+        vm.prank(m2.a);
+        matching.grantAgent(agent.a, 10_000, _ends(vm.getBlockTimestamp() + 1 hours), _noLines());
+        x = _restBy(agent, m2.a, 1, game, restingSide, 200, 10_000);
+        vm.startPrank(m2.a);
+        matching.revokeAgent();
+        matching.unregisterCourier(sender);
+        vm.stopPrank();
+        _skippedInTheMiddle(game, takingSide, x, NO_COURIER, "no courier, and its grant gone");
+        vm.revertToState(snap);
         // Cancelled over expired.
         x = _restUntil(m2, game, restingSide, 200, 10_000, vm.getBlockTimestamp());
         vm.prank(m2.a);

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {Vm} from "forge-std/Vm.sol";
+import {StdStorage, stdStorage} from "forge-std/StdStorage.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {GameStatus, IOspexGames} from "../../src/games/IOspexGames.sol";
@@ -20,6 +21,8 @@ import {CrossBase} from "./CrossBase.sol";
 ///         Above each test, "Break:" names changes to src/betting that turn it red; each is an entry of
 ///         battery.json.
 contract OspexCrossCallbacksTest is CrossBase {
+    using stdStorage for StdStorage;
+
     /// @dev The exclusion's refusal: four bytes, the error's selector.
     bytes internal IN_PROGRESS = abi.encodeWithSelector(OspexMatching.OspexMatching__CrossInProgress.selector);
 
@@ -171,6 +174,22 @@ contract OspexCrossCallbacksTest is CrossBase {
         );
         assertEq(matching.s_grantCount(y.a), 1, "a regrant was made from inside a pull");
         assertTrue(matching.isLiveAgent(y.a, other), "the standing grant was replaced from inside a pull");
+        vm.revertToState(snap);
+        // 4d. With its count at the top, a grant from inside a pull is refused by the exclusion, not by the
+        // count: the Cross check comes first. Outside a Cross the same call is the count's refusal.
+        stdstore.target(address(matching)).sig("s_grantCount(address)").with_key(y.a)
+            .checked_write(uint256(type(uint32).max));
+        bytes memory atTop = abi.encodeCall(OspexMatching.grantAgent, (other, 1, ends, _noLines()));
+        vm.prank(y.a);
+        (bool outside, bytes memory why) = address(matching).call(atTop);
+        assertFalse(outside, "a grant past the count's top was taken");
+        assertEq(why, abi.encodeWithSelector(OspexMatching.OspexMatching__GrantCountExhausted.selector, y.a));
+        trick.setHooked(y.a, true);
+        CallbackAccount(y.a).arm(address(matching), atTop);
+        _cross(sender, taking, resting);
+        (bool inside, bytes memory answer) = _answer(y);
+        assertFalse(inside, "a grant from inside a pull was taken");
+        assertEq(answer, IN_PROGRESS, "at the count's top, from inside a pull: not the exclusion's refusal");
         vm.revertToState(snap);
 
         // 5. It sends a second Cross, for which it is a registered courier, with orders that fill on their own.

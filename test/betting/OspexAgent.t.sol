@@ -234,7 +234,7 @@ abstract contract AgentBase is CrossBase {
     function _refusedCall(address from, address target, bytes memory data, bytes memory want, string memory what)
         internal
     {
-        vm.prank(from);
+        vm.prank(from, from);
         (bool ok, bytes memory err) = target.call(data);
         assertFalse(ok, string.concat(what, ": the call was taken"));
         assertEq(err, want, what);
@@ -291,13 +291,11 @@ abstract contract AgentBase is CrossBase {
     /// @dev Writes an account's version: the one way to reach the top of the field in a test.
     function _writeVersion(address account, uint128 version) internal {
         stdstore.target(address(matching)).sig("s_version(address)").with_key(account).checked_write(uint256(version));
-        assertEq(matching.s_version(account), version, "the version was not written");
     }
 
     /// @dev Writes an account's grant count: the one way to reach the top of the count in a test.
     function _writeGrantCount(address account, uint32 count) internal {
         stdstore.target(address(matching)).sig("s_grantCount(address)").with_key(account).checked_write(uint256(count));
-        assertEq(matching.s_grantCount(account), count, "the count was not written");
     }
 
     /// @dev Fixes the previous block's hash, and so the draw of the next cancelAll: the hash's first eight bytes
@@ -317,8 +315,8 @@ contract OspexAgentGrantTest is AgentBase {
     function test_grant_isRecordedNumberedAndAnnounced() public {
         uint256 game = _verifiedGame();
         OspexMatching.Line[] memory lines = _oneLine(game, address(spread), -35);
+        OspexMatching.Line[] memory otherLines = _oneLine(game, address(spread), -45);
         uint64 ends = _inAnHour();
-        bytes32 lineKey = keccak256(abi.encode(game, address(spread), int32(-35)));
 
         assertEq(matching.s_grantCount(A.a), 0);
         assertEq(matching.s_currentGrant(A.a), 0);
@@ -363,13 +361,12 @@ contract OspexAgentGrantTest is AgentBase {
         assertFalse(matching.isGrantLine(A.a, 1, game, address(spread), -45));
         assertFalse(matching.isGrantLine(A.a, 1, game, address(moneyline), 0));
         assertFalse(matching.isGrantLine(A.a, 2, game, address(spread), -35), "a line under a number not made");
-        assertEq(lineKey, keccak256(abi.encode(lines[0].gameId, lines[0].scorer, lines[0].lineTicks)));
 
-        // A second grant, to another key on every market: number 2, the first revoked first, both announced.
+        // A second grant, to another key on another line: number 2, the first revoked first, both announced.
         Signer memory W2 = _key("a second agent");
         vm.recordLogs();
         vm.prank(A.a);
-        assertEq(matching.grantAgent(W2.a, CAP + 1, ends + 1, _noLines()), 2, "the second grant's number");
+        assertEq(matching.grantAgent(W2.a, CAP + 1, ends + 1, otherLines), 2, "the second grant's number");
         logs = vm.getRecordedLogs();
         assertEq(_emitted(logs), 4, "the revoke, the grant, and their hub copies");
         assertEq(logs[0].topics[0], OspexMatching.AgentRevoked.selector);
@@ -380,7 +377,7 @@ contract OspexAgentGrantTest is AgentBase {
         assertEq(abi.decode(logs[1].data, (bytes)), abi.encode(A.a, W.a, uint32(1)));
         assertEq(logs[2].topics[0], OspexMatching.AgentGranted.selector);
         assertEq(logs[2].topics[2], bytes32(uint256(uint160(W2.a))));
-        assertEq(logs[2].data, abi.encode(uint32(2), CAP + 1, ends + 1, _noLines()));
+        assertEq(logs[2].data, abi.encode(uint32(2), CAP + 1, ends + 1, otherLines));
         assertEq(matching.s_grantCount(A.a), 2);
         assertEq(matching.s_currentGrant(A.a), 2);
         assertFalse(matching.isLiveAgent(A.a, W.a), "the first agent is no longer live");
@@ -392,7 +389,15 @@ contract OspexAgentGrantTest is AgentBase {
         assertEq(cap, CAP);
         assertEq(lineCount, 1);
         assertTrue(matching.isGrantLine(A.a, 1, game, address(spread), -35));
-        assertFalse(matching.isGrantLine(A.a, 2, game, address(spread), -35), "the second grant's list is empty");
+        assertFalse(
+            matching.isGrantLine(A.a, 1, game, address(spread), -45), "the second grant's line reached the first record"
+        );
+        assertTrue(matching.isGrantLine(A.a, 2, game, address(spread), -45), "the second grant's line");
+        assertFalse(
+            matching.isGrantLine(A.a, 2, game, address(spread), -35), "the first grant's line reached the second record"
+        );
+        (,,, uint16 lineCount2) = matching.getGrant(A.a, 2);
+        assertEq(lineCount2, 1, "the second grant's count of lines");
 
         // The revoke: the current grant goes to 0, the count and the records stay, announced twice.
         vm.recordLogs();
@@ -545,6 +550,40 @@ contract OspexAgentGrantTest is AgentBase {
         assertEq(logs[2].topics[0], OspexMatching.AgentGranted.selector);
         assertTrue(matching.isCourier(A.a, courier));
         assertEq(matching.s_currentGrant(A.a), 2);
+        // And again with a courier the account does not have yet, a grant standing: the grant is replaced and
+        // the new courier is registered, both announced.
+        address second = makeAddr("a second courier");
+        vm.recordLogs();
+        vm.prank(A.a);
+        assertEq(matching.grantAgentAndRegisterCourier(W.a, CAP, ends, _noLines(), second), 3);
+        logs = vm.getRecordedLogs();
+        assertEq(_emitted(logs), 6, "the revoke, the grant and the registration, each with its hub copy");
+        assertEq(logs[4].topics[0], OspexMatching.CourierRegistered.selector, "the registration comes last");
+        assertEq(logs[4].topics[2], bytes32(uint256(uint160(second))));
+        assertTrue(matching.isCourier(A.a, second), "the second courier was not registered beside a standing grant");
+        assertTrue(matching.isCourier(A.a, courier));
+        assertEq(matching.s_currentGrant(A.a), 3);
+    }
+
+    /// The nonce's three numbers, read back as they were put in, at their edges.
+    /// Break: in OspexMatching.splitNonce, answer the grant number and the order number swapped.
+    function test_splitNonce_answersTheThreeNumbers() public view {
+        (uint128 v, uint32 g, uint96 o) = matching.splitNonce(_nonce(5, 7, 9));
+        assertEq(v, 5);
+        assertEq(g, 7);
+        assertEq(o, 9);
+        (v, g, o) = matching.splitNonce(_nonce(type(uint128).max, 0, TOP));
+        assertEq(v, type(uint128).max);
+        assertEq(g, 0);
+        assertEq(o, TOP);
+        (v, g, o) = matching.splitNonce(_nonce(0, type(uint32).max, 1));
+        assertEq(v, 0);
+        assertEq(g, type(uint32).max);
+        assertEq(o, 1);
+        (v, g, o) = matching.splitNonce(7);
+        assertEq(v, 0);
+        assertEq(g, 0);
+        assertEq(o, 7);
     }
 
     /// The count's top, through both entries: the last number is taken, the next is refused by name before
@@ -984,12 +1023,14 @@ contract OspexAgentOrdersTest is AgentBase {
         (, uint64 endsAt,,) = matching.getGrant(A.a, 1);
         OspexMatching.SignedOrder memory r1 = _restBy(W, A.a, 1, game, restingSide, 200, 10_000);
         OspexMatching.SignedOrder memory t1 = _takeBy(W, A.a, 1, game, takingSide, 200, 10_000);
+        // Grant 2's cap, 5,000, is under grant 1's orders' 10,000: a cap read from the current record, and not
+        // the order's, would refuse them by name instead of letting the standing skip them.
         vm.prank(A.a);
-        matching.grantAgent(W.a, CAP, _inAnHour(), _oneLine(game, address(spread), -35));
+        matching.grantAgent(W.a, 5_000, _inAnHour(), _oneLine(game, address(spread), -35));
         _restingSkipped(game, takingSide, r1, GRANT_GONE, "grant 1's list, after grant 2: the resting order skips 7");
         _takingRefused(game, takingSide, t1, _grantGone(t1, 1, 2, endsAt), "grant 1's list, after grant 2: taking");
         // And a grant-2 order on grant 1's line is off grant 2's list: refused by name.
-        OspexMatching.SignedOrder memory r2 = _restBy(W, A.a, 2, game, restingSide, 200, 10_000);
+        OspexMatching.SignedOrder memory r2 = _restBy(W, A.a, 2, game, restingSide, 200, 5_000);
         _refused(
             sender,
             _take(tk, game, takingSide, 200, 10_000),
@@ -1073,6 +1114,13 @@ contract OspexAgentCancelsTest is AgentBase {
         vm.prank(A.a);
         matching.grantAgent(W3.a, CAP, _inAnHour(), _noLines());
         _threeRefused(W.a, own, game, hashes, "the agent of grant 1 after grant 2");
+        vm.revertToState(snap);
+        // One who has granted A as its own agent: the relation runs one way.
+        Signer memory X = _account("one who granted A");
+        vm.prank(X.a);
+        matching.grantAgent(A.a, CAP, _inAnHour(), _noLines());
+        assertTrue(matching.isLiveAgent(X.a, A.a));
+        _threeRefused(X.a, own, game, hashes, "one who granted A as its agent");
         vm.revertToState(snap);
 
         // An unauthorized intermediary with A as the transaction's origin: refused on its own address, and
@@ -1209,7 +1257,8 @@ contract OspexAgentCancelsTest is AgentBase {
 
     /// Break: in OspexMatching.cancelOrder, write `tx.origin` as the sender. Others turn it red: `msg.sender`
     /// written as the cancel event's account; the hub payload's fields in another order, or a fixed sender;
-    /// the check moved after the emit; the same in raiseFloor and in cancelAll.
+    /// the same in raiseFloor and in cancelAll. A check moved after an emit that still reverts is not one: the
+    /// revert takes the log with it.
     function test_neverLine_theSenderFieldNamesThePartyWhoseAuthorityWasChecked() public {
         uint256 game = _verifiedGame();
         _fixDraw(0x0102030405060708);
@@ -1753,7 +1802,6 @@ contract OspexAgentVersionTest is AgentBase {
         uint256 snap = vm.snapshotState();
 
         // The call takes the account and nothing else: a version beside it finds no door.
-        assertEq(OspexMatching.cancelAll.selector, bytes4(keccak256("cancelAll(address)")));
         _noSuchDoor(
             A.a, abi.encodeWithSignature("cancelAll(address,uint128)", A.a, uint128(5)), "cancelAll with a version"
         );
@@ -1774,7 +1822,6 @@ contract OspexAgentVersionTest is AgentBase {
         matching.cancelAll(A.a);
         uint128 v2 = matching.s_version(A.a);
         assertEq(v2, 1 + 0x2222222222222222, "the second draw");
-        assertTrue(v1 != v2, "two draws, one version");
         // A third, from v2: the draw is added to the version as it stands.
         _fixDraw(3);
         vm.prank(A.a);
