@@ -379,8 +379,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        s_couriers[msg.sender][courier] = true;",
-     "replace": "        s_couriers[courier][msg.sender] = true;"
+     "find": "        s_couriers[account][courier] = true;\n",
+     "replace": "        s_couriers[courier][account] = true;\n"
     }
    ],
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
@@ -405,8 +405,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        s_couriers[msg.sender][courier] = true;",
-     "replace": "        s_couriers[tx.origin][courier] = true;"
+     "find": "        s_couriers[account][courier] = true;\n",
+     "replace": "        s_couriers[tx.origin][courier] = true;\n"
     }
    ],
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
@@ -470,7 +470,7 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_couriers[msg.sender][courier]) return;\n",
+     "find": "        if (s_couriers[account][courier]) return;\n",
      "replace": ""
     }
    ],
@@ -496,8 +496,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        emit CourierRegistered(msg.sender, courier);",
-     "replace": "        emit CourierRegistered(courier, msg.sender);"
+     "find": "        emit CourierRegistered(account, courier);\n",
+     "replace": "        emit CourierRegistered(courier, account);\n"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -509,7 +509,7 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        i_ospexCore.emitCoreEvent(EVENT_COURIER_REGISTERED, abi.encode(msg.sender, courier));\n",
+     "find": "        i_ospexCore.emitCoreEvent(EVENT_COURIER_REGISTERED, abi.encode(account, courier));\n",
      "replace": ""
     }
    ],
@@ -574,8 +574,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        s_minNonces[msg.sender][marketKey] = newMinNonce;",
-     "replace": "        s_minNonces[msg.sender][marketKey] = newMinNonce;\n        s_couriers[msg.sender][scorer] = false;"
+     "find": "        s_floors[account][version][lineKey] = floor;\n",
+     "replace": "        s_floors[account][version][lineKey] = floor;\n        s_couriers[account][scorer] = false;\n"
     }
    ],
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
@@ -587,8 +587,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_couriers[msg.sender][courier]) return;",
-     "replace": "        if (s_couriers[tx.origin][courier]) return;"
+     "find": "        if (s_couriers[account][courier]) return;\n",
+     "replace": "        if (s_couriers[tx.origin][courier]) return;\n"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -626,8 +626,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_couriers[msg.sender][courier]) return;",
-     "replace": "        if (courier != msg.sender && s_couriers[msg.sender][courier]) return;"
+     "find": "        if (s_couriers[account][courier]) return;\n",
+     "replace": "        if (courier != account && s_couriers[account][courier]) return;\n"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -639,8 +639,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        emit CourierRegistered(msg.sender, courier);",
-     "replace": "        emit CourierRegistered(tx.origin, courier);"
+     "find": "        emit CourierRegistered(account, courier);\n",
+     "replace": "        emit CourierRegistered(tx.origin, courier);\n"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -678,8 +678,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        emit CourierRegistered(msg.sender, courier);",
-     "replace": "        if (msg.sender != tx.origin) emit CourierRegistered(msg.sender, courier);"
+     "find": "        emit CourierRegistered(account, courier);\n",
+     "replace": "        if (msg.sender != tx.origin) emit CourierRegistered(account, courier);\n"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -704,8 +704,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        s_couriers[msg.sender][courier] = true;",
-     "replace": "        s_couriers[msg.sender][courier] = true;\n        s_couriers[msg.sender][i_ospexCore.i_deployer()] = true;"
+     "find": "        s_couriers[account][courier] = true;\n",
+     "replace": "        s_couriers[account][courier] = true;\n        s_couriers[account][i_ospexCore.i_deployer()] = true;\n"
     }
    ],
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
@@ -717,8 +717,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        s_couriers[msg.sender][courier] = true;",
-     "replace": "        s_couriers[msg.sender][courier] = true;\n        s_couriers[i_ospexCore.i_deployer()][courier] = true;"
+     "find": "        s_couriers[account][courier] = true;\n",
+     "replace": "        s_couriers[account][courier] = true;\n        s_couriers[i_ospexCore.i_deployer()][courier] = true;\n"
     }
    ],
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
@@ -743,8 +743,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        s_couriers[msg.sender][courier] = true;",
-     "replace": "        if (msg.sender == tx.origin) s_couriers[msg.sender][courier] = true;"
+     "find": "        s_couriers[account][courier] = true;\n",
+     "replace": "        if (msg.sender == tx.origin) s_couriers[account][courier] = true;\n"
     }
    ],
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
@@ -756,8 +756,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        s_couriers[msg.sender][courier] = true;",
-     "replace": "        if (msg.sender != tx.origin) s_couriers[msg.sender][courier] = true;"
+     "find": "        s_couriers[account][courier] = true;\n",
+     "replace": "        if (msg.sender != tx.origin) s_couriers[account][courier] = true;\n"
     }
    ],
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
@@ -769,8 +769,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        s_couriers[msg.sender][courier] = true;",
-     "replace": "        s_couriers[msg.sender][courier] = true;\n        s_couriers[msg.sender][address(uint160(0xC0FFEE))] = true;"
+     "find": "        s_couriers[account][courier] = true;\n",
+     "replace": "        s_couriers[account][courier] = true;\n        s_couriers[account][address(uint160(0xC0FFEE))] = true;\n"
     }
    ],
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
@@ -799,8 +799,8 @@
      "replace": "    mapping(address => mapping(address => bool)) internal s_couriers;\n    mapping(address => address) internal s_onlyCourier;"
     },
     {
-     "find": "        s_couriers[msg.sender][courier] = true;",
-     "replace": "        s_couriers[msg.sender][s_onlyCourier[msg.sender]] = false;\n        s_onlyCourier[msg.sender] = courier;\n        s_couriers[msg.sender][courier] = true;"
+     "find": "        s_couriers[account][courier] = true;\n",
+     "replace": "        s_couriers[account][s_onlyCourier[account]] = false;\n        s_onlyCourier[account] = courier;\n        s_couriers[account][courier] = true;\n"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -812,8 +812,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        emit CourierRegistered(msg.sender, courier);",
-     "replace": "        emit CourierRegistered(msg.sender, courier);\n        emit CourierRegistered(msg.sender, courier);"
+     "find": "        emit CourierRegistered(account, courier);\n",
+     "replace": "        emit CourierRegistered(account, courier);\n        emit CourierRegistered(account, courier);\n"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -838,8 +838,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_couriers[msg.sender][courier]) return;",
-     "replace": "        if (s_couriers[msg.sender][courier]) revert OspexMatching__ZeroCourier();"
+     "find": "        if (s_couriers[account][courier]) return;\n",
+     "replace": "        if (s_couriers[account][courier]) revert OspexMatching__ZeroCourier();\n"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -851,8 +851,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_couriers[msg.sender][courier]) return;",
-     "replace": "        if (s_couriers[msg.sender][courier]) {\n            s_couriers[msg.sender][courier] = false;\n            return;\n        }"
+     "find": "        if (s_couriers[account][courier]) return;\n",
+     "replace": "        if (s_couriers[account][courier]) {\n            s_couriers[account][courier] = false;\n            return;\n        }\n"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -864,8 +864,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_couriers[msg.sender][courier]) return;",
-     "replace": "        if (s_couriers[msg.sender][courier]) {\n            emit CourierRegistered(msg.sender, courier);\n            return;\n        }"
+     "find": "        if (s_couriers[account][courier]) return;\n",
+     "replace": "        if (s_couriers[account][courier]) {\n            emit CourierRegistered(account, courier);\n            return;\n        }\n"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -877,8 +877,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_couriers[msg.sender][courier]) return;",
-     "replace": "        if (s_couriers[msg.sender][courier]) {\n            i_ospexCore.emitCoreEvent(EVENT_COURIER_REGISTERED, abi.encode(msg.sender, courier));\n            return;\n        }"
+     "find": "        if (s_couriers[account][courier]) return;\n",
+     "replace": "        if (s_couriers[account][courier]) {\n            i_ospexCore.emitCoreEvent(EVENT_COURIER_REGISTERED, abi.encode(account, courier));\n            return;\n        }\n"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -890,8 +890,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_couriers[msg.sender][courier]) return;",
-     "replace": "        if (msg.sender == tx.origin && s_couriers[msg.sender][courier]) return;"
+     "find": "        if (s_couriers[account][courier]) return;\n",
+     "replace": "        if (msg.sender == tx.origin && s_couriers[account][courier]) return;\n"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -903,8 +903,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_couriers[msg.sender][courier]) return;",
-     "replace": "        if (msg.sender != tx.origin && s_couriers[msg.sender][courier]) return;"
+     "find": "        if (s_couriers[account][courier]) return;\n",
+     "replace": "        if (msg.sender != tx.origin && s_couriers[account][courier]) return;\n"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -916,8 +916,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_couriers[msg.sender][courier]) return;",
-     "replace": "        if (s_couriers[msg.sender][courier]) {\n            s_couriers[msg.sender][address(uint160(0xC0FFEE))] = true;\n            return;\n        }"
+     "find": "        if (s_couriers[account][courier]) return;\n",
+     "replace": "        if (s_couriers[account][courier]) {\n            s_couriers[account][address(uint160(0xC0FFEE))] = true;\n            return;\n        }\n"
     }
    ],
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
@@ -929,8 +929,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_couriers[msg.sender][courier]) return;",
-     "replace": "        if (s_couriers[msg.sender][courier]) {\n            s_couriers[tx.origin][courier] = true;\n            return;\n        }"
+     "find": "        if (s_couriers[account][courier]) return;\n",
+     "replace": "        if (s_couriers[account][courier]) {\n            s_couriers[tx.origin][courier] = true;\n            return;\n        }\n"
     }
    ],
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
@@ -946,8 +946,8 @@
      "replace": "    mapping(address => mapping(address => bool)) internal s_couriers;\n    mapping(address => mapping(address => bool)) internal s_seen;"
     },
     {
-     "find": "        if (s_couriers[msg.sender][courier]) return;",
-     "replace": "        if (s_seen[msg.sender][courier]) return;\n        s_seen[msg.sender][courier] = true;"
+     "find": "        if (s_couriers[account][courier]) return;\n",
+     "replace": "        if (s_seen[account][courier]) return;\n        s_seen[account][courier] = true;\n"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -972,8 +972,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        emit CourierRegistered(msg.sender, courier);",
-     "replace": "        emit CourierRegistered(msg.sender.code.length == 0 ? msg.sender : tx.origin, courier);"
+     "find": "        emit CourierRegistered(account, courier);\n",
+     "replace": "        emit CourierRegistered(msg.sender.code.length == 0 ? account : tx.origin, courier);\n"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -985,8 +985,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_couriers[msg.sender][courier]) return;",
-     "replace": "        if (s_couriers[msg.sender][courier]) {\n            if (msg.sender.code.length != 0) s_couriers[msg.sender][courier] = true;\n            return;\n        }"
+     "find": "        if (s_couriers[account][courier]) return;\n",
+     "replace": "        if (s_couriers[account][courier]) {\n            if (msg.sender.code.length != 0) s_couriers[account][courier] = true;\n            return;\n        }\n"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -1024,8 +1024,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_couriers[msg.sender][courier]) return;",
-     "replace": "        if (courier.code.length == 0 && s_couriers[msg.sender][courier]) return;"
+     "find": "        if (s_couriers[account][courier]) return;\n",
+     "replace": "        if (courier.code.length == 0 && s_couriers[account][courier]) return;\n"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -1050,8 +1050,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        s_couriers[msg.sender][courier] = true;",
-     "replace": "        if (msg.sender == i_ospexCore.i_deployer()) s_couriers[courier][msg.sender] = true;\n        else s_couriers[msg.sender][courier] = true;"
+     "find": "        s_couriers[account][courier] = true;\n",
+     "replace": "        if (msg.sender == i_ospexCore.i_deployer()) s_couriers[courier][account] = true;\n        else s_couriers[account][courier] = true;\n"
     }
    ],
    "testPath": "test/betting/OspexBettingNeverLines.t.sol",
@@ -1106,12 +1106,12 @@
      "replace": "    mapping(address => mapping(address => uint256)) internal s_couriers;"
     },
     {
-     "find": "        if (s_couriers[msg.sender][courier]) return;",
-     "replace": "        if (s_couriers[msg.sender][courier] != 0) return;"
+     "find": "        if (s_couriers[account][courier]) return;\n",
+     "replace": "        if (s_couriers[account][courier] != 0) return;\n"
     },
     {
-     "find": "        s_couriers[msg.sender][courier] = true;",
-     "replace": "        s_couriers[msg.sender][courier] = block.timestamp;"
+     "find": "        s_couriers[account][courier] = true;\n",
+     "replace": "        s_couriers[account][courier] = block.timestamp;\n"
     },
     {
      "find": "        if (!s_couriers[msg.sender][courier]) revert OspexMatching__CourierNotRegistered(msg.sender, courier);",
@@ -1152,12 +1152,12 @@
      "replace": "    mapping(address => mapping(address => uint256)) internal s_couriers;"
     },
     {
-     "find": "        if (s_couriers[msg.sender][courier]) return;",
-     "replace": "        if (s_couriers[msg.sender][courier] % 2 == 1 || s_couriers[msg.sender][courier] >= 6) return;"
+     "find": "        if (s_couriers[account][courier]) return;\n",
+     "replace": "        if (s_couriers[account][courier] % 2 == 1 || s_couriers[account][courier] >= 6) return;\n"
     },
     {
-     "find": "        s_couriers[msg.sender][courier] = true;",
-     "replace": "        s_couriers[msg.sender][courier] += 1;"
+     "find": "        s_couriers[account][courier] = true;\n",
+     "replace": "        s_couriers[account][courier] += 1;\n"
     },
     {
      "find": "        if (!s_couriers[msg.sender][courier]) revert OspexMatching__CourierNotRegistered(msg.sender, courier);",
@@ -1194,8 +1194,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (msg.sender != order.account) revert OspexMatching__NotOrderAccount();",
-     "replace": "        if (msg.sender != order.account && !s_couriers[order.account][msg.sender]) revert OspexMatching__NotOrderAccount();"
+     "find": "        _requireAccountOrAgent(order.account);\n",
+     "replace": "        if (msg.sender != order.account && !s_couriers[order.account][msg.sender]) _requireAccountOrAgent(order.account);\n"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -1207,16 +1207,24 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "    function registerCourier(address courier) external {",
-     "replace": "    function registerCourier(address courier) external returns (bool changed) {"
+     "find": "    function registerCourier(address courier) external {\n",
+     "replace": "    function registerCourier(address courier) external returns (bool changed) {\n"
     },
     {
-     "find": "        if (s_couriers[msg.sender][courier]) return;",
-     "replace": "        if (s_couriers[msg.sender][courier]) return false;"
+     "find": "        _register(msg.sender, courier);\n    }\n\n    /**\n     * @notice Drop one of the caller's couriers.",
+     "replace": "        changed = _register(msg.sender, courier);\n    }\n\n    /**\n     * @notice Drop one of the caller's couriers."
     },
     {
-     "find": "        s_couriers[msg.sender][courier] = true;",
-     "replace": "        s_couriers[msg.sender][courier] = true;\n        changed = true;"
+     "find": "    function _register(address account, address courier) private {\n",
+     "replace": "    function _register(address account, address courier) private returns (bool changed) {\n"
+    },
+    {
+     "find": "        if (s_couriers[account][courier]) return;\n",
+     "replace": "        if (s_couriers[account][courier]) return false;\n"
+    },
+    {
+     "find": "        s_couriers[account][courier] = true;\n",
+     "replace": "        s_couriers[account][courier] = true;\n        changed = true;\n"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -1228,8 +1236,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        s_couriers[msg.sender][courier] = true;",
-     "replace": "        s_couriers[msg.sender][courier] = true;\n        (bool asked,) = courier.staticcall(\"\");\n        asked;"
+     "find": "        s_couriers[account][courier] = true;\n",
+     "replace": "        s_couriers[account][courier] = true;\n        (bool asked,) = courier.staticcall(\"\");\n        asked;\n"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -2019,8 +2027,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {",
-     "replace": "        if (r.nonce < s_minNonces[r.account][marketKey]) {"
+     "find": "            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n",
+     "replace": "            if (\n                version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n"
     }
    ],
    "testPath": "test/betting/OspexCrossNeverLines.t.sol",
@@ -2032,8 +2040,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_cancelledOrders[orderHash] || t.nonce < s_minNonces[t.account][marketKey]) {",
-     "replace": "        if (t.nonce < s_minNonces[t.account][marketKey]) {"
+     "find": "        if (\n            s_cancelledOrders[orderHash] || version != s_version[t.account]\n                || orderNumber < s_floors[t.account][version][marketKey]\n        ) {\n",
+     "replace": "        if (\n            version != s_version[t.account]\n                || orderNumber < s_floors[t.account][version][marketKey]\n        ) {\n"
     }
    ],
    "testPath": "test/betting/OspexCrossNeverLines.t.sol",
@@ -2045,8 +2053,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {",
-     "replace": "        if (s_cancelledOrders[restingHash]) {"
+     "find": "            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n",
+     "replace": "            if (s_cancelledOrders[restingHash] || version != s_version[r.account]) {\n"
     }
    ],
    "testPath": "test/betting/OspexCrossNeverLines.t.sol",
@@ -2058,8 +2066,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_cancelledOrders[orderHash] || t.nonce < s_minNonces[t.account][marketKey]) {",
-     "replace": "        if (s_cancelledOrders[orderHash]) {"
+     "find": "        if (\n            s_cancelledOrders[orderHash] || version != s_version[t.account]\n                || orderNumber < s_floors[t.account][version][marketKey]\n        ) {\n",
+     "replace": "        if (s_cancelledOrders[orderHash] || version != s_version[t.account]) {\n"
     }
    ],
    "testPath": "test/betting/OspexCrossNeverLines.t.sol",
@@ -2071,8 +2079,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {",
-     "replace": "        if (s_cancelledOrders[restingHash] || r.nonce <= s_minNonces[r.account][marketKey]) {"
+     "find": "            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n",
+     "replace": "            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber <= s_floors[r.account][version][marketKey]\n            ) {\n"
     }
    ],
    "testPath": "test/betting/OspexCrossNeverLines.t.sol",
@@ -2084,8 +2092,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_cancelledOrders[orderHash] || t.nonce < s_minNonces[t.account][marketKey]) {",
-     "replace": "        if (s_cancelledOrders[orderHash] || t.nonce <= s_minNonces[t.account][marketKey]) {"
+     "find": "        if (\n            s_cancelledOrders[orderHash] || version != s_version[t.account]\n                || orderNumber < s_floors[t.account][version][marketKey]\n        ) {\n",
+     "replace": "        if (\n            s_cancelledOrders[orderHash] || version != s_version[t.account]\n                || orderNumber <= s_floors[t.account][version][marketKey]\n        ) {\n"
     }
    ],
    "testPath": "test/betting/OspexCrossNeverLines.t.sol",
@@ -2097,8 +2105,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {",
-     "replace": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[msg.sender][marketKey]) {"
+     "find": "            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n",
+     "replace": "            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[msg.sender][version][marketKey]\n            ) {\n"
     }
    ],
    "testPath": "test/betting/OspexCrossNeverLines.t.sol",
@@ -2110,8 +2118,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_cancelledOrders[orderHash] || t.nonce < s_minNonces[t.account][marketKey]) {",
-     "replace": "        if (s_cancelledOrders[orderHash] || t.nonce < s_minNonces[msg.sender][marketKey]) {"
+     "find": "        if (\n            s_cancelledOrders[orderHash] || version != s_version[t.account]\n                || orderNumber < s_floors[t.account][version][marketKey]\n        ) {\n",
+     "replace": "        if (\n            s_cancelledOrders[orderHash] || version != s_version[t.account]\n                || orderNumber < s_floors[msg.sender][version][marketKey]\n        ) {\n"
     }
    ],
    "testPath": "test/betting/OspexCrossNeverLines.t.sol",
@@ -2123,8 +2131,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {",
-     "replace": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][bytes32(0)]) {"
+     "find": "            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n",
+     "replace": "            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][bytes32(0)]\n            ) {\n"
     }
    ],
    "testPath": "test/betting/OspexCrossNeverLines.t.sol",
@@ -2136,8 +2144,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_cancelledOrders[orderHash] || t.nonce < s_minNonces[t.account][marketKey]) {",
-     "replace": "        if (s_cancelledOrders[orderHash] || t.nonce < s_minNonces[t.account][bytes32(0)]) {"
+     "find": "        if (\n            s_cancelledOrders[orderHash] || version != s_version[t.account]\n                || orderNumber < s_floors[t.account][version][marketKey]\n        ) {\n",
+     "replace": "        if (\n            s_cancelledOrders[orderHash] || version != s_version[t.account]\n                || orderNumber < s_floors[t.account][version][bytes32(0)]\n        ) {\n"
     }
    ],
    "testPath": "test/betting/OspexCrossNeverLines.t.sol",
@@ -2149,8 +2157,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        bytes32 marketKey = keccak256(abi.encode(t.gameId, t.scorer, t.lineTicks));",
-     "replace": "        bytes32 marketKey = keccak256(abi.encode(t.scorer, t.lineTicks));"
+     "find": "        bytes32 marketKey = _lineKey(t.gameId, t.scorer, t.lineTicks);\n",
+     "replace": "        bytes32 marketKey = keccak256(abi.encode(t.scorer, t.lineTicks));\n"
     }
    ],
    "testPath": "test/betting/OspexCrossNeverLines.t.sol",
@@ -2301,7 +2309,7 @@
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheEightReasonsSkip",
    "breaks": "every error of the positions call is a skip"
   },
   {
@@ -2314,7 +2322,7 @@
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheEightReasonsSkip",
    "breaks": "neither filled amount is put back after a refused pull"
   },
   {
@@ -2327,7 +2335,7 @@
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheEightReasonsSkip",
    "breaks": "the resting order's filled amount is not put back"
   },
   {
@@ -2340,7 +2348,7 @@
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheEightReasonsSkip",
    "breaks": "the taking order's filled amount is not put back"
   },
   {
@@ -2353,7 +2361,7 @@
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheEightReasonsSkip",
    "breaks": "the refused pull is recognised without its selector: the taking account's refusal for the same account and amount is a skip"
   },
   {
@@ -2361,12 +2369,12 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier, 0, 0);\n        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {\n            return (false, SkipReason.Cancelled, 0, 0);\n        }",
-     "replace": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {\n            return (false, SkipReason.Cancelled, 0, 0);\n        }\n        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier, 0, 0);"
+     "find": "        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier, 0, 0);\n        {\n            (uint128 version, uint32 grantNumber, uint96 orderNumber) = _split(r.nonce);\n            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n                return (false, SkipReason.Cancelled, 0, 0);\n            }\n",
+     "replace": "        {\n            (uint128 version, uint32 grantNumber, uint96 orderNumber) = _split(r.nonce);\n            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n                return (false, SkipReason.Cancelled, 0, 0);\n            }\n        }\n        if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier, 0, 0);\n        {\n            (uint128 version, uint32 grantNumber,) = _split(r.nonce);\n            version;\n"
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheEightReasonsSkip",
    "breaks": "cancelled is tested before no courier"
   },
   {
@@ -2374,12 +2382,16 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {\n            return (false, SkipReason.Cancelled, 0, 0);\n        }\n        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired, 0, 0);",
-     "replace": "        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired, 0, 0);\n        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {\n            return (false, SkipReason.Cancelled, 0, 0);\n        }"
+     "find": "        {\n            (uint128 version, uint32 grantNumber, uint96 orderNumber) = _split(r.nonce);\n            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n                return (false, SkipReason.Cancelled, 0, 0);\n            }\n",
+     "replace": "        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired, 0, 0);\n        {\n            (uint128 version, uint32 grantNumber, uint96 orderNumber) = _split(r.nonce);\n            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n                return (false, SkipReason.Cancelled, 0, 0);\n            }\n"
+    },
+    {
+     "find": "        }\n        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired, 0, 0);\n\n        uint256 restingFilled",
+     "replace": "        }\n\n        uint256 restingFilled"
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheEightReasonsSkip",
    "breaks": "expired is tested before cancelled"
   },
   {
@@ -2392,7 +2404,7 @@
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheEightReasonsSkip",
    "breaks": "no room is tested before expired"
   },
   {
@@ -2409,7 +2421,7 @@
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheEightReasonsSkip",
    "breaks": "a full order is recorded as nothing fits"
   },
   {
@@ -2422,7 +2434,7 @@
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheEightReasonsSkip",
    "breaks": "an order nothing fits reaches the pull, and is recorded for its refusal"
   },
   {
@@ -2448,7 +2460,7 @@
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheEightReasonsSkip",
    "breaks": "a resting order's expiry is not tested"
   },
   {
@@ -2461,7 +2473,7 @@
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheEightReasonsSkip",
    "breaks": "a resting order fills at its expiry"
   },
   {
@@ -2677,8 +2689,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (_crossInProgress()) revert OspexMatching__CrossInProgress();\n        if (msg.sender != order.account) revert OspexMatching__NotOrderAccount();",
-     "replace": "        if (msg.sender != order.account) revert OspexMatching__NotOrderAccount();"
+     "find": "        if (_crossInProgress()) revert OspexMatching__CrossInProgress();\n        _requireAccountOrAgent(order.account);\n",
+     "replace": "        _requireAccountOrAgent(order.account);\n"
     }
    ],
    "testPath": "test/betting/OspexCrossCallbacks.t.sol",
@@ -2690,8 +2702,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (_crossInProgress()) revert OspexMatching__CrossInProgress();\n        bytes32 marketKey = keccak256(abi.encode(gameId, scorer, lineTicks));",
-     "replace": "        bytes32 marketKey = keccak256(abi.encode(gameId, scorer, lineTicks));"
+     "find": "        if (_crossInProgress()) revert OspexMatching__CrossInProgress();\n        _requireAccountOrAgent(account);\n        bytes32 lineKey = _lineKey(gameId, scorer, lineTicks);\n",
+     "replace": "        _requireAccountOrAgent(account);\n        bytes32 lineKey = _lineKey(gameId, scorer, lineTicks);\n"
     }
    ],
    "testPath": "test/betting/OspexCrossCallbacks.t.sol",
@@ -2703,8 +2715,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (_crossInProgress()) revert OspexMatching__CrossInProgress();\n        if (courier == address(0)) revert OspexMatching__ZeroCourier();",
-     "replace": "        if (courier == address(0)) revert OspexMatching__ZeroCourier();"
+     "find": "        if (_crossInProgress()) revert OspexMatching__CrossInProgress();\n        _register(msg.sender, courier);\n",
+     "replace": "        _register(msg.sender, courier);\n"
     }
    ],
    "testPath": "test/betting/OspexCrossCallbacks.t.sol",
@@ -2837,8 +2849,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (err != ECDSA.RecoverError.NoError || signer != order.account) {",
-     "replace": "        if (err != ECDSA.RecoverError.NoError || signer != msg.sender) {"
+     "find": "        if (err != ECDSA.RecoverError.NoError || recovered != signer) {\n",
+     "replace": "        if (err != ECDSA.RecoverError.NoError || recovered != msg.sender) {\n"
     }
    ],
    "testPath": "test/betting/OspexCrossOrders.t.sol",
@@ -3335,8 +3347,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        /// @dev 0: the order's account has not registered the sender as a courier.\n        NoCourier,\n        /// @dev 1: the order's hash is marked cancelled, or its nonce is under its account's floor for the market.\n        Cancelled,\n",
-     "replace": "        /// @dev 0: the order's account has not registered the sender as a courier.\n        Cancelled,\n        /// @dev 1: the order's hash is marked cancelled, or its nonce is under its account's floor for the market.\n        NoCourier,\n"
+     "find": "        /// @dev 0: the order's account has not registered the sender as a courier.\n        NoCourier,\n        /// @dev 1: the order's hash is marked cancelled, its version is not its account's current version, or\n        ///      its order number is under its account's floor for the line.\n        Cancelled,\n",
+     "replace": "        /// @dev 0: the order's account has not registered the sender as a courier.\n        Cancelled,\n        /// @dev 1: the order's hash is marked cancelled, its version is not its account's current version, or\n        ///      its order number is under its account's floor for the line.\n        NoCourier,\n"
     }
    ],
    "testPath": "test/betting/OspexBettingInterface.t.sol",
@@ -3465,8 +3477,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {",
-     "replace": "        if ((tally.legs < 2 && s_cancelledOrders[restingHash]) || r.nonce < s_minNonces[r.account][marketKey]) {"
+     "find": "            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n",
+     "replace": "            if (\n                (tally.legs < 2 && s_cancelledOrders[restingHash]) || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n"
     }
    ],
    "testPath": "test/betting/OspexCrossDepth.t.sol",
@@ -3478,8 +3490,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {",
-     "replace": "        if (s_cancelledOrders[restingHash] || (tally.legs < 2 && r.nonce < s_minNonces[r.account][marketKey])) {"
+     "find": "            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n",
+     "replace": "            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || (tally.legs < 2 && orderNumber < s_floors[r.account][version][marketKey])\n            ) {\n"
     }
    ],
    "testPath": "test/betting/OspexCrossDepth.t.sol",
@@ -3517,8 +3529,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        bytes32 marketKey = keccak256(abi.encode(t.gameId, t.scorer, t.lineTicks));",
-     "replace": "        bytes32 marketKey = keccak256(abi.encode(t.gameId, t.scorer, int32(0)));"
+     "find": "        bytes32 marketKey = _lineKey(t.gameId, t.scorer, t.lineTicks);\n",
+     "replace": "        bytes32 marketKey = _lineKey(t.gameId, t.scorer, int32(0));\n"
     }
    ],
    "testPath": "test/betting/OspexCrossDepth.t.sol",
@@ -3697,8 +3709,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (msg.sender != order.account) revert OspexMatching__NotOrderAccount();",
-     "replace": "        if (msg.sender != order.account && tx.origin != order.account) revert OspexMatching__NotOrderAccount();"
+     "find": "        _requireAccountOrAgent(order.account);\n",
+     "replace": "        if (msg.sender != order.account && tx.origin != order.account) _requireAccountOrAgent(order.account);\n"
     }
    ],
    "testPath": "test/betting/OspexMatching.t.sol",
@@ -3715,7 +3727,7 @@
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheEightReasonsSkip",
    "breaks": "the hub's copy of a skip record always carries one reason"
   },
   {
@@ -3723,16 +3735,16 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {",
-     "replace": "        if (s_cancelledOrders[restingHash]) {"
+     "find": "            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n",
+     "replace": "            if (s_cancelledOrders[restingHash] || version != s_version[r.account]) {\n"
     },
     {
-     "find": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom, 0, 0);",
-     "replace": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom, 0, 0);\n        if (r.nonce < s_minNonces[r.account][marketKey]) return (false, SkipReason.Cancelled, 0, 0);"
+     "find": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom, 0, 0);\n",
+     "replace": "        if (restingFilled >= r.riskAmount) return (false, SkipReason.NoRoom, 0, 0);\n        {\n            (uint128 v,, uint96 n) = _split(r.nonce);\n            if (n < s_floors[r.account][v][marketKey]) return (false, SkipReason.Cancelled, 0, 0);\n        }\n"
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheEightReasonsSkip",
    "breaks": "the floor is tested after the expiry and the room"
   },
   {
@@ -4107,8 +4119,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        s_couriers[msg.sender][courier] = true;",
-     "replace": "        s_couriers[msg.sender][courier] = true;\n        s_takingStakeCapLifted = true;"
+     "find": "        s_couriers[account][courier] = true;\n",
+     "replace": "        s_couriers[account][courier] = true;\n        s_takingStakeCapLifted = true;\n"
     }
    ],
    "testPath": "test/betting/OspexCrossCap.t.sol",
@@ -4332,8 +4344,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        if (s_couriers[msg.sender][courier]) return;",
-     "replace": "        if (s_couriers[msg.sender][courier]) {\n            s_takingStakeCapLifted = true;\n            return;\n        }"
+     "find": "        if (s_couriers[account][courier]) return;\n",
+     "replace": "        if (s_couriers[account][courier]) {\n            s_takingStakeCapLifted = true;\n            return;\n        }\n"
     }
    ],
    "testPath": "test/betting/OspexCrossCap.t.sol",
@@ -4648,8 +4660,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "        /// @dev 5: the leg would take less than the order's minimum fill and leave a lot or more of its room.\n        UnderMinFill,\n        /// @dev 6: the coin refused the pull of the resting stake from the order's account.\n        PullRefused",
-     "replace": "        /// @dev 5: the coin refused the pull of the resting stake from the order's account.\n        PullRefused,\n        /// @dev 6: the leg would take less than the order's minimum fill and leave a lot or more of its room.\n        UnderMinFill"
+     "find": "        /// @dev 5: the leg would take less than the order's minimum fill and leave a lot or more of its room.\n        UnderMinFill,\n        /// @dev 6: the coin refused the pull of the resting stake from the order's account.\n        PullRefused,\n",
+     "replace": "        /// @dev 5: the coin refused the pull of the resting stake from the order's account.\n        PullRefused,\n        /// @dev 6: the leg would take less than the order's minimum fill and leave a lot or more of its room.\n        UnderMinFill,\n"
     }
    ],
    "testPath": "test/betting/OspexBettingInterface.t.sol",
@@ -4717,7 +4729,7 @@
     }
    ],
    "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheEightReasonsSkip",
    "breaks": "a break of the tests, scored once to show the pins bite: the test base's number for the refused pull left at 5"
   },
   {
@@ -4909,8 +4921,8 @@
    "file": "src/betting/OspexMatching.sol",
    "edits": [
     {
-     "find": "            order.expiry,\n            order.minFill\n        );",
-     "replace": "            order.expiry,\n            uint256(0)\n        );"
+     "find": "            order.expiry,\n            order.minFill,\n            msg.sender\n        );\n",
+     "replace": "            order.expiry,\n            uint256(0),\n            msg.sender\n        );\n"
     }
    ],
    "testPath": "test/betting/OspexMinFill.t.sol",
@@ -6256,7 +6268,7 @@
    ],
    "testPath": "test/betting/OspexSharedCollateral.t.sol",
    "test": "test_neverLine_heldCoversTheWorstLoss_everyOrderOfFills",
-   "breaks": "the first term of the worst loss is dropped: part 1's bettor is paid 65 back after fill 3"
+   "breaks": "the first term of the worst loss is dropped: at row 1 the maker's held amount reads 0, not 200 USDC"
   },
   {
    "id": "S2-secondtermdropped",
@@ -6269,7 +6281,7 @@
    ],
    "testPath": "test/betting/OspexSharedCollateral.t.sol",
    "test": "test_neverLine_heldCoversTheWorstLoss_everyOrderOfFills",
-   "breaks": "the second term of the worst loss is dropped: part 1's maker holds 0 after fill 3, not 40"
+   "breaks": "the second term of the worst loss is dropped: at row 1 the bettor's held amount reads 0, not 220 USDC"
   },
   {
    "id": "S3-termspairedwrongly",
@@ -6420,7 +6432,7 @@
    ],
    "testPath": "test/betting/OspexSharedCollateral.t.sol",
    "test": "test_neverLine_aPayBackComesAfterEveryWrite_withACoinThatCallsBack",
-   "breaks": "a pay-back is made at each leg, not at the end"
+   "breaks": "a pay-back is made at each leg, not at the end: read from inside the pay-back, the market's total is 140 USDC, not 80"
   },
   {
    "id": "S14-finishunguarded",
@@ -6459,7 +6471,7 @@
    ],
    "testPath": "test/betting/OspexSharedCollateral.t.sol",
    "test": "test_neverLine_theClaimIsNetOfEarlyMoneyOnce",
-   "breaks": "the winning record is paid risk + profit as today: part 1's maker is paid 315, not 105"
+   "breaks": "the winning record is paid risk + profit as today: part 1's maker's claim, 315 USDC, is refused as short of the 105 USDC held"
   },
   {
    "id": "S17-heldleftout",
@@ -7126,6 +7138,1020 @@
    "testPath": "test/betting/OspexSharedCollateral.t.sol",
    "test": "test_netting_bothRolesAndTheSameAccountRestingTwice",
    "breaks": "the makers list keeps every listed order's account, skipped ones included (The makers list keeps every listed order's account, skipped ones included, and is not cut: the end call pays back accounts that filled nothing in this Cross and)"
+  },
+  {
+   "id": "G1-countcheckdropped",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (count == MAX_GRANT_COUNT) revert OspexMatching__GrantCountExhausted(account);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_grant_theCountHasATopAndRefusesByName",
+   "breaks": "the count check dropped: the grant past the top panics in checked arithmetic instead of refusing by name"
+  },
+  {
+   "id": "G2-countgreater",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (count == MAX_GRANT_COUNT) revert OspexMatching__GrantCountExhausted(account);\n",
+     "replace": "        if (count > MAX_GRANT_COUNT) revert OspexMatching__GrantCountExhausted(account);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_grant_theCountHasATopAndRefusesByName",
+   "breaks": "the count check `>` for `==`: a count at the top is not refused"
+  },
+  {
+   "id": "G3-numberiscount",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        number = count + 1;\n",
+     "replace": "        number = count;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_grant_isRecordedNumberedAndAnnounced",
+   "breaks": "the grant's number is the count, not the count plus one"
+  },
+  {
+   "id": "G4-norevokeonregrant",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        uint32 old = s_currentGrant[account];\n        if (old != 0) {\n            address oldAgent = s_grants[account][old].agent;\n            emit AgentRevoked(account, oldAgent, old);\n            i_ospexCore.emitCoreEvent(EVENT_AGENT_REVOKED, abi.encode(account, oldAgent, old));\n        }\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_grant_isRecordedNumberedAndAnnounced",
+   "breaks": "a regrant does not announce the end of the grant that stood"
+  },
+  {
+   "id": "G5-selfagent",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (agent == account) revert OspexMatching__AgentIsAccount();\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_grant_refusesByName",
+   "breaks": "the account as its own agent is accepted"
+  },
+  {
+   "id": "G6-zeroagent",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (agent == address(0)) revert OspexMatching__ZeroAgent();\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_grant_refusesByName",
+   "breaks": "a zero agent is accepted"
+  },
+  {
+   "id": "G7-endatnow",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (endsAt <= block.timestamp) revert OspexMatching__GrantEndsInThePast(endsAt, block.timestamp);\n",
+     "replace": "        if (endsAt < block.timestamp) revert OspexMatching__GrantEndsInThePast(endsAt, block.timestamp);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_grant_refusesByName",
+   "breaks": "`<` for `<=` at the end: a grant ending at the block's time is accepted"
+  },
+  {
+   "id": "G8-nolinelimit",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (lines.length > MAX_GRANT_LINES) revert OspexMatching__TooManyLines(lines.length);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_grant_refusesByName",
+   "breaks": "the line limit dropped: sixty-five lines are accepted"
+  },
+  {
+   "id": "G9-revokenothing",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (number == 0) revert OspexMatching__NoGrantToRevoke();\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_grant_refusesByName",
+   "breaks": "a revoke with no grant standing is accepted"
+  },
+  {
+   "id": "G10-courierfirst",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        number = _grant(msg.sender, agent, stakeCap, endsAt, lines);\n        _register(msg.sender, courier);\n",
+     "replace": "        _register(msg.sender, courier);\n        number = _grant(msg.sender, agent, stakeCap, endsAt, lines);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_grant_theCombinedCallGrantsThenRegistersForTheCaller",
+   "breaks": "the combined call registers the courier before the grant"
+  },
+  {
+   "id": "G11-courierforagent",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        number = _grant(msg.sender, agent, stakeCap, endsAt, lines);\n        _register(msg.sender, courier);\n",
+     "replace": "        number = _grant(msg.sender, agent, stakeCap, endsAt, lines);\n        _register(agent, courier);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_grant_theCombinedCallGrantsThenRegistersForTheCaller",
+   "breaks": "the combined call registers the courier for the agent"
+  },
+  {
+   "id": "G12-countwraps",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (count == MAX_GRANT_COUNT) revert OspexMatching__GrantCountExhausted(account);\n",
+     "replace": ""
+    },
+    {
+     "find": "        number = count + 1;\n",
+     "replace": "        unchecked {\n            number = count + 1;\n        }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_grant_theCountHasATopAndRefusesByName",
+   "breaks": "the count check dropped and the count incremented unchecked: the grant past the top wraps to number 0"
+  },
+  {
+   "id": "G13-legstakecap",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (order.riskAmount > g.stakeCap) {\n                revert OspexMatching__AgentStakeAboveCap(orderHash, order.riskAmount, g.stakeCap);\n            }\n",
+     "replace": ""
+    },
+    {
+     "find": "        makerRisk = lots * LOT;\n        takerRisk = lots * p;\n",
+     "replace": "        makerRisk = lots * LOT;\n        takerRisk = lots * p;\n        {\n            (, uint32 gn,) = _split(r.nonce);\n            if (gn != 0 && makerRisk > s_grants[r.account][gn].stakeCap) return (false, SkipReason.GrantGone, 0, 0);\n        }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theCapAndTheListAreTheGrantsAndAreReadAtTheFill",
+   "breaks": "the cap compared with the leg's stake at the leg, not the signed stake up front: a 20,000 order with a 5,000 leg proceeds"
+  },
+  {
+   "id": "G14-listofcurrent",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (\n                g.lineCount != 0\n                    && !s_grantLines[order.account][grantNumber][_lineKey(order.gameId, order.scorer, order.lineTicks)]\n            ) {\n",
+     "replace": "            if (\n                g.lineCount != 0\n                    && !s_grantLines[order.account][s_currentGrant[order.account]][_lineKey(order.gameId, order.scorer, order.lineTicks)]\n            ) {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theCapAndTheListAreTheGrantsAndAreReadAtTheFill",
+   "breaks": "the list read from the current grant's record instead of the order's"
+  },
+  {
+   "id": "G15-capatequal",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (order.riskAmount > g.stakeCap) {\n                revert OspexMatching__AgentStakeAboveCap(orderHash, order.riskAmount, g.stakeCap);\n            }\n",
+     "replace": "            if (order.riskAmount >= g.stakeCap) {\n                revert OspexMatching__AgentStakeAboveCap(orderHash, order.riskAmount, g.stakeCap);\n            }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theCapAndTheListAreTheGrantsAndAreReadAtTheFill",
+   "breaks": "`>=` at the cap: an order at the cap is refused"
+  },
+  {
+   "id": "G16-emptylistrefuses",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (\n                g.lineCount != 0\n                    && !s_grantLines[order.account][grantNumber][_lineKey(order.gameId, order.scorer, order.lineTicks)]\n            ) {\n",
+     "replace": "            if (\n                !s_grantLines[order.account][grantNumber][_lineKey(order.gameId, order.scorer, order.lineTicks)]\n            ) {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theCapAndTheListAreTheGrantsAndAreReadAtTheFill",
+   "breaks": "an empty list passes nothing"
+  },
+  {
+   "id": "G17-legstandingbycount",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (\n                grantNumber != 0\n                    && (grantNumber != s_currentGrant[r.account]\n                        || block.timestamp >= s_grants[r.account][grantNumber].endsAt)\n            ) {\n                return (false, SkipReason.GrantGone, 0, 0);\n            }\n",
+     "replace": "            if (\n                grantNumber != 0\n                    && (grantNumber != s_grantCount[r.account]\n                        || block.timestamp >= s_grants[r.account][grantNumber].endsAt)\n            ) {\n                return (false, SkipReason.GrantGone, 0, 0);\n            }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_anOrderUnderARevokedOrExpiredGrantNeverFills",
+   "breaks": "the leg compares the order's grant number with the count, not the current grant"
+  },
+  {
+   "id": "G18-takingstandingbycount",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (grantNumber != 0) {\n            uint32 current = s_currentGrant[t.account];\n            uint64 endsAt = s_grants[t.account][grantNumber].endsAt;\n            if (grantNumber != current || block.timestamp >= endsAt) {\n                revert OspexMatching__TakingOrderGrantGone(orderHash, grantNumber, current, endsAt);\n            }\n        }\n",
+     "replace": "        if (grantNumber != 0) {\n            uint32 current = s_grantCount[t.account];\n            uint64 endsAt = s_grants[t.account][grantNumber].endsAt;\n            if (grantNumber != current || block.timestamp >= endsAt) {\n                revert OspexMatching__TakingOrderGrantGone(orderHash, grantNumber, current, endsAt);\n            }\n        }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_anOrderUnderARevokedOrExpiredGrantNeverFills",
+   "breaks": "the taking check compares the grant number with the count, not the current grant"
+  },
+  {
+   "id": "G19-legnoend",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (\n                grantNumber != 0\n                    && (grantNumber != s_currentGrant[r.account]\n                        || block.timestamp >= s_grants[r.account][grantNumber].endsAt)\n            ) {\n                return (false, SkipReason.GrantGone, 0, 0);\n            }\n",
+     "replace": "            if (\n                grantNumber != 0\n                    && (grantNumber != s_currentGrant[r.account])\n            ) {\n                return (false, SkipReason.GrantGone, 0, 0);\n            }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_anOrderUnderARevokedOrExpiredGrantNeverFills",
+   "breaks": "the grant's end is not tested at the leg"
+  },
+  {
+   "id": "G20-takingnoend",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (grantNumber != 0) {\n            uint32 current = s_currentGrant[t.account];\n            uint64 endsAt = s_grants[t.account][grantNumber].endsAt;\n            if (grantNumber != current || block.timestamp >= endsAt) {\n                revert OspexMatching__TakingOrderGrantGone(orderHash, grantNumber, current, endsAt);\n            }\n        }\n",
+     "replace": "        if (grantNumber != 0) {\n            uint32 current = s_currentGrant[t.account];\n            uint64 endsAt = s_grants[t.account][grantNumber].endsAt;\n            if (grantNumber != current) {\n                revert OspexMatching__TakingOrderGrantGone(orderHash, grantNumber, current, endsAt);\n            }\n        }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_anOrderUnderARevokedOrExpiredGrantNeverFills",
+   "breaks": "the grant's end is not tested at the taking check"
+  },
+  {
+   "id": "G21-legendexclusive",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (\n                grantNumber != 0\n                    && (grantNumber != s_currentGrant[r.account]\n                        || block.timestamp >= s_grants[r.account][grantNumber].endsAt)\n            ) {\n                return (false, SkipReason.GrantGone, 0, 0);\n            }\n",
+     "replace": "            if (\n                grantNumber != 0\n                    && (grantNumber != s_currentGrant[r.account]\n                        || block.timestamp > s_grants[r.account][grantNumber].endsAt)\n            ) {\n                return (false, SkipReason.GrantGone, 0, 0);\n            }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_anOrderUnderARevokedOrExpiredGrantNeverFills",
+   "breaks": "`>` for `>=` at the end: an agent's order fills at the end second"
+  },
+  {
+   "id": "G22-standingongrantzero",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (\n                grantNumber != 0\n                    && (grantNumber != s_currentGrant[r.account]\n                        || block.timestamp >= s_grants[r.account][grantNumber].endsAt)\n            ) {\n                return (false, SkipReason.GrantGone, 0, 0);\n            }\n",
+     "replace": "            if (\n                (grantNumber != s_currentGrant[r.account]\n                        || block.timestamp >= s_grants[r.account][grantNumber].endsAt)\n            ) {\n                return (false, SkipReason.GrantGone, 0, 0);\n            }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_anOrderUnderARevokedOrExpiredGrantNeverFills",
+   "breaks": "the grant's standing tested on grant 0 too: the account's own orders die with a revoke"
+  },
+  {
+   "id": "G23-signerisaccount",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            signer = s_grants[order.account][grantNumber].agent;\n            if (signer == address(0)) revert OspexMatching__NoSuchGrant(orderHash, order.account, grantNumber);\n",
+     "replace": "            if (s_grants[order.account][grantNumber].agent == address(0)) {\n                revert OspexMatching__NoSuchGrant(orderHash, order.account, grantNumber);\n            }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theSignerIsTheAccountsKeyAtGrantZeroAndTheGrantsAgentOtherwise",
+   "breaks": "the signer resolved as the account for every grant number"
+  },
+  {
+   "id": "G24-nosuchgrantisaccount",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (signer == address(0)) revert OspexMatching__NoSuchGrant(orderHash, order.account, grantNumber);\n",
+     "replace": "            if (signer == address(0)) signer = order.account;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theSignerIsTheAccountsKeyAtGrantZeroAndTheGrantsAgentOtherwise",
+   "breaks": "a grant never made resolves to the account instead of being refused by name"
+  },
+  {
+   "id": "G25-eitherkey",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (err != ECDSA.RecoverError.NoError || recovered != signer) {\n",
+     "replace": "        if (err != ECDSA.RecoverError.NoError || (recovered != signer && recovered != order.account)) {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theSignerIsTheAccountsKeyAtGrantZeroAndTheGrantsAgentOtherwise",
+   "breaks": "either the account's key or the agent's is accepted under a nonzero grant"
+  },
+  {
+   "id": "G26-signerofcurrent",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            signer = s_grants[order.account][grantNumber].agent;\n",
+     "replace": "            signer = s_grants[order.account][s_currentGrant[order.account]].agent;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theSignerIsTheAccountsKeyAtGrantZeroAndTheGrantsAgentOtherwise",
+   "breaks": "the signer read from the current grant instead of the grant the order names"
+  },
+  {
+   "id": "G27-grantopen",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (_crossInProgress()) revert OspexMatching__CrossInProgress();\n        uint32 count = s_grantCount[account];\n",
+     "replace": "        uint32 count = s_grantCount[account];\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_nothingInTheMatchingContractChangesWhileACrossIsInProgress",
+   "breaks": "a grant is taken while a Cross is in progress"
+  },
+  {
+   "id": "G28-revokeopen",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (_crossInProgress()) revert OspexMatching__CrossInProgress();\n        uint32 number = s_currentGrant[msg.sender];\n",
+     "replace": "        uint32 number = s_currentGrant[msg.sender];\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossCallbacks.t.sol",
+   "test": "test_neverLine_nothingInTheMatchingContractChangesWhileACrossIsInProgress",
+   "breaks": "a revoke is taken while a Cross is in progress"
+  },
+  {
+   "id": "G29-grantgoneafterexpiry",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (\n                grantNumber != 0\n                    && (grantNumber != s_currentGrant[r.account]\n                        || block.timestamp >= s_grants[r.account][grantNumber].endsAt)\n            ) {\n                return (false, SkipReason.GrantGone, 0, 0);\n            }\n        }\n        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired, 0, 0);\n",
+     "replace": "        }\n        if (block.timestamp >= r.expiry) return (false, SkipReason.Expired, 0, 0);\n        {\n            (, uint32 grantNumber,) = _split(r.nonce);\n            if (\n                grantNumber != 0\n                    && (grantNumber != s_currentGrant[r.account]\n                        || block.timestamp >= s_grants[r.account][grantNumber].endsAt)\n            ) {\n                return (false, SkipReason.GrantGone, 0, 0);\n            }\n        }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheEightReasonsSkip",
+   "breaks": "the grant's standing tested after the expiry: an order under a dead grant at its expiry records 2"
+  },
+  {
+   "id": "G30-grantgonebeforecancel",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n                return (false, SkipReason.Cancelled, 0, 0);\n            }\n            if (\n                grantNumber != 0\n                    && (grantNumber != s_currentGrant[r.account]\n                        || block.timestamp >= s_grants[r.account][grantNumber].endsAt)\n            ) {\n                return (false, SkipReason.GrantGone, 0, 0);\n            }\n",
+     "replace": "            if (\n                grantNumber != 0\n                    && (grantNumber != s_currentGrant[r.account]\n                        || block.timestamp >= s_grants[r.account][grantNumber].endsAt)\n            ) {\n                return (false, SkipReason.GrantGone, 0, 0);\n            }\n            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n                return (false, SkipReason.Cancelled, 0, 0);\n            }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexCrossSkips.t.sol",
+   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheEightReasonsSkip",
+   "breaks": "the grant's standing tested before the cancel: a cancelled order under a dead grant records 7"
+  },
+  {
+   "id": "V1-gateorigin",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (msg.sender != account && !_isLiveAgent(account, msg.sender)) {\n            revert OspexMatching__NotAccountOrAgent(account, msg.sender);\n        }\n",
+     "replace": "        if (tx.origin != account && !_isLiveAgent(account, tx.origin)) {\n            revert OspexMatching__NotAccountOrAgent(account, msg.sender);\n        }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_onlyTheAccountOrItsLiveAgentChangesItsCancellingState",
+   "breaks": "the cancels' gate reads the transaction's origin"
+  },
+  {
+   "id": "V2-livebycount",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        uint32 number = s_currentGrant[account];\n        if (number == 0) return false;\n",
+     "replace": "        uint32 number = s_grantCount[account];\n        if (number == 0) return false;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_onlyTheAccountOrItsLiveAgentChangesItsCancellingState",
+   "breaks": "the live agent read by the count instead of the current grant: a revoked agent is live"
+  },
+  {
+   "id": "V3-livenoend",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        return g.agent == who && block.timestamp < g.endsAt;\n",
+     "replace": "        return g.agent == who;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_onlyTheAccountOrItsLiveAgentChangesItsCancellingState",
+   "breaks": "the live agent's end not tested"
+  },
+  {
+   "id": "V4-versionundersender",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        s_version[account] = next;\n",
+     "replace": "        s_version[msg.sender] = next;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_onlyTheAccountOrItsLiveAgentChangesItsCancellingState",
+   "breaks": "cancelAll writes the version under the caller"
+  },
+  {
+   "id": "V5-floorundersender",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        s_floors[account][version][lineKey] = floor;\n",
+     "replace": "        s_floors[msg.sender][version][lineKey] = floor;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_onlyTheAccountOrItsLiveAgentChangesItsCancellingState",
+   "breaks": "raiseFloor writes the floor under the caller"
+  },
+  {
+   "id": "V6-grantkeyedtoorigin",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        return _grant(msg.sender, agent, stakeCap, endsAt, lines);\n",
+     "replace": "        return _grant(tx.origin, agent, stakeCap, endsAt, lines);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_onlyTheAccountOrItsLiveAgentChangesItsCancellingState",
+   "breaks": "the grant keyed to the transaction's origin"
+  },
+  {
+   "id": "V7-cancelsenderorigin",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            order.minFill,\n            msg.sender\n        );\n        i_ospexCore.emitCoreEvent(\n",
+     "replace": "            order.minFill,\n            tx.origin\n        );\n        i_ospexCore.emitCoreEvent(\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theSenderFieldNamesThePartyWhoseAuthorityWasChecked",
+   "breaks": "the cancel event's sender is the transaction's origin"
+  },
+  {
+   "id": "V8-cancelaccountissender",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        emit OrderCancelled(\n            orderHash,\n            order.account,\n",
+     "replace": "        emit OrderCancelled(\n            orderHash,\n            msg.sender,\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theSenderFieldNamesThePartyWhoseAuthorityWasChecked",
+   "breaks": "the cancel event's account is the caller"
+  },
+  {
+   "id": "V9-cancelhubswapped",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                order.expiry,\n                order.minFill,\n                msg.sender\n            )\n        );\n",
+     "replace": "                order.minFill,\n                order.expiry,\n                msg.sender\n            )\n        );\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theSenderFieldNamesThePartyWhoseAuthorityWasChecked",
+   "breaks": "the cancel's hub payload carries the expiry and the minimum in the other order"
+  },
+  {
+   "id": "V10-cancelhubfixedsender",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "                order.expiry,\n                order.minFill,\n                msg.sender\n            )\n        );\n",
+     "replace": "                order.expiry,\n                order.minFill,\n                address(0)\n            )\n        );\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theSenderFieldNamesThePartyWhoseAuthorityWasChecked",
+   "breaks": "the cancel's hub payload carries a fixed sender"
+  },
+  {
+   "id": "V11-floorsenderorigin",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        emit FloorRaised(account, version, gameId, scorer, lineTicks, floor, lineKey, msg.sender);\n",
+     "replace": "        emit FloorRaised(account, version, gameId, scorer, lineTicks, floor, lineKey, tx.origin);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theSenderFieldNamesThePartyWhoseAuthorityWasChecked",
+   "breaks": "the floor event's sender is the transaction's origin"
+  },
+  {
+   "id": "V12-floorhubsenderorigin",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            EVENT_FLOOR_RAISED, abi.encode(account, version, gameId, scorer, lineTicks, floor, lineKey, msg.sender)\n",
+     "replace": "            EVENT_FLOOR_RAISED, abi.encode(account, version, gameId, scorer, lineTicks, floor, lineKey, tx.origin)\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theSenderFieldNamesThePartyWhoseAuthorityWasChecked",
+   "breaks": "the floor's hub payload names the transaction's origin"
+  },
+  {
+   "id": "V13-versionsenderorigin",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        emit VersionChanged(account, current, next, msg.sender);\n",
+     "replace": "        emit VersionChanged(account, current, next, tx.origin);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theSenderFieldNamesThePartyWhoseAuthorityWasChecked",
+   "breaks": "the version event's sender is the transaction's origin"
+  },
+  {
+   "id": "V14-cancelnogate",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        _requireAccountOrAgent(order.account);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_onlyTheAccountOrItsLiveAgentChangesItsCancellingState",
+   "breaks": "the cancel's authority check removed: anyone marks anyone's order"
+  },
+  {
+   "id": "V15-floornogate",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        _requireAccountOrAgent(account);\n        bytes32 lineKey = _lineKey(gameId, scorer, lineTicks);\n",
+     "replace": "        bytes32 lineKey = _lineKey(gameId, scorer, lineTicks);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_onlyTheAccountOrItsLiveAgentChangesItsCancellingState",
+   "breaks": "the floor's authority check removed"
+  },
+  {
+   "id": "V16-cancelallnogate",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        _requireAccountOrAgent(account);\n        uint128 current = s_version[account];\n",
+     "replace": "        uint128 current = s_version[account];\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_onlyTheAccountOrItsLiveAgentChangesItsCancellingState",
+   "breaks": "cancelAll's authority check removed"
+  },
+  {
+   "id": "V17-noversiongate",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (version != current) revert OspexMatching__OrderNotAtCurrentVersion(orderHash, version, current);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_aMarkReachesOneHashAndACancelMovesNoMoney",
+   "breaks": "the current-version gate dropped from cancelOrder: an old-version order is marked"
+  },
+  {
+   "id": "V18-markbynumber",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        s_cancelledOrders[orderHash] = true;\n",
+     "replace": "        s_cancelledOrders[keccak256(abi.encode(order.account, uint96(order.nonce)))] = true;\n"
+    },
+    {
+     "find": "        if (\n            s_cancelledOrders[orderHash] || version != s_version[t.account]\n                || orderNumber < s_floors[t.account][version][marketKey]\n        ) {\n",
+     "replace": "        if (\n            s_cancelledOrders[keccak256(abi.encode(t.account, orderNumber))] || version != s_version[t.account]\n                || orderNumber < s_floors[t.account][version][marketKey]\n        ) {\n"
+    },
+    {
+     "find": "            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n",
+     "replace": "            if (\n                s_cancelledOrders[keccak256(abi.encode(r.account, orderNumber))] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_aMarkReachesOneHashAndACancelMovesNoMoney",
+   "breaks": "the mark keyed by the account and the order number, so it reaches every version"
+  },
+  {
+   "id": "V19-cancelresetsfilled",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        s_cancelledOrders[orderHash] = true;\n",
+     "replace": "        s_cancelledOrders[orderHash] = true;\n        s_filledRisk[orderHash] = 0;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_aMarkReachesOneHashAndACancelMovesNoMoney",
+   "breaks": "a cancel resets the order's filled amount"
+  },
+  {
+   "id": "V20-claimpayscaller",
+   "file": "src/betting/OspexPositions.sol",
+   "edits": [
+    {
+     "find": "        i_token.safeTransfer(account, payout);\n",
+     "replace": "        i_token.safeTransfer(msg.sender, payout);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theAgentNeverWithdrawsOrMovesMoney",
+   "breaks": "the claim pays the caller, not the account"
+  },
+  {
+   "id": "V21-floorbylinealone",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n",
+     "replace": "            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][0][marketKey]\n            ) {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_aFloorCancelsBelowItOnItsLineAtItsVersionAndLeavesTheTop",
+   "breaks": "the leg reads the floor under version 0, not the order's version"
+  },
+  {
+   "id": "V22-floorinclusive",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n",
+     "replace": "            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber <= s_floors[r.account][version][marketKey]\n            ) {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_aFloorCancelsBelowItOnItsLineAtItsVersionAndLeavesTheTop",
+   "breaks": "`<=` at the floor: the top order number dies under a floor at the top"
+  },
+  {
+   "id": "V23-floorrefusestop",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (floor <= current) revert OspexMatching__FloorMustRise(current, floor);\n",
+     "replace": "        if (floor <= current || floor == MAX_ORDER_NUMBER) revert OspexMatching__FloorMustRise(current, floor);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_aFloorCancelsBelowItOnItsLineAtItsVersionAndLeavesTheTop",
+   "breaks": "raiseFloor refuses the top order number"
+  },
+  {
+   "id": "V24-takingfloorversionzero",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (\n            s_cancelledOrders[orderHash] || version != s_version[t.account]\n                || orderNumber < s_floors[t.account][version][marketKey]\n        ) {\n",
+     "replace": "        if (\n            s_cancelledOrders[orderHash] || version != s_version[t.account]\n                || orderNumber < s_floors[t.account][0][marketKey]\n        ) {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_aFloorCancelsBelowItOnItsLineAtItsVersionAndLeavesTheTop",
+   "breaks": "the taking check reads the floor under version 0"
+  },
+  {
+   "id": "V25-nodraw",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        uint128 next = current + 1 + draw;\n",
+     "replace": "        uint128 next = current + 1;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theVersionIsDrawnByTheContractAndAPresignedSuccessorOrderCanFill",
+   "breaks": "the draw dropped: the next version is the old one plus one"
+  },
+  {
+   "id": "V26-drawcurrentblock",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        uint128 draw = uint128(uint64(bytes8(blockhash(block.number - 1))));\n",
+     "replace": "        uint128 draw = uint128(uint64(bytes8(blockhash(block.number))));\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theVersionIsDrawnByTheContractAndAPresignedSuccessorOrderCanFill",
+   "breaks": "the draw read from the current block's hash, which is zero"
+  },
+  {
+   "id": "V27-versionwraps",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (type(uint128).max - current < draw + 1) revert OspexMatching__VersionAtTop(account, current);\n        uint128 next = current + 1 + draw;\n",
+     "replace": "        uint128 next;\n        unchecked {\n            next = current + 1 + draw;\n        }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theVersionHasATopRefusedByNameAndEveryVersionHasSignableOrderNumbers",
+   "breaks": "the top check dropped and the step unchecked: a step past the top wraps"
+  },
+  {
+   "id": "V28-versionpanics",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (type(uint128).max - current < draw + 1) revert OspexMatching__VersionAtTop(account, current);\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theVersionHasATopRefusedByNameAndEveryVersionHasSignableOrderNumbers",
+   "breaks": "the top check dropped: a step past the top panics instead of refusing by name"
+  },
+  {
+   "id": "V29-takingnoversion",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (\n            s_cancelledOrders[orderHash] || version != s_version[t.account]\n                || orderNumber < s_floors[t.account][version][marketKey]\n        ) {\n",
+     "replace": "        if (\n            s_cancelledOrders[orderHash]\n                || orderNumber < s_floors[t.account][version][marketKey]\n        ) {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_everyRouteAndEitherSideReadsTheVersionTheGrantTheFloorAndTheMark",
+   "breaks": "the taking check does not read the version"
+  },
+  {
+   "id": "V30-takingnomark",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (\n            s_cancelledOrders[orderHash] || version != s_version[t.account]\n                || orderNumber < s_floors[t.account][version][marketKey]\n        ) {\n",
+     "replace": "        if (\n            version != s_version[t.account]\n                || orderNumber < s_floors[t.account][version][marketKey]\n        ) {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_everyRouteAndEitherSideReadsTheVersionTheGrantTheFloorAndTheMark",
+   "breaks": "the taking check does not read the mark"
+  },
+  {
+   "id": "V31-takingnofloor",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (\n            s_cancelledOrders[orderHash] || version != s_version[t.account]\n                || orderNumber < s_floors[t.account][version][marketKey]\n        ) {\n",
+     "replace": "        if (s_cancelledOrders[orderHash] || version != s_version[t.account]) {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_everyRouteAndEitherSideReadsTheVersionTheGrantTheFloorAndTheMark",
+   "breaks": "the taking check does not read the floor"
+  },
+  {
+   "id": "V32-takingnogrant",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (grantNumber != 0) {\n            uint32 current = s_currentGrant[t.account];\n            uint64 endsAt = s_grants[t.account][grantNumber].endsAt;\n            if (grantNumber != current || block.timestamp >= endsAt) {\n                revert OspexMatching__TakingOrderGrantGone(orderHash, grantNumber, current, endsAt);\n            }\n        }\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_everyRouteAndEitherSideReadsTheVersionTheGrantTheFloorAndTheMark",
+   "breaks": "the taking check does not read the grant's standing"
+  },
+  {
+   "id": "V33-legnoversion",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n",
+     "replace": "            if (\n                s_cancelledOrders[restingHash]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_everyRouteAndEitherSideReadsTheVersionTheGrantTheFloorAndTheMark",
+   "breaks": "the leg does not read the version"
+  },
+  {
+   "id": "V34-legnomark",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n",
+     "replace": "            if (\n                version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_everyRouteAndEitherSideReadsTheVersionTheGrantTheFloorAndTheMark",
+   "breaks": "the leg does not read the mark"
+  },
+  {
+   "id": "V35-legnofloor",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (\n                s_cancelledOrders[restingHash] || version != s_version[r.account]\n                    || orderNumber < s_floors[r.account][version][marketKey]\n            ) {\n",
+     "replace": "            if (s_cancelledOrders[restingHash] || version != s_version[r.account]) {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_everyRouteAndEitherSideReadsTheVersionTheGrantTheFloorAndTheMark",
+   "breaks": "the leg does not read the floor"
+  },
+  {
+   "id": "V36-legnogrant",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            if (\n                grantNumber != 0\n                    && (grantNumber != s_currentGrant[r.account]\n                        || block.timestamp >= s_grants[r.account][grantNumber].endsAt)\n            ) {\n                return (false, SkipReason.GrantGone, 0, 0);\n            }\n",
+     "replace": ""
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_everyRouteAndEitherSideReadsTheVersionTheGrantTheFloorAndTheMark",
+   "breaks": "the leg does not read the grant's standing"
+  },
+  {
+   "id": "V37-widefloor",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "    mapping(address => mapping(uint128 => mapping(bytes32 => uint96))) public s_floors;\n",
+     "replace": "    mapping(address => mapping(uint128 => mapping(bytes32 => uint256))) public s_floors;\n"
+    },
+    {
+     "find": "    function raiseFloor(address account, uint256 gameId, address scorer, int32 lineTicks, uint96 floor) external {\n",
+     "replace": "    function raiseFloor(address account, uint256 gameId, address scorer, int32 lineTicks, uint256 floor) external {\n"
+    },
+    {
+     "find": "        uint96 current = s_floors[account][version][lineKey];\n",
+     "replace": "        uint256 current = s_floors[account][version][lineKey];\n"
+    },
+    {
+     "find": "    error OspexMatching__FloorMustRise(uint96 current, uint96 asked);\n",
+     "replace": "    error OspexMatching__FloorMustRise(uint256 current, uint256 asked);\n"
+    },
+    {
+     "find": "        emit FloorRaised(account, version, gameId, scorer, lineTicks, floor, lineKey, msg.sender);\n",
+     "replace": "        emit FloorRaised(account, version, gameId, scorer, lineTicks, uint96(floor), lineKey, msg.sender);\n"
+    },
+    {
+     "find": "            EVENT_FLOOR_RAISED, abi.encode(account, version, gameId, scorer, lineTicks, floor, lineKey, msg.sender)\n",
+     "replace": "            EVENT_FLOOR_RAISED, abi.encode(account, version, gameId, scorer, lineTicks, uint96(floor), lineKey, msg.sender)\n"
+    },
+    {
+     "find": "        return s_floors[account][s_version[account]][_lineKey(gameId, scorer, lineTicks)];\n",
+     "replace": "        return uint96(s_floors[account][s_version[account]][_lineKey(gameId, scorer, lineTicks)]);\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theLockoutWithinTheFiniteDomain",
+   "breaks": "raiseFloor takes a 256-bit floor into a 256-bit record: a caller-named floor above the top order number is accepted, and the boundary order cannot fill"
+  },
+  {
+   "id": "N1-verifierasked",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "import {ECDSA} from \"@openzeppelin/contracts/utils/cryptography/ECDSA.sol\";\n",
+     "replace": "import {ECDSA} from \"@openzeppelin/contracts/utils/cryptography/ECDSA.sol\";\nimport {IERC1271} from \"@openzeppelin/contracts/interfaces/IERC1271.sol\";\n"
+    },
+    {
+     "find": "        (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecoverCalldata(orderHash, signed.signature);\n",
+     "replace": "        (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecoverCalldata(orderHash, signed.signature);\n        (bool asked,) = signer.staticcall(abi.encodeCall(IERC1271.isValidSignature, (orderHash, signed.signature)));\n        asked;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theFillNeverAsksAVerifier",
+   "breaks": "the wallet is asked its signature question, with the answer ignored"
+  },
+  {
+   "id": "N2-signaturechecker",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "import {ECDSA} from \"@openzeppelin/contracts/utils/cryptography/ECDSA.sol\";\n",
+     "replace": "import {ECDSA} from \"@openzeppelin/contracts/utils/cryptography/ECDSA.sol\";\nimport {SignatureChecker} from \"@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol\";\n"
+    },
+    {
+     "find": "        (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecoverCalldata(orderHash, signed.signature);\n        if (err != ECDSA.RecoverError.NoError || recovered != signer) {\n",
+     "replace": "        if (!SignatureChecker.isValidSignatureNowCalldata(signer, orderHash, signed.signature)) {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theFillNeverAsksAVerifier",
+   "breaks": "the recovery replaced by SignatureChecker: a wallet's yes authorizes a forged order, and a hostile wallet refuses a good one"
+  },
+  {
+   "id": "N3-codeconsulted",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "import {ECDSA} from \"@openzeppelin/contracts/utils/cryptography/ECDSA.sol\";\n",
+     "replace": "import {ECDSA} from \"@openzeppelin/contracts/utils/cryptography/ECDSA.sol\";\nimport {IERC1271} from \"@openzeppelin/contracts/interfaces/IERC1271.sol\";\n"
+    },
+    {
+     "find": "        (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecoverCalldata(orderHash, signed.signature);\n        if (err != ECDSA.RecoverError.NoError || recovered != signer) {\n            revert OspexMatching__BadSignature(orderHash);\n        }\n",
+     "replace": "        if (signer.code.length != 0) {\n            (bool ok, bytes memory a) = signer.staticcall(abi.encodeCall(IERC1271.isValidSignature, (orderHash, signed.signature)));\n            if (!ok || a.length < 32 || bytes4(a) != IERC1271.isValidSignature.selector) revert OspexMatching__BadSignature(orderHash);\n        } else {\n            (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecoverCalldata(orderHash, signed.signature);\n            if (err != ECDSA.RecoverError.NoError || recovered != signer) revert OspexMatching__BadSignature(orderHash);\n        }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_aKeyWithCodeAttachedSignsAndItsDelegateIsNeverConsulted",
+   "breaks": "a signer with code is routed to its code's signature question"
+  },
+  {
+   "id": "N4-anycodeaccepted",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "        if (err != ECDSA.RecoverError.NoError || recovered != signer) {\n",
+     "replace": "        if (err != ECDSA.RecoverError.NoError || (recovered != signer && signer.code.length == 0)) {\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_aContractsOwnSignaturePolicyIsNotAccepted",
+   "breaks": "any signer with code is accepted, the comparison skipped"
+  },
+  {
+   "id": "N5-grantofoneaccount",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "            signer = s_grants[order.account][grantNumber].agent;\n",
+     "replace": "            signer = s_grants[0x50B6a4AE7c04863305215F970FA8aEB22e749F27][grantNumber].agent;\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_theAgentIsBoundToTheAccountThatGrantedIt",
+   "breaks": "the grant record read under one fixed account for every order: the agent is authorized for every account"
+  },
+  {
+   "id": "N6-registerfor",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "    function registerCourier(address courier) external {\n        if (_crossInProgress()) revert OspexMatching__CrossInProgress();\n        _register(msg.sender, courier);\n    }\n",
+     "replace": "    function registerCourier(address courier) external {\n        if (_crossInProgress()) revert OspexMatching__CrossInProgress();\n        _register(msg.sender, courier);\n    }\n\n    function registerCourierFor(address account, address courier) external {\n        if (_crossInProgress()) revert OspexMatching__CrossInProgress();\n        _requireAccountOrAgent(account);\n        _register(account, courier);\n    }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_anAgentRegistersNoCourierForTheAccountAndNothingIsGrantedBySignature",
+   "breaks": "a door that registers a courier for an account, open to its live agent"
+  },
+  {
+   "id": "N7-grantbysig",
+   "file": "src/betting/OspexMatching.sol",
+   "edits": [
+    {
+     "find": "    function registerCourier(address courier) external {\n        if (_crossInProgress()) revert OspexMatching__CrossInProgress();\n        _register(msg.sender, courier);\n    }\n",
+     "replace": "    function registerCourier(address courier) external {\n        if (_crossInProgress()) revert OspexMatching__CrossInProgress();\n        _register(msg.sender, courier);\n    }\n\n    function grantAgentBySig(\n        address account,\n        address agent,\n        uint256 stakeCap,\n        uint64 endsAt,\n        Line[] calldata lines,\n        bytes calldata signature\n    ) external returns (uint32) {\n        (address recovered,,) = ECDSA.tryRecover(keccak256(abi.encode(account, agent, stakeCap, endsAt)), signature);\n        if (recovered != account) revert OspexMatching__BadSignature(bytes32(0));\n        return _grant(account, agent, stakeCap, endsAt, lines);\n    }\n"
+    }
+   ],
+   "testPath": "test/betting/OspexAgent.t.sol",
+   "test": "test_neverLine_anAgentRegistersNoCourierForTheAccountAndNothingIsGrantedBySignature",
+   "breaks": "a grant by signature: a door that grants for the address a signature recovers to"
   }
  ]
 }
