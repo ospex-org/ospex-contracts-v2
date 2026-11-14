@@ -31,14 +31,13 @@ interface IOspexGamesTimelock {
  *
  *         How an order is signed. Order-signature authorization recovers the existing 65-byte
  *         EIP-712/secp256k1 signature and compares it with the resolved signer without inspecting that
- *         signer's code or consulting any wallet verifier: the signer is the account when the nonce's grant
- *         number is 0, and the agent of the grant that number names otherwise. A code-bearing key, including
- *         an EIP-7702 key, keeps this signing route. A keyless contract account, one that cannot produce the
- *         accepted signature from its own address, trades only through a suitable current numbered grant.
- *         This rule does not remove the Cross's existing token, positions, market or hub calls, or
- *         token-triggered callbacks. A signature that does not recover to the resolved signer fails the whole
- *         Cross, in either role. Spec: item 23 of its first milestone, which supersedes L77 and item 15's
- *         "Signatures".
+ *         signer's code or consulting any wallet verifier. A code-bearing key, including an EIP-7702 key, keeps
+ *         this signing route. Here "keyless contract account" means an account that cannot produce the accepted
+ *         signature from its own address; it trades only through a suitable current numbered grant. This rule
+ *         does not remove the Cross's existing token, positions, market or hub calls, or token-triggered
+ *         callbacks. The resolved signer is the account when the nonce's grant number is 0, and the agent of
+ *         the grant that number names otherwise; a signature that does not recover to it fails the whole Cross,
+ *         in either role. Spec: item 23 of its first milestone, which supersedes L77 and item 15's "Signatures".
  *
  *         The approved agent. An account grants one agent from its own address: an address that may sign
  *         orders and send cancels for the account, the most one order it signs may stake, the second at which
@@ -97,15 +96,20 @@ interface IOspexGamesTimelock {
  *         orders outside the resulting current version; an order signed beforehand for the resulting version
  *         may still fill while every other condition holds. Each cancelling event names the account and the
  *         address whose authority the contract checked for that call, the immediate caller, an address and
- *         never a role. Spec: "Cancelling", "The nonce, split", and item 23.
+ *         never a role. A call passed through another contract is authorized using the immediate `msg.sender`:
+ *         if that address is the named account or its live agent, the call may succeed and both event copies
+ *         record that address; otherwise it is refused without effects. No original sender, owner, `tx.origin`,
+ *         relayer role or forwarded suffix is inferred. Spec: "Cancelling", "The nonce, split", and item 23.
  *
  *         The cap and its switch. Until the switch, a taking order's signed stake is at most TAKING_STAKE_CAP,
  *         one cent: a taking order signed for more is refused by name before anything moves, whatever it has
- *         filled so far and on either side. Resting stakes are not capped: what the other side puts up follows
- *         from the odds. The switch is liftTakingStakeCap, which only the Polygon timelock may call, once, and
- *         which nothing reverses. The timelock's address is read once, from the games set the core names, when
- *         this contract is deployed, and kept as i_timelock. Spec: the alpha's one-cent cap, the Polygon
- *         timelock's calls, and item 16 of its first milestone.
+ *         filled so far and on either side. The cap is the taking side's alone: a resting stake is not under
+ *         it, and what the other side puts up follows from the odds; an agent's order is bound besides, in
+ *         either role, by its grant's stake cap, read at the fill from the grant its nonce names. The switch is
+ *         liftTakingStakeCap, which only the Polygon timelock may call, once, and which nothing reverses. The
+ *         timelock's address is read once, from the games set the core names, when this contract is deployed,
+ *         and kept as i_timelock. Spec: the alpha's one-cent cap, the Polygon timelock's calls, and item 16 of
+ *         its first milestone.
  *
  *         The minimum fill. An order's tenth field, minFill, is the least it fills for in one Cross, in the
  *         coin's smallest unit and in the order's own stake, unless the fill completes it: an order is complete
@@ -167,7 +171,8 @@ contract OspexMatching is IOspexModule, EIP712 {
     uint256 public constant MAX_TAKING_LIFE = 30;
     /// @notice The most a taking order may sign until the switch: one cent, 10,000 units of a coin of six
     ///         decimals, 100 lots. A taking order signed for more is refused by name while
-    ///         s_takingStakeCapLifted is false. Resting stakes are not capped.
+    ///         s_takingStakeCapLifted is false. A resting stake is not under this cap; an agent's order is bound
+    ///         in either role by its grant's stake cap.
     uint256 public constant TAKING_STAKE_CAP = 10_000;
     /// @notice Where the nonce's three numbers sit: the version is the nonce shifted right by VERSION_SHIFT, the
     ///         grant number the 32 bits above GRANT_SHIFT, and the order number the low 96 bits
@@ -1101,8 +1106,10 @@ contract OspexMatching is IOspexModule, EIP712 {
     }
 
     /**
-     * @notice Cancel every order of an account, whoever signed it: move the account to a new version, which the
-     *         contract draws. The account calls it, or its live agent. It takes no number.
+     * @notice Move the account to a new version, which the contract draws: the account calls it, or its live
+     *         agent, and it takes no number. Revoke ends that grant's remaining authority. Cancel-all invalidates
+     *         orders outside the resulting current version; an order signed beforehand for the resulting version
+     *         may still fill while every other condition holds.
      * @dev The next version is the current one plus one plus the first 64 bits of the previous block's hash, in
      *      checked arithmetic: a step that would pass the top of the field is refused by name and writes
      *      nothing, so the version only rises, never wraps, and takes at least 2^64 successful cancels to fill.
@@ -1163,10 +1170,12 @@ contract OspexMatching is IOspexModule, EIP712 {
 
     /**
      * @notice End the caller's current grant. One transaction revokes.
-     * @dev The account is msg.sender. Refused by name when no grant stands. The record stays, so an order under
-     *      the revoked number is refused by name as a grant gone, before or after a regrant; the account's own
-     *      orders, grant 0, are untouched. A revoke ends that grant's remaining authority: every unfilled order
-     *      signed under it, and the agent's cancels and its stop at the courier.
+     * @dev The account is msg.sender. Refused by name when no grant stands. The record stays: an order under the
+     *      revoked number cannot fill, before or after a regrant, and one that reaches the grant's standing
+     *      check, sound in everything tested before it, is skipped as a grant gone when it rests and refused by
+     *      name when it takes, item 23 of the spec's first milestone giving the order the reasons are tested in;
+     *      the account's own orders, grant 0, are untouched. A revoke ends that grant's remaining authority:
+     *      every unfilled order signed under it, and the agent's cancels. It writes nothing about couriers.
      *
      *      Refused while a Cross is in progress.
      */
