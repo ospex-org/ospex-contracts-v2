@@ -651,6 +651,71 @@ contract OspexAgentGrantTest is AgentBase {
         vm.prank(B.a);
         assertEq(matching.grantAgent(W.a, CAP, ends, _noLines()), 1, "another account's count");
     }
+
+    /// The combined entry's last success at the count's top, beside its first refusal: B's count is written to the
+    /// top less two, grantAgent takes the next-to-last number, and the combined call takes the last, ending the
+    /// grant that stood, registering the courier for B and announcing all three; then the next grant is refused
+    /// by name through both entries, and the count, the current grant, the records and the couriers are as the
+    /// last success left them.
+    /// Break: in OspexMatching._grant, drop the count check, or `>` for `==`, or increment the count unchecked.
+    /// Others turn it red: the number taken as the count, not the count plus one; the old grant's AgentRevoked
+    /// dropped at a regrant; the combined call registering the courier for the agent, or only when no grant
+    /// stood.
+    function test_grant_theCombinedCallTakesTheLastNumberAndIsThenRefused() public {
+        uint64 ends = _inAnHour();
+        uint32 top = matching.MAX_GRANT_COUNT();
+        address courier = makeAddr("the courier the combined call registers");
+        _writeGrantCount(B.a, top - 2);
+        vm.prank(B.a);
+        assertEq(matching.grantAgent(W.a, CAP, ends, _noLines()), top - 1, "the next-to-last number");
+
+        // The last number, through the combined call: the grant that stood ends, the new one is current, the
+        // courier is B's; the revoke, the grant and the registration, each with its hub copy.
+        Signer memory W2 = _key("the last grant's agent");
+        vm.recordLogs();
+        vm.prank(B.a);
+        assertEq(matching.grantAgentAndRegisterCourier(W2.a, CAP, ends, _noLines(), courier), top, "the last number");
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(_emitted(logs), 6, "the revoke, the grant, the registration, and their hub copies");
+        assertEq(logs[0].topics[0], OspexMatching.AgentRevoked.selector);
+        assertEq(logs[2].topics[0], OspexMatching.AgentGranted.selector);
+        assertEq(logs[2].topics[2], bytes32(uint256(uint160(W2.a))));
+        assertEq(logs[2].data, abi.encode(uint32(top), CAP, ends, _noLines()), "the last grant's event data");
+        assertEq(logs[4].topics[0], OspexMatching.CourierRegistered.selector);
+        assertEq(matching.s_grantCount(B.a), top);
+        assertEq(matching.s_currentGrant(B.a), top);
+        assertTrue(matching.isLiveAgent(B.a, W2.a));
+        assertFalse(matching.isLiveAgent(B.a, W.a), "the grant that stood was not ended");
+        assertTrue(matching.isCourier(B.a, courier), "the courier was not registered for the caller");
+        assertFalse(matching.isCourier(W2.a, courier), "the courier was registered for the agent");
+
+        // The next, through both entries: refused by name, nothing written, the courier not registered.
+        bytes memory exhausted = abi.encodeWithSelector(OspexMatching.OspexMatching__GrantCountExhausted.selector, B.a);
+        address other = makeAddr("another courier");
+        _refusedCall(
+            B.a,
+            address(matching),
+            abi.encodeCall(OspexMatching.grantAgentAndRegisterCourier, (W.a, CAP, ends, _noLines(), other)),
+            exhausted,
+            "the combined call past the top"
+        );
+        _refusedCall(
+            B.a,
+            address(matching),
+            abi.encodeCall(OspexMatching.grantAgent, (W.a, CAP, ends, _noLines())),
+            exhausted,
+            "grantAgent past the top"
+        );
+        assertEq(matching.s_grantCount(B.a), top, "the count moved");
+        assertEq(matching.s_currentGrant(B.a), top, "the current grant moved");
+        assertTrue(matching.isLiveAgent(B.a, W2.a), "the last grant was ended");
+        (address agent,,,) = matching.getGrant(B.a, top);
+        assertEq(agent, W2.a, "the last record was overwritten");
+        (agent,,,) = matching.getGrant(B.a, 0);
+        assertEq(agent, address(0), "a record wrapped to number 0");
+        assertFalse(matching.isCourier(B.a, other), "a refused combined call registered its courier");
+        assertTrue(matching.isCourier(B.a, courier), "the last success's courier was dropped");
+    }
 }
 
 /// @notice An agent's orders in both roles: the signer resolved from the account and the nonce's grant number;
@@ -2181,7 +2246,9 @@ contract OspexAgentVersionTest is AgentBase {
         _recovers(game, Side.A, "after the agent asked for a floor of 2^256 - 1");
     }
 
-    /// Any sequence of the agent's cancelling calls, with any arguments; after each, the account recovers.
+    /// One to six of the agent's cancelling calls in a fuzzed order, each with fuzzed arguments; after each, the
+    /// account recovers. A sample of the finite domain's sequences, not a proof over every sequence of every
+    /// length.
     /// Break: as the fixed sequence's.
     function testFuzz_neverLine_theLockoutWithinTheFiniteDomain(uint256 seed, uint96 floorArg, uint8 steps) public {
         uint256 game = _verifiedGame();
@@ -2339,8 +2406,8 @@ contract OspexAgentKeyRuleTest is AgentBase {
     /// `signer.staticcall(abi.encodeCall(IERC1271.isValidSignature, (orderHash, signed.signature)));`: the
     /// zero-call assertion goes red. Others turn it red: the recovery replaced by
     /// `SignatureChecker.isValidSignatureNowCalldata(signer, orderHash, signed.signature)`, under which the
-    /// yes-wallet's forged grant-0 order fills and the burning wallet's good order fails; a `code.length`
-    /// branch anywhere on the fill path.
+    /// yes-wallet's forged grant-0 order fills (the burning wallet behind an ordinary-key agent is not the
+    /// resolved signer, so that replacement never asks it); a `code.length` branch in the signature check.
     function test_neverLine_theFillNeverAsksAVerifier() public {
         uint256 fresh = vm.snapshotState();
         _neverAsksCases(Side.B);
@@ -2596,6 +2663,139 @@ contract OspexAgentKeyRuleTest is AgentBase {
         bad = _restNonce(O, A.a, _nonce(0, 1, 6), game, restingSide, 200, 10_000);
         _refusedResting(game, takingSide, bad, "the owner's key under another account's grant");
         vm.revertToState(snap);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // Ruling 6, the count: a keyless contract account that has used every grant number and loses its last grant
+    // has no way left to trade.
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// A keyless contract account at the count's top: its count written to the top less one, its last grant taken
+    /// and current, the key trading under it in both roles; the next grant refused by name through both entries
+    /// with nothing written; then the account revokes its last grant. After that the key's order under the
+    /// revoked number is refused by name when it takes and skipped as a grant gone when it rests, the owner's
+    /// signature offered as the account's own, grant 0, is refused BadSignature in both roles, a grant is still
+    /// refused by name through both entries, and the key's cancel for the account is refused; a key account's own
+    /// order, grant 0, fills beside it. Such an account trades through a current grant alone, and this one can
+    /// make no more.
+    /// Break: in OspexMatching.revokeAgent, set the account's count back to zero beside its current grant: the
+    /// account at the top grants again. Others turn it red: the count check dropped, or `>` for `==`, or the count
+    /// incremented unchecked; the grant's standing compared with the count instead of the current grant, or not
+    /// read, at the taking check or at the leg; the signer resolved as the account for every grant number; any
+    /// signer with code accepted, or routed to its code's answer, or the recovery replaced by SignatureChecker;
+    /// the live agent read by the count; cancelAll's authority check removed.
+    function test_neverLine_aKeylessAccountPastTheCountWithItsLastGrantGoneCannotTrade() public {
+        uint256 fresh = vm.snapshotState();
+        _exhaustedCases(Side.B);
+        vm.revertToState(fresh);
+        _exhaustedCases(Side.A);
+    }
+
+    function _exhaustedCases(Side takingSide) internal {
+        Side restingSide = _other(takingSide);
+        uint256 game = _verifiedGame();
+        uint256 game2 = _verifiedGame();
+        uint64 ends = _inAnHour();
+        uint32 top = matching.MAX_GRANT_COUNT();
+        // A keyless contract account: a yes-wallet, the most permissive policy, driven by its owner O; the fixture
+        // funds it and registers the sender for it. Its count is written to the top less one, and it grants W the
+        // last number.
+        Signer memory O = _key("the owner");
+        WalletCode C = _wallet(WalletCode.Mode.Yes);
+        address c = address(C);
+        _writeGrantCount(c, top - 1);
+        vm.prank(O.a);
+        bytes memory answer =
+            C.exec(address(matching), abi.encodeCall(OspexMatching.grantAgent, (W.a, CAP, ends, _noLines())));
+        assertEq(abi.decode(answer, (uint32)), top, "the last number");
+        assertEq(matching.s_currentGrant(c), top);
+        assertTrue(matching.isLiveAgent(c, W.a));
+        // Under the last grant the key trades for the account, resting and taking.
+        _restingFills(game, takingSide, _restBy(W, c, top, game, restingSide, 200, 10_000), "the last grant, resting");
+        _takingFills(game2, takingSide, _takeBy(W, c, top, game2, takingSide, 200, 10_000), "the last grant, taking");
+        // The next grant, through both entries: refused by name, nothing written.
+        bytes memory exhausted = abi.encodeWithSelector(OspexMatching.OspexMatching__GrantCountExhausted.selector, c);
+        Signer memory W2 = _key("a second agent");
+        _refusedAsWallet(
+            C,
+            O,
+            abi.encodeCall(OspexMatching.grantAgent, (W2.a, CAP, ends, _noLines())),
+            exhausted,
+            "grantAgent past the top"
+        );
+        _refusedAsWallet(
+            C,
+            O,
+            abi.encodeCall(OspexMatching.grantAgentAndRegisterCourier, (W2.a, CAP, ends, _noLines(), relayKey)),
+            exhausted,
+            "the combined call past the top"
+        );
+        assertEq(matching.s_grantCount(c), top, "the count moved");
+        assertEq(matching.s_currentGrant(c), top, "the current grant moved");
+        assertTrue(matching.isLiveAgent(c, W.a), "the standing grant was ended");
+        assertFalse(matching.isCourier(c, relayKey), "a refused combined call registered its courier");
+        // The account revokes its last grant.
+        vm.prank(O.a);
+        C.exec(address(matching), abi.encodeCall(OspexMatching.revokeAgent, ()));
+        assertEq(matching.s_currentGrant(c), 0);
+        assertFalse(matching.isLiveAgent(c, W.a));
+        // After it, the key's order under the revoked number: refused by name when it takes, skipped as a grant
+        // gone when it rests.
+        OspexMatching.SignedOrder memory deadT = _takeBy(W, c, top, game, takingSide, 200, 10_000);
+        _takingRefused(
+            game, takingSide, deadT, _grantGone(deadT, top, 0, ends), "the key's order after the revoke, taking"
+        );
+        _restingSkipped(
+            game,
+            takingSide,
+            _restBy(W, c, top, game, restingSide, 200, 10_000),
+            7,
+            "the key's order after the revoke, resting"
+        );
+        // The owner's signature as the account's own, grant 0: refused BadSignature, both roles.
+        OspexMatching.SignedOrder memory asOwner = _restNonce(O, c, _nonce(0, 0, 1), game, restingSide, 200, 10_000);
+        _refusedResting(game, takingSide, asOwner, "the owner's signature at grant 0 after the revoke");
+        OspexMatching.SignedOrder memory asOwnerT = _takeNonce(O, c, _nonce(0, 0, 2), game, takingSide, 200, 10_000);
+        _takingRefused(
+            game, takingSide, asOwnerT, _bad(asOwnerT), "the owner's signature at grant 0 after the revoke, taking"
+        );
+        // A grant is still refused by name, through both entries, the same key or another; the count and the
+        // current grant stand.
+        _refusedAsWallet(
+            C,
+            O,
+            abi.encodeCall(OspexMatching.grantAgent, (W.a, CAP, ends, _noLines())),
+            exhausted,
+            "a grant after the revoke"
+        );
+        _refusedAsWallet(
+            C,
+            O,
+            abi.encodeCall(OspexMatching.grantAgentAndRegisterCourier, (W2.a, CAP, ends, _noLines(), relayKey)),
+            exhausted,
+            "the combined call after the revoke"
+        );
+        assertEq(matching.s_grantCount(c), top);
+        assertEq(matching.s_currentGrant(c), 0);
+        // The key's cancel for the account is refused, and a key account's own order, grant 0, fills beside it.
+        _refusedCall(
+            W.a,
+            address(matching),
+            abi.encodeCall(OspexMatching.cancelAll, (c)),
+            _notAccountOrAgent(c, W.a),
+            "the revoked key's cancelAll"
+        );
+        _restingFills(game, takingSide, _rest(A, game, restingSide, 200, 10_000), "a key account's own order, grant 0");
+    }
+
+    /// @dev `data`, made by the wallet `C` as itself at its owner's asking, is refused with exactly `want`.
+    function _refusedAsWallet(WalletCode C, Signer memory O, bytes memory data, bytes memory want, string memory what)
+        internal
+    {
+        vm.prank(O.a);
+        (bool ok, bytes memory err) = address(C).call(abi.encodeCall(WalletCode.exec, (address(matching), data)));
+        assertFalse(ok, string.concat(what, ": the call was taken"));
+        assertEq(err, want, what);
     }
 }
 
@@ -2912,10 +3112,12 @@ interface ISafeProxyFactory {
 /// @notice The approved agent for a contract account that cannot sign: a Safe, on a fork of Polygon mainnet at
 ///         FORK_BLOCK, made through the real factory on the real singleton, a one-owner Safe of 1.4.1 and a
 ///         two-owner Safe of 1.3.0. Each approves the positions module, registers the sender and grants a key
-///         through `execTransaction` with its owners' real signatures; the granted key's order fills in each
-///         role in Polygon's USDC; the position and the payout are the Safe's; the owners' signatures offered as
-///         the Safe's own fail; a revoke and a new grant work; every balance to the unit; and the gas of the
-///         Safe's leg beside a key's. Needs POLYGON_RPC_URL; without it (CI has no RPC) it is skipped.
+///         through `execTransaction` with its owners' real signatures, and the owners' signatures offered as the
+///         Safe's own fail. The one-owner Safe's test then has the granted key's order fill in each role in
+///         Polygon's USDC, the position and the payout the Safe's, a revoke that kills the key's order by name
+///         and a new grant under which it fills again, every balance to the unit, and the gas of the Safe's leg
+///         beside a key's; the two-owner Safe's test has one resting fill and the Safe's payout, then a revoke
+///         and a regrant, and no more. Needs POLYGON_RPC_URL; without it (CI has no RPC) it is skipped.
 contract OspexAgentForkTest is AgentBase {
     uint256 internal constant FORK_BLOCK = 96_885_149;
     address internal constant USDC = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
@@ -3094,11 +3296,13 @@ contract OspexAgentForkTest is AgentBase {
         );
         assertEq(usdc.balanceOf(S), FUNDED, "a refused order moved the Safe's coin");
 
-        // The granted key's order rests, and K takes it: 10 USDC against 11, to the unit.
+        // The granted key's order rests, and K takes it: 10 USDC against 11, to the unit. The clock is around the
+        // Cross alone, both orders and the list built before it.
         OspexMatching.SignedOrder memory resting = _safeRests(W, S, 1, game);
         OspexMatching.SignedOrder memory taking = _safeTakes(K, K.a, 0, game);
+        OspexMatching.SignedOrder[] memory safeList = _list(resting);
         uint256 gasBefore = gasleft();
-        _cross(sender, taking, _list(resting));
+        _cross(sender, taking, safeList);
         uint256 safeLegGas = gasBefore - gasleft();
         uint256 market = markets.getMarketId(game, address(moneyline), 0);
         assertEq(_filled(resting), RESTING_STAKE);
@@ -3190,20 +3394,25 @@ contract OspexAgentForkTest is AgentBase {
             "the owner's signature, after the regrant"
         );
 
-        // The gas of the Safe's leg beside a key's: the same leg shape, each the first fill of its market.
+        // The gas of the Safe's leg beside a key's: the same leg shape, each the first fill of its market, each
+        // clock around the Cross alone with the orders and the list built before it.
         uint256 game4 = _verifiedGame();
         Signer memory K2 = _key("a second key with USDC");
         _fundUsdc(K2.a);
         _register(K2.a, sender);
+        OspexMatching.SignedOrder memory keyTaking = _safeTakes(K, K.a, 0, game4);
+        OspexMatching.SignedOrder[] memory keyList = _list(_safeRests(K2, K2.a, 0, game4));
         gasBefore = gasleft();
-        _cross(sender, _safeTakes(K, K.a, 0, game4), _list(_safeRests(K2, K2.a, 0, game4)));
+        _cross(sender, keyTaking, keyList);
         uint256 keyLegGas = gasBefore - gasleft();
         emit log_named_uint("gas: the Safe's agent-signed resting leg, a market's first fill", safeLegGas);
         emit log_named_uint("gas: a key's own resting leg, a market's first fill", keyLegGas);
     }
 
-    /// A two-owner Safe of 1.3.0, threshold two: the same, with both owners' signatures on every Safe
-    /// transaction, and neither owner's signature accepted as the Safe's own.
+    /// A two-owner Safe of 1.3.0, threshold two: both owners' signatures on every Safe transaction, neither
+    /// owner's signature accepted as the Safe's own, one resting fill of the granted key's order and the Safe's
+    /// payout, then a revoke and a regrant. The taking role, the dead order after the revoke and the fill under
+    /// the new grant are the one-owner test's.
     function test_fork_aTwoOwnerSafeTradesThroughTheKeyItGranted() public {
         ISafe safe = _safe(FACTORY_130, SAFE_130, HANDLER_130, _owners(O2, O3), 2);
         address S = address(safe);

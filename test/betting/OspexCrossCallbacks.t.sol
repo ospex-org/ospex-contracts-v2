@@ -421,7 +421,8 @@ contract OspexCrossCallbacksTest is CrossBase {
     }
 
     /// The exclusion holds from the first check of a Cross to its end: through a leg that filled, and past an
-    /// order that was skipped, for each of the seven reasons.
+    /// order that was skipped, for each of the first seven reasons, 0 to 6; the eighth, a grant gone, is not
+    /// among the orders this helper skips.
     /// Break: in OspexMatching._leg, clear the exclusion's mark once a leg has filled. Others turn it red: the
     /// mark cleared in cross once an order has been skipped; cleared in _leg after a refused pull; and cleared
     /// in _leg where an order nothing fits is skipped.
