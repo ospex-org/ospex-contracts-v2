@@ -842,7 +842,8 @@ contract OspexMinFillTest is CrossBase {
         assertTrue(seenHub, "no hub copy of OrderMatched");
         assertEq(_filled(taking), 10_000, "the fill");
 
-        // A cancel of an order asking for 4,300: the event's last word and its hub copy's.
+        // A cancel of an order asking for 4,300: the event's tenth word, the minimum, with the sender after it,
+        // and its hub copy's.
         OspexMatching.SignedOrder memory toCancel = _restMin(m2, game, restingSide, 200, 10_000, 4_300);
         OspexMatching.OspexOrder memory o = toCancel.order;
         vm.recordLogs();
@@ -851,20 +852,30 @@ contract OspexMinFillTest is CrossBase {
         logs = vm.getRecordedLogs();
         assertEq(logs.length, 2, "the cancel's two logs");
         data = abi.encode(
-            o.gameId, o.scorer, o.lineTicks, o.positionType, o.oddsTick, o.riskAmount, o.nonce, o.expiry, o.minFill
+            o.gameId,
+            o.scorer,
+            o.lineTicks,
+            o.positionType,
+            o.oddsTick,
+            o.riskAmount,
+            o.nonce,
+            o.expiry,
+            o.minFill,
+            m2.a
         );
         assertEq(logs[0].emitter, address(matching), "OrderCancelled: the emitter");
         assertEq(
             logs[0].topics[0],
             keccak256(
-                "OrderCancelled(bytes32,address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256,uint256)"
+                "OrderCancelled(bytes32,address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256,uint256,address)"
             ),
             "OrderCancelled: the first topic"
         );
         assertEq(logs[0].topics[1], _hash(toCancel), "OrderCancelled: the hash");
         assertEq(logs[0].topics[2], _word(m2.a), "OrderCancelled: the account");
         assertEq(logs[0].data, data, "OrderCancelled, whole");
-        assertEq(_lastWord(logs[0].data), 4_300, "OrderCancelled's last word is not the order's minimum");
+        assertEq(_wordBeforeLast(logs[0].data), 4_300, "OrderCancelled's tenth word is not the order's minimum");
+        assertEq(_lastWord(logs[0].data), uint256(uint160(m2.a)), "OrderCancelled's last word is not the sender");
         assertEq(logs[1].emitter, address(core), "the hub copy's emitter");
         assertEq(logs[1].topics[1], matching.EVENT_ORDER_CANCELLED(), "the hub copy's tag");
         bytes memory cancelPayload = abi.decode(logs[1].data, (bytes));
@@ -873,8 +884,17 @@ contract OspexMinFillTest is CrossBase {
             bytes.concat(abi.encode(_hash(toCancel), m2.a), data),
             "the hub copy of OrderCancelled, whole"
         );
-        assertEq(_lastWord(cancelPayload), 4_300, "the hub copy's last word is not the order's minimum");
+        assertEq(_wordBeforeLast(cancelPayload), 4_300, "the hub copy's tenth word is not the order's minimum");
+        assertEq(_lastWord(cancelPayload), uint256(uint160(m2.a)), "the hub copy's last word is not the sender");
         vm.revertToState(snap);
+    }
+
+    /// @dev The word before the last of an ABI-encoded payload.
+    function _wordBeforeLast(bytes memory data) internal pure returns (uint256 w) {
+        require(data.length >= 64, "no two words");
+        assembly ("memory-safe") {
+            w := mload(add(add(data, 0x20), sub(mload(data), 0x40)))
+        }
     }
 }
 

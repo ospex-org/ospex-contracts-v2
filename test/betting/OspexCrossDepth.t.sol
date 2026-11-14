@@ -186,7 +186,7 @@ contract OspexCrossDepthTest is CrossBase {
         if (kind == 2) {
             // One under its account's floor on the market.
             vm.prank(extra.a);
-            matching.raiseMinNonce(game, address(moneyline), 0, x.order.nonce + 1);
+            matching.raiseFloor(extra.a, game, address(moneyline), 0, _no(x.order.nonce + 1));
             return (x, CANCELLED);
         }
         if (kind == 4) {
@@ -275,7 +275,7 @@ contract OspexCrossDepthTest is CrossBase {
 
         // Resting, one under its account's floor on that line: skipped as cancelled, and the next order fills.
         vm.prank(makers[0].a);
-        matching.raiseMinNonce(game, s, -35, dead.order.nonce + 1);
+        matching.raiseFloor(makers[0].a, game, s, -35, _no(dead.order.nonce + 1));
         vm.recordLogs();
         _cross(sender, taking, _list(dead, live));
         Skip[] memory skips = _skips(vm.getRecordedLogs());
@@ -287,7 +287,7 @@ contract OspexCrossDepthTest is CrossBase {
         // Its account's floors on the same game and scorer at other lines do not touch it.
         for (uint256 i; i < otherLines.length; ++i) {
             vm.prank(makers[0].a);
-            matching.raiseMinNonce(game, s, otherLines[i], dead.order.nonce + 1);
+            matching.raiseFloor(makers[0].a, game, s, otherLines[i], _no(dead.order.nonce + 1));
         }
         _cross(sender, taking, _list(dead));
         assertEq(_filled(dead), 10_000, "an order under floors raised on other lines");
@@ -295,7 +295,7 @@ contract OspexCrossDepthTest is CrossBase {
 
         // Taking, one under its account's floor on that line: the Cross reverts by name.
         vm.prank(tk.a);
-        matching.raiseMinNonce(game, s, -35, taking.order.nonce + 1);
+        matching.raiseFloor(tk.a, game, s, -35, _no(taking.order.nonce + 1));
         _refused(
             sender,
             taking,
@@ -306,7 +306,7 @@ contract OspexCrossDepthTest is CrossBase {
         vm.revertToState(snap);
         for (uint256 i; i < otherLines.length; ++i) {
             vm.prank(tk.a);
-            matching.raiseMinNonce(game, s, otherLines[i], taking.order.nonce + 1);
+            matching.raiseFloor(tk.a, game, s, otherLines[i], _no(taking.order.nonce + 1));
         }
         _cross(sender, taking, _list(dead));
         assertEq(_filled(taking), 10_000, "a taking order under floors raised on other lines");

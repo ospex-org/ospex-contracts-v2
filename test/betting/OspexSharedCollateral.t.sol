@@ -1786,7 +1786,7 @@ contract OspexSharedCollateralCallbackTest is SharedCollateralBase {
     }
 
     /// @dev On a game in play: from inside its pay-back the receiver tries every write of the set and reads the
-    ///      numbers. The matching module's six are refused CrossInProgress; the positions module's fill, end
+    ///      numbers. The matching module's nine are refused CrossInProgress; the positions module's fill, end
     ///      call and both claims ReentrancyGuardReentrantCall; the pay-back entry NotSelf; settlement
     ///      GameNotEnded. The reads show both records, the held amounts and the total as written before the
     ///      transfer: the receiver's 40 of 100 and the taking account's 40, the total 80.
@@ -1802,10 +1802,22 @@ contract OspexSharedCollateralCallbackTest is SharedCollateralBase {
         CallbackAccount r = CallbackAccount(Y.a);
         r.arm(address(matching), abi.encodeCall(OspexMatching.cross, (taking, _list(spare))));
         r.armAlso(address(matching), abi.encodeCall(OspexMatching.cancelOrder, (spare.order)));
-        r.armAlso(address(matching), abi.encodeCall(OspexMatching.raiseMinNonce, (game, address(moneyline), 0, 7)));
+        r.armAlso(address(matching), abi.encodeCall(OspexMatching.raiseFloor, (Y.a, game, address(moneyline), 0, 7)));
         r.armAlso(address(matching), abi.encodeCall(OspexMatching.registerCourier, (stranger)));
         r.armAlso(address(matching), abi.encodeCall(OspexMatching.unregisterCourier, (sender)));
         r.armAlso(address(matching), abi.encodeCall(OspexMatching.liftTakingStakeCap, ()));
+        r.armAlso(
+            address(matching),
+            abi.encodeCall(OspexMatching.grantAgent, (stranger, 1, _ends(vm.getBlockTimestamp() + 1 hours), _noLines()))
+        );
+        r.armAlso(address(matching), abi.encodeCall(OspexMatching.revokeAgent, ()));
+        r.armAlso(
+            address(matching),
+            abi.encodeCall(
+                OspexMatching.grantAgentAndRegisterCourier,
+                (stranger, 1, _ends(vm.getBlockTimestamp() + 1 hours), _noLines(), stranger)
+            )
+        );
         r.armAlso(
             address(positions),
             abi.encodeCall(OspexPositions.recordFill, (game, address(moneyline), 0, Side.A, Y.a, 100, TK.a, 100))
@@ -1826,43 +1838,45 @@ contract OspexSharedCollateralCallbackTest is SharedCollateralBase {
         assertEq(trick.balanceOf(Y.a) - yBefore, 60 * U, "the receiver's pay-back");
         assertEq(r.calls(), 1, "the coin called the receiver back once in this Cross");
         (bool[] memory ok, bytes[] memory answer) = _answers();
-        assertEq(ok.length, 17, "seventeen calls from inside");
+        assertEq(ok.length, 20, "twenty calls from inside");
         bytes memory inProgress = abi.encodeWithSelector(OspexMatching.OspexMatching__CrossInProgress.selector);
         bytes memory reentrant = abi.encodeWithSelector(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
-        for (uint256 i; i < 6; ++i) {
+        for (uint256 i; i < 9; ++i) {
             assertFalse(ok[i], "a matching write from inside a pay-back was taken");
             assertEq(answer[i], inProgress, string.concat("matching write ", vm.toString(i)));
         }
-        for (uint256 i = 6; i < 10; ++i) {
+        assertEq(matching.s_grantCount(Y.a), 0, "a grant was made from inside a pay-back");
+        assertFalse(matching.isCourier(Y.a, stranger), "a courier was registered from inside a pay-back");
+        for (uint256 i = 9; i < 13; ++i) {
             assertFalse(ok[i], "a positions write from inside a pay-back was taken");
             assertEq(answer[i], reentrant, string.concat("positions write ", vm.toString(i)));
         }
-        assertFalse(ok[10], "the pay-back entry from inside was taken");
+        assertFalse(ok[13], "the pay-back entry from inside was taken");
         assertEq(
-            answer[10],
+            answer[13],
             abi.encodeWithSelector(IOspexPositions.OspexPositions__NotSelf.selector, Y.a),
             "the entry refuses by its own name, not the guard's"
         );
-        assertFalse(ok[11], "a game in play was settled from inside");
+        assertFalse(ok[14], "a game in play was settled from inside");
         assertEq(
-            answer[11],
+            answer[14],
             abi.encodeWithSelector(
                 OspexMarkets.OspexMarkets__GameNotEnded.selector, game, uint8(games.getGameStatus(game))
             ),
             "settlement's refusal of a game in play"
         );
-        for (uint256 i = 12; i < 17; ++i) {
+        for (uint256 i = 15; i < 20; ++i) {
             assertTrue(ok[i], "a read from inside failed");
         }
-        Position memory a = abi.decode(answer[12], (Position));
-        Position memory b = abi.decode(answer[13], (Position));
+        Position memory a = abi.decode(answer[15], (Position));
+        Position memory b = abi.decode(answer[16], (Position));
         assertEq(a.risk, 60 * U, "the receiver's side A record, written before the pay-back");
         assertEq(a.profit, 60 * U);
         assertEq(b.risk, 100 * U, "the receiver's side B record");
         assertEq(b.profit, 100 * U);
-        assertEq(abi.decode(answer[14], (uint256)), 40 * U, "the receiver's held amount, lowered before the transfer");
-        assertEq(abi.decode(answer[15], (uint256)), 80 * U, "the total, both pay-backs taken off before the transfer");
-        assertEq(abi.decode(answer[16], (uint256)), 40 * U, "the taking account's held amount, paid back first");
+        assertEq(abi.decode(answer[17], (uint256)), 40 * U, "the receiver's held amount, lowered before the transfer");
+        assertEq(abi.decode(answer[18], (uint256)), 80 * U, "the total, both pay-backs taken off before the transfer");
+        assertEq(abi.decode(answer[19], (uint256)), 40 * U, "the taking account's held amount, paid back first");
         // After the Cross, the same numbers stand.
         assertEq(positions.s_held(market, Y.a), 40 * U);
         assertEq(positions.s_held(market, TK.a), 40 * U);

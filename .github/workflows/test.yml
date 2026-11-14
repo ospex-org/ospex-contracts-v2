@@ -56,12 +56,15 @@ jobs:
         run: |
           forge --version
 
-      # The whole project is one via-IR compile in one solc process, and that process keeps memory for every
-      # contract it has compiled. Measured on a 64 GB machine, its peak working set was 17.8 GB at 181 files
-      # and 21.2 GB at 183, with the shared collateral tests; this runner has 16 GB. Twice the build step ended
-      # with exit code 143 and no other line once the compile crossed what the runner had. The swap below lets
-      # that process finish: the pages it keeps and no longer touches are the ones that go there. The two
-      # `free` lines record what the runner had before and after.
+      # A via-IR compile is one solc process that keeps memory for every contract it has compiled. Measured on a
+      # 64 GB machine, the whole project's peak working set was 17.8 GB at 181 files, 21.2 GB at 183 with the
+      # shared collateral tests, and about 24 GB at 191 with the approved agent's tests; this runner has 16 GB.
+      # Twice the build step ended with exit code 143 and no other line once the compile crossed what the runner
+      # had. So the compile is cut in three below, each its own solc process: the sources alone for the sizes
+      # table, then the tests in two groups by path, the betting set's folder (14.7 GB alone on the same machine)
+      # and every other folder. The swap stays for the margin the betting group still needs: the pages a compile
+      # keeps and no longer touches are the ones that go there. The two `free` lines record what the runner had
+      # before and after.
       - name: Add swap for the compile
         run: |
           free -h
@@ -74,15 +77,32 @@ jobs:
           sudo swapon "$target"
           free -h
 
-      - name: Run Forge build
+      - name: Run Forge build, the sources alone, for the sizes table
         run: |
-          forge build --via-ir --optimize --sizes
+          forge build --via-ir --optimize --sizes --skip 'test/**' --skip 'script/**'
         id: build
 
-      - name: Run Forge tests
+      # The tests in two groups by path, each compiled on its own: the betting set's folder, then everything
+      # else under test/. Every test file is in exactly one group; the check refuses a tree where that is not so,
+      # and the two steps' summary lines, read together, are the whole inventory.
+      - name: Check that the two test groups cover every test file once
         run: |
-          forge test -vvv --via-ir --optimize
-        id: test
+          all=$(find test -name '*.t.sol' | sort)
+          betting=$(find test/betting -name '*.t.sol' | sort)
+          others=$(find test -name '*.t.sol' -not -path 'test/betting/*' | sort)
+          both=$(printf '%s\n%s\n' "$betting" "$others" | sort)
+          test "$both" = "$all"
+          echo "the betting set: $(printf '%s\n' "$betting" | wc -l) test files; every other folder: $(printf '%s\n' "$others" | wc -l)"
+
+      - name: Run Forge tests, the betting set
+        run: |
+          FOUNDRY_TEST=test/betting forge test -vvv --via-ir --optimize
+        id: test-betting
+
+      - name: Run Forge tests, every other folder
+        run: |
+          forge test -vvv --via-ir --optimize --skip 'test/betting/**'
+        id: test-others
 
       # Slither is a report that never fails the build: each step below may fail without failing the job,
       # and Slither itself exits 0 whatever it finds (--fail-none). Its findings are dispositioned on the PR.
