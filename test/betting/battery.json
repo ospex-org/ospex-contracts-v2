@@ -2352,19 +2352,6 @@
    "breaks": "the taking order's filled amount is not put back"
   },
   {
-   "id": "X50-noselector",
-   "file": "src/betting/OspexMatching.sol",
-   "edits": [
-    {
-     "find": "        return (head & SELECTOR_MASK) == bytes32(IOspexPositions.OspexPositions__MakerPullRefused.selector)\n            && account == bytes32(uint256(uint160(maker))) && amount == bytes32(makerRisk);",
-     "replace": "        return account == bytes32(uint256(uint160(maker))) && amount == bytes32(makerRisk);"
-    }
-   ],
-   "testPath": "test/betting/OspexCrossSkips.t.sol",
-   "test": "test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheEightReasonsSkip",
-   "breaks": "the refused pull is recognised without its selector: the taking account's refusal for the same account and amount is a skip"
-  },
-  {
    "id": "X51-cancelledfirst",
    "file": "src/betting/OspexMatching.sol",
    "edits": [

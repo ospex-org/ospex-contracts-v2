@@ -822,9 +822,10 @@ contract OspexCrossRefusalBytesTest is CrossBase {
         passed[4] = abi.encodePacked(IOspexPositions.OspexPositions__MakerPullRefused.selector);
         passed[5] = _first(exact, 99);
         passed[6] = bytes.concat(exact, bytes32(0));
-        // The other pull's error with the same two values; the maker's error in two words, the account and the
-        // stake with no third; a string; nothing at all.
-        passed[7] = abi.encodeWithSelector(IOspexPositions.OspexPositions__TakerPullRefused.selector, m1.a, 10_000);
+        // The other pull's error at the same length with the same three words, so that only the selector tells
+        // them apart; the maker's error in two words, the account and the stake with no third; a string; nothing.
+        passed[7] =
+            abi.encodeWithSelector(IOspexPositions.OspexPositions__TakerPullRefused.selector, m1.a, 10_000, 10_000);
         passed[8] = abi.encodeWithSelector(IOspexPositions.OspexPositions__MakerPullRefused.selector, m1.a, 10_000);
         passed[9] = abi.encodeWithSignature("Error(string)", "no");
         passed[10] = "";
