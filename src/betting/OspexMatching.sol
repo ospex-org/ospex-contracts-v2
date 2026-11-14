@@ -134,6 +134,8 @@ contract OspexMatching is IOspexModule, EIP712 {
     bytes32 public constant EVENT_ORDER_CANCELLED = keccak256("ORDER_CANCELLED");
     bytes32 public constant EVENT_FLOOR_RAISED = keccak256("FLOOR_RAISED");
     bytes32 public constant EVENT_VERSION_CHANGED = keccak256("VERSION_CHANGED");
+    bytes32 public constant EVENT_AGENT_GRANTED = keccak256("AGENT_GRANTED");
+    bytes32 public constant EVENT_AGENT_REVOKED = keccak256("AGENT_REVOKED");
     bytes32 public constant EVENT_COURIER_REGISTERED = keccak256("COURIER_REGISTERED");
     bytes32 public constant EVENT_COURIER_UNREGISTERED = keccak256("COURIER_UNREGISTERED");
     bytes32 public constant EVENT_ORDER_MATCHED = keccak256("ORDER_MATCHED");
@@ -173,6 +175,11 @@ contract OspexMatching is IOspexModule, EIP712 {
     uint256 public constant GRANT_SHIFT = 96;
     /// @notice The top order number, 2^96 - 1: the largest floor a line can take, and so always signable
     uint96 public constant MAX_ORDER_NUMBER = type(uint96).max;
+    /// @notice The most lines a grant may name
+    uint256 public constant MAX_GRANT_LINES = 64;
+    /// @notice The most grants an account may ever make, 4,294,967,295: the grant number is 32 bits in the nonce
+    ///         and is never reused, so a grant past this count is refused by name
+    uint32 public constant MAX_GRANT_COUNT = type(uint32).max;
 
     /// @dev The first four bytes of a word: where revert data carries its error's selector.
     bytes32 private constant SELECTOR_MASK = bytes32(bytes4(0xffffffff));
@@ -191,6 +198,28 @@ contract OspexMatching is IOspexModule, EIP712 {
     error OspexMatching__FloorMustRise(uint96 current, uint96 asked);
     /// @notice Thrown by cancelAll when the next version would pass the top of the field: nothing is written
     error OspexMatching__VersionAtTop(address account, uint128 current);
+    /// @notice Thrown by a grant when the account has made MAX_GRANT_COUNT grants: the count never wraps
+    error OspexMatching__GrantCountExhausted(address account);
+    /// @notice Thrown by a grant when the agent is the zero address
+    error OspexMatching__ZeroAgent();
+    /// @notice Thrown by a grant when the agent is the account itself: an order the account signs carries grant 0
+    error OspexMatching__AgentIsAccount();
+    /// @notice Thrown by a grant when its end is at or before the block's time
+    error OspexMatching__GrantEndsInThePast(uint64 endsAt, uint256 now_);
+    /// @notice Thrown by a grant that names more than MAX_GRANT_LINES lines
+    error OspexMatching__TooManyLines(uint256 count);
+    /// @notice Thrown by revokeAgent when the account has no current grant
+    error OspexMatching__NoGrantToRevoke();
+    /// @notice Thrown by cross when an order names a grant number the account never made
+    error OspexMatching__NoSuchGrant(bytes32 orderHash, address account, uint32 grantNumber);
+    /// @notice Thrown by cross when an agent's order stakes more than its grant's cap, in either role
+    error OspexMatching__AgentStakeAboveCap(bytes32 orderHash, uint256 riskAmount, uint256 stakeCap);
+    /// @notice Thrown by cross when an agent's order names a line off its grant's list, in either role
+    error OspexMatching__LineNotInGrant(bytes32 orderHash);
+    /// @notice Thrown by cross when the taking order's grant is not its account's current grant, or has ended
+    error OspexMatching__TakingOrderGrantGone(
+        bytes32 orderHash, uint32 grantNumber, uint32 currentGrant, uint64 endsAt
+    );
     /// @notice Thrown when the core address is zero
     error OspexMatching__InvalidAddress();
     /// @notice Thrown when the address to register as a courier is zero
@@ -207,7 +236,7 @@ contract OspexMatching is IOspexModule, EIP712 {
     /// @notice Thrown by liftTakingStakeCap when the cap has been lifted already
     error OspexMatching__CapAlreadyLifted();
 
-    /// @notice Thrown by cross, cancelOrder, raiseFloor, cancelAll,
+    /// @notice Thrown by cross, cancelOrder, raiseFloor, cancelAll, grantAgent, revokeAgent,
     ///         grantAgentAndRegisterCourier, registerCourier, unregisterCourier and liftTakingStakeCap while a
     ///         Cross is in progress
     error OspexMatching__CrossInProgress();
@@ -298,6 +327,16 @@ contract OspexMatching is IOspexModule, EIP712 {
     /// @notice Emitted when an account's version changes, by its own cancelAll or its live agent's. The sender
     ///         is the immediate caller, whose authority the contract checked for this call.
     event VersionChanged(address indexed account, uint128 previous, uint128 next, address sender);
+
+    /// @notice Emitted when an account grants an agent: the account is the caller. The grant's lines are the
+    ///         list as given, an empty list passing every market.
+    event AgentGranted(
+        address indexed account, address indexed agent, uint32 number, uint256 stakeCap, uint64 endsAt, Line[] lines
+    );
+
+    /// @notice Emitted when a grant ends by the account's call: a revoke, or a new grant that replaces it. A grant
+    ///         that ends at its second emits nothing. The account is the caller.
+    event AgentRevoked(address indexed account, address indexed agent, uint32 number);
 
     /// @notice Emitted when an account registers a courier. The account is the caller.
     event CourierRegistered(address indexed account, address indexed courier);
@@ -414,6 +453,23 @@ contract OspexMatching is IOspexModule, EIP712 {
         bytes signature;
     }
 
+    /// @notice A line, the three fields a signed order names a market by, drawn or not: what a grant's list holds
+    struct Line {
+        uint256 gameId;
+        address scorer;
+        int32 lineTicks;
+    }
+
+    /// @notice A grant's record, written once when the grant is made and never edited: the agent, the second at
+    ///         which the grant ends, how many lines its list names (0 passes every market) and the most one
+    ///         order the agent signs may stake. Its number is the key it is kept under.
+    struct Grant {
+        address agent;
+        uint64 endsAt;
+        uint16 lineCount;
+        uint256 stakeCap;
+    }
+
     /// @notice Why a Cross skipped a resting order. The numbers are stable tags, not the order the reasons are
     ///         tested in: item 23 of the spec's first milestone states that order, and a resting order in two of
     ///         these states is recorded under the reason tested first there.
@@ -433,7 +489,9 @@ contract OspexMatching is IOspexModule, EIP712 {
         /// @dev 5: the leg would take less than the order's minimum fill and leave a lot or more of its room.
         UnderMinFill,
         /// @dev 6: the coin refused the pull of the resting stake from the order's account.
-        PullRefused
+        PullRefused,
+        /// @dev 7: the order names a grant that is not its account's current grant, or one that has ended.
+        GrantGone
     }
 
     /// @notice One listed order's fate in a Cross that reverted short: filled, with the leg's two stakes, or
@@ -471,6 +529,15 @@ contract OspexMatching is IOspexModule, EIP712 {
     /// @notice Each account's current version: 0 to begin with, moved only by cancelAll. An order fills only
     ///         while the version in its nonce is this.
     mapping(address => uint128) public s_version;
+    /// @notice How many grants each account has ever made; the next grant's number is one more. Never reused.
+    mapping(address => uint32) public s_grantCount;
+    /// @notice The number of each account's current grant, 0 for none. Set by grantAgent, cleared by revokeAgent.
+    mapping(address => uint32) public s_currentGrant;
+    /// @dev Each account's grants by number, written once and never edited: account → number → record. Read
+    ///      through getGrant.
+    mapping(address => mapping(uint32 => Grant)) internal s_grants;
+    /// @dev Each grant's list of lines: account → number → line key → named. Read through isGrantLine.
+    mapping(address => mapping(uint32 => mapping(bytes32 => bool))) internal s_grantLines;
     /// @notice Per-line floor inside one version: account → version → line key → floor. An order whose order
     ///         number is under the floor is cancelled. The line key is keccak256(abi.encode(gameId, scorer,
     ///         lineTicks)).
@@ -658,12 +725,19 @@ contract OspexMatching is IOspexModule, EIP712 {
         if (t.riskAmount > TAKING_STAKE_CAP && !s_takingStakeCapLifted) {
             revert OspexMatching__TakingStakeAboveCap(orderHash);
         }
-        (uint128 version,, uint96 orderNumber) = _split(t.nonce);
+        (uint128 version, uint32 grantNumber, uint96 orderNumber) = _split(t.nonce);
         if (
             s_cancelledOrders[orderHash] || version != s_version[t.account]
                 || orderNumber < s_floors[t.account][version][marketKey]
         ) {
             revert OspexMatching__TakingOrderCancelled(orderHash);
+        }
+        if (grantNumber != 0) {
+            uint32 current = s_currentGrant[t.account];
+            uint64 endsAt = s_grants[t.account][grantNumber].endsAt;
+            if (grantNumber != current || block.timestamp >= endsAt) {
+                revert OspexMatching__TakingOrderGrantGone(orderHash, grantNumber, current, endsAt);
+            }
         }
         if (block.timestamp >= t.expiry) revert OspexMatching__TakingOrderExpired(orderHash);
         if (t.expiry - block.timestamp > MAX_TAKING_LIFE) revert OspexMatching__TakingOrderTooLong(orderHash);
@@ -706,7 +780,12 @@ contract OspexMatching is IOspexModule, EIP712 {
     function _checkSigned(SignedOrder calldata signed) private view returns (bytes32 orderHash) {
         OspexOrder calldata order = signed.order;
         orderHash = _hashOrder(order);
+        (, uint32 grantNumber,) = _split(order.nonce);
         address signer = order.account;
+        if (grantNumber != 0) {
+            signer = s_grants[order.account][grantNumber].agent;
+            if (signer == address(0)) revert OspexMatching__NoSuchGrant(orderHash, order.account, grantNumber);
+        }
         (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecoverCalldata(orderHash, signed.signature);
         if (err != ECDSA.RecoverError.NoError || recovered != signer) {
             revert OspexMatching__BadSignature(orderHash);
@@ -715,6 +794,18 @@ contract OspexMatching is IOspexModule, EIP712 {
         if (order.riskAmount == 0 || order.riskAmount % LOT != 0) revert OspexMatching__StakeNotInLots(orderHash);
         if (order.minFill > order.riskAmount) {
             revert OspexMatching__MinFillAboveStake(orderHash, order.minFill, order.riskAmount);
+        }
+        if (grantNumber != 0) {
+            Grant storage g = s_grants[order.account][grantNumber];
+            if (order.riskAmount > g.stakeCap) {
+                revert OspexMatching__AgentStakeAboveCap(orderHash, order.riskAmount, g.stakeCap);
+            }
+            if (
+                g.lineCount != 0
+                    && !s_grantLines[order.account][grantNumber][_lineKey(order.gameId, order.scorer, order.lineTicks)]
+            ) {
+                revert OspexMatching__LineNotInGrant(orderHash);
+            }
         }
     }
 
@@ -734,12 +825,19 @@ contract OspexMatching is IOspexModule, EIP712 {
     ) private returns (bool filled, SkipReason reason, uint256 makerRisk, uint256 takerRisk) {
         if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier, 0, 0);
         {
-            (uint128 version,, uint96 orderNumber) = _split(r.nonce);
+            (uint128 version, uint32 grantNumber, uint96 orderNumber) = _split(r.nonce);
             if (
                 s_cancelledOrders[restingHash] || version != s_version[r.account]
                     || orderNumber < s_floors[r.account][version][marketKey]
             ) {
                 return (false, SkipReason.Cancelled, 0, 0);
+            }
+            if (
+                grantNumber != 0
+                    && (grantNumber != s_currentGrant[r.account]
+                        || block.timestamp >= s_grants[r.account][grantNumber].endsAt)
+            ) {
+                return (false, SkipReason.GrantGone, 0, 0);
             }
         }
         if (block.timestamp >= r.expiry) return (false, SkipReason.Expired, 0, 0);
@@ -1031,6 +1129,82 @@ contract OspexMatching is IOspexModule, EIP712 {
         i_ospexCore.emitCoreEvent(EVENT_VERSION_CHANGED, abi.encode(account, current, next, msg.sender));
     }
 
+    // ──────────────────────────── The approved agent ──────────────────
+
+    /**
+     * @notice Grant one agent for the caller: an address that may sign orders and send the three cancels for the
+     *         account, the most one order it signs may stake, the second at which the grant ends, and a list of
+     *         lines, each a game, a market contract and a line, an empty list passing every market. One
+     *         transaction grants.
+     * @dev The account is msg.sender, the immediate caller and never tx.origin, so a contract account grants as
+     *      itself and a contract an account calls grants nothing for it; no signature and no agent reaches this
+     *      call. Checked first: a Cross in progress; then the count, MAX_GRANT_COUNT, refused by name before
+     *      anything is written; then a zero agent, the account as its own agent, an end at or before the block's
+     *      time, and more than MAX_GRANT_LINES lines. The number is the count plus one, never reused; the
+     *      record and its lines are written once and never edited; the grant becomes the account's current one.
+     *      A grant that stood is ended first, AgentRevoked, so the orders signed under it die as at a revoke.
+     *      A stake cap of zero grants cancels and no orders. The agent may be any address: the contract reads
+     *      nothing from it, and a grant to an address that has no key is simply unusable for orders.
+     *
+     *      Refused while a Cross is in progress.
+     * @param agent The agent
+     * @param stakeCap The most one order the agent signs may stake, in the coin's smallest unit
+     * @param endsAt The second at which the grant ends: at that second it has ended
+     * @param lines The lines the agent may sign on, each by its game, market contract and line; empty for every
+     *        market
+     * @return number The grant's number
+     */
+    function grantAgent(address agent, uint256 stakeCap, uint64 endsAt, Line[] calldata lines)
+        external
+        returns (uint32 number)
+    {
+        return _grant(msg.sender, agent, stakeCap, endsAt, lines);
+    }
+
+    /**
+     * @notice End the caller's current grant. One transaction revokes.
+     * @dev The account is msg.sender. Refused by name when no grant stands. The record stays, so an order under
+     *      the revoked number is refused by name as a grant gone, before or after a regrant; the account's own
+     *      orders, grant 0, are untouched. A revoke ends that grant's remaining authority: every unfilled order
+     *      signed under it, and the agent's cancels and its stop at the courier.
+     *
+     *      Refused while a Cross is in progress.
+     */
+    function revokeAgent() external {
+        if (_crossInProgress()) revert OspexMatching__CrossInProgress();
+        uint32 number = s_currentGrant[msg.sender];
+        if (number == 0) revert OspexMatching__NoGrantToRevoke();
+        s_currentGrant[msg.sender] = 0;
+        address agent = s_grants[msg.sender][number].agent;
+        emit AgentRevoked(msg.sender, agent, number);
+        i_ospexCore.emitCoreEvent(EVENT_AGENT_REVOKED, abi.encode(msg.sender, agent, number));
+    }
+
+    /**
+     * @notice Grant an agent and register a courier in one call, for one wallet step at onboarding: grantAgent
+     *         and then registerCourier, both for the caller.
+     * @dev The account is msg.sender for both. The grant's checks come first, the Cross check before all, and
+     *      the courier is written after the grant. Registering a courier the account already has writes
+     *      nothing and reverts nothing, so a repeated registration never undoes a grant. Nothing an agent holds
+     *      reaches the registration: it is the caller's own, as registerCourier's is.
+     * @param agent The agent
+     * @param stakeCap The most one order the agent signs may stake
+     * @param endsAt The second at which the grant ends
+     * @param lines The lines the agent may sign on; empty for every market
+     * @param courier The address to register as the caller's courier
+     * @return number The grant's number
+     */
+    function grantAgentAndRegisterCourier(
+        address agent,
+        uint256 stakeCap,
+        uint64 endsAt,
+        Line[] calldata lines,
+        address courier
+    ) external returns (uint32 number) {
+        number = _grant(msg.sender, agent, stakeCap, endsAt, lines);
+        _register(msg.sender, courier);
+    }
+
     // ──────────────────────────── The cap ─────────────────────────────
 
     /**
@@ -1076,6 +1250,33 @@ contract OspexMatching is IOspexModule, EIP712 {
         return _hashOrder(order);
     }
 
+    /// @notice A grant's record, by account and number: its agent, the second it ends at, the most one order the
+    ///         agent signs may stake, and how many lines its list names, 0 passing every market. A number the
+    ///         account never made answers all zero.
+    function getGrant(address account, uint32 number)
+        external
+        view
+        returns (address agent, uint64 endsAt, uint256 stakeCap, uint16 lineCount)
+    {
+        Grant storage g = s_grants[account][number];
+        return (g.agent, g.endsAt, g.stakeCap, g.lineCount);
+    }
+
+    /// @notice Whether a grant's list names a line. False for a grant whose list is empty, which passes every
+    ///         market: read getGrant's lineCount first.
+    function isGrantLine(address account, uint32 number, uint256 gameId, address scorer, int32 lineTicks)
+        external
+        view
+        returns (bool)
+    {
+        return s_grantLines[account][number][_lineKey(gameId, scorer, lineTicks)];
+    }
+
+    /// @notice Whether `who` is `account`'s live agent: the agent of its current grant, which has not ended.
+    function isLiveAgent(address account, address who) external view returns (bool) {
+        return _isLiveAgent(account, who);
+    }
+
     /// @notice An account's floor for a line at its current version.
     function getFloor(address account, uint256 gameId, address scorer, int32 lineTicks) external view returns (uint96) {
         return s_floors[account][s_version[account]][_lineKey(gameId, scorer, lineTicks)];
@@ -1104,10 +1305,52 @@ contract OspexMatching is IOspexModule, EIP712 {
         i_ospexCore.emitCoreEvent(EVENT_COURIER_REGISTERED, abi.encode(account, courier));
     }
 
-    /// @dev The three cancels' rule: the caller is the account named, else refused by name.
+    /// @dev The one write of a grant: `account` grants `agent`. The checks in their order, the Cross first and
+    ///      the count second, before anything is written; the grant that stood, if any, ended first.
+    function _grant(address account, address agent, uint256 stakeCap, uint64 endsAt, Line[] calldata lines)
+        private
+        returns (uint32 number)
+    {
+        if (_crossInProgress()) revert OspexMatching__CrossInProgress();
+        uint32 count = s_grantCount[account];
+        if (count == MAX_GRANT_COUNT) revert OspexMatching__GrantCountExhausted(account);
+        if (agent == address(0)) revert OspexMatching__ZeroAgent();
+        if (agent == account) revert OspexMatching__AgentIsAccount();
+        if (endsAt <= block.timestamp) revert OspexMatching__GrantEndsInThePast(endsAt, block.timestamp);
+        if (lines.length > MAX_GRANT_LINES) revert OspexMatching__TooManyLines(lines.length);
+        number = count + 1;
+        s_grantCount[account] = number;
+        uint32 old = s_currentGrant[account];
+        if (old != 0) {
+            address oldAgent = s_grants[account][old].agent;
+            emit AgentRevoked(account, oldAgent, old);
+            i_ospexCore.emitCoreEvent(EVENT_AGENT_REVOKED, abi.encode(account, oldAgent, old));
+        }
+        // at most MAX_GRANT_LINES lines, which the field holds
+        // forge-lint: disable-next-line(unsafe-typecast)
+        uint16 lineCount = uint16(lines.length);
+        s_grants[account][number] = Grant({agent: agent, endsAt: endsAt, lineCount: lineCount, stakeCap: stakeCap});
+        for (uint256 i; i < lines.length; ++i) {
+            s_grantLines[account][number][_lineKey(lines[i].gameId, lines[i].scorer, lines[i].lineTicks)] = true;
+        }
+        s_currentGrant[account] = number;
+        emit AgentGranted(account, agent, number, stakeCap, endsAt, lines);
+        i_ospexCore.emitCoreEvent(EVENT_AGENT_GRANTED, abi.encode(account, agent, number, stakeCap, endsAt, lines));
+    }
+
+    /// @dev Whether `who` is `account`'s live agent: the agent of the current grant, which has not ended. At the
+    ///      end's second the grant has ended.
+    function _isLiveAgent(address account, address who) private view returns (bool) {
+        uint32 number = s_currentGrant[account];
+        if (number == 0) return false;
+        Grant storage g = s_grants[account][number];
+        return g.agent == who && block.timestamp < g.endsAt;
+    }
+
+    /// @dev The three cancels' rule: the caller is the account named or its live agent, else refused by name.
     ///      The caller is msg.sender, the immediate caller, whatever contract a call came through.
     function _requireAccountOrAgent(address account) private view {
-        if (msg.sender != account) {
+        if (msg.sender != account && !_isLiveAgent(account, msg.sender)) {
             revert OspexMatching__NotAccountOrAgent(account, msg.sender);
         }
     }
