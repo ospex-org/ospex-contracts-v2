@@ -19,21 +19,46 @@ interface IOspexGamesTimelock {
  * @title OspexMatching
  * @author ospex.org
  * @notice The matching module of the betting set: the signed order and its hash, the Cross that fills orders,
- *         the per-order cancel, the per-market nonce floor and each account's couriers.
+ *         the approved agent and its grant, the three cancels, and each account's couriers.
  *
  *         The signed order. An account signs OspexOrder, ten fields, under the EIP-712 domain "Ospex",
  *         version "3", this chain and this contract. Nothing in an order says which role it plays: the same
  *         signed order rests or takes. Its first field, account, is the account whose money backs it; its last,
- *         minFill, is the least it fills for in one Cross. In this build the account's own key signs, with a
- *         65-byte ECDSA signature. Spec: "How a bet happens", and items 3, 8, 9, 10, 13 and 20 of its first
- *         milestone.
+ *         minFill, is the least it fills for in one Cross. Its nonce holds three numbers, high to low: the
+ *         account's version (128 bits), the number of the grant it was signed under (32 bits; 0 when the
+ *         account signed it itself) and an order number (96 bits). Spec: "How a bet happens", "The nonce,
+ *         split", and items 3, 8, 9, 10, 13, 20 and 23 of its first milestone.
+ *
+ *         How an order is signed. Order-signature authorization recovers the existing 65-byte
+ *         EIP-712/secp256k1 signature and compares it with the resolved signer without inspecting that
+ *         signer's code or consulting any wallet verifier: the signer is the account when the nonce's grant
+ *         number is 0, and the agent of the grant that number names otherwise. A code-bearing key, including
+ *         an EIP-7702 key, keeps this signing route. A keyless contract account, one that cannot produce the
+ *         accepted signature from its own address, trades only through a suitable current numbered grant.
+ *         This rule does not remove the Cross's existing token, positions, market or hub calls, or
+ *         token-triggered callbacks. A signature that does not recover to the resolved signer fails the whole
+ *         Cross, in either role. Spec: item 23 of its first milestone, which supersedes L77 and item 15's
+ *         "Signatures".
+ *
+ *         The approved agent. An account grants one agent from its own address: an address that may sign
+ *         orders and send cancels for the account, the most one order it signs may stake, the second at which
+ *         the grant ends and, optionally, a list of lines, each a game, a market contract and a line, an empty
+ *         list passing every market. Each grant has a number, one more than the account's count, starting at
+ *         1 and never reused; its record is written once and never edited, so an order's limits are fixed by
+ *         the number it names. An account has one current grant: a new grant replaces it, and a revoke ends
+ *         it. An order signed under a grant that is not the account's current one, or that has ended, is dead,
+ *         before or after a regrant; the account's own orders, grant 0, are untouched by a revoke. The agent
+ *         is nothing to the positions module: a pay-back and a claim pay the account, and no call here moves
+ *         coin. Spec: "The approved agent", and item 23.
  *
  *         Couriers. A courier is an address an account names to send the fills of its orders. An account
  *         registers one, and drops one, with a call from its own address: the account is the caller, and
  *         neither call takes an account, a signature or a grant, so only an account writes its own couriers.
  *         An account may hold several. There is no default: an account that registered none has none, this
- *         contract has no owner, and registerCourier and unregisterCourier are its only functions that write a
- *         courier. Spec: "How a bet happens", and items 1, 5 and 6 of its first milestone.
+ *         contract has no owner, and registerCourier, unregisterCourier and grantAgentAndRegisterCourier, which
+ *         registers for its caller as registerCourier does, are its only functions that write a courier. An
+ *         agent, under any grant, registers no courier for the account. Spec: "How a bet happens", and items
+ *         1, 5 and 6 of its first milestone.
  *
  *         The Cross. cross(taking, resting) is the one path a fill arrives by, and the only function here
  *         that calls the positions module. Its sender, the immediate caller, lists one taking order and the
@@ -42,16 +67,16 @@ interface IOspexGamesTimelock {
  *         its account has not registered: the taking account must have registered the sender, or the call
  *         reverts; a resting order whose account has not is skipped. Each leg fills at the resting order's
  *         price, in lots of 100 units of resting stake, and a resting order that cannot fill is skipped, for
- *         one of seven reasons, while the rest fill. A Cross that fills nothing reverts, and so does one that
+ *         one of eight reasons, while the rest fill. A Cross that fills nothing reverts, and so does one that
  *         leaves its taking order short of its minimum fill. Spec: "How a bet happens", and items 4, 11, 12,
- *         14, 15 and 20 of its first milestone.
+ *         14, 15, 20 and 23 of its first milestone.
  *
- *         One Cross at a time. While a Cross is in progress this contract refuses another Cross, a cancel, a
- *         raised floor, a registration, a drop and the cap's lift, each by the same name. So from the first
- *         check of a Cross to its end nothing but that Cross changes a cancel mark, a floor, a courier, a
- *         filled amount or the cap's flag. The reads are not held: one made from inside a Cross, by a
- *         contract the coin calls during a pull, shows the legs done so far and the leg in progress, which is
- *         taken back if that leg is skipped. Such a read is not a finished Cross.
+ *         One Cross at a time. While a Cross is in progress this contract refuses another Cross, the three
+ *         cancels, a grant, a revoke, a registration, a drop and the cap's lift, each by the same name. So from
+ *         the first check of a Cross to its end nothing but that Cross changes a cancel mark, a floor, a
+ *         version, a grant, a courier, a filled amount or the cap's flag. The reads are not held: one made
+ *         from inside a Cross, by a contract the coin calls during a pull, shows the legs done so far and the
+ *         leg in progress, which is taken back if that leg is skipped. Such a read is not a finished Cross.
  *
  *         Who calls it, and what it calls. Anyone calls anything here; what a call may do is decided by who the
  *         caller is to the accounts it names. It calls the positions module's recordFill, once per attempted
@@ -60,8 +85,19 @@ interface IOspexGamesTimelock {
  *         hub. It holds no coin and is approved for none: the positions module pulls the stakes, netted per
  *         account per market, and pays back what a fill leaves held above an account's worst loss.
  *
- *         What this build is not. The account's own key signs: the approved agent and contract wallets come
- *         with the agent. An order's nonce is compared whole with its account's floor.
+ *         The cancels. Three calls, each naming the account, each sent by the account or by its live agent
+ *         and refused by name from anyone else, each keyed to the account named and never to the caller. The
+ *         per-order cancel, cancelOrder, marks the hash of an order at the account's current version. The
+ *         per-line floor, raiseFloor, cancels every order number under it on one line at the account's
+ *         current version; it may reach the top order number, so that number is always signable. The
+ *         account-wide cancel, cancelAll, takes no number: it moves the account to the old version plus one
+ *         plus the first 64 bits of the previous block's hash, in checked arithmetic that refuses by name a
+ *         step past the top, so every order naming the old version is dead, whoever signed it, and the new
+ *         version's floors are zero. Revoke ends that grant's remaining authority. Cancel-all invalidates
+ *         orders outside the resulting current version; an order signed beforehand for the resulting version
+ *         may still fill while every other condition holds. Each cancelling event names the account and the
+ *         address whose authority the contract checked for that call, the immediate caller, an address and
+ *         never a role. Spec: "Cancelling", "The nonce, split", and item 23.
  *
  *         The cap and its switch. Until the switch, a taking order's signed stake is at most TAKING_STAKE_CAP,
  *         one cent: a taking order signed for more is refused by name before anything moves, whatever it has
@@ -96,7 +132,8 @@ contract OspexMatching is IOspexModule, EIP712 {
     // The core event types this module emits through the core's hub. Each payload is the typed event's
     // parameters in the typed event's order.
     bytes32 public constant EVENT_ORDER_CANCELLED = keccak256("ORDER_CANCELLED");
-    bytes32 public constant EVENT_MIN_NONCE_UPDATED = keccak256("MIN_NONCE_UPDATED");
+    bytes32 public constant EVENT_FLOOR_RAISED = keccak256("FLOOR_RAISED");
+    bytes32 public constant EVENT_VERSION_CHANGED = keccak256("VERSION_CHANGED");
     bytes32 public constant EVENT_COURIER_REGISTERED = keccak256("COURIER_REGISTERED");
     bytes32 public constant EVENT_COURIER_UNREGISTERED = keccak256("COURIER_UNREGISTERED");
     bytes32 public constant EVENT_ORDER_MATCHED = keccak256("ORDER_MATCHED");
@@ -130,19 +167,30 @@ contract OspexMatching is IOspexModule, EIP712 {
     ///         decimals, 100 lots. A taking order signed for more is refused by name while
     ///         s_takingStakeCapLifted is false. Resting stakes are not capped.
     uint256 public constant TAKING_STAKE_CAP = 10_000;
+    /// @notice Where the nonce's three numbers sit: the version is the nonce shifted right by VERSION_SHIFT, the
+    ///         grant number the 32 bits above GRANT_SHIFT, and the order number the low 96 bits
+    uint256 public constant VERSION_SHIFT = 128;
+    uint256 public constant GRANT_SHIFT = 96;
+    /// @notice The top order number, 2^96 - 1: the largest floor a line can take, and so always signable
+    uint96 public constant MAX_ORDER_NUMBER = type(uint96).max;
 
     /// @dev The first four bytes of a word: where revert data carries its error's selector.
     bytes32 private constant SELECTOR_MASK = bytes32(bytes4(0xffffffff));
     /// @dev Where the Cross-in-progress mark is kept, in transient storage: set by cross for the length of the
-    ///      call, read by the five other state-changing functions, and gone at the transaction's end.
+    ///      call, read by the nine other state-changing functions, and gone at the transaction's end.
     bytes32 private constant CROSS_IN_PROGRESS_SLOT = keccak256("ospex.matching.cross-in-progress");
 
     // ──────────────────────────── Errors ───────────────────────────────
 
-    /// @notice Thrown when an address other than the order's account cancels an order
-    error OspexMatching__NotOrderAccount();
-    /// @notice Thrown when the new minimum nonce is not higher than the current, or is the top value
-    error OspexMatching__NonceMustIncrease();
+    /// @notice Thrown by the three cancels when the caller is neither the account named nor its live agent
+    error OspexMatching__NotAccountOrAgent(address account, address caller);
+    /// @notice Thrown by cancelOrder when the order's version is not its account's current version: a mark
+    ///         reaches one version, the current one
+    error OspexMatching__OrderNotAtCurrentVersion(bytes32 orderHash, uint128 orderVersion, uint128 currentVersion);
+    /// @notice Thrown by raiseFloor when the floor asked is not above the line's current floor
+    error OspexMatching__FloorMustRise(uint96 current, uint96 asked);
+    /// @notice Thrown by cancelAll when the next version would pass the top of the field: nothing is written
+    error OspexMatching__VersionAtTop(address account, uint128 current);
     /// @notice Thrown when the core address is zero
     error OspexMatching__InvalidAddress();
     /// @notice Thrown when the address to register as a courier is zero
@@ -159,13 +207,15 @@ contract OspexMatching is IOspexModule, EIP712 {
     /// @notice Thrown by liftTakingStakeCap when the cap has been lifted already
     error OspexMatching__CapAlreadyLifted();
 
-    /// @notice Thrown by cross, cancelOrder, raiseMinNonce, registerCourier, unregisterCourier and
-    ///         liftTakingStakeCap while a Cross is in progress
+    /// @notice Thrown by cross, cancelOrder, raiseFloor, cancelAll,
+    ///         grantAgentAndRegisterCourier, registerCourier, unregisterCourier and liftTakingStakeCap while a
+    ///         Cross is in progress
     error OspexMatching__CrossInProgress();
     /// @notice Thrown by cross when the taking order's account has not registered the sender as a courier
     error OspexMatching__SenderNotCourier(address account, address sender);
-    /// @notice Thrown by cross when an order's signature is not its account's: the wrong key, the wrong type or
-    ///         domain, a changed field, a length other than 65 bytes, or a signature the recovery refuses
+    /// @notice Thrown by cross when an order's signature is not its resolved signer's, the account's for grant 0
+    ///         and the grant's agent's otherwise: the wrong key, the wrong type or domain, a changed field, a
+    ///         length other than 65 bytes, or a signature the recovery refuses
     error OspexMatching__BadSignature(bytes32 orderHash);
     /// @notice Thrown by cross when an order's price is outside MIN_ODDS to MAX_ODDS, in either role
     error OspexMatching__PriceOutOfRange(bytes32 orderHash);
@@ -177,8 +227,8 @@ contract OspexMatching is IOspexModule, EIP712 {
     /// @notice Thrown by cross when the taking order's signed stake is above TAKING_STAKE_CAP and the cap has
     ///         not been lifted
     error OspexMatching__TakingStakeAboveCap(bytes32 orderHash);
-    /// @notice Thrown by cross when the taking order is cancelled: its hash is marked, or its nonce is under its
-    ///         account's floor for the market
+    /// @notice Thrown by cross when the taking order is cancelled: its hash is marked, its version is not its
+    ///         account's current version, or its order number is under its account's floor for the line
     error OspexMatching__TakingOrderCancelled(bytes32 orderHash);
     /// @notice Thrown by cross when the taking order has expired: the block's time is at or past its expiry
     error OspexMatching__TakingOrderExpired(bytes32 orderHash);
@@ -211,8 +261,10 @@ contract OspexMatching is IOspexModule, EIP712 {
 
     // ──────────────────────────── Events ───────────────────────────────
 
-    /// @notice Emitted when an order is cancelled by its account. Its fields are the order's, in the order's
-    ///         order, the minimum fill last.
+    /// @notice Emitted when an order is cancelled, by its account or by its account's live agent. Its fields are
+    ///         the order's, in the order's order, the minimum fill after them, and last the sender: the
+    ///         immediate caller, whose authority the contract checked for this call, an address and never a
+    ///         role. The account is the order's account, which may not be the sender.
     event OrderCancelled(
         bytes32 indexed orderHash,
         address indexed account,
@@ -224,19 +276,28 @@ contract OspexMatching is IOspexModule, EIP712 {
         uint256 riskAmount,
         uint256 nonce,
         uint256 expiry,
-        uint256 minFill
+        uint256 minFill,
+        address sender
     );
 
-    /// @notice Emitted when an account raises its minimum nonce for a market. marketKey is the key the floor is
-    ///         stored under: keccak256(abi.encode(gameId, scorer, lineTicks)).
-    event MinNonceUpdated(
+    /// @notice Emitted when a floor is raised, by the account or by its live agent, for one line at the
+    ///         account's current version. lineKey is the key the floor is stored under beside the account and
+    ///         the version: keccak256(abi.encode(gameId, scorer, lineTicks)). The sender is the immediate
+    ///         caller, whose authority the contract checked for this call.
+    event FloorRaised(
         address indexed account,
+        uint128 version,
         uint256 gameId,
         address scorer,
         int32 lineTicks,
-        uint256 newMinNonce,
-        bytes32 indexed marketKey
+        uint96 floor,
+        bytes32 indexed lineKey,
+        address sender
     );
+
+    /// @notice Emitted when an account's version changes, by its own cancelAll or its live agent's. The sender
+    ///         is the immediate caller, whose authority the contract checked for this call.
+    event VersionChanged(address indexed account, uint128 previous, uint128 next, address sender);
 
     /// @notice Emitted when an account registers a courier. The account is the caller.
     event CourierRegistered(address indexed account, address indexed courier);
@@ -324,8 +385,11 @@ contract OspexMatching is IOspexModule, EIP712 {
      * @param oddsTick The order's price, a floor, as an integer (193 = 1.93 odds): MIN_ODDS to MAX_ODDS
      * @param riskAmount The most the account stakes on this order, in the coin's smallest unit: above zero and
      *                   a whole number of lots
-     * @param nonce Invalidation threshold, not a unique order id: orders on one market may share a nonce, and
-     *              raiseMinNonce() invalidates every order on the market with a nonce below the new minimum
+     * @param nonce Three numbers, high to low: the account's version (128 bits), which must be the account's
+     *              current version for the order to fill; the number of the grant it was signed under (32 bits),
+     *              0 when the account signed it itself; and an order number (96 bits), which raiseFloor
+     *              invalidates for every order on the line with an order number below the floor. Orders may
+     *              share a nonce: it is not a unique order id
      * @param expiry Unix timestamp: the order is live while the block's time is before it
      * @param minFill The least this order fills for in one Cross, in the coin's smallest unit and in the order's
      *                own stake, unless the fill completes the order: zero asks for nothing; at most riskAmount
@@ -343,18 +407,21 @@ contract OspexMatching is IOspexModule, EIP712 {
         uint256 minFill;
     }
 
-    /// @notice An order with its signature: 65 bytes, ECDSA, by the order's account, over getOrderHash(order)
+    /// @notice An order with its signature: 65 bytes, ECDSA, over getOrderHash(order), by the order's resolved
+    ///         signer: its account when the nonce's grant number is 0, the agent of that grant otherwise
     struct SignedOrder {
         OspexOrder order;
         bytes signature;
     }
 
-    /// @notice Why a Cross skipped a resting order. The numbers are in the order the reasons are tested, so an
-    ///         order in two of these states is recorded under the lower number.
+    /// @notice Why a Cross skipped a resting order. The numbers are stable tags, not the order the reasons are
+    ///         tested in: item 23 of the spec's first milestone states that order, and a resting order in two of
+    ///         these states is recorded under the reason tested first there.
     enum SkipReason {
         /// @dev 0: the order's account has not registered the sender as a courier.
         NoCourier,
-        /// @dev 1: the order's hash is marked cancelled, or its nonce is under its account's floor for the market.
+        /// @dev 1: the order's hash is marked cancelled, its version is not its account's current version, or
+        ///      its order number is under its account's floor for the line.
         Cancelled,
         /// @dev 2: the block's time is at or past the order's expiry.
         Expired,
@@ -401,9 +468,13 @@ contract OspexMatching is IOspexModule, EIP712 {
     ///         nothing here.
     address public immutable i_timelock;
 
-    /// @notice Per-market minimum valid nonce: account → market key → minimum nonce. The market key is
-    ///         keccak256(abi.encode(gameId, scorer, lineTicks)).
-    mapping(address => mapping(bytes32 => uint256)) public s_minNonces;
+    /// @notice Each account's current version: 0 to begin with, moved only by cancelAll. An order fills only
+    ///         while the version in its nonce is this.
+    mapping(address => uint128) public s_version;
+    /// @notice Per-line floor inside one version: account → version → line key → floor. An order whose order
+    ///         number is under the floor is cancelled. The line key is keccak256(abi.encode(gameId, scorer,
+    ///         lineTicks)).
+    mapping(address => mapping(uint128 => mapping(bytes32 => uint96))) public s_floors;
     /// @notice Individually cancelled order hashes
     mapping(bytes32 => bool) public s_cancelledOrders;
     /// @notice What each order has filled, by its hash, in the order's own stake: the same record whichever
@@ -455,17 +526,22 @@ contract OspexMatching is IOspexModule, EIP712 {
      *      price out of range meets no price. A call with two faults otherwise reverts under either name.
      *      - A Cross is already in progress.
      *      - The taking order's account has not registered the sender.
-     *      - The taking order: its signature is not its account's; its price or its stake is not admissible;
-     *        its minimum fill is above its signed stake; its signed stake is above TAKING_STAKE_CAP and the cap
-     *        has not been lifted; it is cancelled, by its own cancel or under its account's floor; it has
-     *        expired; it has more than MAX_TAKING_LIFE seconds left; it has no room left.
-     *      - A resting order, anywhere in the list: its signature is not its account's; its price or its stake
-     *        is not admissible; its minimum fill is above its signed stake; its game, market contract or line
-     *        is not the taking order's; it is on the taking order's side; its price does not meet the taking
-     *        order's.
+     *      - The taking order: its signature is not its resolved signer's, or it names a grant never made; its
+     *        price or its stake is not admissible; its minimum fill is above its signed stake; under a grant,
+     *        its stake is above the grant's cap or its line is off the grant's list; its signed stake is above
+     *        TAKING_STAKE_CAP and the cap has not been lifted; it is cancelled, by its own cancel, by its version
+     *        not being its account's current one, or by its order number being under its account's floor for
+     *        the line; its grant is not its account's current one or has ended; it has expired; it has more
+     *        than MAX_TAKING_LIFE seconds left; it has no room left.
+     *      - A resting order, anywhere in the list: its signature is not its resolved signer's, or it names a
+     *        grant never made; its price or its stake is not admissible; its minimum fill is above its signed
+     *        stake; under a grant, its stake is above the grant's cap or its line is off the grant's list; its
+     *        game, market contract or line is not the taking order's; it is on the taking order's side; its
+     *        price does not meet the taking order's.
      *
      *      Then the walk: one leg per resting order, in list order. Each is filled or skipped, and a skipped
-     *      order is recorded under the first of the seven reasons that applies, in the order of SkipReason. A
+     *      order is recorded under the first of the eight reasons that applies, in the order item 23 of the
+     *      spec's first milestone states. A
      *      leg takes k lots, k being the smaller of the resting order's room / LOT and the taking stake left
      *      / p, p being the resting price less ODDS_SCALE: the resting account stakes k x LOT and the taking
      *      account k x p, which is the resting price to the unit. A leg fills only if its taking stake is at
@@ -495,7 +571,8 @@ contract OspexMatching is IOspexModule, EIP712 {
      *      its worst loss, at the leg, and the taking account once at the end, and the coin is fixed at the
      *      set's deploy. A coin that calls the debited account during a transfer hands that account a call in
      *      the middle of a Cross, and so does a pay-back to an account with code: it cannot cancel, raise a
-     *      floor, change a courier or start a Cross from there, which this contract refuses, but it can make
+     *      floor, cancel everything, grant, revoke, change a courier or start a Cross from there, which this
+     *      contract refuses, but it can make
      *      the Cross fail, by spending the gas passed to it or by ending the game, where its release is open, so
      *      that the next leg meets the close gate. No gas limit is put on a pull or a pay-back and no leg is
      *      skipped at the close gate. USDC makes no such call.
@@ -509,7 +586,7 @@ contract OspexMatching is IOspexModule, EIP712 {
         OspexOrder calldata t = taking.order;
         if (!_isCourier(t.account, msg.sender)) revert OspexMatching__SenderNotCourier(t.account, msg.sender);
 
-        bytes32 marketKey = keccak256(abi.encode(t.gameId, t.scorer, t.lineTicks));
+        bytes32 marketKey = _lineKey(t.gameId, t.scorer, t.lineTicks);
         bytes32 takingHash = _checkTaking(taking, marketKey);
         bytes32[] memory hashes = _checkResting(t, resting);
 
@@ -568,10 +645,11 @@ contract OspexMatching is IOspexModule, EIP712 {
         CROSS_IN_PROGRESS_SLOT.asBoolean().tstore(false);
     }
 
-    /// @dev The taking order's own checks, each a revert of the whole call: signature, price and stake, the cap
-    ///      on its signed stake until the switch, cancel and floor, expiry, the life left, room. The expiry is
-    ///      tested before the life left is subtracted, so an expired order is refused by name and not as an
-    ///      arithmetic error; the room is a comparison, with nothing subtracted.
+    /// @dev The taking order's own checks, each a revert of the whole call: signature and limits, price and
+    ///      stake, the cap on its signed stake until the switch, its standing (the mark, the version, the floor),
+    ///      its grant's standing (current, not ended), expiry, the life left, room. The expiry is tested before
+    ///      the life left is subtracted, so an expired order is refused by name and not as an arithmetic error;
+    ///      the room is a comparison, with nothing subtracted.
     function _checkTaking(SignedOrder calldata taking, bytes32 marketKey) private view returns (bytes32 orderHash) {
         OspexOrder calldata t = taking.order;
         orderHash = _checkSigned(taking);
@@ -580,7 +658,11 @@ contract OspexMatching is IOspexModule, EIP712 {
         if (t.riskAmount > TAKING_STAKE_CAP && !s_takingStakeCapLifted) {
             revert OspexMatching__TakingStakeAboveCap(orderHash);
         }
-        if (s_cancelledOrders[orderHash] || t.nonce < s_minNonces[t.account][marketKey]) {
+        (uint128 version,, uint96 orderNumber) = _split(t.nonce);
+        if (
+            s_cancelledOrders[orderHash] || version != s_version[t.account]
+                || orderNumber < s_floors[t.account][version][marketKey]
+        ) {
             revert OspexMatching__TakingOrderCancelled(orderHash);
         }
         if (block.timestamp >= t.expiry) revert OspexMatching__TakingOrderExpired(orderHash);
@@ -612,13 +694,21 @@ contract OspexMatching is IOspexModule, EIP712 {
         }
     }
 
-    /// @dev What every listed order must be, in either role: signed by its account, at an admissible price,
-    ///      for an admissible stake, with a minimum fill it could meet. Returns the order's hash.
+    /// @dev What every listed order must be, in either role: signed by its resolved signer, at an admissible
+    ///      price, for an admissible stake, with a minimum fill it could meet, and, under a grant, within that
+    ///      grant's cap and on its list. The signer is the account when the nonce's grant number is 0 and the
+    ///      agent of the grant that number names otherwise; a grant never made is refused by name. The signature
+    ///      is recovered and compared with the signer, and nothing is called: no account, agent or verifier is
+    ///      asked, and no code is read. The cap and the list are read from the record the order names, which is
+    ///      fixed for that number, so they are the sender's to know and refuse the whole call; the grant's
+    ///      standing, current and not ended, is read where the order's standing is, at the taking check and at
+    ///      the leg. Returns the order's hash.
     function _checkSigned(SignedOrder calldata signed) private view returns (bytes32 orderHash) {
         OspexOrder calldata order = signed.order;
         orderHash = _hashOrder(order);
-        (address signer, ECDSA.RecoverError err,) = ECDSA.tryRecoverCalldata(orderHash, signed.signature);
-        if (err != ECDSA.RecoverError.NoError || signer != order.account) {
+        address signer = order.account;
+        (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecoverCalldata(orderHash, signed.signature);
+        if (err != ECDSA.RecoverError.NoError || recovered != signer) {
             revert OspexMatching__BadSignature(orderHash);
         }
         if (order.oddsTick < MIN_ODDS || order.oddsTick > MAX_ODDS) revert OspexMatching__PriceOutOfRange(orderHash);
@@ -628,7 +718,7 @@ contract OspexMatching is IOspexModule, EIP712 {
         }
     }
 
-    /// @dev One leg: the seven skip tests in the order of SkipReason, then the fill. Both orders' filled amounts
+    /// @dev One leg: the eight skip tests in the order item 23 states, then the fill. Both orders' filled amounts
     ///      are read from storage here, at this leg, so an order listed twice meets at its second entry what
     ///      its first used. Returns the leg's verdict, the reason where it skipped, and the two stakes it had in
     ///      hand: both zero where it skipped before they were computed, the computed pair where it skipped under
@@ -643,8 +733,14 @@ contract OspexMatching is IOspexModule, EIP712 {
         Tally memory tally
     ) private returns (bool filled, SkipReason reason, uint256 makerRisk, uint256 takerRisk) {
         if (!_isCourier(r.account, msg.sender)) return (false, SkipReason.NoCourier, 0, 0);
-        if (s_cancelledOrders[restingHash] || r.nonce < s_minNonces[r.account][marketKey]) {
-            return (false, SkipReason.Cancelled, 0, 0);
+        {
+            (uint128 version,, uint96 orderNumber) = _split(r.nonce);
+            if (
+                s_cancelledOrders[restingHash] || version != s_version[r.account]
+                    || orderNumber < s_floors[r.account][version][marketKey]
+            ) {
+                return (false, SkipReason.Cancelled, 0, 0);
+            }
         }
         if (block.timestamp >= r.expiry) return (false, SkipReason.Expired, 0, 0);
 
@@ -789,11 +885,7 @@ contract OspexMatching is IOspexModule, EIP712 {
      */
     function registerCourier(address courier) external {
         if (_crossInProgress()) revert OspexMatching__CrossInProgress();
-        if (courier == address(0)) revert OspexMatching__ZeroCourier();
-        if (s_couriers[msg.sender][courier]) return;
-        s_couriers[msg.sender][courier] = true;
-        emit CourierRegistered(msg.sender, courier);
-        i_ospexCore.emitCoreEvent(EVENT_COURIER_REGISTERED, abi.encode(msg.sender, courier));
+        _register(msg.sender, courier);
     }
 
     /**
@@ -821,24 +913,32 @@ contract OspexMatching is IOspexModule, EIP712 {
     // ──────────────────────────── Cancelling ──────────────────────────
 
     /**
-     * @notice Cancel one order by its hash. Only the order's account calls it.
-     * @dev The mark is on the hash of the ten values under this contract's domain. The call checks that the
-     *      caller is the address in the order's account field, and nothing else about the order: not a
-     *      signature, not its expiry. Cancelling an order again marks the same hash and emits again. A
-     *      cancelled order fills no further, in either role: what it filled before the cancel stands.
+     * @notice Cancel one order by its hash. The order's account calls it, or that account's live agent.
+     * @dev The caller is msg.sender, the immediate caller and never tx.origin: it must be the address in the
+     *      order's account field, or the agent of that account's current grant while that grant stands. A call
+     *      passed through another contract is authorized on that contract's address, as the account or as the
+     *      live agent, and on nothing else. The order's version must be its account's current one, or the call
+     *      is refused by name and nothing is written: a mark reaches one version. Then the mark is set on the
+     *      hash of the ten values under this contract's domain, and nothing else about the order is checked:
+     *      not a signature, not its expiry. Cancelling an order again marks the same hash and emits again. A
+     *      cancelled order fills no further, in either role: what it filled before the cancel stands. The event
+     *      names the order's account and, last, the caller whose authority was checked.
      *
      *      Refused while a Cross is in progress.
      * @param order The order to cancel
      */
     function cancelOrder(OspexOrder calldata order) external {
         if (_crossInProgress()) revert OspexMatching__CrossInProgress();
-        if (msg.sender != order.account) revert OspexMatching__NotOrderAccount();
+        _requireAccountOrAgent(order.account);
         bytes32 orderHash = _hashOrder(order);
+        (uint128 version,,) = _split(order.nonce);
+        uint128 current = s_version[order.account];
+        if (version != current) revert OspexMatching__OrderNotAtCurrentVersion(orderHash, version, current);
         s_cancelledOrders[orderHash] = true;
 
         emit OrderCancelled(
             orderHash,
-            msg.sender,
+            order.account,
             order.gameId,
             order.scorer,
             order.lineTicks,
@@ -847,13 +947,14 @@ contract OspexMatching is IOspexModule, EIP712 {
             order.riskAmount,
             order.nonce,
             order.expiry,
-            order.minFill
+            order.minFill,
+            msg.sender
         );
         i_ospexCore.emitCoreEvent(
             EVENT_ORDER_CANCELLED,
             abi.encode(
                 orderHash,
-                msg.sender,
+                order.account,
                 order.gameId,
                 order.scorer,
                 order.lineTicks,
@@ -862,38 +963,72 @@ contract OspexMatching is IOspexModule, EIP712 {
                 order.riskAmount,
                 order.nonce,
                 order.expiry,
-                order.minFill
+                order.minFill,
+                msg.sender
             )
         );
     }
 
     /**
-     * @notice Raise the minimum valid nonce for a market, invalidating every order of the caller on it with a
-     *         lower nonce.
-     * @dev The scope is one market, the three fields a signed order names it by, whether or not a fill has
-     *      drawn that market. Per-order cancellation is cancelOrder(). The floor only rises, and the top
-     *      value, type(uint256).max, is refused, so the floor reaches max - 1 at most: an order whose nonce is
-     *      max - 1 or max is never under a floor, and is cancelled only by cancelOrder(). Both refusals,
-     *      a floor that does not rise and the top value, use the one error, NonceMustIncrease. An order whose
-     *      nonce is at the floor is live; one under it fills no further, in either role.
+     * @notice Raise an account's floor for one line at its current version, invalidating every order of the
+     *         account on that line, at that version, whose order number is under the floor. The account calls
+     *         it, or its live agent.
+     * @dev The scope is one account, its current version and one line, the three fields a signed order names a
+     *      market by, whether or not a fill has drawn that market. The floor only rises, and its type ends it at
+     *      MAX_ORDER_NUMBER, the top order number: only order numbers strictly below the floor are cancelled,
+     *      so the top order number survives every floor and dies by its own cancel or by cancelAll. An order
+     *      whose order number is at the floor is live; one under it fills no further, in either role. The
+     *      floors of a new version start at zero. The caller is msg.sender, the account named or its live
+     *      agent, and the event names the account and the caller.
      *
      *      Refused while a Cross is in progress.
+     * @param account The account whose floor rises
      * @param gameId The game
      * @param scorer The market contract
      * @param lineTicks The line, scaled by 10
-     * @param newMinNonce The new minimum valid nonce: higher than the current one, and not the top value
+     * @param floor The new floor: above the line's current floor at the account's current version
      */
-    function raiseMinNonce(uint256 gameId, address scorer, int32 lineTicks, uint256 newMinNonce) external {
+    function raiseFloor(address account, uint256 gameId, address scorer, int32 lineTicks, uint96 floor) external {
         if (_crossInProgress()) revert OspexMatching__CrossInProgress();
-        bytes32 marketKey = keccak256(abi.encode(gameId, scorer, lineTicks));
-        if (newMinNonce == type(uint256).max || newMinNonce <= s_minNonces[msg.sender][marketKey]) {
-            revert OspexMatching__NonceMustIncrease();
-        }
-        s_minNonces[msg.sender][marketKey] = newMinNonce;
-        emit MinNonceUpdated(msg.sender, gameId, scorer, lineTicks, newMinNonce, marketKey);
+        _requireAccountOrAgent(account);
+        bytes32 lineKey = _lineKey(gameId, scorer, lineTicks);
+        uint128 version = s_version[account];
+        uint96 current = s_floors[account][version][lineKey];
+        if (floor <= current) revert OspexMatching__FloorMustRise(current, floor);
+        s_floors[account][version][lineKey] = floor;
+        emit FloorRaised(account, version, gameId, scorer, lineTicks, floor, lineKey, msg.sender);
         i_ospexCore.emitCoreEvent(
-            EVENT_MIN_NONCE_UPDATED, abi.encode(msg.sender, gameId, scorer, lineTicks, newMinNonce, marketKey)
+            EVENT_FLOOR_RAISED, abi.encode(account, version, gameId, scorer, lineTicks, floor, lineKey, msg.sender)
         );
+    }
+
+    /**
+     * @notice Cancel every order of an account, whoever signed it: move the account to a new version, which the
+     *         contract draws. The account calls it, or its live agent. It takes no number.
+     * @dev The next version is the current one plus one plus the first 64 bits of the previous block's hash, in
+     *      checked arithmetic: a step that would pass the top of the field is refused by name and writes
+     *      nothing, so the version only rises, never wraps, and takes at least 2^64 successful cancels to fill.
+     *      Every order naming the old version is dead, and the new version's floors are zero. The previous
+     *      block's hash is public once that block is mined, so the next version is predictable conditional on
+     *      execution against that state; the caller supplies no version argument but can select when and how
+     *      often to call, and a successful cancel invalidates orders naming other versions, not every signature
+     *      already made: an order signed beforehand for the resulting version may still fill while every other
+     *      condition holds. Revoke ends that grant's remaining authority. The caller is msg.sender, the account
+     *      named or its live agent, and the event names the account and the caller.
+     *
+     *      Refused while a Cross is in progress.
+     * @param account The account whose version moves
+     */
+    function cancelAll(address account) external {
+        if (_crossInProgress()) revert OspexMatching__CrossInProgress();
+        _requireAccountOrAgent(account);
+        uint128 current = s_version[account];
+        uint128 draw = uint128(uint64(bytes8(blockhash(block.number - 1))));
+        if (type(uint128).max - current < draw + 1) revert OspexMatching__VersionAtTop(account, current);
+        uint128 next = current + 1 + draw;
+        s_version[account] = next;
+        emit VersionChanged(account, current, next, msg.sender);
+        i_ospexCore.emitCoreEvent(EVENT_VERSION_CHANGED, abi.encode(account, current, next, msg.sender));
     }
 
     // ──────────────────────────── The cap ─────────────────────────────
@@ -941,12 +1076,56 @@ contract OspexMatching is IOspexModule, EIP712 {
         return _hashOrder(order);
     }
 
+    /// @notice An account's floor for a line at its current version.
+    function getFloor(address account, uint256 gameId, address scorer, int32 lineTicks) external view returns (uint96) {
+        return s_floors[account][s_version[account]][_lineKey(gameId, scorer, lineTicks)];
+    }
+
+    /// @notice The three numbers a nonce holds, high to low: the version, the grant number and the order number.
+    function splitNonce(uint256 nonce) external pure returns (uint128 version, uint32 grantNumber, uint96 orderNumber) {
+        return _split(nonce);
+    }
+
     // ──────────────────────────── Internal ─────────────────────────────
 
     /// @dev Whether `account` has registered `courier`: the one read of the record, behind isCourier and
     ///      behind the Cross's check of its sender against the taking account and each resting account.
     function _isCourier(address account, address courier) private view returns (bool) {
         return s_couriers[account][courier];
+    }
+
+    /// @dev The one write of a courier: `account` registers `courier`. The zero address is refused by name; a
+    ///      courier the account already has is left as it is, with no write and no event.
+    function _register(address account, address courier) private {
+        if (courier == address(0)) revert OspexMatching__ZeroCourier();
+        if (s_couriers[account][courier]) return;
+        s_couriers[account][courier] = true;
+        emit CourierRegistered(account, courier);
+        i_ospexCore.emitCoreEvent(EVENT_COURIER_REGISTERED, abi.encode(account, courier));
+    }
+
+    /// @dev The three cancels' rule: the caller is the account named, else refused by name.
+    ///      The caller is msg.sender, the immediate caller, whatever contract a call came through.
+    function _requireAccountOrAgent(address account) private view {
+        if (msg.sender != account) {
+            revert OspexMatching__NotAccountOrAgent(account, msg.sender);
+        }
+    }
+
+    /// @dev The key a line is stored under, for floors and for a grant's list: the three fields a signed order
+    ///      names a market by.
+    function _lineKey(uint256 gameId, address scorer, int32 lineTicks) private pure returns (bytes32) {
+        return keccak256(abi.encode(gameId, scorer, lineTicks));
+    }
+
+    /// @dev The three numbers a nonce holds. Each cast takes exactly its field of the word.
+    function _split(uint256 nonce) private pure returns (uint128 version, uint32 grantNumber, uint96 orderNumber) {
+        // forge-lint: disable-next-line(unsafe-typecast)
+        version = uint128(nonce >> VERSION_SHIFT);
+        // forge-lint: disable-next-line(unsafe-typecast)
+        grantNumber = uint32(nonce >> GRANT_SHIFT);
+        // forge-lint: disable-next-line(unsafe-typecast)
+        orderNumber = uint96(nonce);
     }
 
     /// @dev Whether a Cross is in progress in this transaction.
