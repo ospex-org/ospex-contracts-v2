@@ -1557,7 +1557,7 @@
    ],
    "testPath": "test/betting/OspexBetting.t.sol",
    "test": "test_bootstrap_registersEachModuleUnderItsType",
-   "breaks": "a market contract is asked its core, which it does not hold: the set's own six cannot be registered, so the test fails in the suite's setUp, as every betting test does"
+   "breaks": "every module is asked its core, and a market contract holds none: the one bootstrap call of the set's own six is refused, and the witness, which makes that call in its own body, fails at it; every other betting test fails in its fixture"
   },
   {
    "id": "W24-readafterwrite",
