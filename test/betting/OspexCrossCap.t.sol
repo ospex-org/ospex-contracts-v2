@@ -567,7 +567,7 @@ contract OspexCrossCapTest is CrossBase {
     function _eachOtherFunctionLeavesTheFlag(uint256 game, bool expected) internal {
         address other = makeAddr("another courier");
         OspexMatching.OspexOrder memory toCancel = _rest(m1, game, Side.A, 200, 10_000).order;
-        uint256 floor = matching.s_minNonces(m1.a, keccak256(abi.encode(game, address(spread), int32(-35)))) + 1;
+        uint96 floor = matching.getFloor(m1.a, game, address(spread), -35) + 1;
         vm.startPrank(m1.a, m1.a);
         matching.registerCourier(other);
         assertEq(matching.s_takingStakeCapLifted(), expected, "after a registration");
@@ -577,7 +577,7 @@ contract OspexCrossCapTest is CrossBase {
         assertEq(matching.s_takingStakeCapLifted(), expected, "after a drop");
         matching.cancelOrder(toCancel);
         assertEq(matching.s_takingStakeCapLifted(), expected, "after a cancel");
-        matching.raiseMinNonce(game, address(spread), -35, floor);
+        matching.raiseFloor(m1.a, game, address(spread), -35, floor);
         assertEq(matching.s_takingStakeCapLifted(), expected, "after a raised floor");
         vm.stopPrank();
         // A Cross that fills one leg.

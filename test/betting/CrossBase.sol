@@ -35,6 +35,7 @@ abstract contract CrossBase is BettingBase {
     uint8 internal constant NOTHING_FITS = 4;
     uint8 internal constant UNDER_MIN_FILL = 5;
     uint8 internal constant PULL_REFUSED = 6;
+    uint8 internal constant GRANT_GONE = 7;
 
     /// @dev The first topics of the matching module's three Cross events, each the hash of its signature
     ///      written out.
@@ -55,6 +56,11 @@ abstract contract CrossBase is BettingBase {
     function _account(string memory name) internal returns (Signer memory x) {
         (x.a, x.key) = makeAddrAndKey(name);
         _fundCoin(x.a);
+    }
+
+    /// @dev A key with no purse: an agent, which holds nothing and is approved for nothing.
+    function _key(string memory name) internal returns (Signer memory x) {
+        (x.a, x.key) = makeAddrAndKey(name);
     }
 
     /// @dev Gives `who` a purse of the set's coin and lets the positions module take from it.
@@ -81,6 +87,45 @@ abstract contract CrossBase is BettingBase {
                 m.a, game, address(moneyline), 0, side, _tick(tick), risk, nextNonce++, vm.getBlockTimestamp() + 1 days
             ),
             m.key
+        );
+    }
+
+    /// @dev A resting order for `account` on the game's moneyline, live for a day, signed by `by` under grant
+    ///      `grant` at the account's current version: the nonce is the version, the grant number and the next
+    ///      order number.
+    function _restBy(
+        Signer memory by,
+        address account,
+        uint32 grant,
+        uint256 game,
+        Side side,
+        uint256 tick,
+        uint256 risk
+    ) internal returns (OspexMatching.SignedOrder memory) {
+        uint256 nonce = _nonce(matching.s_version(account), grant, _no(nextNonce++));
+        return _signed(
+            _order(
+                account, game, address(moneyline), 0, side, _tick(tick), risk, nonce, vm.getBlockTimestamp() + 1 days
+            ),
+            by.key
+        );
+    }
+
+    /// @dev A taking order for `account` on the game's moneyline, thirty seconds to its expiry, signed by `by`
+    ///      under grant `grant` at the account's current version.
+    function _takeBy(
+        Signer memory by,
+        address account,
+        uint32 grant,
+        uint256 game,
+        Side side,
+        uint256 tick,
+        uint256 risk
+    ) internal returns (OspexMatching.SignedOrder memory) {
+        uint256 nonce = _nonce(matching.s_version(account), grant, _no(nextNonce++));
+        return _signed(
+            _order(account, game, address(moneyline), 0, side, _tick(tick), risk, nonce, vm.getBlockTimestamp() + 30),
+            by.key
         );
     }
 
@@ -195,6 +240,22 @@ abstract contract CrossBase is BettingBase {
         l[0] = a;
         l[1] = b;
         l[2] = c;
+    }
+
+    // ──────────────────────────── The split nonce ──────────────────────
+
+    /// @dev A nonce from its three numbers, high to low: the version, the grant number and the order number.
+    function _nonce(uint128 version, uint32 grant, uint96 orderNumber) internal pure returns (uint256) {
+        return (uint256(version) << 128) | (uint256(grant) << 96) | uint256(orderNumber);
+    }
+
+    /// @dev The order number of a nonce these tests signed: they keep their nonces under 2^96, so a whole nonce
+    ///      is its order number at version 0, grant 0. Refuses a nonce that is not.
+    function _no(uint256 nonce) internal pure returns (uint96) {
+        require(nonce <= type(uint96).max, "not an order number");
+        // casting to 'uint96' is safe because the line above refuses anything wider
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return uint96(nonce);
     }
 
     /// @dev An order's hash, built here.

@@ -614,25 +614,25 @@ contract OspexCrossNeverLinesTest is CrossBase {
 
         // Resting, under its account's floor: a nonce one under the floor is dead.
         vm.prank(m1.a);
-        matching.raiseMinNonce(game, address(moneyline), 0, dead.order.nonce + 1);
+        matching.raiseFloor(m1.a, game, address(moneyline), 0, _no(dead.order.nonce + 1));
         _restingIsSkippedAsCancelled(taking, dead, live, "one under its account's floor");
         vm.revertToState(snap);
-        // A nonce at the floor fills.
+        // An order number at the floor fills.
         vm.prank(m1.a);
-        matching.raiseMinNonce(game, address(moneyline), 0, dead.order.nonce);
+        matching.raiseFloor(m1.a, game, address(moneyline), 0, _no(dead.order.nonce));
         _cross(sender, taking, _list(dead, live));
         assertEq(_filled(dead), 10_000, "a resting order at its account's floor");
         vm.revertToState(snap);
         // Another account's floor on the market, and the same account's floor on another market, do not touch
         // it: not the sender's, not the taking account's, not another resting account's.
         vm.prank(m2.a);
-        matching.raiseMinNonce(game, address(moneyline), 0, dead.order.nonce + 1);
+        matching.raiseFloor(m2.a, game, address(moneyline), 0, _no(dead.order.nonce + 1));
         vm.prank(sender);
-        matching.raiseMinNonce(game, address(moneyline), 0, type(uint256).max - 1);
+        matching.raiseFloor(sender, game, address(moneyline), 0, type(uint96).max);
         vm.prank(m1.a);
-        matching.raiseMinNonce(game, address(spread), -35, dead.order.nonce + 1);
+        matching.raiseFloor(m1.a, game, address(spread), -35, _no(dead.order.nonce + 1));
         vm.prank(m1.a);
-        matching.raiseMinNonce(game + 1, address(moneyline), 0, dead.order.nonce + 1);
+        matching.raiseFloor(m1.a, game + 1, address(moneyline), 0, _no(dead.order.nonce + 1));
         _cross(sender, taking, _list(dead));
         assertEq(_filled(dead), 10_000, "an order under another account's floor, or another market's");
         vm.revertToState(snap);
@@ -645,13 +645,13 @@ contract OspexCrossNeverLinesTest is CrossBase {
         vm.revertToState(snap);
         // Taking, under its account's floor; and at the floor, where it fills.
         vm.prank(tk.a);
-        matching.raiseMinNonce(game, address(moneyline), 0, taking.order.nonce + 1);
+        matching.raiseFloor(tk.a, game, address(moneyline), 0, _no(taking.order.nonce + 1));
         _refused(sender, taking, _list(dead, live), cancelled, "a taking order one under its account's floor");
         vm.revertToState(snap);
         vm.prank(tk.a);
-        matching.raiseMinNonce(game, address(moneyline), 0, taking.order.nonce);
+        matching.raiseFloor(tk.a, game, address(moneyline), 0, _no(taking.order.nonce));
         vm.prank(sender);
-        matching.raiseMinNonce(game, address(moneyline), 0, type(uint256).max - 1);
+        matching.raiseFloor(sender, game, address(moneyline), 0, type(uint96).max);
         _cross(sender, taking, _list(dead));
         assertEq(_filled(taking), 10_000, "a taking order at its account's floor");
         vm.revertToState(snap);

@@ -17,6 +17,7 @@ import {
     TypeOnlyModule,
     WritingModule
 } from "./BettingBase.sol";
+import {GamesBase} from "../games/GamesBase.sol";
 
 /// @notice The core: its two deploy values, the bootstrap and its checks, the registry's reads and the hub.
 contract OspexBettingTest is BettingBase {
@@ -74,21 +75,8 @@ contract OspexBettingTest is BettingBase {
     }
 
     // ──────────────────────────── Bootstrap ────────────────────────────
-
-    function test_bootstrap_registersEachModuleUnderItsType() public view {
-        bytes32[] memory types = _types();
-        address[] memory addrs = _modules();
-        for (uint256 i; i < types.length; ++i) {
-            assertEq(core.getModule(types[i]), addrs[i]);
-            assertEq(core.s_moduleRegistry(types[i]), addrs[i]);
-            assertTrue(core.isRegisteredModule(addrs[i]));
-        }
-        assertEq(core.s_moduleCount(), 6);
-        assertTrue(core.s_finalized());
-        assertEq(core.getModule(keccak256("EXTRA_MODULE")), address(0), "an unregistered type");
-        assertFalse(core.isRegisteredModule(stranger));
-        assertFalse(core.isRegisteredModule(address(core)));
-    }
+    // The test that the six register under their types is OspexBettingBootstrapTest's, below: its fixture
+    // deploys no set, so a bootstrap the core refuses fails that test and not the fixture these tests stand on.
 
     function test_bootstrap_inTwoCallsCountsBoth() public {
         vm.startPrank(deployer, deployer);
@@ -661,6 +649,44 @@ contract OspexBettingTest is BettingBase {
         assertEq(positions.EVENT_POSITION_MATCHED_PAIR(), keccak256("POSITION_MATCHED_PAIR"));
         assertEq(positions.EVENT_POSITION_CLAIMED(), keccak256("POSITION_CLAIMED"));
         assertEq(matching.EVENT_ORDER_CANCELLED(), keccak256("ORDER_CANCELLED"));
-        assertEq(matching.EVENT_MIN_NONCE_UPDATED(), keccak256("MIN_NONCE_UPDATED"));
+        assertEq(matching.EVENT_FLOOR_RAISED(), keccak256("FLOOR_RAISED"));
+        assertEq(matching.EVENT_VERSION_CHANGED(), keccak256("VERSION_CHANGED"));
+        assertEq(matching.EVENT_AGENT_GRANTED(), keccak256("AGENT_GRANTED"));
+        assertEq(matching.EVENT_AGENT_REVOKED(), keccak256("AGENT_REVOKED"));
+    }
+}
+
+/// @notice The bootstrap witness. Its fixture stops at the games set, so the set is deployed, bootstrapped and
+///         finalized in the one test's own body: a bootstrap the core refuses fails that test, not the fixture
+///         every other test of the core stands on.
+contract OspexBettingBootstrapTest is BettingBase {
+    /// @dev The games base alone: the games set, its reporters, the coin and the timelock. No core, no modules,
+    ///      no funded accounts.
+    function setUp() public override {
+        GamesBase.setUp();
+    }
+
+    /// The core, the six modules on it, one bootstrap call under their types and finalize, as the fixture makes
+    /// them. Before the call the core holds nothing; after it the registry holds each module under its type and
+    /// no other address, the count is six and the set is finalized.
+    function test_bootstrap_registersEachModuleUnderItsType() public {
+        vm.startPrank(deployer, deployer);
+        OspexBetting c = new OspexBetting(address(games), address(token));
+        (bytes32[] memory types, address[] memory addrs) = _freshSet(c);
+        assertEq(c.s_moduleCount(), 0, "a module before the bootstrap");
+        assertFalse(c.s_finalized(), "finalized before the bootstrap");
+        c.bootstrapModules(types, addrs);
+        c.finalize();
+        vm.stopPrank();
+        for (uint256 i; i < types.length; ++i) {
+            assertEq(c.getModule(types[i]), addrs[i]);
+            assertEq(c.s_moduleRegistry(types[i]), addrs[i]);
+            assertTrue(c.isRegisteredModule(addrs[i]));
+        }
+        assertEq(c.s_moduleCount(), 6);
+        assertTrue(c.s_finalized());
+        assertEq(c.getModule(keccak256("EXTRA_MODULE")), address(0), "an unregistered type");
+        assertFalse(c.isRegisteredModule(stranger));
+        assertFalse(c.isRegisteredModule(address(c)));
     }
 }

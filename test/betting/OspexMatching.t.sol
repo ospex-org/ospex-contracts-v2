@@ -142,13 +142,17 @@ contract OspexMatchingTest is BettingBase {
         OspexMatching.OspexOrder memory c = _order();
         bytes32 h = matching.getOrderHash(c);
         vm.prank(stranger, stranger);
-        vm.expectRevert(OspexMatching.OspexMatching__NotOrderAccount.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(OspexMatching.OspexMatching__NotAccountOrAgent.selector, signer, stranger)
+        );
         matching.cancelOrder(c);
         assertFalse(matching.s_cancelledOrders(h));
         // The maker as the transaction's origin, behind another immediate caller: a contract the maker calls
         // cancels nothing of the maker's.
         vm.prank(stranger, signer);
-        vm.expectRevert(OspexMatching.OspexMatching__NotOrderAccount.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(OspexMatching.OspexMatching__NotAccountOrAgent.selector, signer, stranger)
+        );
         matching.cancelOrder(c);
         assertFalse(matching.s_cancelledOrders(h), "an order cancelled through its maker's origin");
 
@@ -162,7 +166,9 @@ contract OspexMatchingTest is BettingBase {
         address[2] memory notTheMaker = [courier, stranger];
         for (uint256 i; i < notTheMaker.length; ++i) {
             vm.prank(notTheMaker[i], notTheMaker[i]);
-            vm.expectRevert(OspexMatching.OspexMatching__NotOrderAccount.selector);
+            vm.expectRevert(
+                abi.encodeWithSelector(OspexMatching.OspexMatching__NotAccountOrAgent.selector, signer, notTheMaker[i])
+            );
             matching.cancelOrder(c);
         }
         assertFalse(matching.s_cancelledOrders(h), "an order cancelled by an address that is not its maker");
@@ -179,7 +185,8 @@ contract OspexMatchingTest is BettingBase {
             c.riskAmount,
             c.nonce,
             c.expiry,
-            c.minFill
+            c.minFill,
+            signer
         );
         vm.expectEmit(true, true, true, true, address(core));
         emit OspexBetting.CoreEventEmitted(
@@ -196,7 +203,8 @@ contract OspexMatchingTest is BettingBase {
                 c.riskAmount,
                 c.nonce,
                 c.expiry,
-                c.minFill
+                c.minFill,
+                signer
             )
         );
         vm.prank(signer, signer);
@@ -204,37 +212,61 @@ contract OspexMatchingTest is BettingBase {
         assertTrue(matching.s_cancelledOrders(h));
     }
 
-    function test_raiseMinNonce_risesPerAccountPerMarket() public {
+    function test_raiseFloor_risesPerAccountPerLineAtTheCurrentVersion() public {
         bytes32 key = keccak256(abi.encode(uint256(7), address(spread), int32(-35)));
-        assertEq(matching.s_minNonces(signer, key), 0);
+        assertEq(matching.getFloor(signer, 7, address(spread), -35), 0);
+        assertEq(matching.s_floors(signer, 0, key), 0);
 
         vm.expectEmit(true, true, true, true, address(matching));
-        emit OspexMatching.MinNonceUpdated(signer, 7, address(spread), -35, 5, key);
+        emit OspexMatching.FloorRaised(signer, 0, 7, address(spread), -35, 5, key, signer);
         vm.expectEmit(true, true, true, true, address(core));
         emit OspexBetting.CoreEventEmitted(
-            matching.EVENT_MIN_NONCE_UPDATED(),
+            matching.EVENT_FLOOR_RAISED(),
             address(matching),
-            abi.encode(signer, uint256(7), address(spread), int32(-35), uint256(5), key)
+            abi.encode(signer, uint128(0), uint256(7), address(spread), int32(-35), uint96(5), key, signer)
         );
         vm.prank(signer, signer);
-        matching.raiseMinNonce(7, address(spread), -35, 5);
-        assertEq(matching.s_minNonces(signer, key), 5);
+        matching.raiseFloor(signer, 7, address(spread), -35, 5);
+        assertEq(matching.getFloor(signer, 7, address(spread), -35), 5);
+        assertEq(matching.s_floors(signer, 0, key), 5);
 
-        // Not the same, not lower, not the top value.
-        uint256[3] memory refused = [uint256(5), 3, type(uint256).max];
+        // Not the same, not lower: refused by name with both numbers.
+        uint96[2] memory refused = [uint96(5), 3];
         for (uint256 i; i < refused.length; ++i) {
             vm.prank(signer, signer);
-            vm.expectRevert(OspexMatching.OspexMatching__NonceMustIncrease.selector);
-            matching.raiseMinNonce(7, address(spread), -35, refused[i]);
+            vm.expectRevert(abi.encodeWithSelector(OspexMatching.OspexMatching__FloorMustRise.selector, 5, refused[i]));
+            matching.raiseFloor(signer, 7, address(spread), -35, refused[i]);
         }
         vm.prank(signer, signer);
-        matching.raiseMinNonce(7, address(spread), -35, 6);
-        assertEq(matching.s_minNonces(signer, key), 6);
+        matching.raiseFloor(signer, 7, address(spread), -35, 6);
+        assertEq(matching.getFloor(signer, 7, address(spread), -35), 6);
+        // The top order number is a floor the line can take: it is the one number no floor cancels.
+        vm.prank(signer, signer);
+        matching.raiseFloor(signer, 7, address(spread), -35, type(uint96).max);
+        assertEq(matching.getFloor(signer, 7, address(spread), -35), type(uint96).max);
 
-        // Another market of the same account, and the same market of another account, are untouched.
-        assertEq(matching.s_minNonces(signer, keccak256(abi.encode(uint256(7), address(spread), int32(-45)))), 0);
-        assertEq(matching.s_minNonces(signer, keccak256(abi.encode(uint256(8), address(spread), int32(-35)))), 0);
-        assertEq(matching.s_minNonces(stranger, key), 0);
+        // Another line of the same account, and the same line of another account, are untouched.
+        assertEq(matching.getFloor(signer, 7, address(spread), -45), 0);
+        assertEq(matching.getFloor(signer, 8, address(spread), -35), 0);
+        assertEq(matching.getFloor(stranger, 7, address(spread), -35), 0);
+
+        // A stranger raises nothing of the signer's: refused by name with both addresses.
+        vm.prank(stranger, stranger);
+        vm.expectRevert(
+            abi.encodeWithSelector(OspexMatching.OspexMatching__NotAccountOrAgent.selector, signer, stranger)
+        );
+        matching.raiseFloor(signer, 7, address(spread), -45, 1);
+        assertEq(matching.getFloor(signer, 7, address(spread), -45), 0);
+
+        // The floor belongs to the version: after cancelAll the line's floor at the new version is zero, and the
+        // old version keeps its number.
+        vm.prank(signer, signer);
+        matching.cancelAll(signer);
+        uint128 version = matching.s_version(signer);
+        assertTrue(version != 0, "the version did not move");
+        assertEq(matching.getFloor(signer, 7, address(spread), -35), 0, "the new version's floor");
+        assertEq(matching.s_floors(signer, 0, key), type(uint96).max, "the old version's floor");
+        assertEq(matching.s_floors(signer, version, key), 0, "the new version's floor, by its key");
     }
 
     // ──────────────────────────── Couriers ────────────────────────────
@@ -430,9 +462,7 @@ contract OspexMatchingTest is BettingBase {
 
     /// @dev A registration that is a change: one storage write, the two events, no value returned, and the
     ///      pair reads true.
-    function _registersAsAChange(address account, address sentFrom, address courier, string memory what)
-        internal
-    {
+    function _registersAsAChange(address account, address sentFrom, address courier, string memory what) internal {
         assertFalse(matching.isCourier(account, courier), string.concat("registered before the call: ", what));
         uint256 before = _writes();
         vm.recordLogs();

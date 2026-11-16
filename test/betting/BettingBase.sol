@@ -432,6 +432,19 @@ abstract contract BettingBase is GamesBase {
         return uint16(tick);
     }
 
+    /// @dev A grant's end, as its field holds it. Refuses a time the field does not hold.
+    function _ends(uint256 time) internal pure returns (uint64) {
+        require(time <= type(uint64).max, "not a time in seconds");
+        // casting to 'uint64' is safe because the line above refuses anything wider
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return uint64(time);
+    }
+
+    /// @dev An empty list of lines: a grant on every market.
+    function _noLines() internal pure returns (OspexMatching.Line[] memory) {
+        return new OspexMatching.Line[](0);
+    }
+
     /// @dev The EIP-712 domain separator of a matching module at `verifying`, from the two strings written out.
     function _domainSeparator(address verifying) internal view returns (bytes32) {
         return keccak256(

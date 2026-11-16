@@ -240,37 +240,49 @@ contract OspexBettingNeverLinesTest is BettingBase {
     /// .recordFill(gameId, scorer, lineTicks, side, maker, makerRisk, msg.sender, takerRisk); }`. Two more turn
     /// it red: cancelOrder made to record a fill of the order it cancels, and recordFill's caller check dropped.
     function test_neverLine_theCrossIsTheOneFillPath() public {
-        // The matching module's functions are exactly these: the Cross, the per-order cancel, the per-line
-        // floor, the two courier registration calls, the cap's lift, the reads and the constants.
+        // The matching module's functions are exactly these: the Cross, the three cancels, the grant, the
+        // revoke, the combined onboarding call, the two courier registration calls, the cap's lift, the reads
+        // and the constants.
         string[] memory want = vm.split(
-            "EVENT_COURIER_REGISTERED();EVENT_COURIER_UNREGISTERED();EVENT_CROSSED();EVENT_MIN_NONCE_UPDATED();"
-            "EVENT_ORDER_CANCELLED();EVENT_ORDER_MATCHED();EVENT_ORDER_SKIPPED();EVENT_TAKING_STAKE_CAP_LIFTED();"
-            "LOT();MARKET_MODULE();MATCHING_MODULE();MAX_LINE_TICKS();MAX_ODDS();MAX_TAKING_LIFE();MIN_ODDS();"
-            "ODDS_SCALE();ORDER_TYPEHASH();POSITION_MODULE();TAKING_STAKE_CAP();"
+            "EVENT_AGENT_GRANTED();EVENT_AGENT_REVOKED();EVENT_COURIER_REGISTERED();EVENT_COURIER_UNREGISTERED();"
+            "EVENT_CROSSED();EVENT_FLOOR_RAISED();EVENT_ORDER_CANCELLED();EVENT_ORDER_MATCHED();EVENT_ORDER_SKIPPED();"
+            "EVENT_TAKING_STAKE_CAP_LIFTED();EVENT_VERSION_CHANGED();GRANT_SHIFT();LOT();MARKET_MODULE();"
+            "MATCHING_MODULE();MAX_GRANT_COUNT();MAX_GRANT_LINES();MAX_LINE_TICKS();MAX_ODDS();MAX_ORDER_NUMBER();"
+            "MAX_TAKING_LIFE();MIN_ODDS();ODDS_SCALE();ORDER_TYPEHASH();POSITION_MODULE();TAKING_STAKE_CAP();"
+            "VERSION_SHIFT();cancelAll(address);"
             "cancelOrder((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256,uint256));"
             "cross(((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256,uint256),bytes),"
             "((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256,uint256),bytes)[]);" "eip712Domain();"
+            "getDomainSeparator();getFloor(address,uint256,address,int32);getGrant(address,uint32);getModuleType();"
             "getOrderHash((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256,uint256));"
-            "getDomainSeparator();getModuleType();i_ospexCore();i_timelock();isCourier(address,address);"
-            "liftTakingStakeCap();raiseMinNonce(uint256,address,int32,uint256);registerCourier(address);"
-            "s_cancelledOrders(bytes32);s_filledRisk(bytes32);s_minNonces(address,bytes32);"
-            "s_takingStakeCapLifted();unregisterCourier(address)",
+            "grantAgent(address,uint256,uint64,(uint256,address,int32)[]);"
+            "grantAgentAndRegisterCourier(address,uint256,uint64,(uint256,address,int32)[],address);"
+            "i_ospexCore();i_timelock();isCourier(address,address);isGrantLine(address,uint32,uint256,address,int32);"
+            "isLiveAgent(address,address);liftTakingStakeCap();raiseFloor(address,uint256,address,int32,uint96);"
+            "registerCourier(address);revokeAgent();s_cancelledOrders(bytes32);s_currentGrant(address);"
+            "s_filledRisk(bytes32);s_floors(address,uint128,bytes32);s_grantCount(address);s_takingStakeCapLifted();"
+            "s_version(address);splitNonce(uint256);unregisterCourier(address)",
             ";"
         );
         string memory json = _artifact("OspexMatching");
         _assertSameSet(vm.parseJsonKeys(json, "$.methodIdentifiers"), want, "function");
-        // Six of them change state, by the compiled interface: every other one is a view or a constant.
+        // Ten of them change state, by the compiled interface: every other one is a view or a constant.
         _assertSameSet(
             _stateChanging(json),
-            vm.split("cancelOrder;cross;liftTakingStakeCap;raiseMinNonce;registerCourier;unregisterCourier", ";"),
+            vm.split(
+                "cancelAll;cancelOrder;cross;grantAgent;grantAgentAndRegisterCourier;liftTakingStakeCap;raiseFloor;"
+                "registerCourier;revokeAgent;unregisterCourier",
+                ";"
+            ),
             "state-changing function"
         );
 
         uint256 game = _verifiedGame();
 
-        // Four of the five that are not the Cross, each on its success path, made by an account that holds coin
+        // Eight of the nine that are not the Cross, each on its success path, made by an account that holds coin
         // and has approved the positions module for it: no coin moves, no market is drawn and no position is
-        // written. The fifth, the cap's lift, follows on a set of its own.
+        // written. The ninth, the cap's lift, follows on a set of its own. The cancel of everything is made by a
+        // second such account, so that the maker's orders below, signed at its first version, still fill.
         OspexMatching.OspexOrder memory order =
             _order(maker, game, address(moneyline), 0, Side.A, 200, STAKE, 1, vm.getBlockTimestamp() + 1 days);
         uint256 makerCoin = token.balanceOf(maker);
@@ -279,9 +291,18 @@ contract OspexBettingNeverLinesTest is BettingBase {
         vm.startPrank(maker, maker);
         matching.registerCourier(taker);
         matching.cancelOrder(order);
-        matching.raiseMinNonce(game, address(moneyline), 0, 2);
+        matching.raiseFloor(maker, game, address(moneyline), 0, 2);
+        matching.grantAgent(taker, STAKE, _ends(vm.getBlockTimestamp() + 1 days), _noLines());
+        matching.revokeAgent();
+        matching.grantAgentAndRegisterCourier(taker, STAKE, _ends(vm.getBlockTimestamp() + 1 days), _noLines(), taker);
         matching.unregisterCourier(taker);
         vm.stopPrank();
+        _fund(stranger, address(positions));
+        uint256 strangerCoin = token.balanceOf(stranger);
+        vm.prank(stranger, stranger);
+        matching.cancelAll(stranger);
+        assertTrue(matching.s_version(stranger) != 0, "the cancel of everything did not land");
+        assertEq(token.balanceOf(stranger), strangerCoin, "the cancel of everything moved the account's coin");
         assertTrue(matching.s_cancelledOrders(matching.getOrderHash(order)), "the cancel did not land");
         assertEq(token.balanceOf(maker), makerCoin, "a call of the matching module moved the account's coin");
         assertEq(token.balanceOf(address(positions)), 0, "a call of the matching module moved coin");
@@ -399,7 +420,7 @@ contract OspexBettingNeverLinesTest is BettingBase {
     /// @dev What each account's couriers should be, written here as the calls are made.
     mapping(address => mapping(address => bool)) internal wantCourier;
     /// @dev The last floor a test raised: each raise has to be higher than the one before.
-    uint256 internal lastFloor;
+    uint96 internal lastFloor;
 
     /// Break: in OspexMatching.registerCourier, swap the two keys of the write:
     /// `s_couriers[courier][msg.sender] = true;`. The caller then writes the couriers of the address it names.
@@ -546,10 +567,9 @@ contract OspexBettingNeverLinesTest is BettingBase {
                 minFill: 0
             });
             bytes32 hash = matching.getOrderHash(order);
-            bytes32 key = keccak256(abi.encode(uint256(7), fresh, int32(0)));
             assertFalse(matching.isCourier(stranger, fresh), "the fresh courier is registered already");
             assertFalse(matching.s_cancelledOrders(hash), "the fresh order is cancelled already");
-            assertEq(matching.s_minNonces(stranger, key), 0, "the fresh floor is raised already");
+            assertEq(matching.getFloor(stranger, 7, fresh, 0), 0, "the fresh floor is raised already");
             uint256 before = _slotsWritten();
 
             vm.prank(stranger, sentFrom);
@@ -567,9 +587,11 @@ contract OspexBettingNeverLinesTest is BettingBase {
             assertTrue(matching.s_cancelledOrders(hash), "the slot a cancel wrote is not its mark");
 
             vm.prank(stranger, sentFrom);
-            matching.raiseMinNonce(7, fresh, 0, ++lastFloor);
+            matching.raiseFloor(stranger, 7, fresh, 0, ++lastFloor);
             assertEq(_slotsWritten() - before, 3, "a raised floor did not write exactly one slot");
-            assertEq(matching.s_minNonces(stranger, key), lastFloor, "the slot a raised floor wrote is not its floor");
+            assertEq(
+                matching.getFloor(stranger, 7, fresh, 0), lastFloor, "the slot a raised floor wrote is not its floor"
+            );
 
             vm.prank(stranger, sentFrom);
             matching.unregisterCourier(fresh);
@@ -709,7 +731,7 @@ contract OspexBettingNeverLinesTest is BettingBase {
                 vm.recordLogs();
                 vm.startPrank(all[i], direct ? all[i] : origin);
                 matching.cancelOrder(order);
-                matching.raiseMinNonce(7, all[j], 0, ++lastFloor);
+                matching.raiseFloor(all[i], 7, all[j], 0, ++lastFloor);
                 vm.stopPrank();
                 // Each emits twice, its own event and the hub's: no event of the couriers' beside them.
                 assertEq(vm.getRecordedLogs().length, 4, "the events of a cancel and a raised floor");

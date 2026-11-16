@@ -55,7 +55,7 @@ contract OspexCrossSkipsTest is CrossBase {
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
-    // 9. A skipped order leaves nothing, and only the seven reasons skip.
+    // 9. A skipped order leaves nothing, and only the eight reasons skip.
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /// @dev The second resting account's order `x`, listed between two orders that fill, is skipped for `reason`
@@ -96,11 +96,12 @@ contract OspexCrossSkipsTest is CrossBase {
     /// two filled amounts not put back after a refused pull, and each of them alone; the selector not compared
     /// in the refused pull's recognition; the taking stake's minimum dropped, so that an order nothing fits
     /// reaches the pull; each neighbouring pair of the walk's first four rows swapped; and a resting order's
-    /// expiry not tested, or tested with `>`; the floor tested after the expiry and the room; and the hub's
-    /// copy of a skip record carrying one fixed reason. And one break of the tests themselves, scored once to
-    /// show the pins bite: `CrossBase.PULL_REFUSED` left at 5, the number the refused pull had before the seventh
-    /// reason, under which each refused pull here is asserted against the wrong number.
-    function test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheSevenReasonsSkip() public {
+    /// expiry not tested, or tested with `>`; the floor tested after the expiry and the room; the grant's
+    /// standing tested after the expiry, or before the cancel; and the hub's copy of a skip record carrying one
+    /// fixed reason. And one break of the tests themselves, scored once to show the pins bite:
+    /// `CrossBase.PULL_REFUSED` left at 5, the number the refused pull had before the seventh reason, under
+    /// which each refused pull here is asserted against the wrong number.
+    function test_neverLine_aSkippedOrderLeavesNothingAndOnlyTheEightReasonsSkip() public {
         _skipCases(Side.B);
         _skipCases(Side.A);
     }
@@ -126,6 +127,29 @@ contract OspexCrossSkipsTest is CrossBase {
         vm.prank(m2.a);
         matching.cancelOrder(x.order);
         _skippedInTheMiddle(game, takingSide, x, CANCELLED, "cancelled");
+        vm.revertToState(snap);
+
+        // Grant gone, three ways: an agent's order under a grant the account revoked; under a grant the
+        // account replaced, the same key regranted; and under a grant that ended, at its end second. The
+        // control: under the grant as it stands, the order fills.
+        Signer memory agent = _key("the resting account's agent");
+        vm.prank(m2.a);
+        matching.grantAgent(agent.a, 10_000, _ends(vm.getBlockTimestamp() + 1 hours), _noLines());
+        x = _restBy(agent, m2.a, 1, game, restingSide, 200, 10_000);
+        uint256 granted = vm.snapshotState();
+        _cross(sender, _take(tk, game, takingSide, 200, 10_000), _list(x));
+        assertEq(_filled(x), 10_000, "the control: an agent's order under its grant");
+        vm.revertToState(granted);
+        vm.prank(m2.a);
+        matching.revokeAgent();
+        _skippedInTheMiddle(game, takingSide, x, GRANT_GONE, "grant gone: revoked");
+        vm.revertToState(granted);
+        vm.prank(m2.a);
+        matching.grantAgent(agent.a, 10_000, _ends(vm.getBlockTimestamp() + 1 hours), _noLines());
+        _skippedInTheMiddle(game, takingSide, x, GRANT_GONE, "grant gone: replaced by a regrant of the same key");
+        vm.revertToState(granted);
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
+        _skippedInTheMiddle(game, takingSide, x, GRANT_GONE, "grant gone: ended, at its end second");
         vm.revertToState(snap);
 
         // Expired: at its expiry, and a second past it.
@@ -191,23 +215,67 @@ contract OspexCrossSkipsTest is CrossBase {
         vm.stopPrank();
         _skippedInTheMiddle(game, takingSide, x, NO_COURIER, "no courier, and cancelled");
         vm.revertToState(snap);
+        // No courier over grant gone: an agent's order whose account dropped the sender and revoked the grant
+        // records 0, not 7.
+        vm.prank(m2.a);
+        matching.grantAgent(agent.a, 10_000, _ends(vm.getBlockTimestamp() + 1 hours), _noLines());
+        x = _restBy(agent, m2.a, 1, game, restingSide, 200, 10_000);
+        vm.startPrank(m2.a);
+        matching.revokeAgent();
+        matching.unregisterCourier(sender);
+        vm.stopPrank();
+        _skippedInTheMiddle(game, takingSide, x, NO_COURIER, "no courier, and its grant gone");
+        vm.revertToState(snap);
         // Cancelled over expired.
         x = _restUntil(m2, game, restingSide, 200, 10_000, vm.getBlockTimestamp());
         vm.prank(m2.a);
         matching.cancelOrder(x.order);
         _skippedInTheMiddle(game, takingSide, x, CANCELLED, "cancelled, and expired");
         vm.revertToState(snap);
+        // Cancelled over grant gone: an agent's order, cancelled by the account and then its grant revoked,
+        // records 1, not 7.
+        vm.prank(m2.a);
+        matching.grantAgent(agent.a, 10_000, _ends(vm.getBlockTimestamp() + 1 hours), _noLines());
+        x = _restBy(agent, m2.a, 1, game, restingSide, 200, 10_000);
+        vm.startPrank(m2.a);
+        matching.cancelOrder(x.order);
+        matching.revokeAgent();
+        vm.stopPrank();
+        _skippedInTheMiddle(game, takingSide, x, CANCELLED, "cancelled, and its grant gone");
+        vm.revertToState(snap);
+        // Grant gone over expired: an agent's order whose grant the account revoked, at its own expiry,
+        // records 7, not 2.
+        vm.prank(m2.a);
+        matching.grantAgent(agent.a, 10_000, _ends(vm.getBlockTimestamp() + 1 hours), _noLines());
+        x = _signed(
+            _order(
+                m2.a,
+                game,
+                address(moneyline),
+                0,
+                restingSide,
+                _tick(200),
+                10_000,
+                _nonce(0, 1, _no(nextNonce++)),
+                vm.getBlockTimestamp()
+            ),
+            agent.key
+        );
+        vm.prank(m2.a);
+        matching.revokeAgent();
+        _skippedInTheMiddle(game, takingSide, x, GRANT_GONE, "its grant gone, and expired");
+        vm.revertToState(snap);
         // The floor is the second half of the same row: under its account's floor over expired, and over
         // full.
         x = _restUntil(m2, game, restingSide, 200, 10_000, vm.getBlockTimestamp());
         vm.prank(m2.a);
-        matching.raiseMinNonce(game, address(moneyline), 0, x.order.nonce + 1);
+        matching.raiseFloor(m2.a, game, address(moneyline), 0, _no(x.order.nonce + 1));
         _skippedInTheMiddle(game, takingSide, x, CANCELLED, "under its floor, and expired");
         vm.revertToState(snap);
         x = _rest(m2, game, restingSide, 200, 10_000);
         _cross(sender, _take(tk, game, takingSide, 200, 10_000), _list(x));
         vm.prank(m2.a);
-        matching.raiseMinNonce(game, address(moneyline), 0, x.order.nonce + 1);
+        matching.raiseFloor(m2.a, game, address(moneyline), 0, _no(x.order.nonce + 1));
         _skippedInTheMiddle(game, takingSide, x, CANCELLED, "under its floor, and full");
         vm.revertToState(snap);
         // Expired over no room: filled to its stake, and then its expiry passes.
@@ -445,78 +513,89 @@ contract OspexCrossSkipsTest is CrossBase {
         Signer memory full = _account("full");
         Signer memory under = _account("under its minimum");
         Signer memory unpaid = _account("unpaid");
+        Signer memory granting = _account("granting");
+        Signer memory agent = _key("its revoked agent");
         _registerAll(sender);
         _register(full.a, sender);
         _register(under.a, sender);
         _register(unpaid.a, sender);
+        _register(granting.a, sender);
 
-        // One order in each of the seven states.
-        OspexMatching.SignedOrder[] memory seven = new OspexMatching.SignedOrder[](7);
-        seven[NO_COURIER] = _rest(unregistered, game, restingSide, 200, 10_000);
-        seven[CANCELLED] = _rest(m1, game, restingSide, 200, 10_000);
+        // One order in each of the eight states.
+        OspexMatching.SignedOrder[] memory eight = new OspexMatching.SignedOrder[](8);
+        eight[NO_COURIER] = _rest(unregistered, game, restingSide, 200, 10_000);
+        eight[CANCELLED] = _rest(m1, game, restingSide, 200, 10_000);
         vm.prank(m1.a);
-        matching.cancelOrder(seven[CANCELLED].order);
-        seven[EXPIRED] = _restUntil(m2, game, restingSide, 200, 10_000, vm.getBlockTimestamp());
-        seven[NO_ROOM] = _rest(full, game, restingSide, 200, 10_000);
-        _cross(sender, _take(tk, game, takingSide, 200, 10_000), _list(seven[NO_ROOM]));
-        seven[NOTHING_FITS] = _rest(m3, game, restingSide, 150, 100);
+        matching.cancelOrder(eight[CANCELLED].order);
+        eight[EXPIRED] = _restUntil(m2, game, restingSide, 200, 10_000, vm.getBlockTimestamp());
+        eight[NO_ROOM] = _rest(full, game, restingSide, 200, 10_000);
+        _cross(sender, _take(tk, game, takingSide, 200, 10_000), _list(eight[NO_ROOM]));
+        eight[NOTHING_FITS] = _rest(m3, game, restingSide, 150, 100);
         // Under its minimum: 30,000 asking for 25,000 at least, against a taking order of 20,000, which would
         // take 20,000 of it and leave 10,000, a lot or more.
-        seven[UNDER_MIN_FILL] = _restMin(under, game, restingSide, 200, 30_000, 25_000);
-        seven[PULL_REFUSED] = _rest(unpaid, game, restingSide, 200, 10_000);
+        eight[UNDER_MIN_FILL] = _restMin(under, game, restingSide, 200, 30_000, 25_000);
+        eight[PULL_REFUSED] = _rest(unpaid, game, restingSide, 200, 10_000);
         IERC20 coin = _coin();
         vm.prank(unpaid.a);
         coin.approve(address(positions), 0);
+        // Grant gone: an agent's order, its grant revoked.
+        vm.prank(granting.a);
+        matching.grantAgent(agent.a, 10_000, _ends(vm.getBlockTimestamp() + 1 hours), _noLines());
+        eight[GRANT_GONE] = _restBy(agent, granting.a, 1, game, restingSide, 200, 10_000);
+        vm.prank(granting.a);
+        matching.revokeAgent();
 
         OspexMatching.SignedOrder memory taking = _take(tk, game, takingSide, 200, 20_000);
-        bytes32 before = _print(taking, seven[CANCELLED], seven[EXPIRED], seven[NOTHING_FITS]);
+        bytes32 before = _print(taking, eight[CANCELLED], eight[EXPIRED], eight[NOTHING_FITS]);
         uint256 held = coin.balanceOf(address(positions));
 
         // An empty list.
         _refused(sender, taking, _list(), _nothingFilled(new uint8[](0)), "an empty list");
-        // Each of the seven alone.
-        for (uint8 reason; reason < 7; ++reason) {
-            _refused(sender, taking, _list(seven[reason]), _nothingFilled(_reasons(reason)), "one skip alone");
+        // Each of the eight alone.
+        for (uint8 reason; reason < 8; ++reason) {
+            _refused(sender, taking, _list(eight[reason]), _nothingFilled(_reasons(reason)), "one skip alone");
         }
-        // All seven together: the refusal carries the reasons in list order, here and in another order.
-        uint8[] memory inOrder = new uint8[](7);
-        for (uint8 i; i < 7; ++i) {
+        // All eight together: the refusal carries the reasons in list order, here and in another order.
+        uint8[] memory inOrder = new uint8[](8);
+        for (uint8 i; i < 8; ++i) {
             inOrder[i] = i;
         }
-        _refused(sender, taking, seven, _nothingFilled(inOrder), "all seven, in the order of the reasons");
-        uint8[] memory shuffled = new uint8[](4);
+        _refused(sender, taking, eight, _nothingFilled(inOrder), "all eight, in the order of the reasons");
+        uint8[] memory shuffled = new uint8[](5);
         shuffled[0] = PULL_REFUSED;
-        shuffled[1] = UNDER_MIN_FILL;
-        shuffled[2] = NO_ROOM;
-        shuffled[3] = NO_COURIER;
-        OspexMatching.SignedOrder[] memory four = new OspexMatching.SignedOrder[](4);
-        for (uint256 i; i < 4; ++i) {
-            four[i] = seven[shuffled[i]];
+        shuffled[1] = GRANT_GONE;
+        shuffled[2] = UNDER_MIN_FILL;
+        shuffled[3] = NO_ROOM;
+        shuffled[4] = NO_COURIER;
+        OspexMatching.SignedOrder[] memory five = new OspexMatching.SignedOrder[](5);
+        for (uint256 i; i < 5; ++i) {
+            five[i] = eight[shuffled[i]];
         }
-        _refused(sender, taking, four, _nothingFilled(shuffled), "four of them, in another order");
+        _refused(sender, taking, five, _nothingFilled(shuffled), "five of them, in another order");
         // Nothing of any of them remains.
         assertEq(
-            _print(taking, seven[CANCELLED], seven[EXPIRED], seven[NOTHING_FITS]),
+            _print(taking, eight[CANCELLED], eight[EXPIRED], eight[NOTHING_FITS]),
             before,
             "a refused Cross left something"
         );
         assertEq(coin.balanceOf(address(positions)), held, "a refused Cross moved coin");
-        assertEq(_filled(seven[PULL_REFUSED]), 0, "a refused Cross left a filled amount");
-        assertEq(_filled(seven[UNDER_MIN_FILL]), 0, "a refused Cross left a filled amount under the minimum");
+        assertEq(_filled(eight[PULL_REFUSED]), 0, "a refused Cross left a filled amount");
+        assertEq(_filled(eight[UNDER_MIN_FILL]), 0, "a refused Cross left a filled amount under the minimum");
+        assertEq(_filled(eight[GRANT_GONE]), 0, "a refused Cross left a filled amount under a dead grant");
         assertEq(_filled(taking), 0, "a refused Cross filled the taking order");
 
-        // The same orders in a later Cross beside one that fills: the seven skips are recorded then, in order.
-        OspexMatching.SignedOrder[] memory eight = new OspexMatching.SignedOrder[](8);
-        for (uint256 i; i < 7; ++i) {
-            eight[i] = seven[i];
+        // The same orders in a later Cross beside one that fills: the eight skips are recorded then, in order.
+        OspexMatching.SignedOrder[] memory nine = new OspexMatching.SignedOrder[](9);
+        for (uint256 i; i < 8; ++i) {
+            nine[i] = eight[i];
         }
-        eight[7] = _rest(m1, game, restingSide, 200, 10_000);
+        nine[8] = _rest(m1, game, restingSide, 200, 10_000);
         vm.recordLogs();
-        _cross(sender, taking, eight);
+        _cross(sender, taking, nine);
         Skip[] memory skips = _skips(vm.getRecordedLogs());
-        assertEq(skips.length, 7, "seven skip records beside one fill");
-        for (uint8 reason; reason < 7; ++reason) {
-            _assertSkip(skips[reason], seven[reason], taking, reason, "a skip beside a fill");
+        assertEq(skips.length, 8, "eight skip records beside one fill");
+        for (uint8 reason; reason < 8; ++reason) {
+            _assertSkip(skips[reason], eight[reason], taking, reason, "a skip beside a fill");
         }
         assertEq(_filled(taking), 10_000, "the one order that fills");
     }

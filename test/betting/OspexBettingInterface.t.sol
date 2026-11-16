@@ -44,18 +44,24 @@ contract OspexBettingInterfaceTest is BettingBase {
         );
         _assertFunctions(
             "OspexMatching",
-            "EVENT_COURIER_REGISTERED();EVENT_COURIER_UNREGISTERED();EVENT_CROSSED();EVENT_MIN_NONCE_UPDATED();"
-            "EVENT_ORDER_CANCELLED();EVENT_ORDER_MATCHED();EVENT_ORDER_SKIPPED();EVENT_TAKING_STAKE_CAP_LIFTED();"
-            "LOT();MARKET_MODULE();MATCHING_MODULE();MAX_LINE_TICKS();MAX_ODDS();MAX_TAKING_LIFE();MIN_ODDS();"
-            "ODDS_SCALE();ORDER_TYPEHASH();POSITION_MODULE();TAKING_STAKE_CAP();"
+            "EVENT_AGENT_GRANTED();EVENT_AGENT_REVOKED();EVENT_COURIER_REGISTERED();EVENT_COURIER_UNREGISTERED();"
+            "EVENT_CROSSED();EVENT_FLOOR_RAISED();EVENT_ORDER_CANCELLED();EVENT_ORDER_MATCHED();EVENT_ORDER_SKIPPED();"
+            "EVENT_TAKING_STAKE_CAP_LIFTED();EVENT_VERSION_CHANGED();GRANT_SHIFT();LOT();MARKET_MODULE();"
+            "MATCHING_MODULE();MAX_GRANT_COUNT();MAX_GRANT_LINES();MAX_LINE_TICKS();MAX_ODDS();MAX_ORDER_NUMBER();"
+            "MAX_TAKING_LIFE();MIN_ODDS();ODDS_SCALE();ORDER_TYPEHASH();POSITION_MODULE();TAKING_STAKE_CAP();"
+            "VERSION_SHIFT();cancelAll(address);"
             "cancelOrder((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256,uint256));"
             "cross(((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256,uint256),bytes),"
             "((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256,uint256),bytes)[]);" "eip712Domain();"
+            "getDomainSeparator();getFloor(address,uint256,address,int32);getGrant(address,uint32);getModuleType();"
             "getOrderHash((address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256,uint256));"
-            "getDomainSeparator();getModuleType();i_ospexCore();i_timelock();isCourier(address,address);"
-            "liftTakingStakeCap();raiseMinNonce(uint256,address,int32,uint256);registerCourier(address);"
-            "s_cancelledOrders(bytes32);s_filledRisk(bytes32);s_minNonces(address,bytes32);"
-            "s_takingStakeCapLifted();unregisterCourier(address)"
+            "grantAgent(address,uint256,uint64,(uint256,address,int32)[]);"
+            "grantAgentAndRegisterCourier(address,uint256,uint64,(uint256,address,int32)[],address);"
+            "i_ospexCore();i_timelock();isCourier(address,address);isGrantLine(address,uint32,uint256,address,int32);"
+            "isLiveAgent(address,address);liftTakingStakeCap();raiseFloor(address,uint256,address,int32,uint96);"
+            "registerCourier(address);revokeAgent();s_cancelledOrders(bytes32);s_currentGrant(address);"
+            "s_filledRisk(bytes32);s_floors(address,uint128,bytes32);s_grantCount(address);s_takingStakeCapLifted();"
+            "s_version(address);splitNonce(uint256);unregisterCourier(address)"
         );
         _assertFunctions(
             "OspexMoneylineScorer",
@@ -138,24 +144,31 @@ contract OspexBettingInterfaceTest is BettingBase {
         );
         _assertErrors(
             "OspexMatching",
-            "InvalidShortString();OspexMatching__BadSignature(bytes32 orderHash);OspexMatching__CapAlreadyLifted();"
+            "InvalidShortString();OspexMatching__AgentIsAccount();"
+            "OspexMatching__AgentStakeAboveCap(bytes32 orderHash,uint256 riskAmount,uint256 stakeCap);"
+            "OspexMatching__BadSignature(bytes32 orderHash);OspexMatching__CapAlreadyLifted();"
             "OspexMatching__CourierNotRegistered(address account,address courier);OspexMatching__CrossInProgress();"
+            "OspexMatching__FloorMustRise(uint96 current,uint96 asked);"
             "OspexMatching__GamesHasNoTimelock(address games);OspexMatching__GamesNotAContract(address games);"
-            "OspexMatching__InvalidAddress();"
+            "OspexMatching__GrantCountExhausted(address account);OspexMatching__GrantEndsInThePast(uint64 endsAt,uint256 now_);"
+            "OspexMatching__InvalidAddress();OspexMatching__LineNotInGrant(bytes32 orderHash);"
             "OspexMatching__MinFillAboveStake(bytes32 orderHash,uint256 minFill,uint256 riskAmount);"
-            "OspexMatching__NonceMustIncrease();"
-            "OspexMatching__NotOrderAccount();OspexMatching__NotTheTimelock(address caller);"
+            "OspexMatching__NoGrantToRevoke();OspexMatching__NoSuchGrant(bytes32 orderHash,address account,uint32 grantNumber);"
+            "OspexMatching__NotAccountOrAgent(address account,address caller);OspexMatching__NotTheTimelock(address caller);"
             "OspexMatching__NothingFilled(uint8[] reasons);"
+            "OspexMatching__OrderNotAtCurrentVersion(bytes32 orderHash,uint128 orderVersion,uint128 currentVersion);"
             "OspexMatching__OtherGame(bytes32 orderHash);OspexMatching__OtherLine(bytes32 orderHash);"
             "OspexMatching__OtherScorer(bytes32 orderHash);OspexMatching__PriceOutOfRange(bytes32 orderHash);"
             "OspexMatching__PricesDoNotMeet(bytes32 orderHash);OspexMatching__SameSide(bytes32 orderHash);"
             "OspexMatching__SenderNotCourier(address account,address sender);"
             "OspexMatching__StakeNotInLots(bytes32 orderHash);OspexMatching__TakingOrderCancelled(bytes32 orderHash);"
             "OspexMatching__TakingOrderExpired(bytes32 orderHash);OspexMatching__TakingOrderFilled(bytes32 orderHash);"
+            "OspexMatching__TakingOrderGrantGone(bytes32 orderHash,uint32 grantNumber,uint32 currentGrant,uint64 endsAt);"
             "OspexMatching__TakingOrderTooLong(bytes32 orderHash);"
             "OspexMatching__TakingOrderUnderMinFill(bytes32 takingHash,uint256 filledThisCross,uint256 minFill,"
             "uint256 roomLeft,(bytes32 orderHash,bool filled,uint8 reason,uint256 makerRisk,uint256 takerRisk)[] legs);"
-            "OspexMatching__TakingStakeAboveCap(bytes32 orderHash);"
+            "OspexMatching__TakingStakeAboveCap(bytes32 orderHash);OspexMatching__TooManyLines(uint256 count);"
+            "OspexMatching__VersionAtTop(address account,uint128 current);OspexMatching__ZeroAgent();"
             "OspexMatching__ZeroCourier();StringTooLong(string str)"
         );
         _assertErrors("OspexMoneylineScorer", "OspexScorer__InvalidCore()");
@@ -262,21 +275,25 @@ contract OspexBettingInterfaceTest is BettingBase {
         );
         _assertEvents(
             "OspexMatching",
+            "AgentGranted(indexed address account,indexed address agent,uint32 number,uint256 stakeCap,uint64 endsAt,"
+            "(uint256 gameId,address scorer,int32 lineTicks)[] lines);"
+            "AgentRevoked(indexed address account,indexed address agent,uint32 number);"
             "CourierRegistered(indexed address account,indexed address courier);"
             "CourierUnregistered(indexed address account,indexed address courier);"
             "Crossed(indexed address courier,indexed bytes32 takingOrderHash,indexed address taker,uint256 marketId,"
             "uint256 totalMakerRisk,uint256 totalTakerRisk);EIP712DomainChanged();"
-            "MinNonceUpdated(indexed address account,uint256 gameId,"
-            "address scorer,int32 lineTicks,uint256 newMinNonce,indexed bytes32 marketKey);"
+            "FloorRaised(indexed address account,uint128 version,uint256 gameId,address scorer,int32 lineTicks,"
+            "uint96 floor,indexed bytes32 lineKey,address sender);"
             "OrderCancelled(indexed bytes32 orderHash,indexed address account,uint256 gameId,"
             "address scorer,int32 lineTicks,uint8 positionType,uint16 oddsTick,uint256 riskAmount,uint256 nonce,"
-            "uint256 expiry,uint256 minFill);"
+            "uint256 expiry,uint256 minFill,address sender);"
             "OrderMatched(indexed bytes32 orderHash,indexed address maker,indexed address taker,uint256 gameId,"
             "uint256 marketId,address scorer,int32 lineTicks,uint8 makerPositionType,uint16 oddsTick,"
             "uint256 makerRisk,uint256 takerRisk,uint256 orderRiskAmount,uint256 nonce,uint256 expiry,"
             "uint256 orderMinFill);"
             "OrderSkipped(indexed bytes32 orderHash,indexed address account,indexed bytes32 takingOrderHash,"
-            "uint8 reason);TakingStakeCapLifted()"
+            "uint8 reason);TakingStakeCapLifted();VersionChanged(indexed address account,uint128 previous,uint128 next,"
+            "address sender)"
         );
         _assertEvents("OspexMoneylineScorer", "");
         _assertEvents("OspexSpreadScorer", "");
@@ -288,7 +305,9 @@ contract OspexBettingInterfaceTest is BettingBase {
     /// selectors of the renamed and the new calls, the first topic of each of the matching module's events,
     /// its hub tags, and the selector of the one error the matching module reads from the positions module.
     /// A v2 name gives another value for each: `cancelCommitment`, `CommitmentCancelled`, `COMMITMENT_CANCELLED`.
-    /// The three calls that take an order, and the two events that carry one, moved with the order's tenth field.
+    /// The three calls that take an order, and the two events that carry one, moved with the order's tenth field;
+    /// the cancel event moved again with its sender, last. The floor's event is the version-aware one, and the
+    /// agent's four calls, its reads, its events and its errors are each their own literal here.
     /// Break: in OspexMatching.sol, give `OrderCancelled`'s price a wider type, `uint32 oddsTick`: its first
     /// topic moves.
     function test_theSelectorsTopicsAndTagsAreThese() public view {
@@ -303,8 +322,8 @@ contract OspexBettingInterfaceTest is BettingBase {
 
         assertEq(
             OspexMatching.OrderCancelled.selector,
-            0x599edd68a89f1a39aa2bdf45d6d629dcaaaf2d82083660caa69450354949a073,
-            "OrderCancelled's first topic"
+            0x62fc008bbd605dd78e5a6e950e3f368a0f5162154fae05652f84e2c01746be69,
+            "OrderCancelled's first topic, with its sender last"
         );
         assertEq(
             OspexMatching.OrderMatched.selector,
@@ -322,10 +341,85 @@ contract OspexBettingInterfaceTest is BettingBase {
             "Crossed's first topic"
         );
         assertEq(
-            OspexMatching.MinNonceUpdated.selector,
-            0x0f7ff1d4c2299e0abe408168a40ea050f9cfb2fb7951b3c69685c0838e0d6420,
-            "MinNonceUpdated's first topic, which no rename moved"
+            OspexMatching.FloorRaised.selector,
+            0x6e1164faf93b701c58b6876f80219812b1facb4974b77634b7a1710b902f7cb9,
+            "FloorRaised's first topic"
         );
+        assertEq(
+            OspexMatching.VersionChanged.selector,
+            0x48c0b317f28ea36d23f63ed0c1a85269194fbe489d5206f651b7c0fc256bbc39,
+            "VersionChanged's first topic"
+        );
+        assertEq(
+            OspexMatching.AgentGranted.selector,
+            0x97ec1d47bea8f7f6ce05b22334c3474d5dec0357149787e72e572ba7c26de93a,
+            "AgentGranted's first topic"
+        );
+        assertEq(
+            OspexMatching.AgentRevoked.selector,
+            0xc86a020824f696574dfa1f073b0c566984b8a0caf7cdd79fb0cbb84ea3ba3f41,
+            "AgentRevoked's first topic"
+        );
+        assertEq(
+            matching.EVENT_FLOOR_RAISED(),
+            0xeb853ffc5cc8db4fd6908f35b4bc1a52542aef55229fbd184580fde5fd897f16,
+            "the hub tag FLOOR_RAISED"
+        );
+        assertEq(
+            matching.EVENT_VERSION_CHANGED(),
+            0xbc33b332d3d38592b30c045c168d38335110b5d8c32559fa59e1f363d53b4c6b,
+            "the hub tag VERSION_CHANGED"
+        );
+        assertEq(
+            matching.EVENT_AGENT_GRANTED(),
+            0x3c19d463b330dad514ededc1cf98b6fdaf29c1f8b16acb5ab939349a0a08cdc5,
+            "the hub tag AGENT_GRANTED"
+        );
+        assertEq(
+            matching.EVENT_AGENT_REVOKED(),
+            0x4827f9112849be6e86183d4718bf287d4c2aa2633db6b668335da20d6a860656,
+            "the hub tag AGENT_REVOKED"
+        );
+        // The approved agent: the five calls, the eight reads, and the fourteen errors.
+        assertEq(OspexMatching.raiseFloor.selector, bytes4(0xbd9b31ab), "raiseFloor");
+        assertEq(OspexMatching.cancelAll.selector, bytes4(0x97e8f717), "cancelAll");
+        assertEq(OspexMatching.grantAgent.selector, bytes4(0x5167f498), "grantAgent");
+        assertEq(OspexMatching.revokeAgent.selector, bytes4(0x7961803e), "revokeAgent");
+        assertEq(
+            OspexMatching.grantAgentAndRegisterCourier.selector, bytes4(0x4936b4c5), "grantAgentAndRegisterCourier"
+        );
+        assertEq(OspexMatching.getGrant.selector, bytes4(0x4bbacfbd), "getGrant");
+        assertEq(OspexMatching.isGrantLine.selector, bytes4(0x89105715), "isGrantLine");
+        assertEq(OspexMatching.isLiveAgent.selector, bytes4(0x968ce1c1), "isLiveAgent");
+        assertEq(OspexMatching.getFloor.selector, bytes4(0x7ea87418), "getFloor");
+        assertEq(OspexMatching.splitNonce.selector, bytes4(0x68300c79), "splitNonce");
+        assertEq(matching.s_version.selector, bytes4(0x747797a0), "s_version");
+        assertEq(matching.s_grantCount.selector, bytes4(0x2ec22ec4), "s_grantCount");
+        assertEq(matching.s_currentGrant.selector, bytes4(0xdd89ac20), "s_currentGrant");
+        assertEq(matching.s_floors.selector, bytes4(0x55b2d88b), "s_floors");
+        assertEq(OspexMatching.OspexMatching__NotAccountOrAgent.selector, bytes4(0x8f9046bd), "NotAccountOrAgent");
+        assertEq(
+            OspexMatching.OspexMatching__OrderNotAtCurrentVersion.selector,
+            bytes4(0x3ef8b687),
+            "OrderNotAtCurrentVersion"
+        );
+        assertEq(OspexMatching.OspexMatching__FloorMustRise.selector, bytes4(0x6dba7172), "FloorMustRise");
+        assertEq(OspexMatching.OspexMatching__VersionAtTop.selector, bytes4(0x989e479c), "VersionAtTop");
+        assertEq(OspexMatching.OspexMatching__GrantCountExhausted.selector, bytes4(0x0eec484e), "GrantCountExhausted");
+        assertEq(OspexMatching.OspexMatching__ZeroAgent.selector, bytes4(0xa9791660), "ZeroAgent");
+        assertEq(OspexMatching.OspexMatching__AgentIsAccount.selector, bytes4(0xb82df80c), "AgentIsAccount");
+        assertEq(OspexMatching.OspexMatching__GrantEndsInThePast.selector, bytes4(0x63f2409d), "GrantEndsInThePast");
+        assertEq(OspexMatching.OspexMatching__TooManyLines.selector, bytes4(0x7afe61d1), "TooManyLines");
+        assertEq(OspexMatching.OspexMatching__NoGrantToRevoke.selector, bytes4(0xeb5f2cd4), "NoGrantToRevoke");
+        assertEq(OspexMatching.OspexMatching__NoSuchGrant.selector, bytes4(0x851377a4), "NoSuchGrant");
+        assertEq(OspexMatching.OspexMatching__AgentStakeAboveCap.selector, bytes4(0xcf91b285), "AgentStakeAboveCap");
+        assertEq(OspexMatching.OspexMatching__LineNotInGrant.selector, bytes4(0x006461a1), "LineNotInGrant");
+        assertEq(OspexMatching.OspexMatching__TakingOrderGrantGone.selector, bytes4(0x5fd8fa29), "TakingOrderGrantGone");
+        assertEq(matching.MAX_ORDER_NUMBER(), type(uint96).max, "the top order number");
+        assertEq(matching.MAX_GRANT_COUNT(), type(uint32).max, "the most grants an account makes");
+        assertEq(matching.MAX_GRANT_LINES(), 64, "the most lines a grant names");
+        assertEq(matching.VERSION_SHIFT(), 128, "where the version sits");
+        assertEq(matching.GRANT_SHIFT(), 96, "where the grant number sits");
 
         assertEq(
             matching.EVENT_ORDER_CANCELLED(),
@@ -497,7 +591,8 @@ contract OspexBettingInterfaceTest is BettingBase {
         assertEq(uint8(Outcome.Void), 6);
         assertEq(uint8(Side.A), 0);
         assertEq(uint8(Side.B), 1);
-        // A skip's reasons, in the order they are tested.
+        // A skip's reasons: stable tags, not the order they are tested in, which item 23 of the spec's first
+        // milestone states; the eighth, grant gone, is tested third and numbered last.
         assertEq(uint8(OspexMatching.SkipReason.NoCourier), 0);
         assertEq(uint8(OspexMatching.SkipReason.Cancelled), 1);
         assertEq(uint8(OspexMatching.SkipReason.Expired), 2);
@@ -505,6 +600,7 @@ contract OspexBettingInterfaceTest is BettingBase {
         assertEq(uint8(OspexMatching.SkipReason.NothingFits), 4);
         assertEq(uint8(OspexMatching.SkipReason.UnderMinFill), 5);
         assertEq(uint8(OspexMatching.SkipReason.PullRefused), 6);
+        assertEq(uint8(OspexMatching.SkipReason.GrantGone), 7);
     }
 
     // ──────────────────────────── Helpers ──────────────────────────────
