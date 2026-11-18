@@ -201,13 +201,14 @@ contract OspexPositions is IOspexPositions, ReentrancyGuardTransient {
     }
 
     /// @dev The close gate, the two writes, the resting account's pull and its receipt. The markets module's
-    ///      gate refuses, by name, a settled market, a game that has ended and a game at or after its start + n;
-    ///      it is called at every fill, into a market just drawn as into an old one. Then each account's position
-    ///      grows by its risk and the other's, and the resting account is pulled what lifts its held amount to
-    ///      its worst loss as its records now stand, nothing when it is already there, each refusal under the
-    ///      resting account's name with the stake and the amount asked. A leg whose resting account is the
-    ///      taking account pulls nothing: both terms of that account's worst loss are unchanged by the leg, and
-    ///      what it owes the Cross is pulled once, at finishFills. The taking account's coin is not touched here.
+    ///      gate refuses, by name, a settled market, a game that has ended, a game that is not verified and a
+    ///      game at or after its start + n; it is called at every fill, into a market just drawn as into an old
+    ///      one. Then each account's position grows by its risk and the other's, and the resting account is
+    ///      pulled what lifts its held amount to its worst loss as its records now stand, nothing when it is
+    ///      already there, each refusal under the resting account's name with the stake and the amount asked. A
+    ///      leg whose resting account is the taking account pulls nothing: both terms of that account's worst
+    ///      loss are unchanged by the leg, and what it owes the Cross is pulled once, at finishFills. The taking
+    ///      account's coin is not touched here.
     function _record(
         IOspexMarkets markets,
         uint256 marketId,

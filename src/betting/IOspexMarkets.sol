@@ -32,7 +32,7 @@ interface IOspexMarkets is IOspexModule {
     event MarketSettled(uint256 indexed marketId, Outcome outcome, address scorer);
 
     /// @notice Draws a market. Only the positions module calls it, at the market's first fill.
-    /// @param gameId The game, which must be a game of the games set and must not have ended
+    /// @param gameId The game, which must be a verified or disputed game of the games set that has not ended
     /// @param scorer One of the three market contracts
     /// @param lineTicks The line, scaled by 10: 0 for a moneyline, at least 0 for a total, the home team's
     ///        handicap for a spread, and within MAX_LINE_TICKS for all three
@@ -52,10 +52,9 @@ interface IOspexMarkets is IOspexModule {
 
     /// @notice The close gate: returns when a fill may land in a market, and refuses, by name, when it may not.
     ///         The positions module calls it at every fill. Refused: an id that is not a market; a settled
-    ///         market; a game that has ended, scored, voided or released; and a game whose start is written,
-    ///         verified or disputed, at or after its start + n, n being the game's own window. A game whose
-    ///         start is not written has no start + n and is not refused: it takes fills until it is verified or
-    ///         released. Nothing is refused at the start itself, or after it inside n.
+    ///         market; a game that has ended, scored, voided or released; a game that is not verified, before
+    ///         its start is written; and a verified or disputed game at or after its start + n, n being the
+    ///         game's own window. Nothing is refused at the start itself, or after it inside n.
     /// @param marketId The market
     function requireBetsOpen(uint256 marketId) external view;
 

@@ -47,15 +47,31 @@ contract OspexMarketsTest is BettingBase {
         assertEq(markets.marketCount(), 3);
     }
 
-    function test_create_onAGameNotYetStartedAndOnADisputedGame() public {
-        // Nothing checks the start at a fill: a market is drawn before the start is written.
+    function test_create_refusesAGameNotYetStartedAndDrawsOnADisputedGame() public {
+        // Before the start is written the game is not verified: no fill lands on it, and no market is drawn.
         uint256 unverified = _create();
         assertEq(uint8(_status(unverified)), uint8(GameStatus.Unverified));
+        bytes memory notVerified = abi.encodeWithSelector(
+            OspexMarkets.OspexMarkets__GameNotVerified.selector, unverified, GameStatus.Unverified
+        );
+        (bool ok, bytes memory err) = _tryFill(unverified, address(total), 2205, Side.A, STAKE, STAKE);
+        assertFalse(ok, "a market drawn on a game not yet started");
+        assertEq(err, notVerified);
+        // The markets module's own refusal, at its own door: asked by the positions module to draw the market,
+        // with no fill behind the call, it refuses the same way.
+        vm.prank(address(positions));
+        (ok, err) = address(markets)
+            .call(abi.encodeCall(OspexMarkets.createMarket, (unverified, address(total), 2205, maker, taker)));
+        assertFalse(ok, "a market drawn on a game not yet started, at the positions module's asking");
+        assertEq(err, notVerified);
+        assertEq(markets.marketCount(), 0, "a market drawn");
+        // The start written, the same game draws its market at the next fill.
+        _startBy(first, unverified, START);
         assertEq(_market(unverified, address(total), 2205), 1);
         // A dispute record is not an end: the market is drawn, and is not settled.
         uint256 disputed = _inStatus(GameStatus.Disputed);
         assertEq(_market(disputed, address(moneyline), 0), 2);
-        (bool ok, bytes memory err) = _trySettle(2);
+        (ok, err) = _trySettle(2);
         assertFalse(ok);
         assertEq(
             err, abi.encodeWithSelector(OspexMarkets.OspexMarkets__GameNotEnded.selector, disputed, GameStatus.Disputed)
@@ -229,7 +245,8 @@ contract OspexMarketsTest is BettingBase {
     }
 
     function test_settle_refusesAGameNotEnded() public {
-        GameStatus[3] memory open = [GameStatus.Unverified, GameStatus.Verified, GameStatus.Disputed];
+        // The two statuses short of an end that a market exists on: none is drawn on a game not yet verified.
+        GameStatus[2] memory open = [GameStatus.Verified, GameStatus.Disputed];
         for (uint256 i; i < open.length; ++i) {
             vm.warp(DATE - 1 hours);
             uint256 game = _inStatus(open[i]);

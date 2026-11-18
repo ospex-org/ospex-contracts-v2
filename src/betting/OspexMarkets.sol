@@ -26,14 +26,14 @@ import {Market, MarketStatus, Outcome} from "./OspexBettingTypes.sol";
  *
  *         Bets close when the game scores or at start + n, whichever comes first. The close gate,
  *         requireBetsOpen, is what holds that: the positions module calls it at every fill, and it refuses a
- *         settled market, a game that has ended, and a game whose start is written at or after its start + n.
- *         n is the game's own window, read from the games set at each call and never a constant here. A
- *         dispute record is not an end: a disputed game takes fills until its start + n. A game whose start
- *         is not written has no start + n and takes fills until it is verified or released. Nothing checks
- *         the start itself: stopping at kickoff is the courier's. Spec: "How a game ends", and item 4 of its
- *         first milestone.
+ *         settled market, a game that has ended, a game that is not verified, and a game at or after its
+ *         start + n. n is the game's own window, read from the games set at each call and never a constant
+ *         here. A dispute record is not an end: a disputed game takes fills until its start + n. A game whose
+ *         start is not written is not verified: no market is drawn on it and no fill lands, each refused by
+ *         name, until a first-n reporter writes its start. Nothing checks the start itself: stopping at
+ *         kickoff is the courier's. Spec: "How a game ends", and item 4 of its first milestone.
  *
- *         A market is drawn on a game that exists in the games set and has not ended, with one of the three
+ *         A market is drawn on a verified or disputed game of the games set that has not ended, with one of the three
  *         market contracts and a line the contract takes: 0 for a moneyline, at least 0 for a total, any line
  *         inside MAX_LINE_TICKS for a spread, where the line is the home team's handicap. No fee is taken to
  *         draw one. getMarket, settleMarket and the close gate refuse an id that is not a market, by name;
@@ -83,6 +83,9 @@ contract OspexMarkets is IOspexMarkets {
     /// @notice Thrown when a market is drawn on a game that has ended, scored, voided or released, and by the
     ///         close gate for a fill into a market on such a game
     error OspexMarkets__GameEnded(uint256 gameId, GameStatus status);
+    /// @notice Thrown when a market is drawn on a game that is not verified, and by the close gate for a fill
+    ///         into a market on such a game: before the start is written there is no market and no fill
+    error OspexMarkets__GameNotVerified(uint256 gameId, GameStatus status);
     /// @notice Thrown by the close gate for a fill into a market that is settled
     error OspexMarkets__MarketSettled(uint256 marketId);
     /// @notice Thrown by the close gate at or after a game's start + n: closesAt is that second
@@ -145,8 +148,9 @@ contract OspexMarkets is IOspexMarkets {
     }
 
     /// @dev Checks the line's magnitude, that no market exists on the three fields, that the game is a game of
-    ///      the games set (its status read refuses an id that is not) and has not ended, that the market contract
-    ///      is one of the three, and that it takes the line; then draws the market and emits it.
+    ///      the games set (its status read refuses an id that is not), has not ended and is verified or disputed,
+    ///      that the market contract is one of the three, and that it takes the line; then draws the market and
+    ///      emits it.
     function _create(uint256 gameId, address scorer, int32 lineTicks, address maker, address taker)
         internal
         returns (uint256)
@@ -159,6 +163,9 @@ contract OspexMarkets is IOspexMarkets {
 
         GameStatus status = i_games.getGameStatus(gameId);
         if (status >= GameStatus.Scored) revert OspexMarkets__GameEnded(gameId, status);
+        if (status != GameStatus.Verified && status != GameStatus.Disputed) {
+            revert OspexMarkets__GameNotVerified(gameId, status);
+        }
 
         if (!i_ospexCore.isApprovedScorer(scorer)) revert OspexMarkets__ScorerNotApproved(scorer);
         if (
@@ -186,10 +193,10 @@ contract OspexMarkets is IOspexMarkets {
     // ──────────────────────────── The close gate ──────────────────────
 
     /// @inheritdoc IOspexMarkets
-    /// @dev Three tests, each with its own name. The market is not settled. The game has not ended. And, for
-    ///      a game whose start is written, the block's time is before start + n: the start and the window are
-    ///      read only for a verified or a disputed game, since the start read refuses a game without one, and a
-    ///      dispute arises only from a verified game. The second the gate closes is start + n itself.
+    /// @dev Four tests, each with its own name. The market is not settled. The game has not ended. The game is
+    ///      verified or disputed, so its start is written and the clock can be read: the start read refuses a
+    ///      game without one, and a dispute arises only from a verified game. And the block's time is before
+    ///      start + n. The second the gate closes is start + n itself.
     function requireBetsOpen(uint256 marketId) external view override {
         Market storage m = _market(marketId);
         if (m.status != MarketStatus.Open) revert OspexMarkets__MarketSettled(marketId);
@@ -197,10 +204,11 @@ contract OspexMarkets is IOspexMarkets {
         uint256 gameId = m.gameId;
         GameStatus status = i_games.getGameStatus(gameId);
         if (status >= GameStatus.Scored) revert OspexMarkets__GameEnded(gameId, status);
-        if (status == GameStatus.Verified || status == GameStatus.Disputed) {
-            uint256 closesAt = uint256(i_games.getGameStart(gameId)) + i_games.getGameWindow(gameId);
-            if (block.timestamp >= closesAt) revert OspexMarkets__BetsClosed(gameId, closesAt);
+        if (status != GameStatus.Verified && status != GameStatus.Disputed) {
+            revert OspexMarkets__GameNotVerified(gameId, status);
         }
+        uint256 closesAt = uint256(i_games.getGameStart(gameId)) + i_games.getGameWindow(gameId);
+        if (block.timestamp >= closesAt) revert OspexMarkets__BetsClosed(gameId, closesAt);
     }
 
     // ──────────────────────────── Settlement ──────────────────────────

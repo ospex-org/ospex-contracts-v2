@@ -611,10 +611,9 @@ contract OspexCrossCallbacksTest is CrossBase {
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     function test_limit_aReleaseFromInsideAnEarlierPullFailsTheCross() public {
-        // A game whose start is not written, at its day-30 clock: its release is open to anyone, and until it
-        // is released a fill lands.
-        uint256 game = _create();
-        vm.warp(_day30(game));
+        // A verified game whose reporters have all retired: its release is open to anyone, and until it is
+        // released a fill lands.
+        uint256 game = _releasableGame();
         OspexMatching.SignedOrder memory taking = _take(tk, game, Side.B, 200, 20_000);
         OspexMatching.SignedOrder memory first = _rest(y, game, Side.A, 200, 10_000);
         OspexMatching.SignedOrder memory second = _rest(m1, game, Side.A, 200, 10_000);
@@ -631,7 +630,7 @@ contract OspexCrossCallbacksTest is CrossBase {
             abi.encodeWithSelector(OspexMarkets.OspexMarkets__GameEnded.selector, game, GameStatus.Released),
             "a release from inside the first leg's pull"
         );
-        assertEq(uint8(_status(game)), uint8(GameStatus.Unverified), "the release stood");
+        assertEq(uint8(_status(game)), uint8(GameStatus.Verified), "the release stood");
         assertEq(trick.balanceOf(address(positions)), 0, "the failed Cross moved coin");
         assertEq(_filled(taking), 0, "the failed Cross left a filled amount");
         assertEq(markets.marketCount(), 0, "the failed Cross drew a market");

@@ -123,7 +123,8 @@ contract OspexBettingInterfaceTest is BettingBase {
             "OspexMarkets",
             "OspexMarkets__AlreadySettled(uint256 marketId);OspexMarkets__BetsClosed(uint256 gameId,uint256 closesAt);"
             "OspexMarkets__GameEnded(uint256 gameId,uint8 status);"
-            "OspexMarkets__GameNotEnded(uint256 gameId,uint8 status);OspexMarkets__InvalidAddress();"
+            "OspexMarkets__GameNotEnded(uint256 gameId,uint8 status);"
+            "OspexMarkets__GameNotVerified(uint256 gameId,uint8 status);OspexMarkets__InvalidAddress();"
             "OspexMarkets__InvalidLineTicks(address scorer,int32 lineTicks);"
             "OspexMarkets__LineTicksOutOfRange(int32 lineTicks);OspexMarkets__MarketExists(uint256 marketId);"
             "OspexMarkets__MarketSettled(uint256 marketId);"
