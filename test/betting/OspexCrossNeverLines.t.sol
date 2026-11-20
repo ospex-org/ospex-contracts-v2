@@ -288,8 +288,8 @@ contract OspexCrossNeverLinesTest is CrossBase {
 
     /// Break: in OspexMarkets.requireBetsOpen, turn the clock test's `>=` into `>`. Others turn it red: the
     /// status test deleted; the clock test deleted; the settled test deleted; a constant day in place of the
-    /// game's own n; the clock read for a verified game only; and the gate called only when the market is
-    /// drawn.
+    /// game's own n; the refusal of a game that is not verified narrowed to Verified alone, which refuses the
+    /// disputed game; and the gate called only when the market is drawn.
     function test_neverLine_noFillOnceBetsClose() public {
         _registerAll(sender);
         uint256 snap = vm.snapshotState();
@@ -309,19 +309,27 @@ contract OspexCrossNeverLinesTest is CrossBase {
         uint256 scored = _verifiedGame();
         uint256 scoredNoMarket = _verifiedGame();
         uint256 voided = _verifiedGame();
-        uint256 released = _create();
+        // The game to be released is dated and started a week after the others, so that its own close lies
+        // beyond every clock this test visits; it is released, while its bets are open, once every reporter
+        // is retired.
+        uint256 released = _createAt(DATE + 7 days);
+        _startBy(first, released, START + 7 days);
         uint256 unverified = _create();
         uint256 disputed = _verifiedGame();
 
-        // Before the start, on every game: fills. Each game but two now has a market.
+        // Before the start, on every verified game: fills. On the game whose start is not written: no fill and
+        // no market, refused by name. Each game but three now has a market.
         _fills(short, "before the start, the twelve-hour game");
         _fills(open, "before the start");
         _fills(scored, "before the start, the game to be scored");
         _fills(voided, "before the start, the game to be voided");
-        _fills(released, "before any start is written, the game to be released");
-        _fills(unverified, "before any start is written");
+        _fills(released, "before the start, the game to be released");
+        bytes memory notVerified = abi.encodeWithSelector(
+            OspexMarkets.OspexMarkets__GameNotVerified.selector, unverified, GameStatus.Unverified
+        );
+        _closed(unverified, notVerified, "before any start is written");
         _fills(disputed, "before the start, the game to be disputed");
-        assertEq(markets.marketCount(), 7, "a market drawn on each");
+        assertEq(markets.marketCount(), 6, "a market drawn on each");
 
         // No kickoff check: at the start, and after it inside n, a fill lands.
         vm.warp(START);
@@ -395,17 +403,21 @@ contract OspexCrossNeverLinesTest is CrossBase {
             "voided"
         );
 
-        // A game whose start is not written has no start + n: it still fills, days later, until it is released.
-        vm.warp(_day30(released) - 1);
-        _fills(unverified, "unverified, a second before its day-30 clock");
-        _fills(released, "unverified, a second before its release");
-        vm.warp(_day30(released));
+        // Released while its bets are open: once every reporter is retired the release is open at once, and
+        // until it is made a fill lands.
+        _retireEveryReporter();
+        _fills(released, "every reporter retired, before its release");
         _releaseBy(stranger, released);
         _closed(
             released,
             abi.encodeWithSelector(OspexMarkets.OspexMarkets__GameEnded.selector, released, GameStatus.Released),
-            "released with no start"
+            "released"
         );
+
+        // A game whose start is not written is refused at every hour, a second before its day-30 clock as at
+        // its creation: no clock admits it.
+        vm.warp(_day30(unverified) - 1);
+        _closed(unverified, notVerified, "unverified, a second before its day-30 clock");
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────

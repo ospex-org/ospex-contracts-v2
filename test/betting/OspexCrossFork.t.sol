@@ -4,7 +4,7 @@ pragma solidity ^0.8.26;
 import {Vm} from "forge-std/Vm.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
-import {GameStatus, Hint, IOspexGames} from "../../src/games/IOspexGames.sol";
+import {GameStatus, Hint, IOspexGames, ReporterKind} from "../../src/games/IOspexGames.sol";
 import {OspexSignpost} from "../../src/signpost/OspexSignpost.sol";
 import {OspexCourierRelay} from "../../src/betting/OspexCourierRelay.sol";
 import {OspexMatching} from "../../src/betting/OspexMatching.sol";
@@ -158,14 +158,46 @@ contract OspexCrossForkTest is CrossBase {
     }
 }
 
+/// @dev Shared by the two tests on the games set the signpost names: that set, and a game on it that takes
+///      fills. The game is created for its fee by `creator`, and its start is written a day out through the
+///      live set's own report call, sent from the address of its first-n reporter, the one approved at the
+///      fork block, so that the set's checks of the sender, of its standing and of its code hash are the
+///      deployed ones. Verified, the game takes fills, as a game the scoring program has verified does.
+abstract contract LiveGamesForkBase is CrossBase {
+    IOspexGames internal liveGames;
+
+    function _liveVerifiedGame(address creator, IERC20 coin, uint256 fee) internal returns (uint256 game) {
+        uint64 date = uint64(vm.getBlockTimestamp() + 1 days);
+        vm.startPrank(creator);
+        assertTrue(coin.approve(address(liveGames), fee), "the fee's approval");
+        game = liveGames.createGame("nba", "Home Team", "Away Team", date, new Hint[](0), fee);
+        vm.stopPrank();
+        assertEq(uint8(liveGames.getGameStatus(game)), uint8(GameStatus.Unverified), "the game's status at creation");
+        (address[] memory reporters, uint8[] memory kinds) = liveGames.getApprovedReporters();
+        address firstN = address(0);
+        for (uint256 i; i < reporters.length; ++i) {
+            if (kinds[i] == uint8(ReporterKind.FirstN)) {
+                firstN = reporters[i];
+                break;
+            }
+        }
+        assertTrue(firstN != address(0), "the live games set has no first-n reporter");
+        vm.prank(firstN);
+        liveGames.report(_startReport(game, date));
+        assertEq(uint8(liveGames.getGameStatus(game)), uint8(GameStatus.Verified), "the game's status");
+        assertEq(liveGames.getGameStart(game), date, "the start as written");
+    }
+}
+
 /// @notice The cap's switch through the live Polygon timelock, on the games set the signpost names. A second
 ///         betting set is deployed on Polygon's USDC against the games contract at the signpost's games entry,
 ///         so that its matching module reads the live timelock at its deploy; a game is created on that games
-///         set for its fee, and, unverified, it takes fills; one cent fills; 10,100 is refused; K schedules the
-///         lift on the live timelock at its delay, the delay passes, a stranger runs it; and 10,100 fills in
-///         USDC, every balance to the unit. "Live" is the deployed code the entry names, whose status is
-///         Building: nothing here asks the signpost for a live status. Skipped without POLYGON_RPC_URL.
-contract OspexCapForkTest is CrossBase {
+///         set for its fee and its start is written through that set's own report call, from the address of
+///         its first-n reporter, so it takes fills; one cent fills; 10,100 is refused; K schedules the lift on
+///         the live timelock at its delay, the delay passes, a stranger runs it; and 10,100 fills in USDC,
+///         every balance to the unit. "Live" is the deployed code the entry names, whose status is Building:
+///         nothing here asks the signpost for a live status. Skipped without POLYGON_RPC_URL.
+contract OspexCapForkTest is LiveGamesForkBase {
     uint256 internal constant FORK_BLOCK = 96_885_149;
     address internal constant USDC = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
     address internal constant HOLDER = 0x16Dc5D67D080a5521ef2c79680dBfC2aBf724D30;
@@ -177,7 +209,6 @@ contract OspexCapForkTest is CrossBase {
     uint256 internal constant CAP = 10_000;
 
     IERC20 internal usdc = IERC20(USDC);
-    IOspexGames internal liveGames;
     Signer internal restingAccount;
     Signer internal takingAccount;
     uint256 internal holderLeft;
@@ -233,15 +264,10 @@ contract OspexCapForkTest is CrossBase {
         assertEq(address(core.i_games()), address(liveGames), "the core's games set");
         assertEq(address(core.i_token()), USDC, "the core's coin");
 
-        // A game on the live games set, created for its fee by the resting account: unverified, so it fills.
+        // A game on the live games set, created for its fee by the resting account and verified through the
+        // set's own report call: so it fills.
         uint256 fee = liveGames.getTerms("nba").fee;
-        vm.startPrank(restingAccount.a);
-        assertTrue(usdc.approve(address(liveGames), fee), "the fee's approval");
-        uint256 game = liveGames.createGame(
-            "nba", "Home Team", "Away Team", uint64(vm.getBlockTimestamp() + 1 days), new Hint[](0), fee
-        );
-        vm.stopPrank();
-        assertEq(uint8(liveGames.getGameStatus(game)), uint8(GameStatus.Unverified), "the game's status");
+        uint256 game = _liveVerifiedGame(restingAccount.a, usdc, fee);
         uint256 restingHas = FUNDED - fee;
         assertEq(usdc.balanceOf(restingAccount.a), restingHas, "the resting account, after the fee");
 
@@ -306,7 +332,7 @@ contract OspexCapForkTest is CrossBase {
 ///         relay; and the new key's Cross fills in USDC for the same two accounts, who made no call in between.
 ///         This reads one block of Polygon: it does not show today's roles or delay. Skipped without
 ///         POLYGON_RPC_URL, and a skip is not a pass.
-contract OspexRelayForkTest is CrossBase {
+contract OspexRelayForkTest is LiveGamesForkBase {
     uint256 internal constant FORK_BLOCK = 96_885_149;
     address internal constant USDC = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
     address internal constant HOLDER = 0x16Dc5D67D080a5521ef2c79680dBfC2aBf724D30;
@@ -320,7 +346,6 @@ contract OspexRelayForkTest is CrossBase {
     bytes32 internal constant SENDER_SET_TOPIC = keccak256("SenderSet(address,address)");
 
     IERC20 internal usdc = IERC20(USDC);
-    IOspexGames internal liveGames;
     OspexCourierRelay internal relay;
     address internal courierKey = makeAddr("the courier's key on the fork");
     address internal newKey = makeAddr("the courier's next key on the fork");
@@ -409,15 +434,10 @@ contract OspexRelayForkTest is CrossBase {
         assertTrue(K != TIMELOCK && K != courierKey && courierKey != TIMELOCK, "the three addresses are not apart");
         _assertRegistrations("before the rotation");
 
-        // A game on the live games set, created for its fee by the resting account: unverified, so it fills.
+        // A game on the live games set, created for its fee by the resting account and verified through the
+        // set's own report call: so it fills.
         uint256 fee = liveGames.getTerms("nba").fee;
-        vm.startPrank(restingAccount.a);
-        assertTrue(usdc.approve(address(liveGames), fee), "the fee's approval");
-        uint256 game = liveGames.createGame(
-            "nba", "Home Team", "Away Team", uint64(vm.getBlockTimestamp() + 1 days), new Hint[](0), fee
-        );
-        vm.stopPrank();
-        assertEq(uint8(liveGames.getGameStatus(game)), uint8(GameStatus.Unverified), "the game's status");
+        uint256 game = _liveVerifiedGame(restingAccount.a, usdc, fee);
         uint256 restingHas = FUNDED - fee;
         assertEq(usdc.balanceOf(restingAccount.a), restingHas, "the resting account, after the fee");
 

@@ -1718,9 +1718,11 @@ contract OspexCourierRelayShapesTest is RelayBase {
         relay.setSender(courierKey);
         assertEq(relay.s_sender(), courierKey, "the key was not set back");
 
-        // More than a year on, on a game made then: the sender still passes, and a stranger is still refused.
+        // More than a year on, on a game made and started then: the sender still passes, and a stranger is still
+        // refused.
         vm.warp(vm.getBlockTimestamp() + 400 days);
         uint256 lateGame = _createAt(uint64(vm.getBlockTimestamp() + 1 days));
+        _startBy(first, lateGame, uint64(vm.getBlockTimestamp() + 1 days));
         (resting, taking) = _oneCent(lateGame, Side.A);
         data = _crossData(taking, _list(resting));
         (ok, out) = _tryRelay(stranger, stranger, data);

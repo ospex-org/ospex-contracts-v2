@@ -35,12 +35,13 @@ contract CourierCaller {
 
 /// @notice One test per line that must never happen in the betting set as it stands: a score is never read in
 ///         v2's order, away then home; a market settles on nothing but its game's own status; a void and a
-///         release are voids; the Cross is the one fill path in the betting set; only an account changes its couriers,
-///         and no account has one by default; the registry is exactly the required set and the deployer keeps
-///         nothing; a module wired wrong is refused at bootstrap, where the core asks a module of its type for
-///         its core, its games set or its coin, so finalize locks no set wired wrong; and the zero address is
-///         never an approved market contract. Above each test, "Break:" names a change to src/betting, most
-///         of one line, that turns it red.
+///         release are voids; no market is drawn and no fill lands on a game that is not verified; the Cross is
+///         the one fill path in the betting set; only an account changes its couriers, and no account has one
+///         by default; the registry is exactly the required set and the deployer keeps nothing; a module wired
+///         wrong is refused at bootstrap, where the core asks a module of its type for its core, its games set
+///         or its coin, so finalize locks no set wired wrong; and the zero address is never an approved market
+///         contract. Above each test, "Break:" names a change to src/betting, most of one line, that turns it
+///         red.
 contract OspexBettingNeverLinesTest is BettingBase {
     /// @dev The scored game of the rulings: home 121, away 99. Home wins the moneyline; home -3.5 covers. The
     ///      two scores differ, so a read in the other order gives the other team the win.
@@ -170,9 +171,10 @@ contract OspexBettingNeverLinesTest is BettingBase {
     /// Break: in OspexMarkets.settleMarket, replace `revert OspexMarkets__GameNotEnded(m.gameId, status);` with
     /// `outcome = Outcome.Void;`. A market on a game still in play then settles as a void.
     function test_neverLine_aMarketSettlesOnlyOnItsGamesOwnStatus() public {
-        // A game at each status short of an end, its score fields planted so that a read of the fields alone
-        // would settle the market: the status is what decides, and it refuses by name.
-        GameStatus[3] memory open = [GameStatus.Unverified, GameStatus.Verified, GameStatus.Disputed];
+        // A game at each status short of an end that a market exists on, verified and disputed, its score fields
+        // planted so that a read of the fields alone would settle the market: the status is what decides, and
+        // it refuses by name. No market is drawn on a game not yet verified, so there is none to settle.
+        GameStatus[2] memory open = [GameStatus.Verified, GameStatus.Disputed];
         for (uint256 i; i < open.length; ++i) {
             vm.warp(DATE - 1 hours);
             uint256 game = _inStatus(open[i]);
@@ -203,14 +205,14 @@ contract OspexBettingNeverLinesTest is BettingBase {
     /// Break: in OspexMarkets.settleMarket, change `status == GameStatus.Voided || status == GameStatus.Released`
     /// to `status == GameStatus.Voided`. A released game's market then never settles.
     function test_neverLine_aVoidAndAReleaseAreVoids() public {
-        // Positions are taken while the game is open, then the game ends without a score, each way.
+        // Positions are taken while the game is open, then the game ends without a score, each way: voided from
+        // start + n, or released at its day-30 clock with no score written.
         GameStatus[2] memory ends = [GameStatus.Voided, GameStatus.Released];
         for (uint256 i; i < ends.length; ++i) {
             vm.warp(DATE - 1 hours);
-            uint256 game = _create();
+            uint256 game = _verifiedGame();
             uint256 market = _market(game, address(spread), -35);
             if (ends[i] == GameStatus.Voided) {
-                _startBy(first, game, START);
                 vm.warp(START + WINDOW);
                 _voidBy(first, game);
             } else {
@@ -225,6 +227,103 @@ contract OspexBettingNeverLinesTest is BettingBase {
             assertEq(_claim(taker, market, Side.B), STAKE, "side B's stake back");
         }
         assertEq(token.balanceOf(address(positions)), 0, "coin left behind");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // "A market is created or a fill is recorded while its game is Unverified."
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// Break: in OspexMarkets._create, delete the refusal of a game that is not verified, `if (status !=
+    /// GameStatus.Verified && status != GameStatus.Disputed) { revert OspexMarkets__GameNotVerified(gameId,
+    /// status); }`. Asked by the positions module to draw a market on a game whose start is not written, it draws
+    /// one. Two more turn it red: that condition narrowed to Verified alone, which refuses the disputed game; and
+    /// the refusal skipped when the market contract is the spread, which draws a spread market at the positions
+    /// module's asking. A day-30 waiver, the refusal kept only while the block's time is before the game's date
+    /// plus its day-30 clock, has no break: the door reads no date and no clock, so that edit is a new read of
+    /// the games set, not one edit of the refusal; the pin stands on the three clocks around that second. The
+    /// close gate's own copy of the refusal has no break, whatever the market contract: a market exists only on
+    /// a game that was verified or disputed when it was drawn, and a verified game is never unverified again, so
+    /// no path through the games set reaches it; the gate's Disputed half is broken by the close test, its
+    /// condition narrowed the same way.
+    function test_neverLine_noMarketAndNoFillOnAnUnverifiedGame() public {
+        // A fresh game, its start not written: refused at the set's clock, at the start's own hour, and around its
+        // day-30 clock, a second before it, at that second and a second after, before any release. No clock
+        // admits it.
+        uint256 game = _create();
+        assertEq(uint8(_status(game)), uint8(GameStatus.Unverified));
+        _refusedUnverified(game, "before any start is written");
+        vm.warp(START);
+        _refusedUnverified(game, "at the start's hour, the start not written");
+        uint256 snap = vm.snapshotState();
+        vm.warp(_day30(game) - 1);
+        _refusedUnverified(game, "a second before its day-30 clock");
+        vm.warp(_day30(game));
+        _refusedUnverified(game, "at its day-30 second");
+        vm.warp(_day30(game) + 1);
+        _refusedUnverified(game, "a second after its day-30 clock");
+        assertEq(uint8(_status(game)), uint8(GameStatus.Unverified), "released meanwhile");
+        vm.revertToState(snap);
+
+        // Verified: the start written on that same game, at the same clock, its first fill draws market 1 and a
+        // second fill joins it. The refusal lifts at the start's writing and at nothing else.
+        _startBy(first, game, START);
+        assertEq(_market(game, address(moneyline), 0), 1, "the first fill once verified");
+        assertEq(_fill(game, address(moneyline), 0, Side.B, STAKE, STAKE), 1, "the second fill joins");
+        assertEq(markets.marketCount(), 1);
+
+        // Disputed: a game with a dispute record draws market 2 and fills inside n; the record is not an end,
+        // so its settlement is still refused.
+        uint256 disputed = _inStatus(GameStatus.Disputed);
+        assertEq(_market(disputed, address(moneyline), 0), 2, "the first fill on the disputed game");
+        (bool ok, bytes memory err) = _trySettle(2);
+        assertFalse(ok, "settled on a disputed game");
+        assertEq(
+            err, abi.encodeWithSelector(OspexMarkets.OspexMarkets__GameNotEnded.selector, disputed, GameStatus.Disputed)
+        );
+
+        // At start + n the verified game is refused as before, under the close's name.
+        vm.warp(START + WINDOW);
+        (ok, err) = _tryFill(game, address(moneyline), 0, Side.A, STAKE, STAKE);
+        assertFalse(ok, "filled at start + n");
+        assertEq(err, abi.encodeWithSelector(OspexMarkets.OspexMarkets__BetsClosed.selector, game, START + WINDOW));
+    }
+
+    /// @dev The fill on `game`, whose start is not written, refused by name through the Cross, through the
+    ///      positions module's own entry, and at the markets module's door when the positions module asks it to
+    ///      draw the market with no fill behind the call, for each of the three market contracts in turn; and
+    ///      nothing of it remains: no market, no position, no coin moved and nothing held.
+    function _refusedUnverified(uint256 game, string memory what) internal {
+        uint256 makerHad = token.balanceOf(maker);
+        uint256 takerHad = token.balanceOf(taker);
+        uint256 held = token.balanceOf(address(positions));
+        _refusedUnverifiedOn(game, address(moneyline), 0, string.concat("the moneyline, ", what));
+        _refusedUnverifiedOn(game, address(spread), -35, string.concat("the spread, ", what));
+        _refusedUnverifiedOn(game, address(total), 2205, string.concat("the total, ", what));
+        assertEq(markets.marketCount(), 0, string.concat("a market drawn: ", what));
+        assertEq(positions.getPosition(1, maker, Side.A).risk, 0, string.concat("the maker's position: ", what));
+        assertEq(positions.getPosition(1, taker, Side.B).risk, 0, string.concat("the taker's position: ", what));
+        assertEq(token.balanceOf(maker), makerHad, string.concat("the maker's coin moved: ", what));
+        assertEq(token.balanceOf(taker), takerHad, string.concat("the taker's coin moved: ", what));
+        assertEq(token.balanceOf(address(positions)), held, string.concat("the module's coin moved: ", what));
+        assertEq(positions.s_heldTotal(1), 0, string.concat("something held: ", what));
+    }
+
+    /// @dev One market contract's turn in _refusedUnverified: the fill refused by name at each of the three doors,
+    ///      and no market id drawn on that contract and line.
+    function _refusedUnverifiedOn(uint256 game, address scorer, int32 line, string memory on) internal {
+        bytes memory want =
+            abi.encodeWithSelector(OspexMarkets.OspexMarkets__GameNotVerified.selector, game, GameStatus.Unverified);
+        (bool ok, bytes memory err) = _tryFill(game, scorer, line, Side.A, STAKE, STAKE);
+        assertFalse(ok, string.concat("filled through the Cross: ", on));
+        assertEq(err, want, string.concat("the Cross: ", on));
+        (ok, err) = _tryRawFill(game, scorer, line, Side.A, STAKE, STAKE);
+        assertFalse(ok, string.concat("filled, sent to the positions module: ", on));
+        assertEq(err, want, string.concat("sent to the positions module: ", on));
+        vm.prank(address(positions));
+        (ok, err) = address(markets).call(abi.encodeCall(OspexMarkets.createMarket, (game, scorer, line, maker, taker)));
+        assertFalse(ok, string.concat("a market drawn at the positions module's asking: ", on));
+        assertEq(err, want, string.concat("the door: ", on));
+        assertEq(markets.getMarketId(game, scorer, line), 0, string.concat("a market id: ", on));
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────

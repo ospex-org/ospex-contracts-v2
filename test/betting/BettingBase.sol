@@ -374,6 +374,22 @@ abstract contract BettingBase is GamesBase {
         _startBy(first, game, START);
     }
 
+    /// @dev Retires the three reporters through the stock timelock, after which nothing writes to any game and
+    ///      every game's release is open at once. The clock moves by three delays. A test's last write by a
+    ///      reporter comes before it.
+    function _retireEveryReporter() internal {
+        _retire(address(first));
+        _retire(address(later));
+        _retire(address(second));
+    }
+
+    /// @dev A verified game whose release is open while its bets are: its start written at START, then every
+    ///      reporter retired. For the tests of a release made from inside a fill.
+    function _releasableGame() internal returns (uint256 game) {
+        game = _verifiedGame();
+        _retireEveryReporter();
+    }
+
     /// @dev Scores `game` `home`-`away` through the production path, one second after START.
     function _score(uint256 game, uint32 home, uint32 away) internal {
         vm.warp(START + 1);

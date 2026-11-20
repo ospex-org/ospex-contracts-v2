@@ -1885,13 +1885,12 @@ contract OspexSharedCollateralCallbackTest is SharedCollateralBase {
         trick.setHooked(Y.a, false);
     }
 
-    /// @dev On an unverified game past its day-30 clock: from inside its pay-back the receiver releases the game
-    ///      and settles the market, which neither guard holds; the Cross completes, the market reads void, and
-    ///      every claim pays what is held.
+    /// @dev On a verified game whose reporters have all retired, so that its release is open while its bets
+    ///      are: from inside its pay-back the receiver releases the game and settles the market, which neither
+    ///      guard holds; the Cross completes, the market reads void, and every claim pays what is held.
     function _releasedFromInside() internal {
-        uint256 game = _create();
+        uint256 game = _releasableGame();
         uint256 market = _leg(Y, TK, game, Side.A, 100 * U, 100 * U);
-        vm.warp(DATE + 30 days);
         trick.setHooked(Y.a, true);
         CallbackAccount r = CallbackAccount(Y.a);
         r.arm(address(games), abi.encodeCall(IOspexGames.release, (game)));
