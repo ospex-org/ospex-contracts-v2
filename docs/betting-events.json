@@ -1,0 +1,352 @@
+{
+  "about": "The betting set's events, by position. Each hub type is carried by the core's CoreEventEmitted, whose eventType is the keccak256 of the type's name and whose payload is every field of the typed event, indexed or not, in order, ABI-encoded. A field's indexed flag is the typed event's own topic layout.",
+  "hub": {
+    "contract": "OspexBetting",
+    "signature": "CoreEventEmitted(bytes32,address,bytes)",
+    "topic0": "0x74e1713fa8daa7e67780dc01efe55e6bd1e2ecaac3ee22e2c6143ab4874bddf5",
+    "fields": [
+      {"name": "eventType", "type": "bytes32", "indexed": true},
+      {"name": "emitter", "type": "address", "indexed": true},
+      {"name": "eventData", "type": "bytes", "indexed": false}
+    ]
+  },
+  "hubTypes": [
+    {
+      "type": "MARKET_CREATED",
+      "typeHash": "0x7961f7253b888fad196895fa96905c2049de6174b382b8a00a494ded1db949e9",
+      "emitter": "OspexMarkets",
+      "event": {
+        "contract": "OspexMarkets",
+        "signature": "MarketCreated(uint256,uint256,address,int32,address,address)",
+        "topic0": "0x01a7dea41f70a89e239e50a381ac102353f28944041235cb70d47ee52674ea6c",
+        "fields": [
+          {"name": "marketId", "type": "uint256", "indexed": true},
+          {"name": "gameId", "type": "uint256", "indexed": true},
+          {"name": "scorer", "type": "address", "indexed": false},
+          {"name": "lineTicks", "type": "int32", "indexed": false},
+          {"name": "maker", "type": "address", "indexed": false},
+          {"name": "taker", "type": "address", "indexed": false}
+        ]
+      }
+    },
+    {
+      "type": "MARKET_SETTLED",
+      "typeHash": "0x275cbd6b679e3008b8df642bdd1eefeeea1dd0211539a45713434e61d1c312a8",
+      "emitter": "OspexMarkets",
+      "event": {
+        "contract": "OspexMarkets",
+        "signature": "MarketSettled(uint256,uint8,address)",
+        "topic0": "0x6feab47352eb51eb152c68c488ec7b6d3f64d30623f7374a0460f1113f3e1621",
+        "fields": [
+          {"name": "marketId", "type": "uint256", "indexed": true},
+          {"name": "outcome", "type": "uint8", "indexed": false},
+          {"name": "scorer", "type": "address", "indexed": false}
+        ]
+      }
+    },
+    {
+      "type": "POSITION_MATCHED_PAIR",
+      "typeHash": "0x4b7ecdec2b8a350d2a1ba60b8d982ed59136f843f9f2a58c2f8b5f8916e36d55",
+      "emitter": "OspexPositions",
+      "event": {
+        "contract": "OspexPositions",
+        "signature": "PositionFilled(uint256,address,address,uint8,uint8,uint256,uint256)",
+        "topic0": "0xf446e0c303f8dbe8151d4c50c942c2a84713600c61e55f72ad64c1fa336e8de5",
+        "fields": [
+          {"name": "marketId", "type": "uint256", "indexed": true},
+          {"name": "maker", "type": "address", "indexed": true},
+          {"name": "taker", "type": "address", "indexed": true},
+          {"name": "makerSide", "type": "uint8", "indexed": false},
+          {"name": "takerSide", "type": "uint8", "indexed": false},
+          {"name": "makerRisk", "type": "uint256", "indexed": false},
+          {"name": "takerRisk", "type": "uint256", "indexed": false}
+        ]
+      }
+    },
+    {
+      "type": "POSITION_CLAIMED",
+      "typeHash": "0x2e7ffcffc5b9e7430e9ceb78e1e29f5261f21e812531be1ae93b7368fda42b60",
+      "emitter": "OspexPositions",
+      "event": {
+        "contract": "OspexPositions",
+        "signature": "PositionClaimed(uint256,address,uint8,uint256)",
+        "topic0": "0x1cf42e1d2ccc3a600a71effed5f012544b4853f24ffa5151702a3634a4e2efa4",
+        "fields": [
+          {"name": "marketId", "type": "uint256", "indexed": true},
+          {"name": "user", "type": "address", "indexed": true},
+          {"name": "side", "type": "uint8", "indexed": false},
+          {"name": "payout", "type": "uint256", "indexed": false}
+        ]
+      }
+    },
+    {
+      "type": "HELD_CHANGED",
+      "typeHash": "0x4d9f77fa86fb1f893c471b724296e1015e520a6bc6a12677ace303b1eda049ef",
+      "emitter": "OspexPositions",
+      "event": {
+        "contract": "OspexPositions",
+        "signature": "HeldChanged(uint256,address,uint256,uint256,uint256)",
+        "topic0": "0xe0c3b81c7075d7192d889148bd51261c54cdb61c69c6ffaf222f11c024a4aeb2",
+        "fields": [
+          {"name": "marketId", "type": "uint256", "indexed": true},
+          {"name": "account", "type": "address", "indexed": true},
+          {"name": "pulled", "type": "uint256", "indexed": false},
+          {"name": "paidBack", "type": "uint256", "indexed": false},
+          {"name": "held", "type": "uint256", "indexed": false}
+        ]
+      }
+    },
+    {
+      "type": "PAY_BACK_REFUSED",
+      "typeHash": "0x2acc6e4752da0c188407c8f48742422035635efa932160a0618e1bc020e147e9",
+      "emitter": "OspexPositions",
+      "event": {
+        "contract": "OspexPositions",
+        "signature": "PayBackRefused(uint256,address,uint256,uint256)",
+        "topic0": "0x4087e7241a499c3ad935a1f0dfebacfcfd1e8289d430836f38dc84958de5e78f",
+        "fields": [
+          {"name": "marketId", "type": "uint256", "indexed": true},
+          {"name": "account", "type": "address", "indexed": true},
+          {"name": "amount", "type": "uint256", "indexed": false},
+          {"name": "held", "type": "uint256", "indexed": false}
+        ]
+      }
+    },
+    {
+      "type": "ORDER_CANCELLED",
+      "typeHash": "0x69d3d039f79879d241ea815c12015cedeca0cfad0556cdf56843bd9afd23e930",
+      "emitter": "OspexMatching",
+      "event": {
+        "contract": "OspexMatching",
+        "signature": "OrderCancelled(bytes32,address,uint256,address,int32,uint8,uint16,uint256,uint256,uint256,uint256,address)",
+        "topic0": "0x62fc008bbd605dd78e5a6e950e3f368a0f5162154fae05652f84e2c01746be69",
+        "fields": [
+          {"name": "orderHash", "type": "bytes32", "indexed": true},
+          {"name": "account", "type": "address", "indexed": true},
+          {"name": "gameId", "type": "uint256", "indexed": false},
+          {"name": "scorer", "type": "address", "indexed": false},
+          {"name": "lineTicks", "type": "int32", "indexed": false},
+          {"name": "positionType", "type": "uint8", "indexed": false},
+          {"name": "oddsTick", "type": "uint16", "indexed": false},
+          {"name": "riskAmount", "type": "uint256", "indexed": false},
+          {"name": "nonce", "type": "uint256", "indexed": false},
+          {"name": "expiry", "type": "uint256", "indexed": false},
+          {"name": "minFill", "type": "uint256", "indexed": false},
+          {"name": "sender", "type": "address", "indexed": false}
+        ]
+      }
+    },
+    {
+      "type": "FLOOR_RAISED",
+      "typeHash": "0xeb853ffc5cc8db4fd6908f35b4bc1a52542aef55229fbd184580fde5fd897f16",
+      "emitter": "OspexMatching",
+      "event": {
+        "contract": "OspexMatching",
+        "signature": "FloorRaised(address,uint128,uint256,address,int32,uint96,bytes32,address)",
+        "topic0": "0x6e1164faf93b701c58b6876f80219812b1facb4974b77634b7a1710b902f7cb9",
+        "fields": [
+          {"name": "account", "type": "address", "indexed": true},
+          {"name": "version", "type": "uint128", "indexed": false},
+          {"name": "gameId", "type": "uint256", "indexed": false},
+          {"name": "scorer", "type": "address", "indexed": false},
+          {"name": "lineTicks", "type": "int32", "indexed": false},
+          {"name": "floor", "type": "uint96", "indexed": false},
+          {"name": "lineKey", "type": "bytes32", "indexed": true},
+          {"name": "sender", "type": "address", "indexed": false}
+        ]
+      }
+    },
+    {
+      "type": "VERSION_CHANGED",
+      "typeHash": "0xbc33b332d3d38592b30c045c168d38335110b5d8c32559fa59e1f363d53b4c6b",
+      "emitter": "OspexMatching",
+      "event": {
+        "contract": "OspexMatching",
+        "signature": "VersionChanged(address,uint128,uint128,address)",
+        "topic0": "0x48c0b317f28ea36d23f63ed0c1a85269194fbe489d5206f651b7c0fc256bbc39",
+        "fields": [
+          {"name": "account", "type": "address", "indexed": true},
+          {"name": "previous", "type": "uint128", "indexed": false},
+          {"name": "next", "type": "uint128", "indexed": false},
+          {"name": "sender", "type": "address", "indexed": false}
+        ]
+      }
+    },
+    {
+      "type": "AGENT_GRANTED",
+      "typeHash": "0x3c19d463b330dad514ededc1cf98b6fdaf29c1f8b16acb5ab939349a0a08cdc5",
+      "emitter": "OspexMatching",
+      "event": {
+        "contract": "OspexMatching",
+        "signature": "AgentGranted(address,address,uint32,uint256,uint64,(uint256,address,int32)[])",
+        "topic0": "0x97ec1d47bea8f7f6ce05b22334c3474d5dec0357149787e72e572ba7c26de93a",
+        "fields": [
+          {"name": "account", "type": "address", "indexed": true},
+          {"name": "agent", "type": "address", "indexed": true},
+          {"name": "number", "type": "uint32", "indexed": false},
+          {"name": "stakeCap", "type": "uint256", "indexed": false},
+          {"name": "endsAt", "type": "uint64", "indexed": false},
+          {"name": "lines", "type": "(uint256,address,int32)[]", "indexed": false}
+        ]
+      }
+    },
+    {
+      "type": "AGENT_REVOKED",
+      "typeHash": "0x4827f9112849be6e86183d4718bf287d4c2aa2633db6b668335da20d6a860656",
+      "emitter": "OspexMatching",
+      "event": {
+        "contract": "OspexMatching",
+        "signature": "AgentRevoked(address,address,uint32)",
+        "topic0": "0xc86a020824f696574dfa1f073b0c566984b8a0caf7cdd79fb0cbb84ea3ba3f41",
+        "fields": [
+          {"name": "account", "type": "address", "indexed": true},
+          {"name": "agent", "type": "address", "indexed": true},
+          {"name": "number", "type": "uint32", "indexed": false}
+        ]
+      }
+    },
+    {
+      "type": "COURIER_REGISTERED",
+      "typeHash": "0xbb47839a2b82202600280400d67acac4b13453f9c13bfa442d7ae879f2775df7",
+      "emitter": "OspexMatching",
+      "event": {
+        "contract": "OspexMatching",
+        "signature": "CourierRegistered(address,address)",
+        "topic0": "0x1b77fa09fbf96fdc6f1ed97f0a5d30b11055b056b5dcd4497c3155477d802d4d",
+        "fields": [
+          {"name": "account", "type": "address", "indexed": true},
+          {"name": "courier", "type": "address", "indexed": true}
+        ]
+      }
+    },
+    {
+      "type": "COURIER_UNREGISTERED",
+      "typeHash": "0x223ba896c9bc22d0f81d88522018c81cd3015c5cdf90e325cb91dd98e5ead2e6",
+      "emitter": "OspexMatching",
+      "event": {
+        "contract": "OspexMatching",
+        "signature": "CourierUnregistered(address,address)",
+        "topic0": "0xf0684a4ef4c913e4f848253b22c85ff10a781fe5881b3c1e70069f3360a60012",
+        "fields": [
+          {"name": "account", "type": "address", "indexed": true},
+          {"name": "courier", "type": "address", "indexed": true}
+        ]
+      }
+    },
+    {
+      "type": "ORDER_MATCHED",
+      "typeHash": "0xfa322e978a2adfc727435b82e5488c09e09c277b51c8b62e3ce9a85e2bba78ec",
+      "emitter": "OspexMatching",
+      "event": {
+        "contract": "OspexMatching",
+        "signature": "OrderMatched(bytes32,address,address,uint256,uint256,address,int32,uint8,uint16,uint256,uint256,uint256,uint256,uint256,uint256)",
+        "topic0": "0x89d4fedbfa48ad640c600e7f6fca6be6f3b383f3fda4b764f9b1b113a1c63b22",
+        "fields": [
+          {"name": "orderHash", "type": "bytes32", "indexed": true},
+          {"name": "maker", "type": "address", "indexed": true},
+          {"name": "taker", "type": "address", "indexed": true},
+          {"name": "gameId", "type": "uint256", "indexed": false},
+          {"name": "marketId", "type": "uint256", "indexed": false},
+          {"name": "scorer", "type": "address", "indexed": false},
+          {"name": "lineTicks", "type": "int32", "indexed": false},
+          {"name": "makerPositionType", "type": "uint8", "indexed": false},
+          {"name": "oddsTick", "type": "uint16", "indexed": false},
+          {"name": "makerRisk", "type": "uint256", "indexed": false},
+          {"name": "takerRisk", "type": "uint256", "indexed": false},
+          {"name": "orderRiskAmount", "type": "uint256", "indexed": false},
+          {"name": "nonce", "type": "uint256", "indexed": false},
+          {"name": "expiry", "type": "uint256", "indexed": false},
+          {"name": "orderMinFill", "type": "uint256", "indexed": false}
+        ]
+      }
+    },
+    {
+      "type": "ORDER_SKIPPED",
+      "typeHash": "0xd9ee87ea103f803246394f2ae69781709fe90256e32b4dfbf61e28297ccf41a3",
+      "emitter": "OspexMatching",
+      "event": {
+        "contract": "OspexMatching",
+        "signature": "OrderSkipped(bytes32,address,bytes32,uint8)",
+        "topic0": "0x42b88ad95f0ff22337a218edd256a98ffff608a3688fc0af8b50cefb361dad92",
+        "fields": [
+          {"name": "orderHash", "type": "bytes32", "indexed": true},
+          {"name": "account", "type": "address", "indexed": true},
+          {"name": "takingOrderHash", "type": "bytes32", "indexed": true},
+          {"name": "reason", "type": "uint8", "indexed": false}
+        ]
+      }
+    },
+    {
+      "type": "CROSSED",
+      "typeHash": "0x1463f72f87d1265b9cefafa5540efab1350a6d3d6e2486dc2d46a16974521fdb",
+      "emitter": "OspexMatching",
+      "event": {
+        "contract": "OspexMatching",
+        "signature": "Crossed(address,bytes32,address,uint256,uint256,uint256)",
+        "topic0": "0x3f1220a2d8e3b575fafae8903189042bf84dccbab62fee8daeea03012f4794ce",
+        "fields": [
+          {"name": "courier", "type": "address", "indexed": true},
+          {"name": "takingOrderHash", "type": "bytes32", "indexed": true},
+          {"name": "taker", "type": "address", "indexed": true},
+          {"name": "marketId", "type": "uint256", "indexed": false},
+          {"name": "totalMakerRisk", "type": "uint256", "indexed": false},
+          {"name": "totalTakerRisk", "type": "uint256", "indexed": false}
+        ]
+      }
+    },
+    {
+      "type": "TAKING_STAKE_CAP_LIFTED",
+      "typeHash": "0xc832d7a937dd65998090c171fdb041bc614b1b5245ff3a624d32391c4f58499a",
+      "emitter": "OspexMatching",
+      "event": {
+        "contract": "OspexMatching",
+        "signature": "TakingStakeCapLifted()",
+        "topic0": "0xd83df7f0d15f92a8c607aaceb0537d8f43a1b3f6b1e37dc069f7ede6e80ffce8",
+        "fields": []
+      }
+    }
+  ],
+  "coreEvents": [
+    {
+      "contract": "OspexBetting",
+      "signature": "GamesSet(address)",
+      "topic0": "0x963d4edec391507b198165e4076bf90ce53571c8bfea07a48a9c5421d992a040",
+      "fields": [
+        {"name": "games", "type": "address", "indexed": true}
+      ]
+    },
+    {
+      "contract": "OspexBetting",
+      "signature": "TokenSet(address)",
+      "topic0": "0xa07c91c183e42229e705a9795a1c06d76528b673788b849597364528c96eefb7",
+      "fields": [
+        {"name": "token", "type": "address", "indexed": true}
+      ]
+    },
+    {
+      "contract": "OspexBetting",
+      "signature": "ModulesBootstrapped(uint256)",
+      "topic0": "0xbf6b41cb85aa0914079ea81fcdac49445c89ea24071a5cbb04173ed51a05e610",
+      "fields": [
+        {"name": "moduleCount", "type": "uint256", "indexed": false}
+      ]
+    },
+    {
+      "contract": "OspexBetting",
+      "signature": "Finalized()",
+      "topic0": "0x6823b073d48d6e3a7d385eeb601452d680e74bb46afe3255a7d778f3a9b17681",
+      "fields": []
+    }
+  ],
+  "relayEvents": [
+    {
+      "contract": "OspexCourierRelay",
+      "signature": "SenderSet(address,address)",
+      "topic0": "0x2528c2c57a6310ea9ba962d28443563e7e32dd03dbf7cf8900230f5f845383f8",
+      "fields": [
+        {"name": "previous", "type": "address", "indexed": true},
+        {"name": "current", "type": "address", "indexed": true}
+      ]
+    }
+  ]
+}

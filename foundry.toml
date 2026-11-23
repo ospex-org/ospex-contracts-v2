@@ -21,6 +21,8 @@ fs_permissions = [
     # The games tests run every report shape the scoring program can send, from its exported file.
     { access = "read", path = "test/games/shapes.json" },
     { access = "read-write", path = "deployments" },
+    # The betting set's event schema: script/BettingEventsSchema.s.sol writes it, and its test reads it back.
+    { access = "read-write", path = "docs/betting-events.json" },
     { access = "read", path = "lib/openzeppelin-contracts/package.json" },
 ]
 
