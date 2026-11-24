@@ -119,6 +119,38 @@ Deploy day for the games set, the checklist beside the script's own order:
 3. The RPC serves `eth_getLogs` in 10,000-block windows and the state of the current block; the script reads the timelock's whole log history (its roles replayed to today's holders; what it has done since never refuses) and the coin's transfers since the plan.
 4. `predict` with the deployer as `--sender`, no broadcast: the plan records the addresses, the block, both coin balances and the reporter's build; the reproducible build in ospex-cre with both predicted addresses, its JSON saved beside the plan; the owner registers the id at Chainlink; `deploy` with `--broadcast`, from the same checkout of this script; the receipts are forge's broadcast log; `signpostCall` with the games contract's creation block and the commit; the key schedules the call.
 
+- `script/DeployBetting.s.sol` and `script/deploy-betting.sh`: deploy day for the betting set. Ten sends from one deployer, at its nonces k to k + 9, from one plan: the core, its six modules and the courier relay, whose first sender is the Polygon timelock's own address until the courier is live; then the bootstrap of the six; then the lock. `predict` names the eight addresses by the deployer's nonce, writes the plan and prints its digest. The sends are three runs, `create`, `bootstrap` and `finalize`, because a script's sends are broadcast after the script has run. Each run reads the chain before it sends: the steps already proven at the finalized block, by their effect; the deployer's latest and pending nonces; and, before the bootstrap, every identity, build and wiring check, with the code at each address exactly the plan's and the timelock's scheduled calls read to the latest block for any that names the matching module or the relay. A run sends only what the chain has not proven, and holds on anything it cannot place. From the bootstrap's block the set takes bets under the cap, whether or not the lock has run and whether or not the signpost lists it. `check` reads a set back at a stage; `signpostCall` writes the entry the key schedules on the timelock. Every run goes through the wrapper. It refuses another commit, a dirty tree, another forge, a signer from the environment and a `.env` file where forge would read one; it keeps the rehearsal on this machine's own loopback node, keeps no storage cache of the node it reads, filters every node address out of what it prints and keeps, and writes the run's manifest in two classes, the values two runs must share and the ones they may differ in. `compare` reads two manifests. `script/test-deploy-betting.sh` tests the wrapper.
+- `docs/betting-events.json`: the betting set's events by position, for whoever reads the core's hub. For each type the hub carries: its name and keccak256, the module that emits it, the typed event's signature and topic 0, and the payload's fields in order with their ABI types; then the core's own four events and the relay's one. `script/BettingEventsSchema.s.sol` writes it from the build's artifacts, and `test/betting/BettingEventsSchema.t.sol` builds it again and requires the file to match.
+
+Deploy day for the betting set, the checklist beside the script's own order. `<node>` is the sending machine's node, `<account>` the deployer's keystore, and each run's output names the values the next line takes.
+
+1. Hold whatever sends from the deployer on the sending machine, every timer and trigger, and keep it held until the ten sends are mined; the deployer's nonce is the plan.
+2. `script/deploy-betting.sh live predict <commit> --rpc-url <node>`, with `<commit>` checked out on a clean tree. It writes the plan and the manifest, and prints the digest.
+3. The rehearsal, in a second checkout of the same commit: this machine's own anvil forked at the plan's block plus one, `anvil --fork-url <node> --fork-block-number <the plan's block + 1> --quiet --no-storage-caching`, then the same lines with `fork` as the first word and `--rpc-url http://127.0.0.1:<port>`, `fork setup` first and an `anvil_mine 64` before each `check`. Then `script/deploy-betting.sh compare <the rehearsal's manifest.json> <the plan's manifest.json>`: equal in the must-equal class.
+4. Go, on the plan's digest, its maximum fee and its spend bound. The go value names the comment that gives them, which the operator reads against the plan before the first send.
+5. The three sending phases, each after the one before is final, each followed by its stage check:
+   - `script/deploy-betting.sh live create <digest> <go> <maxFee> --rpc-url <node> --account <account>`, then `script/deploy-betting.sh live check <core> <the core's creation block> 1 --rpc-url <node>`;
+   - `live bootstrap`, the same three values, then `check … 2`;
+   - `live finalize`, the same three values, then `check … 3`.
+6. `script/deploy-betting.sh live signpostCall <the core's creation block> --rpc-url <node>`. It writes `signpost-call.json` beside the plan.
+7. A second machine rebuilds the entry's call from its own reads of the chain, with `cast` alone, and must agree with `signpost-call.json` in every field, the operation id and the hash of the schedule's calldata among them:
+   ```
+   cast call <core> "getModule(bytes32)(address)" $(cast keccak MARKET_MODULE) --block finalized --rpc-url <node>
+     (the same for POSITION_MODULE, MATCHING_MODULE, MONEYLINE_SCORER_MODULE, SPREAD_SCORER_MODULE and TOTAL_SCORER_MODULE)
+   cast compute-address <deployer> --nonce <k + 7>
+   cast call <timelock> "getMinDelay()(uint256)" --rpc-url <node>
+   cast calldata "addEntry(uint8,address,address[],bytes20,uint64)" 1 <coin> "[<core>,<markets>,<positions>,<matching>,<moneyline>,<spread>,<total>,<relay>]" <commit> <the core's creation block>
+   cast keccak $(cast abi-encode "f(string,address)" "betting set" <core>)
+   cast calldata "schedule(address,uint256,bytes,bytes32,bytes32,uint256)" <signpost> 0 <addEntry> <32 zero bytes> <salt> <delay>
+   cast call <timelock> "hashOperation(address,uint256,bytes,bytes32,bytes32)(bytes32)" <signpost> 0 <addEntry> <32 zero bytes> <salt> --rpc-url <node>
+   cast keccak <schedule>
+   ```
+8. The key schedules the call on the timelock.
+9. After the delay, anyone executes it.
+10. The entry's id is the one the execute's `EntryAdded` log gives, and the entry is read back with `getEntry(<id>)`. The preview id in `signpost-call.json` is a preview, never an argument.
+
+Build on the sending machine with the pinned forge, under the `ci` profile and CI's flags.
+
 ## License
 
 [BUSL-1.1](LICENSE.md) — Business Source License 1.1. Converts to GPL-2.0-or-later on February 20, 2028.
