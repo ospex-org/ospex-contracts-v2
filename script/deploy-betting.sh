@@ -18,7 +18,8 @@
 #
 # Before every phase it refuses unless: HEAD is the commit (the plan's, once a plan exists); the tree is clean,
 # submodules included; forge's and cast's commit line is the pinned one; the profile is ci, with CI's flags;
-# the node is named on the line and not inherited; no signer comes from the environment. In fork mode the node
+# the node is named on the line and not inherited; no signer comes from the environment, and no .env file sits
+# where forge would read one. forge keeps no storage cache of the node it reads. In fork mode the node
 # must be this machine's loopback, so nothing of the rehearsal can reach a live node, and the sentinel's code
 # must be on it after setup. In live mode the sentinel must be absent and the go value must not be the fork's.
 #
@@ -98,6 +99,16 @@ require_commit_line() {
     local tool="$1" line
     line=$("$tool" --version 2>/dev/null | grep '^Commit SHA: ' || true)
     [ "$line" = "Commit SHA: $PINNED_FOUNDRY_COMMIT" ] || die "$tool's commit line is not the pinned one ($PINNED_FOUNDRY_COMMIT)"
+}
+
+# forge, cast and anvil read a .env file in the working folder and in the project's root before they read any
+# flag, and it can name a signer. One there is refused before any of them starts; it is never opened here.
+require_no_dotenv() {
+    local dir root
+    root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+    for dir in "$(pwd)" "$root"; do
+        [ ! -e "$dir/.env" ] || die "a .env file in $dir: forge, cast and anvil would read it before any flag"
+    done
 }
 
 require_clean_environment() {
@@ -275,7 +286,7 @@ compare_manifests() {
 # ── The phases ────────────────────────────────────────────────────────────────────────────────────────────────
 
 forge_script() {
-    run_filtered "$(forge_bin)" script "$SCRIPT" --rpc-url "$RPC_URL" --skip test "${FORGE_FLAGS[@]}" "$@"
+    run_filtered "$(forge_bin)" script "$SCRIPT" --rpc-url "$RPC_URL" --skip test --no-storage-caching "${FORGE_FLAGS[@]}" "$@"
 }
 
 main() {
@@ -306,6 +317,7 @@ main() {
         esac
     done
 
+    require_no_dotenv
     require_clean_environment
     require_rpc_given
     require_commit_line "$(forge_bin)"

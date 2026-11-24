@@ -26,6 +26,8 @@ TMP="$(mktemp -d)"
 REPO="$TMP/repo"
 STUB="$TMP/bin"
 RECORD="$TMP/forge-record.txt"
+# Every start of the stand-in forge, its version line included.
+STARTS="$TMP/forge-starts.txt"
 ANVIL_PID=""
 failures=0
 cases=0
@@ -43,6 +45,7 @@ fail() { cases=$((cases + 1)); failures=$((failures + 1)); echo "FAIL $1"; }
 mkdir -p "$STUB" "$REPO/script"
 cat > "$STUB/forge" <<'STUBEOF'
 #!/usr/bin/env bash
+[ -n "${STUB_STARTS:-}" ] && echo "started: $*" >> "$STUB_STARTS"
 if [ "${1:-}" = "--version" ]; then
     echo "forge Version: 1.6.0-nightly"
     echo "Commit SHA: ${STUB_FORGE_COMMIT}"
@@ -77,7 +80,8 @@ cp "$WRAPPER_SRC" "$REPO/script/deploy-betting.sh"
 echo "// a stand-in for the script, in the throwaway repository" > "$REPO/script/DeployBetting.s.sol"
 printf '[profile.default]\nsrc = "src"\n\n[profile.ci]\nsolc = "0.8.26"\n' > "$REPO/foundry.toml"
 printf 'forge-std/=lib/forge-std/src/\n' > "$REPO/remappings.txt"
-printf 'deployments/\n' > "$REPO/.gitignore"
+# The real repository ignores .env files too, so one leaves the tree clean.
+printf 'deployments/\n.env\n' > "$REPO/.gitignore"
 git -C "$REPO" init -q
 git -C "$REPO" -c user.name=test -c user.email=test@example.invalid add .
 git -C "$REPO" -c user.name=test -c user.email=test@example.invalid commit -q -m "a made-up commit"
@@ -97,8 +101,8 @@ done
 
 # Runs the wrapper in the throwaway repository with the stand-ins, its streams captured.
 wrap() {
-    (cd "$REPO" && env DEPLOY_FOUNDRY_BIN="$STUB" STUB_RECORD="$RECORD" STUB_FORGE_COMMIT="${STUB_FORGE_COMMIT:-$PINNED}" \
-        bash script/deploy-betting.sh "$@")
+    (cd "$REPO" && env DEPLOY_FOUNDRY_BIN="$STUB" STUB_RECORD="$RECORD" STUB_STARTS="$STARTS" \
+        STUB_FORGE_COMMIT="${STUB_FORGE_COMMIT:-$PINNED}" bash script/deploy-betting.sh "$@")
 }
 
 # expect_refused <case> <words of the refusal> <wrapper arguments...>
@@ -151,8 +155,20 @@ STUB_FORGE_COMMIT="0000000000000000000000000000000000000000" \
 : > "$RECORD"
 expect_passed "the commit, a clean tree, the pinned forge (the positive control)" fork predict "$HEAD_COMMIT" --rpc-url "$NODE"
 grep -q "predict(bytes20) 0x$HEAD_COMMIT" "$RECORD" && grep -q -- "--skip test" "$RECORD" && grep -q -- "--via-ir --optimize" "$RECORD" \
-    && grep -q "FOUNDRY_PROFILE: ci" "$RECORD" && ok "predict ran forge with --skip test, the ci profile and CI's flags" \
+    && grep -q -- "--no-storage-caching" "$RECORD" && grep -q "FOUNDRY_PROFILE: ci" "$RECORD" \
+    && ok "predict ran forge with --skip test, no storage cache, the ci profile and CI's flags" \
     || fail "predict's forge line: $(cat "$RECORD")"
+
+# A .env file is read by forge, cast and anvil before any flag, and it can name a signer. An ignored one in the
+# project's root is refused before any of them starts, and the clean tree does not hide it.
+printf 'ETH_KEYSTORE_ACCOUNT=a-made-up-wallet\n' > "$REPO/.env"
+: > "$STARTS"
+expect_refused "an ignored .env in the project's root" "a .env file in" fork predict "$HEAD_COMMIT" --rpc-url "$NODE"
+if [ ! -s "$STARTS" ]; then ok "the .env refusal: forge never started"; else fail "the .env refusal: forge started: $(cat "$STARTS")"; fi
+rm -f "$REPO/.env"
+: > "$STARTS"
+expect_passed "no .env, the same tree (the positive control)" fork check "0x$(printf '%040d' 1)" 1 3 --rpc-url "$NODE"
+if [ -s "$STARTS" ]; then ok "the positive control: forge started"; else fail "the positive control: forge never started"; fi
 expect_refused "an unknown stage" "unknown stage '4'" fork check "0x$(printf '%040d' 1)" 1 4 --rpc-url "$NODE"
 : > "$RECORD"
 expect_passed "a known stage (the positive control)" fork check "0x$(printf '%040d' 1)" 1 3 --rpc-url "$NODE"
