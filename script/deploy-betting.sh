@@ -237,8 +237,13 @@ manifest_toolchain() {
     local forge_out
     manifest_set mustEqual commit "$(git rev-parse HEAD)"
     manifest_set mustEqual tree "$(git rev-parse 'HEAD^{tree}')"
-    while read -r _ sha path _; do
-        manifest_set mustEqual "submodule.$path" "${sha#[-+]}"
+    # Each line of `git submodule status` is the commit, with a one-character state before it when the submodule
+    # is not checked out at the recorded commit, then the path, then a description.
+    local sha path
+    while read -r sha path _; do
+        sha="${sha#[-+U]}"
+        [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die "a submodule's status line does not start with its commit: $sha $path"
+        manifest_set mustEqual "submodule.$path" "$sha"
     done < <(git submodule status)
     manifest_set mustEqual lib.chainlink "$(git -C lib/chainlink rev-parse HEAD 2>/dev/null || echo absent)"
     manifest_set mustEqual sha256.wrapper "$(sha256sum script/deploy-betting.sh | cut -d' ' -f1)"

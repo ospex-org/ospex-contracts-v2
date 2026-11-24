@@ -83,6 +83,14 @@ printf 'forge-std/=lib/forge-std/src/\n' > "$REPO/remappings.txt"
 # The real repository ignores .env files too, so one leaves the tree clean.
 printf 'deployments/\n.env\n' > "$REPO/.gitignore"
 git -C "$REPO" init -q
+# One submodule, so the manifest's record of it is tested: a one-commit repository beside the throwaway one.
+SUBSRC="$TMP/a-library"
+git init -q "$SUBSRC"
+echo "a made-up library" > "$SUBSRC/README"
+git -C "$SUBSRC" -c user.name=test -c user.email=test@example.invalid add README
+git -C "$SUBSRC" -c user.name=test -c user.email=test@example.invalid commit -q -m "a made-up library"
+SUB_COMMIT="$(git -C "$SUBSRC" rev-parse HEAD)"
+git -C "$REPO" -c protocol.file.allow=always submodule add -q "$SUBSRC" lib/a-library > /dev/null 2>&1
 git -C "$REPO" -c user.name=test -c user.email=test@example.invalid add .
 git -C "$REPO" -c user.name=test -c user.email=test@example.invalid commit -q -m "a made-up commit"
 HEAD_COMMIT="$(git -C "$REPO" rev-parse HEAD)"
@@ -158,6 +166,12 @@ grep -q "predict(bytes20) 0x$HEAD_COMMIT" "$RECORD" && grep -q -- "--skip test" 
     && grep -q -- "--no-storage-caching" "$RECORD" && grep -q "FOUNDRY_PROFILE: ci" "$RECORD" \
     && ok "predict ran forge with --skip test, no storage cache, the ci profile and CI's flags" \
     || fail "predict's forge line: $(cat "$RECORD")"
+MANIFEST="$REPO/deployments/betting-set/137/manifest.json"
+if grep -qF "\"submodule.lib/a-library\": \"$SUB_COMMIT\"" "$MANIFEST"; then
+    ok "the manifest records the submodule's commit under its path"
+else
+    fail "the manifest's submodule lines: $(grep submodule "$MANIFEST")"
+fi
 
 # A .env file is read by forge, cast and anvil before any flag, and it can name a signer. An ignored one in the
 # project's root is refused before any of them starts, and the clean tree does not hide it.
