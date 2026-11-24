@@ -1101,6 +1101,9 @@ contract DeployBettingForkTest is LiveGamesForkBase {
         (proven, sent) = _phase(p, DeployBetting.Phase.Bootstrap);
         assertEq(proven, 9, "the bootstrap, proven");
         assertEq(sent, 0, "a completed bootstrap sent");
+        (proven, sent) = _phase(p, DeployBetting.Phase.Create);
+        assertEq(proven, 9, "the bootstrap, proven, read from create");
+        assertEq(sent, 0, "a completed create sent, at nine");
     }
 
     /// D5, the prefix at ten. Once the lock is final, a run of any of the three phases proves all ten steps, sends

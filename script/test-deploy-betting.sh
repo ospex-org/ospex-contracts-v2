@@ -17,6 +17,13 @@ SENTINEL="0xE06B6A8ff1a62CF18ca244EeCb4c43c5a803a4F6"
 FORK_GO="0x9575ee8093561ec60b3c163aea383818"
 MADE_UP_NODE="https://made-up-node.example.invalid/v2/abcdefghijklmnop0123456789"
 
+# forge, cast and anvil read a .env file in the working folder and in the project's root before any flag, and it
+# can name a signer. One there stops the tests before any tool starts, the version reads included. It is never
+# opened.
+for dir in "$(pwd)" "$(cd "$HERE/.." && pwd)"; do
+    [ ! -e "$dir/.env" ] || { echo "a .env file in $dir: forge, cast and anvil would read it before any flag"; exit 2; }
+done
+
 REAL_CAST="$(command -v cast)"
 REAL_ANVIL="$(command -v anvil)"
 [ -n "$REAL_CAST" ] && [ -n "$REAL_ANVIL" ] || { echo "the tests need cast and anvil on the PATH"; exit 2; }
@@ -222,6 +229,23 @@ else
 fi
 [ -n "$kept" ] && ok "the run's log was kept" || fail "no run log was kept"
 
+# The manifest holds labels only: the node's role and the signer's method, never a node's address. A made-up node
+# value that forge prints on a manifest line reaches the manifest only as the filter's label.
+(cd "$REPO" && env DEPLOY_FOUNDRY_BIN="$STUB" STUB_RECORD="$RECORD" STUB_FORGE_COMMIT="$PINNED" \
+    POLYGON_RPC_URL="$MADE_UP_NODE" STUB_EMIT="manifest.declared.planted: $MADE_UP_NODE" \
+    bash script/deploy-betting.sh fork predict "$HEAD_COMMIT" --rpc-url "$NODE" > /dev/null 2>&1)
+if grep -qF '"planted": "<POLYGON_RPC_URL>"' "$MANIFEST"; then
+    ok "the planted manifest line reached the manifest as the filter's label (the positive control)"
+else
+    fail "the planted manifest line: $(grep planted "$MANIFEST")"
+fi
+if grep -qF '"node": "fork"' "$MANIFEST" && grep -qF '"signer": "unlocked impersonation on the fork"' "$MANIFEST" \
+    && ! grep -q -e "made-up-node" -e "abcdefghijklmnop" -e "127\.0\.0\.1" "$MANIFEST"; then
+    ok "the manifest holds the node's and the signer's labels, and no node address"
+else
+    fail "the manifest's node fields: $(grep -e node -e signer -e planted "$MANIFEST")"
+fi
+
 # ── compare ───────────────────────────────────────────────────────────────────────────────────────────────────
 
 M="$TMP/m"
@@ -232,8 +256,10 @@ manifest() {
 manifest c1 d1 fork > "$M/a.json"
 manifest c1 d1 live > "$M/b.json"
 manifest c1 d2 fork > "$M/c.json"
+manifest c2 d1 fork > "$M/d.json"
 (cd "$REPO" && bash script/deploy-betting.sh compare "$M/a.json" "$M/b.json" > /dev/null 2>&1) && ok "compare: a declared difference alone is equal" || fail "compare refused a declared difference"
 (cd "$REPO" && bash script/deploy-betting.sh compare "$M/a.json" "$M/c.json" > /dev/null 2>&1) && fail "compare passed a must-equal difference" || ok "compare: a must-equal difference fails"
+(cd "$REPO" && bash script/deploy-betting.sh compare "$M/a.json" "$M/d.json" > /dev/null 2>&1) && fail "compare passed a differing commit" || ok "compare: a differing commit alone fails"
 
 # ── Live mode's refusals, on the sourced functions, with made-up values ───────────────────────────────────────
 
