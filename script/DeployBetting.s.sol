@@ -74,8 +74,11 @@ interface IBettingCoinRead {
  *         call that exposes the set; and the lock.
  *
  *         What each sending run reads first, from the node, at two anchors it reads once and uses by number:
- *         the finalized block, and the block before the run's own (the latest). It reads both again before it
- *         sends, and a changed block holds. The prefix: the plan's steps, from k, proven by their effect at the
+ *         the finalized block and the latest block, each from the node's own answer for that tag, by its number
+ *         and hash. It reads both again before it sends, and a changed block holds. Before the bootstrap and the
+ *         lock are sent, the head is read once more, and the blocks mined since the latest anchor are scanned
+ *         too. No script sees a call scheduled after its last read and before its own transaction is mined.
+ *         The prefix: the plan's steps, from k, proven by their effect at the
  *         finalized block. The deployer's latest and pending nonces must both be k plus the prefix. A run sends
  *         only what the prefix has not proven, and a phase already done sends nothing and reads back. A nonce
  *         above the prefix, a send not yet final or a nonce used for something else, holds: nothing is sent
@@ -122,6 +125,9 @@ contract DeployBetting is Script {
     /// @dev How far above and below the run's own block the finalized block is looked for.
     uint256 public constant ANCHOR_AHEAD = 16;
     uint256 public constant ANCHOR_BEHIND = 250;
+    /// @dev How far below the node's head number its answer for the latest block is looked for: the head can move
+    ///      between the two reads.
+    uint256 public constant LATEST_BEHIND = 16;
 
     /// @dev The timelock's log of a scheduled call: one per call, a batch's calls each with its index.
     bytes32 internal constant CALL_SCHEDULED =
@@ -470,6 +476,7 @@ contract DeployBetting is Script {
 
         _gasRule(in_, p, sender, proven, maxFee);
         _requireAnchorsStill(a);
+        if (which != Phase.Create) _scanToTheHead(in_, p, a);
 
         _sendsStart();
         vm.startBroadcast(sender);
@@ -807,9 +814,17 @@ contract DeployBetting is Script {
     ///         what was scheduled up to the latest anchor, not what is scheduled after it, so it is made again
     ///         at each boundary.
     function scan(Inputs memory in_, address matching, address relay, Anchors memory a) public returns (uint256 named) {
+        return _scanFrom(in_, matching, relay, in_.timelockCreationBlock, a);
+    }
+
+    /// @dev The scan's reads, from `fromBlock` to the latest anchor.
+    function _scanFrom(Inputs memory in_, address matching, address relay, uint256 fromBlock, Anchors memory a)
+        internal
+        returns (uint256 named)
+    {
         bytes32[] memory topics = new bytes32[](1);
         topics[0] = CALL_SCHEDULED;
-        VmSafe.EthGetLogs[] memory logs = _logs(in_.timelock, in_.timelockCreationBlock, a.latest, topics);
+        VmSafe.EthGetLogs[] memory logs = _logs(in_.timelock, fromBlock, a.latest, topics);
         for (uint256 i; i < logs.length; ++i) {
             VmSafe.EthGetLogs memory l = logs[i];
             require(l.emitter == in_.timelock && l.topics.length == 3, "a scheduled-call log is not the timelock's");
@@ -825,7 +840,24 @@ contract DeployBetting is Script {
             require(nowState != 1 && nowState != 2, "a waiting or ready timelock operation names the matching module or the relay: held");
         }
         console.log("the timelock scan: scheduled calls read", logs.length, "naming the set", named);
-        console.log("  from block", in_.timelockCreationBlock, "to the latest anchor", a.latest);
+        console.log("  from block", fromBlock, "to the latest anchor", a.latest);
+    }
+
+    /// @dev The head read once more before the bootstrap or the lock is sent. Blocks mined since the latest anchor
+    ///      are scanned, to the new head, and its block is read again after; a head below the anchor, or the
+    ///      anchor's own block changed, holds. A call scheduled after this read and before the send is mined is
+    ///      beyond any script.
+    function _scanToTheHead(Inputs memory in_, Plan memory p, Anchors memory a) internal {
+        Anchors memory head = Anchors(a.finalized, a.finalizedHash, a.finalizedAnswer, 0, bytes32(0), bytes32(0));
+        (head.latest, head.latestHash, head.latestAnswer) = _latest();
+        require(head.latest >= a.latest, "the node's head is below the latest anchor: held");
+        if (head.latest > a.latest) {
+            _scanFrom(in_, p.contracts[3], p.contracts[7], a.latest + 1, head);
+        } else {
+            require(head.latestAnswer == a.latestAnswer, "the latest anchor's block changed during the run: held");
+        }
+        _requireAnchorsStill(head);
+        console.log("the head before the send", head.latest, vm.toString(head.latestHash));
     }
 
     // ──────────────────────────── Phase 6 ──────────────────────────────
@@ -1288,7 +1320,9 @@ contract DeployBetting is Script {
 
     /// @notice The two anchors, read once. The finalized block: the node's answer for "finalized", matched whole
     ///         against its answers for the numbers near the run's own block, so that no field of a block object
-    ///         is decoded; its hash from the run's own chain. The latest: the block before the run's own.
+    ///         is decoded; its hash from the run's own chain, which the node's own header for it must hash to.
+    ///         The latest block: the node's answer for "latest", by its number and hash (`_latest`), at or above
+    ///         the run's own block. The parent of the run's block is never taken for the latest.
     function _anchors() internal returns (Anchors memory a) {
         bytes32 finalizedAnswer = _finalizedAnswer();
         uint256 top = block.number + ANCHOR_AHEAD;
@@ -1305,19 +1339,59 @@ contract DeployBetting is Script {
         require(a.finalized < block.number, "the finalized block is not below the run's own: run again");
         a.finalizedHash = _blockHash(a.finalized);
         a.finalizedAnswer = finalizedAnswer;
-        a.latest = block.number - 1;
-        a.latestHash = _blockHash(a.latest);
-        a.latestAnswer = _blockAnswerAt(a.latest);
-        require(a.finalizedHash != bytes32(0) && a.latestHash != bytes32(0), "an anchor has no hash");
-        require(a.latestAnswer != bytes32(0), "the node gave no latest block");
+        require(a.finalizedHash != bytes32(0), "an anchor has no hash");
+        require(_headerHash(a.finalized) == a.finalizedHash, "the node's header for the finalized block does not hash to it: held");
+        (a.latest, a.latestHash, a.latestAnswer) = _latest();
+        require(a.latest >= block.number, "the node's latest block is below the run's own: run again");
         console.log("the finalized anchor", a.finalized, vm.toString(a.finalizedHash));
         console.log("the latest anchor", a.latest, vm.toString(a.latestHash));
     }
 
-    /// @dev Both anchors read again: a changed block holds.
+    /// @dev Both anchors read again, each as the node's whole answer at its number, its hash among it: a changed
+    ///      block holds.
     function _requireAnchorsStill(Anchors memory a) internal {
         require(_blockAnswerAt(a.finalized) == a.finalizedAnswer, "the finalized anchor's block changed during the run: held");
         require(_blockAnswerAt(a.latest) == a.latestAnswer, "the latest anchor's block changed during the run: held");
+    }
+
+    /// @dev The node's latest block: its whole answer for "latest"; its number, the one whose answer by number is
+    ///      the same, looked for from the node's head number down; its hash, the node's own header for that number,
+    ///      hashed. No field of a block object is decoded.
+    function _latest() internal returns (uint256 n, bytes32 h, bytes32 answer) {
+        answer = _latestAnswer();
+        uint256 top = _headNumber();
+        uint256 bottom = top > LATEST_BEHIND ? top - LATEST_BEHIND : 0;
+        bool found;
+        for (uint256 m = top; m >= bottom; --m) {
+            if (_blockAnswerAt(m) == answer) {
+                n = m;
+                found = true;
+                break;
+            }
+            if (m == 0) break;
+        }
+        require(found, "the node's latest block is not among its blocks by number: held");
+        h = _headerHash(n);
+        require(h != bytes32(0), "the latest block has no hash");
+    }
+
+    /// @dev The digest of the node's whole answer for "latest". Overridable, as the finalized answer is.
+    function _latestAnswer() internal virtual returns (bytes32 h) {
+        h = _rawBlock('"latest"');
+        require(h != bytes32(0), "the node gave no latest block");
+    }
+
+    /// @dev The node's head number, its answer to eth_blockNumber. Overridable.
+    function _headNumber() internal virtual returns (uint256) {
+        return _quantity(vm.rpc("eth_blockNumber", "[]"));
+    }
+
+    /// @dev A block's hash from the node: keccak256 of the header the node gives for that number, RLP-encoded, as
+    ///      forge's getRawBlockHeader returns it. Overridable.
+    function _headerHash(uint256 n) internal view virtual returns (bytes32) {
+        (bool ok, bytes memory raw) = address(vm).staticcall(abi.encodeWithSignature("getRawBlockHeader(uint256)", n));
+        require(ok, "the node gave no header for a block");
+        return keccak256(abi.decode(raw, (bytes)));
     }
 
     /// @dev The digest of the node's whole answer for "finalized". Overridable: a test on a fork stands in for a

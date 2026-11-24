@@ -17,16 +17,20 @@
 # sending phase: forge's wait for each receipt.
 #
 # Before every phase it refuses unless: HEAD is the commit (the plan's, once a plan exists); the tree is clean,
-# submodules included; forge's and cast's commit line is the pinned one; the profile is ci, with CI's flags;
-# the node is named on the line and not inherited; no signer comes from the environment, and no .env file sits
-# where forge would read one. forge keeps no storage cache of the node it reads. In fork mode the node
-# must be this machine's loopback, so nothing of the rehearsal can reach a live node, and the sentinel's code
-# must be on it after setup. In live mode the sentinel must be absent and the go value must not be the fork's.
+# submodules included, by a git status that succeeded; forge's and cast's commit line is the pinned one; the
+# profile is ci, with CI's flags; the node is named on the line and not inherited; no signer, none of the other
+# settings forge and cast read from the environment and no FOUNDRY_ or DAPP_ variable comes from it; and no .env
+# file sits where forge would read one. forge keeps no storage cache of the node it
+# reads, and the record of the sends it keeps under cache/, which holds the node, is removed when forge returns. In
+# fork mode the node must be this machine's loopback, so nothing of the rehearsal can reach a live node, and the
+# sentinel's code must be on it after setup. In live mode the node must be neither this machine's own address, in
+# any of its spellings, nor a local test node; the sentinel must be absent; and the go value must not be the fork's.
 #
 # Every line forge and cast write, on the output and the error stream, passes the filter before it reaches the
 # screen or the run's log: each node address it knows (the line's own, POLYGON_RPC_URL, ETHEREUM_RPC_URL) is
-# replaced, with its host and the long parts of its path. No unfiltered log is kept. The wrapper holds no
-# keystore name, no node address and no go value: those exist only on a command line.
+# replaced, with its host and the long parts of its path. A cast read's status is checked, and its answer passes
+# the filter before anything keeps it. No unfiltered log is kept. The wrapper holds no keystore name, no node
+# address and no go value: those exist only on a command line.
 set -euo pipefail
 
 PINNED_FOUNDRY_COMMIT="80ae59941ada986c49e05f2a8412c3fc1f9075d0"
@@ -39,10 +43,27 @@ SCRIPT="script/DeployBetting.s.sol:DeployBetting"
 FORGE_FLAGS=(--via-ir --optimize)
 # What the fork's deployer is topped up to, and only when it holds less: twice the spend bound, in wei.
 FORK_TOP_UP_WEI="20000000000000000000"
+# forge's record of a sending run's transactions, each with the node it was sent to, under the profile's cache
+# folder: it is removed when forge returns. The record under broadcast/ holds no node and stays.
+SEQUENCE_CACHE="cache/DeployBetting.s.sol"
+# A send's gas limit is forge's own count of its gas, times this, in percent. Since Polygon's Chicago fork the chain
+# charges more for a cold storage read than the pinned forge counts: the lock's estimate on the chain is 137% of
+# forge's count. Twice forge's count, as the spend rule's reserve in hand is twice its sum.
+GAS_MULTIPLIER=200
+# Every variable from which the pinned forge and cast take a signer: the four the wallet options read with no flag,
+# and the cloud signers' read with --aws, --gcp or --turnkey.
+SIGNER_VARIABLES=(ETH_FROM ETH_KEYSTORE ETH_KEYSTORE_ACCOUNT ETH_PASSWORD AWS_KMS_KEY_ID AWS_KMS_KEY_IDS GCP_PROJECT_ID
+    GCP_LOCATION GCP_KEY_RING GCP_KEY_NAME GCP_KEY_VERSION TURNKEY_API_PRIVATE_KEY TURNKEY_ORGANIZATION_ID TURNKEY_ADDRESS)
+# The ten other settings the pinned forge and cast read from the environment: a send's tip, price, gas and blob
+# price; the waits; the headers and the token sent to the node; the explorer's key; the chain. None comes from it.
+OTHER_VARIABLES=(ETH_PRIORITY_GAS_PRICE ETH_GAS_PRICE ETH_GAS_LIMIT ETH_BLOB_GAS_PRICE ETH_TIMEOUT ETH_RPC_TIMEOUT
+    ETH_RPC_HEADERS ETH_RPC_JWT_SECRET ETHERSCAN_API_KEY CHAIN)
 
-FOUNDRY_BIN_DIR="${DEPLOY_FOUNDRY_BIN:-}"
-forge_bin() { if [ -n "$FOUNDRY_BIN_DIR" ]; then echo "$FOUNDRY_BIN_DIR/forge"; else echo forge; fi; }
-cast_bin() { if [ -n "$FOUNDRY_BIN_DIR" ]; then echo "$FOUNDRY_BIN_DIR/cast"; else echo cast; fi; }
+# The pinned forge's and cast's folder, from DEPLOY_FOUNDRY_BIN. Its name has no FOUNDRY_ prefix: every variable
+# with that prefix is cleared before a phase.
+DEPLOY_BIN_DIR="${DEPLOY_FOUNDRY_BIN:-}"
+forge_bin() { if [ -n "$DEPLOY_BIN_DIR" ]; then echo "$DEPLOY_BIN_DIR/forge"; else echo forge; fi; }
+cast_bin() { if [ -n "$DEPLOY_BIN_DIR" ]; then echo "$DEPLOY_BIN_DIR/cast"; else echo cast; fi; }
 
 die() {
     echo "deploy-betting: REFUSED: $*" >&2
@@ -93,6 +114,18 @@ run_filtered() {
     return "$status"
 }
 
+# A cast read: its answer on the output stream, kept apart from its error stream, which passes the filter into the
+# screen and the run's log. The answer passes the filter too. Returns cast's own status: the caller checks it.
+cast_read() {
+    local out status
+    set +e
+    out=$( { "$(cast_bin)" "$@" 2>&1 1>&3 3>&- | filter | tee -a "${RUN_LOG:-/dev/null}" >&2; exit "${PIPESTATUS[0]}"; } 3>&1 )
+    status=$?
+    set -e
+    [ "$status" -eq 0 ] || return "$status"
+    printf '%s' "$out" | filter
+}
+
 # ── The checks every phase makes ──────────────────────────────────────────────────────────────────────────────
 
 require_commit_line() {
@@ -112,8 +145,13 @@ require_no_dotenv() {
 }
 
 require_clean_environment() {
+    # Every variable whose name begins FOUNDRY_ or DAPP_, which forge's config loader reads as any of its settings,
+    # before the wrapper sets its own.
+    local v
+    for v in $(compgen -v); do case "$v" in FOUNDRY_* | DAPP_*) unset "$v" ;; esac; done
     unset ETH_RPC_URL FOUNDRY_ETH_RPC_URL
-    unset ETH_FROM ETH_KEYSTORE ETH_KEYSTORE_ACCOUNT ETH_PASSWORD
+    unset "${SIGNER_VARIABLES[@]}"
+    unset "${OTHER_VARIABLES[@]}"
     WALLET_HOME=$(mktemp -d)
     trap 'rmdir "$WALLET_HOME" 2>/dev/null || true' EXIT
     export TEMPO_HOME="$WALLET_HOME"
@@ -126,7 +164,9 @@ require_tree() {
     local commit="$1"
     [ -n "$(git rev-parse --git-dir 2>/dev/null)" ] || die "not in a git checkout"
     [ "$(git rev-parse HEAD)" = "$commit" ] || die "HEAD is not the commit $commit"
-    [ -z "$(git status --porcelain --ignore-submodules=none)" ] || die "the tree is not clean"
+    local status_out
+    status_out=$(git status --porcelain --ignore-submodules=none 2>/dev/null) || die "git status failed: the tree's state is not known"
+    [ -z "$status_out" ] || die "the tree is not clean"
 }
 
 require_rpc_given() {
@@ -137,9 +177,32 @@ require_loopback() {
     [[ "$RPC_URL" =~ ^http://127\.0\.0\.1:[0-9]+$ ]] || die "fork mode takes only this machine's loopback node, http://127.0.0.1:<port>"
 }
 
+# Live mode never uses this machine's own address, the rehearsal's node, however it is written: any of
+# 127.0.0.0/8, localhost or [::1].
+require_not_loopback() {
+    local url
+    url=$(printf '%s' "$RPC_URL" | tr 'A-Z' 'a-z')
+    if [[ "$url" =~ ^[a-z][a-z0-9+.-]*://(127(\.[0-9]{1,3}){3}|localhost|\[::1\])([:/?#]|$) ]]; then
+        die "live mode on this machine's own address: that is the rehearsal's node"
+    fi
+}
+
+# Live mode refuses a local test node: a fork of Polygon has chain id 137 and no sentinel until setup runs on it.
+# Its client version names anvil or hardhat, or it answers anvil's own method.
+require_not_test_node() {
+    local client
+    client=$(cast_read client --rpc-url "$RPC_URL") || die "the node did not answer its client version"
+    if printf '%s' "$client" | grep -qiE 'anvil|hardhat'; then
+        die "the node's client, $client, is a local test node: a fork, not the chain"
+    fi
+    if cast_read rpc anvil_nodeInfo --rpc-url "$RPC_URL" > /dev/null 2>&1; then
+        die "the node answers anvil_nodeInfo: a fork, not the chain"
+    fi
+}
+
 sentinel_code() {
     local code
-    code=$("$(cast_bin)" code "$SENTINEL" --rpc-url "$RPC_URL" 2>/dev/null) || die "the node did not answer the sentinel's read"
+    code=$(cast_read code "$SENTINEL" --rpc-url "$RPC_URL") || die "the node did not answer the sentinel's read"
     printf '%s' "$code" | tr -d '[:space:]'
 }
 
@@ -184,7 +247,7 @@ less_than() {
 
 plan_dir() {
     local chain
-    chain=$("$(cast_bin)" chain-id --rpc-url "$RPC_URL" 2>/dev/null) || die "the node did not answer its chain id"
+    chain=$(cast_read chain-id --rpc-url "$RPC_URL") || die "the node did not answer its chain id"
     chain=$(printf '%s' "$chain" | tr -d '[:space:]')
     [ "$chain" = "137" ] || die "the node's chain id is not 137"
     echo "deployments/betting-set/$chain"
@@ -291,7 +354,10 @@ compare_manifests() {
 # ── The phases ────────────────────────────────────────────────────────────────────────────────────────────────
 
 forge_script() {
-    run_filtered "$(forge_bin)" script "$SCRIPT" --rpc-url "$RPC_URL" --skip test --no-storage-caching "${FORGE_FLAGS[@]}" "$@"
+    local status=0
+    run_filtered "$(forge_bin)" script "$SCRIPT" --rpc-url "$RPC_URL" --skip test --no-storage-caching "${FORGE_FLAGS[@]}" "$@" || status=$?
+    rm -rf "$SEQUENCE_CACHE"
+    return "$status"
 }
 
 main() {
@@ -331,7 +397,8 @@ main() {
         require_loopback
         [ -z "$account" ] || die "fork mode takes no --account"
     else
-        [[ "$RPC_URL" =~ ^http://127\.0\.0\.1 ]] && die "live mode on this machine's loopback: that is the rehearsal's node"
+        require_not_loopback
+        require_not_test_node
     fi
     PLAN_DIR=$(plan_dir)
     mkdir -p "$PLAN_DIR/runs"
@@ -346,15 +413,21 @@ main() {
             run_filtered "$(cast_bin)" rpc anvil_setCode "$SENTINEL" 0x00 --rpc-url "$RPC_URL" > /dev/null
             require_sentinel_present
             run_filtered "$(cast_bin)" rpc anvil_impersonateAccount "$DEPLOYER" --rpc-url "$RPC_URL" > /dev/null
-            local balance
-            balance=$("$(cast_bin)" balance "$DEPLOYER" --rpc-url "$RPC_URL" | tr -d '[:space:]')
+            local balance top_up_hex
+            balance=$(cast_read balance "$DEPLOYER" --rpc-url "$RPC_URL") || die "the deployer's balance could not be read"
+            balance=$(printf '%s' "$balance" | tr -d '[:space:]')
             require_number "$balance" "the deployer's balance"
             if less_than "$balance" "$FORK_TOP_UP_WEI"; then
-                run_filtered "$(cast_bin)" rpc anvil_setBalance "$DEPLOYER" "$("$(cast_bin)" to-hex "$FORK_TOP_UP_WEI")" --rpc-url "$RPC_URL" > /dev/null
+                top_up_hex=$(cast_read to-hex "$FORK_TOP_UP_WEI") || die "the top-up could not be written in hex"
+                run_filtered "$(cast_bin)" rpc anvil_setBalance "$DEPLOYER" "$top_up_hex" --rpc-url "$RPC_URL" > /dev/null
                 echo "fork setup: the deployer held $balance wei, topped up to $FORK_TOP_UP_WEI" | tee -a "$RUN_LOG"
-                [ -f "$PLAN_DIR/manifest.lines" ] && manifest_set declared fork.topUp "$balance -> $FORK_TOP_UP_WEI"
+                # Recorded at once, before any plan: predict keeps the manifest's lines.
+                manifest_set declared fork.topUp "$balance -> $FORK_TOP_UP_WEI"
             else
                 echo "fork setup: the deployer holds $balance wei, no top-up" | tee -a "$RUN_LOG"
+                # A top-up an earlier setup made stays on the record.
+                grep -q "$(printf '\tfork.topUp\t')" "$PLAN_DIR/manifest.lines" 2>/dev/null \
+                    || manifest_set declared fork.topUp "none: the deployer held $balance wei"
             fi
             echo "fork setup: the sentinel $SENTINEL holds 0x00; the deployer is impersonated" | tee -a "$RUN_LOG"
             ;;
@@ -365,14 +438,23 @@ main() {
             require_tree "$commit"
             if [ "$mode" = fork ]; then require_sentinel_present; else require_sentinel_absent; fi
             forge_script --sig "predict(bytes20)" "0x$commit"
+            # The node's two reads first, each checked, so that a failed one writes no manifest.
+            local client="" balance
+            if [ "$mode" = fork ]; then
+                client=$(cast_read client --rpc-url "$RPC_URL") || die "the node's client version could not be read: no manifest is written"
+                client=$(printf '%s' "$client" | tr -d '\r\n')
+            fi
+            balance=$(cast_read balance "$DEPLOYER" --rpc-url "$RPC_URL") || die "the deployer's balance could not be read: no manifest is written"
+            balance=$(printf '%s' "$balance" | tr -d '[:space:]')
+            require_number "$balance" "the deployer's balance"
             manifest_toolchain
             manifest_from_run "$RUN_LOG"
             manifest_set declared node "$mode"
             manifest_set declared signer "$([ "$mode" = fork ] && echo 'unlocked impersonation on the fork' || echo 'the keystore named on the line')"
             if [ "$mode" = fork ]; then
-                manifest_set declared anvil.version "$("$(cast_bin)" client --rpc-url "$RPC_URL" 2>/dev/null | tr -d '\r\n')"
+                manifest_set declared anvil.version "$client"
             fi
-            manifest_set declared deployer.balanceAtPlan "$("$(cast_bin)" balance "$DEPLOYER" --rpc-url "$RPC_URL" | tr -d '[:space:]')"
+            manifest_set declared deployer.balanceAtPlan "$balance"
             echo "written: $PLAN_DIR/manifest.json" | tee -a "$RUN_LOG"
             ;;
         create | bootstrap | finalize)
@@ -395,9 +477,12 @@ main() {
             local -a wait=()
             [ -n "$timeout" ] && wait=(--timeout "$timeout")
             forge_script --sig "$phase(bytes32,bytes16,uint256)" "$digest" "$go" "$maxfee" \
-                --broadcast --slow --with-gas-price "$maxfee" "${signer[@]}" "${wait[@]}"
+                --broadcast --slow --with-gas-price "$maxfee" --gas-estimate-multiplier "$GAS_MULTIPLIER" "${signer[@]}" "${wait[@]}"
             manifest_from_run "$RUN_LOG"
-            manifest_set declared "go.$phase" "keccak256 $("$(cast_bin)" keccak "$go")"
+            local go_hash
+            go_hash=$(cast_read keccak "$go") || die "the go value's hash could not be computed"
+            require_hex "$go_hash" 32 "the go value's hash"
+            manifest_set declared "go.$phase" "keccak256 $go_hash"
             manifest_set declared "maxFee.$phase" "$maxfee"
             ;;
         check)

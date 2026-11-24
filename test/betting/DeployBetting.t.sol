@@ -120,9 +120,11 @@ contract TimelockLogsOnce is DeployGames {
 /// @dev Lets a test run each phase with inputs, a plan and a directory of its own, as the deployer, and stands in
 ///      for the reads a fork inside a test cannot serve. Each override below is a TEST ADAPTER: it does not prove
 ///      what a real node answers. The anvil rehearsal by hand does.
-///      - The finalized and the latest block: a node behind a fork cannot see the test's own blocks. Here every
-///        block the test reaches is final once a later one exists: the finalized block is the one before the
-///        test's own, unless a test names another.
+///      - The finalized and the latest block, and a block's hash: a node behind a fork cannot see the test's own
+///        blocks. Here every block the test reaches is final once a later one exists: the finalized block is the
+///        one before the test's own, unless a test names another. The latest is the test's own block, or the
+///        block a test moves the head to after the run's first read of it. Every block answers as its own, and
+///        its header's hash is the harness's hash for it.
 ///      - Code, calls and nonces at a block: from `localFrom` on, the test's own state as it stands now; below
 ///        it, the chain's, through the script's own reads.
 ///      - The pending nonce: the nonce now, plus what a test says is pending.
@@ -136,6 +138,13 @@ contract DeployBettingHarness is DeployBetting {
     uint256 internal finalizedNamed;
     bool internal finalizedIsNamed;
     uint256 public pendingExtra;
+    /// @dev How far the node's head runs past the test's own block once it has moved, and the run's reads of the
+    ///      head so far: the head moves after the first.
+    uint256 internal headLead;
+    uint256 internal latestReads;
+    uint256 internal headNow;
+    /// @dev A block whose header, as the node gives it, does not hash to the block: none when zero.
+    uint256 internal wrongHeaderAt;
     TimelockLogsOnce public immutable logsOnce;
 
     struct LocalLog {
@@ -167,6 +176,18 @@ contract DeployBettingHarness is DeployBetting {
 
     function setPendingExtra(uint256 n) external {
         pendingExtra = n;
+    }
+
+    /// @dev The node's head moves `lead` blocks past the test's own block after the run's first read of the head,
+    ///      as a real node's does while a run reads: a block mined during the run.
+    function moveHeadAfterFirstRead(uint256 lead) external {
+        headLead = lead;
+        latestReads = 0;
+    }
+
+    /// @dev The hash the harness gives block `n`: the console check's known hashes take it from here.
+    function harnessBlockHash(uint256 n) external pure returns (bytes32) {
+        return _blockHash(n);
     }
 
     /// @dev Logs the test recorded, from its own actions, in the block they happened in.
@@ -236,12 +257,39 @@ contract DeployBettingHarness is DeployBetting {
         return keccak256(abi.encode("a test block", f));
     }
 
+    /// @dev Each block's answer is its own, as a real node's are; none past the head.
     function _blockAnswerAt(uint256 m) internal view override returns (bytes32) {
-        return m <= block.number ? keccak256(abi.encode("a test block", m)) : bytes32(0);
+        return m <= block.number + headLead ? keccak256(abi.encode("a test block", m)) : bytes32(0);
     }
 
     function _blockHash(uint256 n) internal pure override returns (bytes32) {
         return keccak256(abi.encode("a test block's hash", n));
+    }
+
+    function _latestAnswer() internal override returns (bytes32) {
+        uint256 lead = latestReads == 0 ? 0 : headLead;
+        ++latestReads;
+        headNow = block.number + lead;
+        return keccak256(abi.encode("a test block", headNow));
+    }
+
+    function _headNumber() internal view override returns (uint256) {
+        return headNow;
+    }
+
+    function _headerHash(uint256 n) internal view override returns (bytes32) {
+        if (wrongHeaderAt != 0 && n == wrongHeaderAt) return keccak256(abi.encode("a header that is not its block", n));
+        return _blockHash(n);
+    }
+
+    /// @dev The node's header for block `n` does not hash to the block.
+    function setWrongHeaderAt(uint256 n) external {
+        wrongHeaderAt = n;
+    }
+
+    /// @dev The script's own read of a block's hash, keccak256 of the node's header for it: the real read.
+    function realHeaderHash(uint256 n) external view returns (bytes32) {
+        return super._headerHash(n);
     }
 
     function _codeAt(address account, uint256 n) internal override returns (bytes memory) {
@@ -433,6 +481,7 @@ contract DeployBettingForkTest is LiveGamesForkBase {
         dir = script.recordDir(name);
         if (vm.exists(string.concat(dir, "/prediction.json"))) vm.removeFile(string.concat(dir, "/prediction.json"));
         if (vm.exists(string.concat(dir, "/signpost-call.json"))) vm.removeFile(string.concat(dir, "/signpost-call.json"));
+        if (vm.exists(string.concat(dir, "/console-known.txt"))) vm.removeFile(string.concat(dir, "/console-known.txt"));
     }
 
     /// @dev The next block: the test's own actions and the script's sends each happen in a block of their own.
@@ -532,6 +581,23 @@ contract DeployBettingForkTest is LiveGamesForkBase {
         // The fork block's hash, read from the chain once the fork is past it.
         vm.roll(FORK_BLOCK + 1);
         assertEq(blockhash(FORK_BLOCK), FORK_BLOCK_HASH, "the fork block's hash is not the pinned one");
+    }
+
+    /// The script's hash of a block, keccak256 of the node's own header for it, is the chain's hash of that block on
+    /// Polygon's own headers: the pinned fork block, and the block before it by the fork's own chain.
+    function test_fork_aBlocksHeaderHashesToItsBlock() public view {
+        assertEq(script.realHeaderHash(FORK_BLOCK), FORK_BLOCK_HASH, "the fork block's header");
+        assertEq(script.realHeaderHash(FORK_BLOCK - 1), blockhash(FORK_BLOCK - 1), "the block before it");
+    }
+
+    /// The anchors: a node whose header for the finalized block does not hash to that block, by the run's own
+    /// chain, holds the run.
+    function test_anchors_aHeaderThatIsNotItsBlockHolds() public {
+        (DeployBetting.Plan memory p,) = _created("header-not-its-block");
+        script.nameFinalized(FORK_BLOCK + 1);
+        script.setWrongHeaderAt(FORK_BLOCK + 1);
+        vm.expectRevert(bytes("the node's header for the finalized block does not hash to it: held"));
+        script.checkFor(polygon, p, p.contracts[0], FORK_BLOCK + 1, 1);
     }
 
     // ──────────────────────────── The rehearsal ────────────────────────
@@ -637,6 +703,55 @@ contract DeployBettingForkTest is LiveGamesForkBase {
         assertEq(e.commit, COMMIT, "the entry's commit");
         assertEq(e.deployBlock, FORK_BLOCK + 1, "the entry's deploy block");
         assertEq(uint8(e.status), uint8(OspexSignpost.Status.Building), "the entry is building");
+
+        bytes32[] memory entry = new bytes32[](2);
+        entry[0] = operationId;
+        entry[1] = keccak256(scheduleCall);
+        _writeKnownHashes(dir, p, entry);
+    }
+
+    /// @dev The hashes this run's console may print, each derived here and none read from the console, written beside
+    ///      the plan for the console check (`script/test-deploy-betting.sh console`): the plan's digest and the hash
+    ///      of its table; its eight creation codes and ten inputs; its block's hash; the build's metadata, read from
+    ///      out/; the hash the harness gives each block of the run; and what the caller adds.
+    function _writeKnownHashes(string memory dir, DeployBetting.Plan memory p, bytes32[] memory extra) internal {
+        DeployBetting.Inputs memory t = polygon;
+        string memory known = string.concat(
+            vm.toString(script.planDigest(t, p)),
+            "\n",
+            vm.toString(keccak256(abi.encode(t.games, t.coin, t.timelock, t.k, t.signpost, t.deployer, t.firstSender))),
+            "\n",
+            vm.toString(p.blockHash),
+            "\n"
+        );
+        for (uint256 i; i < 8; ++i) {
+            known = string.concat(known, vm.toString(p.initHashes[i]), "\n");
+        }
+        for (uint256 i; i < 10; ++i) {
+            known = string.concat(known, vm.toString(p.steps[i].inputHash), "\n");
+        }
+        string[8] memory files = [
+            "OspexBetting",
+            "OspexMarkets",
+            "OspexPositions",
+            "OspexMatching",
+            "OspexMoneylineScorer",
+            "OspexSpreadScorer",
+            "OspexTotalScorer",
+            "OspexCourierRelay"
+        ];
+        for (uint256 i; i < 8; ++i) {
+            string memory artifact = string.concat(vm.projectRoot(), "/out/", files[i], ".sol/", files[i], ".json");
+            bytes32 metadata = keccak256(bytes(vm.parseJsonString(vm.readFile(artifact), ".rawMetadata")));
+            known = string.concat(known, vm.toString(metadata), "\n");
+        }
+        for (uint256 n = FORK_BLOCK; n <= vm.getBlockNumber() + 1; ++n) {
+            known = string.concat(known, vm.toString(script.harnessBlockHash(n)), "\n");
+        }
+        for (uint256 i; i < extra.length; ++i) {
+            known = string.concat(known, vm.toString(extra[i]), "\n");
+        }
+        vm.writeFile(string.concat(dir, "/console-known.txt"), known);
     }
 
     // ──────────────────────────── The users' side ───────────────────────
@@ -1002,6 +1117,46 @@ contract DeployBettingForkTest is LiveGamesForkBase {
         _nextBlock();
         script.nameFinalized(creations);
         assertGt(lifted, creations, "the lift is not above the finalized block");
+        bytes32 digest = script.planDigest(polygon, p);
+        vm.expectRevert(bytes("a waiting or ready timelock operation names the matching module or the relay: held"));
+        script.phaseFrom(polygon, p, DEPLOYER, digest, FORK_GO, MAX_FEE, DeployBetting.Phase.Bootstrap);
+    }
+
+    /// D4, the scan, the latest block: a waiting lift in the head block the run starts from. The node's answer
+    /// for the latest block is that head, every block answers as its own, and no block is mined after the lift. The
+    /// scan reads to the head, and the bootstrap holds.
+    function test_neverLine_aWaitingLiftInTheHeadBlockHolds() public {
+        (DeployBetting.Plan memory p,) = _created("waiting-lift-head");
+        script.nameFinalized(FORK_BLOCK + 1);
+        _waitingLift(p.contracts[3]);
+        assertGt(vm.getBlockNumber(), FORK_BLOCK + 1, "the lift is not above the finalized block");
+        bytes32 digest = script.planDigest(polygon, p);
+        vm.expectRevert(bytes("a waiting or ready timelock operation names the matching module or the relay: held"));
+        script.phaseFrom(polygon, p, DEPLOYER, digest, FORK_GO, MAX_FEE, DeployBetting.Phase.Bootstrap);
+    }
+
+    /// D4, the scan, the latest block: the same lift in the head block, read back by `check`, which reads the
+    /// node's latest block once and sends nothing. The scan reaches the head, and the read-back holds.
+    function test_neverLine_aWaitingLiftInTheHeadBlockHoldsTheReadBack() public {
+        (DeployBetting.Plan memory p,) = _created("waiting-lift-head-check");
+        script.nameFinalized(FORK_BLOCK + 1);
+        _waitingLift(p.contracts[3]);
+        vm.expectRevert(bytes("a waiting or ready timelock operation names the matching module or the relay: held"));
+        script.checkFor(polygon, p, p.contracts[0], FORK_BLOCK + 1, 1);
+    }
+
+    /// D4, the scan, the head read again before the send: a waiting lift mined in the block after the head the
+    /// run starts from, which the node reaches after the run's first read of its head. Every read and check before
+    /// the send passes; the head read again before the bootstrap sends has moved, the new block is scanned, and the
+    /// bootstrap holds.
+    function test_neverLine_aWaitingLiftMinedDuringTheRunHolds() public {
+        (DeployBetting.Plan memory p,) = _created("waiting-lift-during-the-run");
+        uint256 head = vm.getBlockNumber();
+        vm.roll(head + 1);
+        _waitingLift(p.contracts[3]);
+        vm.roll(head);
+        script.nameFinalized(FORK_BLOCK + 1);
+        script.moveHeadAfterFirstRead(1);
         bytes32 digest = script.planDigest(polygon, p);
         vm.expectRevert(bytes("a waiting or ready timelock operation names the matching module or the relay: held"));
         script.phaseFrom(polygon, p, DEPLOYER, digest, FORK_GO, MAX_FEE, DeployBetting.Phase.Bootstrap);
