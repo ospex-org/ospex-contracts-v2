@@ -1103,6 +1103,25 @@ contract DeployBettingForkTest is LiveGamesForkBase {
         assertEq(sent, 0, "a completed bootstrap sent");
     }
 
+    /// D5, the prefix at ten. Once the lock is final, a run of any of the three phases proves all ten steps, sends
+    /// nothing and reads the set back at the stage it is at, the third: a finalized set still proves its bootstrap,
+    /// and a completed phase never asks for its own earlier state.
+    function test_prefix_aFinishedSetSendsNothingFromAnyPhase() public {
+        (DeployBetting.Plan memory p,) = _created("finished");
+        _phase(p, DeployBetting.Phase.Bootstrap);
+        _nextBlock();
+        _phase(p, DeployBetting.Phase.Finalize);
+        _nextBlock();
+        DeployBetting.Phase[3] memory phases =
+            [DeployBetting.Phase.Create, DeployBetting.Phase.Bootstrap, DeployBetting.Phase.Finalize];
+        for (uint256 i; i < 3; ++i) {
+            (uint256 proven, uint256 sent) = _phase(p, phases[i]);
+            assertEq(proven, 10, "a finished set's prefix");
+            assertEq(sent, 0, "a completed phase sent");
+        }
+        script.checkFor(polygon, p, p.contracts[0], FORK_BLOCK + 1, 3);
+    }
+
     /// D7, the commit in the digest (D7/1). Two plans that differ in their commit alone have different digests; the
     /// same plan has the same digest (the positive control).
     function test_neverLine_theDigestBindsTheCommit() public view {
@@ -1131,6 +1150,46 @@ contract DeployBettingForkTest is LiveGamesForkBase {
         assertEq(OspexCourierRelay(p.contracts[7]).s_sender(), TIMELOCK, "the relay's sender as created");
         (uint256 proven, uint256 sent) = _phase(p, DeployBetting.Phase.Bootstrap);
         assertEq(proven * 10 + sent, 81, "the bootstrap after the sender's read");
+    }
+
+    /// D8, the relay's current sender. The relay as created, its code and every immutable the plan's, then only its
+    /// sender moved, in the fork's storage, to another nonzero address: the bootstrap refuses by the sender's read,
+    /// and the registry is untouched. The test above is its positive control.
+    function test_neverLine_aRelayWhoseSenderMovedHoldsTheBootstrap() public {
+        (DeployBetting.Plan memory p,) = _created("sender-moved");
+        address other = makeAddr("another sender");
+        // The relay's one storage slot, slot 0, holds its sender.
+        vm.store(p.contracts[7], bytes32(0), bytes32(uint256(uint160(other))));
+        assertEq(OspexCourierRelay(p.contracts[7]).s_sender(), other, "the fixture's sender");
+        _nextBlock();
+        bytes32 digest = script.planDigest(polygon, p);
+        vm.expectRevert(bytes("the relay's sender is not the first sender"));
+        script.phaseFrom(polygon, p, DEPLOYER, digest, FORK_GO, MAX_FEE, DeployBetting.Phase.Bootstrap);
+        assertEq(OspexBetting(p.contracts[0]).s_moduleCount(), 0, "the registry moved");
+    }
+
+    /// D4, the scan, a batch. Each call of a scheduled batch is its own scheduled-call log: a waiting batch whose
+    /// second call names the relay holds the bootstrap as a single call would.
+    function test_neverLine_aWaitingBatchThatNamesTheRelayHolds() public {
+        (DeployBetting.Plan memory p,) = _created("waiting-batch");
+        TimelockController t = TimelockController(payable(TIMELOCK));
+        uint256 delay = t.getMinDelay();
+        address[] memory targets = new address[](2);
+        targets[0] = SIGNPOST;
+        targets[1] = p.contracts[7];
+        uint256[] memory values = new uint256[](2);
+        bytes[] memory payloads = new bytes[](2);
+        payloads[0] = abi.encodeCall(OspexSignpost.entryCount, ());
+        payloads[1] = abi.encodeCall(OspexCourierRelay.setSender, (makeAddr("a key")));
+        _recording();
+        vm.prank(K);
+        t.scheduleBatch(targets, values, payloads, bytes32(0), keccak256("a batch that waits"), delay);
+        _kept();
+        _nextBlock();
+        _nextBlock();
+        bytes32 digest = script.planDigest(polygon, p);
+        vm.expectRevert(bytes("a waiting or ready timelock operation names the matching module or the relay: held"));
+        script.phaseFrom(polygon, p, DEPLOYER, digest, FORK_GO, MAX_FEE, DeployBetting.Phase.Bootstrap);
     }
 
     /// D10, the stage signpostCall asks for (D10/1): on a core bootstrapped and not finalized, signpostCall refuses,
