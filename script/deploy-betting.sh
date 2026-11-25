@@ -19,8 +19,8 @@
 # Before every phase it refuses unless: HEAD is the commit (the plan's, once a plan exists); the tree is clean,
 # submodules included, by a git status that succeeded; forge's and cast's commit line is the pinned one; the
 # profile is ci, with CI's flags; the node is named on the line and not inherited; no signer, none of the other
-# settings forge and cast read from the environment and no FOUNDRY_ or DAPP_ variable comes from it; and no .env
-# file sits where forge would read one. forge keeps no storage cache of the node it
+# settings forge and cast read from the environment and no FOUNDRY_ or DAPP_ variable, its name in any letter case,
+# comes from it; and no .env file sits where forge would read one. forge keeps no storage cache of the node it
 # reads, and the record of the sends it keeps under cache/, which holds the node, is removed when forge returns. In
 # fork mode the node must be this machine's loopback, so nothing of the rehearsal can reach a live node, and the
 # sentinel's code must be on it after setup. In live mode the node must be neither this machine's own address, in
@@ -145,10 +145,10 @@ require_no_dotenv() {
 }
 
 require_clean_environment() {
-    # Every variable whose name begins FOUNDRY_ or DAPP_, which forge's config loader reads as any of its settings,
-    # before the wrapper sets its own.
+    # Every variable whose name begins FOUNDRY_ or DAPP_ in any letter case, before the wrapper sets its own: forge's
+    # config loader reads each as any of its settings, whatever the case of its name. ${v^^} is bash's upper case.
     local v
-    for v in $(compgen -v); do case "$v" in FOUNDRY_* | DAPP_*) unset "$v" ;; esac; done
+    for v in $(compgen -v); do case "${v^^}" in FOUNDRY_* | DAPP_*) unset "$v" ;; esac; done
     unset ETH_RPC_URL FOUNDRY_ETH_RPC_URL
     unset "${SIGNER_VARIABLES[@]}"
     unset "${OTHER_VARIABLES[@]}"

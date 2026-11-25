@@ -115,7 +115,7 @@ fi
         if [ -n "${!v+x}" ]; then echo "env $v: set"; else echo "env $v: absent"; fi
     done
     echo "TEMPO_HOME entries: $(ls -A "${TEMPO_HOME:-/nonexistent}" 2>/dev/null | wc -l | tr -d ' ')"
-    echo "env prefixed: $(compgen -e | grep -E '^(FOUNDRY_|DAPP_)' | sort | tr '\n' ' ' | sed 's/ $//')"
+    echo "env prefixed: $(compgen -e | grep -iE '^(FOUNDRY_|DAPP_)' | sort | tr '\n' ' ' | sed 's/ $//')"
     echo "FOUNDRY_PROFILE: ${FOUNDRY_PROFILE:-}"
 } >> "$STUB_RECORD"
 if [ -n "${STUB_EMIT:-}" ]; then
@@ -132,10 +132,12 @@ case "$*" in
 esac
 # A sending run: forge keeps its record of the sends, each with the node it was sent to, under
 # <its cache folder>/<the script's file>/<chain>/, as forge 80ae599 does: cache/, or FOUNDRY_CACHE_PATH when it is
-# set. The stand-in plants a made-up node there.
+# set, its name in any letter case, as forge's config loader reads it. The stand-in plants a made-up node there.
 case "$*" in
     *--broadcast*)
-        seq_dir="${FOUNDRY_CACHE_PATH:-cache}/DeployBetting.s.sol/137"
+        cache_dir=cache
+        for v in $(compgen -e); do [ "${v^^}" = FOUNDRY_CACHE_PATH ] && cache_dir="${!v}"; done
+        seq_dir="$cache_dir/DeployBetting.s.sol/137"
         mkdir -p "$seq_dir"
         echo '{"transactions":[{"rpc":"https://made-up-node.example.invalid/sequence"}]}' > "$seq_dir/run-latest.json"
         echo "forge's record of the sends written" >> "$STUB_RECORD"
@@ -386,6 +388,25 @@ for line in "check 0x$(printf '%040d' 1) 1 3" "create $D32 1"; do
 done
 rm -rf "$TMP/elsewhere-cache"
 
+# The two prefixes in lower and mixed case, which forge's config loader reads as it reads them in capitals: the
+# cache's folder in each, the explorer's key in its dapp_ form, and a made-up name in lower case under each prefix.
+# Forge runs with none but the two the wrapper sets itself, on a run that does not send and on one that does.
+CASE_PLANTED=("foundry_cache_path=$TMP/elsewhere-cache" "Foundry_Cache_Path=$TMP/elsewhere-cache"
+    dapp_etherscan_api_key=a-made-up-key foundry_a_made_up_name=1 dapp_a_made_up_name=1)
+for line in "check 0x$(printf '%040d' 1) 1 3" "create $D32 1"; do
+    : > "$RECORD"
+    # shellcheck disable=SC2086
+    (cd "$REPO" && env "${CASE_PLANTED[@]}" DEPLOY_FOUNDRY_BIN="$STUB" STUB_RECORD="$RECORD" STUB_FORGE_COMMIT="$PINNED" \
+        STUB_PROBE=1 bash script/deploy-betting.sh fork $line --rpc-url "$NODE" > /dev/null 2>&1)
+    seen=$(sed -n 's/^env prefixed: //p' "$RECORD" | tail -1)
+    if grep -q "env STUB_PROBE: set" "$RECORD" && [ "$seen" = "FOUNDRY_DISABLE_NIGHTLY_WARNING FOUNDRY_PROFILE" ]; then
+        ok "every foundry_ and dapp_ variable in lower or mixed case set, fork ${line%% *}: forge runs with none but the wrapper's own"
+    else
+        fail "every foundry_ and dapp_ variable in lower or mixed case set, fork ${line%% *}: forge ran with: $seen"
+    fi
+done
+rm -rf "$TMP/elsewhere-cache"
+
 # ── The filter, on both streams, into the screen and the kept log ─────────────────────────────────────────────
 
 rm -rf "$REPO/deployments/betting-set/137/runs"
@@ -543,6 +564,23 @@ if [ "$status" -ne 0 ] && grep -q "forge's record of the sends written" "$RECORD
     ok "FOUNDRY_CACHE_PATH planted, after a sending run that failed: forge's record of the sends is gone"
 else
     fail "FOUNDRY_CACHE_PATH planted, after a sending run that failed (exit $status): $(ls -R "$ELSEWHERE" "$SEQUENCE" 2>&1 | head -4 | tr '\n' ' ')"
+fi
+rm -rf "$ELSEWHERE"
+# The same two runs with foundry_cache_path planted, in lower case: the record of the sends is gone after each.
+: > "$RECORD"
+foundry_cache_path="$ELSEWHERE" expect_passed "a sending run with foundry_cache_path planted" fork create "$D32" 1 --rpc-url "$NODE"
+if grep -q "forge's record of the sends written" "$RECORD" && [ ! -e "$SEQUENCE" ] && [ ! -e "$ELSEWHERE/DeployBetting.s.sol" ]; then
+    ok "foundry_cache_path planted, after a sending run that succeeded: forge's record of the sends is gone"
+else
+    fail "foundry_cache_path planted, after a sending run that succeeded: $(ls -R "$ELSEWHERE" "$SEQUENCE" 2>&1 | head -4 | tr '\n' ' ')"
+fi
+: > "$RECORD"
+out=$(foundry_cache_path="$ELSEWHERE" STUB_FORGE_FAIL=1 wrap fork create "$D32" 1 --rpc-url "$NODE" 2>&1); status=$?
+if [ "$status" -ne 0 ] && grep -q "forge's record of the sends written" "$RECORD" && [ ! -e "$SEQUENCE" ] \
+    && [ ! -e "$ELSEWHERE/DeployBetting.s.sol" ]; then
+    ok "foundry_cache_path planted, after a sending run that failed: forge's record of the sends is gone"
+else
+    fail "foundry_cache_path planted, after a sending run that failed (exit $status): $(ls -R "$ELSEWHERE" "$SEQUENCE" 2>&1 | head -4 | tr '\n' ' ')"
 fi
 rm -rf "$ELSEWHERE"
 refused_and_unleaked "a sending run whose go hash fails: refused, nothing leaked" keccak \
