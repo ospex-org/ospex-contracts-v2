@@ -36,6 +36,10 @@ The CRE workflow owner / oracle governance is the `OspexCreTimelock`, deployed o
 
 ---
 
+## v3: the betting set
+
+Not deployed. Deploy day runs `script/DeployBetting.s.sol` through its wrapper, `script/deploy-betting.sh`, in the order of the README's checklist, "Deploy day for the betting set". The set's addresses and its signpost entry are added here after deploy day.
+
 ## Network Configuration
 
 > **R5 (Chainlink CRE) configuration.** The R4 Chainlink Functions config (LINK token, Functions Router, DON ID, subscription 191/416) is **retired** — the oracle is now the `CreOracleReceiver` driven by an off-chain Chainlink CRE workflow. The receiver is wired to a trusted **KeystoneForwarder** and a **workflow owner** (the `OspexCreTimelock`), with an optional immutable **workflow-name** pin. CRE execution is funded **off-chain** at the workflow owner — there is no on-chain LINK subscription and no LINK-per-call.

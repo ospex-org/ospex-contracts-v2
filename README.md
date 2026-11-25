@@ -119,6 +119,75 @@ Deploy day for the games set, the checklist beside the script's own order:
 3. The RPC serves `eth_getLogs` in 10,000-block windows and the state of the current block; the script reads the timelock's whole log history (its roles replayed to today's holders; what it has done since never refuses) and the coin's transfers since the plan.
 4. `predict` with the deployer as `--sender`, no broadcast: the plan records the addresses, the block, both coin balances and the reporter's build; the reproducible build in ospex-cre with both predicted addresses, its JSON saved beside the plan; the owner registers the id at Chainlink; `deploy` with `--broadcast`, from the same checkout of this script; the receipts are forge's broadcast log; `signpostCall` with the games contract's creation block and the commit; the key schedules the call.
 
+- `script/DeployBetting.s.sol` and `script/deploy-betting.sh`: deploy day for the betting set. Ten sends from one deployer, at its nonces k to k + 9, from one plan: the core, its six modules and the courier relay, whose first sender is the Polygon timelock's own address until the courier is live; then the bootstrap of the six; then the lock. `predict` names the eight addresses by the deployer's nonce, writes the plan and prints its digest. The sends are three runs, `create`, `bootstrap` and `finalize`, because a script's sends are broadcast after the script has run. Each run reads the chain before it sends: the steps already proven at the finalized block, by their effect; the deployer's latest and pending nonces; and, before the bootstrap, every identity, build and wiring check, with the code at each address exactly the plan's and the timelock's scheduled calls read to the node's latest block, by its number and hash, for any that names the matching module or the relay. Before the bootstrap and the lock are sent, the head is read again and the blocks mined since are read too; no script can see a call scheduled after that last read and before its own transaction is mined. A run sends only what the chain has not proven, and holds on anything it cannot place. From the bootstrap's block the set takes bets, whether or not the lock has run and whether or not the signpost lists it. The cap bounds each taking order's signed stake, at one cent; the maker's stake in such a bet can be up to 100 times that, a dollar at tick 101, and a maker's quote can be taken by many such bets. `check` reads a set back at a stage; `signpostCall` writes the entry the key schedules on the timelock. Every run goes through the wrapper. It refuses another commit, a dirty tree, another forge, a signer from the environment and a `.env` file where forge would read one; it clears the ten other settings forge and cast read from the environment, `ETH_PRIORITY_GAS_PRICE`, `ETH_GAS_PRICE`, `ETH_GAS_LIMIT`, `ETH_BLOB_GAS_PRICE`, `ETH_TIMEOUT`, `ETH_RPC_TIMEOUT`, `ETH_RPC_HEADERS`, `ETH_RPC_JWT_SECRET`, `ETHERSCAN_API_KEY` and `CHAIN`, and every variable whose name begins `FOUNDRY_` or `DAPP_` in any letter case, which forge reads as any of its settings, before it sets its own; it keeps the rehearsal on this machine's own loopback node, keeps no storage cache of the node it reads, filters every node address out of what it prints and keeps, and writes the run's manifest in two classes, the values two runs must share and the ones they may differ in. `compare` reads two manifests. `script/test-deploy-betting.sh` tests the wrapper.
+- `docs/betting-events.json`: the betting set's events by position, for whoever reads the core's hub. For each type the hub carries: its name and keccak256, the module that emits it, the typed event's signature and topic 0, and the payload's fields in order with their ABI types; then the core's own four events and the relay's one. `script/BettingEventsSchema.s.sol` writes it from the build's artifacts, and `test/betting/BettingEventsSchema.t.sol` builds it again and requires the file to match.
+
+Deploy day for the betting set, the checklist beside the script's own order. `<node>` is the sending machine's node, `<account>` the deployer's keystore, and each run's output names the values the next line takes.
+
+The lines the wrapper does not run, anvil's start and the second machine's `cast` reads, each run by one recipe from the checkout's root, with the node given as `"$POLYGON_RPC_URL"`. Sourced, the wrapper runs nothing: the recipe refuses a `.env` where the tool would read one, clears every signer variable, those ten settings and every `FOUNDRY_` and `DAPP_` variable in any letter case, and passes both streams through the wrapper's filter before the screen and the log:
+
+```
+bash -c 'source script/deploy-betting.sh && require_no_dotenv && require_clean_environment && "$@" 2>&1 | filter | tee -a <the log>' _ <the line>
+```
+
+1. Hold whatever sends from the deployer on the sending machine, every timer and trigger; the deployer's nonce is the plan. The hold lasts through the signpost entry's execute, its reconciliation and its read-backs, and ends only at the day's own release. A run that stopped, or whose state is not known, stays held. A hold means the deployer's key sends nothing more, by any tool, until the day's order says so: `bootstrapModules` and `finalize` are never called by hand.
+2. `script/deploy-betting.sh live predict <commit> --rpc-url <node>`, with `<commit>` checked out on a clean tree. It writes the plan and the manifest, and prints the digest. The plan, `prediction.json`, is never deleted: a second `predict` after a set exists is a new decision of the day's order.
+3. The rehearsal, in a second checkout of the same commit, on this machine's own anvil forked at the plan's block plus one, started by the recipe: `anvil --fork-url "$POLYGON_RPC_URL" --fork-block-number <the plan's block + 1> --quiet --no-storage-caching`. Then these lines, with an `anvil_mine 64` before each `check`. A fork's sending line takes no go value and no `--account`: the wrapper gives the fork's own go value and sends as the deployer, unlocked.
+   ```
+   script/deploy-betting.sh fork setup                                          --rpc-url http://127.0.0.1:<port>
+   script/deploy-betting.sh fork predict      <commit>                          --rpc-url http://127.0.0.1:<port>
+   script/deploy-betting.sh fork create       <digest> <maxFee>                 --rpc-url http://127.0.0.1:<port>
+   script/deploy-betting.sh fork check        <core> <the core's creation block> 1 --rpc-url http://127.0.0.1:<port>
+   script/deploy-betting.sh fork bootstrap    <digest> <maxFee>                 --rpc-url http://127.0.0.1:<port>
+   script/deploy-betting.sh fork check        <core> <the core's creation block> 2 --rpc-url http://127.0.0.1:<port>
+   script/deploy-betting.sh fork finalize     <digest> <maxFee>                 --rpc-url http://127.0.0.1:<port>
+   script/deploy-betting.sh fork check        <core> <the core's creation block> 3 --rpc-url http://127.0.0.1:<port>
+   script/deploy-betting.sh fork signpostCall <the core's creation block>         --rpc-url http://127.0.0.1:<port>
+   ```
+   Then `script/deploy-betting.sh compare <the rehearsal's manifest.json> <the plan's manifest.json>`: equal in the must-equal class.
+4. Go, on the plan's digest, its maximum fee and its spend bound. The go value names the comment that gives them, which the operator reads against the plan before the first send. The maximum fee caps what a send can pay, and no tip set in the environment applies: if the node's suggested tip is above it, the send fails before anything is mined, and the fee is raised within the ceiling and the phase run again. The spend rule sums the gas the pinned forge counts for each remaining send, not the gas the chain charges: since Polygon's Chicago fork the chain charges more for a cold storage read, by a measurement on the chain 1.3% more for the ten sends and 37% more for the lock alone. Twice that sum in hand still covers the chain's charge, and the wrapper gives each send twice forge's count as its gas limit.
+5. The three sending phases, each after the one before is final, each followed by its stage check:
+   - `script/deploy-betting.sh live create <digest> <go> <maxFee> --rpc-url <node> --account <account>`, then `script/deploy-betting.sh live check <core> <the core's creation block> 1 --rpc-url <node>`;
+   - `live bootstrap`, the same three values, then `check … 2`;
+   - `live finalize`, the same three values, then `check … 3`.
+6. `script/deploy-betting.sh live signpostCall <the core's creation block> --rpc-url <node>`. It writes `signpost-call.json` beside the plan.
+7. A second machine rebuilds the entry's call with `cast` alone, from its own reads through a node chosen apart from the sending machine's, each line by the recipe. No input is copied from `signpost-call.json`, the file being checked. `<deployer>`, `<timelock>` and `<signpost>` are the script's table for chain 137, and each other input has its own source:
+   ```
+   # One final block F for every read below: its number and hash, and its hash again after the last read, unchanged.
+   cast block finalized --field number --rpc-url "$POLYGON_RPC_URL"
+   cast block <F> --field hash --rpc-url "$POLYGON_RPC_URL"
+   # The commit: the reviewed commit's tag, in this machine's own clone.
+   git rev-parse <the tag>^{commit}
+   # The core's creation block, from its creation receipt. The transaction's hash, from the sending machine's
+   # broadcast record, only finds the receipt: it must name the deployer as its sender, the core as its contract,
+   # and a block at or below F whose hash is the one the receipt gives.
+   cast receipt <the core's creation transaction> --rpc-url "$POLYGON_RPC_URL"
+   cast tx <the core's creation transaction> nonce --rpc-url "$POLYGON_RPC_URL"                (k)
+   cast compute-address <deployer> --nonce <k>                                                  (the core)
+   cast block <the receipt's block number> --field hash --rpc-url "$POLYGON_RPC_URL"
+   # The coin, from the core's own read, and the six modules, from its registry, all at F.
+   cast call <core> "i_token()(address)" --block <F> --rpc-url "$POLYGON_RPC_URL"
+   cast call <core> "getModule(bytes32)(address)" $(cast keccak MARKET_MODULE) --block <F> --rpc-url "$POLYGON_RPC_URL"
+     (the same for POSITION_MODULE, MATCHING_MODULE, MONEYLINE_SCORER_MODULE, SPREAD_SCORER_MODULE and TOTAL_SCORER_MODULE)
+   # The relay, by the deployer's nonce; its matching contract, from its own read, must be the registry's.
+   cast compute-address <deployer> --nonce <k + 7>
+   cast call <relay> "i_matching()(address)" --block <F> --rpc-url "$POLYGON_RPC_URL"
+   cast call <timelock> "getMinDelay()(uint256)" --block <F> --rpc-url "$POLYGON_RPC_URL"
+   # The call, field by field.
+   cast calldata "addEntry(uint8,address,address[],bytes20,uint64)" 1 <coin> "[<core>,<markets>,<positions>,<matching>,<moneyline>,<spread>,<total>,<relay>]" <commit> <the core's creation block>
+   cast keccak $(cast abi-encode "f(string,address)" "betting set" <core>)                     (the salt)
+   cast calldata "schedule(address,uint256,bytes,bytes32,bytes32,uint256)" <signpost> 0 <addEntry> <32 zero bytes> <salt> <delay>
+   cast calldata "execute(address,uint256,bytes,bytes32,bytes32)" <signpost> 0 <addEntry> <32 zero bytes> <salt>
+   cast call <timelock> "hashOperation(address,uint256,bytes,bytes32,bytes32)(bytes32)" <signpost> 0 <addEntry> <32 zero bytes> <salt> --block <F> --rpc-url "$POLYGON_RPC_URL"
+   cast keccak <schedule>
+   ```
+   Every field must agree with `signpost-call.json`: the timelock, the signpost, the eight contracts, the commit, the creation block, the delay, the salt, the `addEntry`, `schedule` and `execute` calls, the operation id and the hash of the schedule's calldata. Its `previewId`, `finalizedBlock` and `finalizedHash` are what the sending machine's run saw: they are labelled apart, and not compared.
+8. The key schedules the call on the timelock.
+9. After the delay, anyone executes it.
+10. The entry's id is the one the execute's `EntryAdded` log gives, and the entry is read back with `getEntry(<id>)`. The preview id in `signpost-call.json` is a preview, never an argument.
+
+Build on the sending machine with the pinned forge, under the `ci` profile and CI's flags.
+
 ## License
 
 [BUSL-1.1](LICENSE.md) — Business Source License 1.1. Converts to GPL-2.0-or-later on February 20, 2028.

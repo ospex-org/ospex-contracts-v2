@@ -92,6 +92,40 @@ jobs:
           forge build --via-ir --optimize --skip 'test/**'
         id: build-scripts
 
+      # The compiler's output as the step above left it, kept with the run: out/ and cache/ in one archive, built
+      # with fixed names, owners and times so the same output gives the same bytes. Its sha256 is in the job
+      # summary, for a deploy's build to be compared with.
+      - name: Archive the scripts' compiler output
+        run: |
+          tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='@0' -cf - out cache \
+            | gzip -n > "$RUNNER_TEMP/compiler-output.tar.gz"
+          sum=$(sha256sum "$RUNNER_TEMP/compiler-output.tar.gz" | cut -d' ' -f1)
+          {
+            echo "## The scripts' compiler output"
+            echo
+            echo "out/ and cache/ after the scripts' build, commit $GITHUB_SHA: sha256 \`$sum\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the scripts' compiler output
+        uses: actions/upload-artifact@v4
+        id: upload-compiler-output
+        with:
+          name: compiler-output-${{ github.sha }}
+          path: ${{ runner.temp }}/compiler-output.tar.gz
+          if-no-files-found: error
+
+      - name: Record the stored artifact's digest
+        env:
+          DIGEST: ${{ steps.upload-compiler-output.outputs.artifact-digest }}
+        run: |
+          echo "The stored artifact, the zip around that archive: sha256 \`$DIGEST\`" >> "$GITHUB_STEP_SUMMARY"
+
+      # The deploy wrapper's own tests: a throwaway git repository, a stand-in for forge, and a plain local anvil
+      # from the toolchain installed above, with no fork. No secret and no outside node.
+      - name: Run the deploy wrapper's tests
+        run: |
+          bash script/test-deploy-betting.sh
+
       # The tests in two groups by path, each compiled on its own: the betting set's folder, then everything
       # else under test/. Every test file is in exactly one group; the check refuses a tree where that is not so,
       # and the two steps' summary lines, read together, are the whole inventory.
